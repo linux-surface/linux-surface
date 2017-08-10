@@ -422,6 +422,17 @@ out:
 	return ctx;
 }
 
+struct i915_gem_context *i915_gem_context_create_ipts(struct drm_i915_private *dev_priv)
+{
+	struct i915_gem_context *ctx;
+
+	BUG_ON(!mutex_is_locked(&dev->struct_mutex));
+
+	ctx = i915_gem_create_context(dev_priv, NULL);
+
+	return ctx;
+}
+
 int i915_gem_context_init(struct drm_i915_private *dev_priv)
 {
 	struct i915_gem_context *ctx;

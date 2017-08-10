@@ -34,6 +34,7 @@
 #include <linux/moduleparam.h>
 #include <linux/pwm.h>
 #include "intel_drv.h"
+#include "intel_ipts.h"
 
 #define CRC_PMIC_PWM_PERIOD_NS	21333
 
@@ -712,6 +713,9 @@ static void lpt_disable_backlight(struct intel_connector *connector)
 	struct drm_i915_private *dev_priv = to_i915(connector->base.dev);
 	u32 tmp;
 
+	if (INTEL_GEN(connector->base.dev) >= 9 && i915.enable_guc_submission)
+		intel_ipts_notify_backlight_status(false);
+
 	intel_panel_actually_set_backlight(connector, 0);
 
 	/*
@@ -881,6 +885,9 @@ static void lpt_enable_backlight(struct intel_connector *connector)
 
 	/* This won't stick until the above enable. */
 	intel_panel_actually_set_backlight(connector, panel->backlight.level);
+
+	if (INTEL_GEN(connector->base.dev) >= 9 && i915.enable_guc_submission)
+		intel_ipts_notify_backlight_status(true);
 }
 
 static void pch_enable_backlight(struct intel_connector *connector)

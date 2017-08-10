@@ -51,6 +51,7 @@
 #include "i915_vgpu.h"
 #include "intel_drv.h"
 #include "intel_uc.h"
+#include "intel_ipts.h"
 
 static struct drm_driver driver;
 
@@ -625,6 +626,10 @@ static int i915_load_modeset_init(struct drm_device *dev)
 	intel_hpd_init(dev_priv);
 
 	drm_kms_helper_poll_init(dev);
+
+pr_info(">> let init ipts\n");
+	if (INTEL_GEN(dev) >= 9 && i915.enable_guc_submission)
+                intel_ipts_init(dev);
 
 	return 0;
 
@@ -1315,6 +1320,9 @@ void i915_driver_unload(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct pci_dev *pdev = dev_priv->drm.pdev;
+
+	if (INTEL_GEN(dev) >= 9 && i915.enable_guc_submission)
+		intel_ipts_cleanup(dev);
 
 	intel_fbdev_fini(dev);
 
