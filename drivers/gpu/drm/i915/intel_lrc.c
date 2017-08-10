@@ -214,7 +214,7 @@
 
 #define WA_TAIL_DWORDS 2
 
-static int execlists_context_deferred_alloc(struct i915_gem_context *ctx,
+int execlists_context_deferred_alloc(struct i915_gem_context *ctx,
 					    struct intel_engine_cs *engine);
 static void execlists_init_reg_state(u32 *reg_state,
 				     struct i915_gem_context *ctx,

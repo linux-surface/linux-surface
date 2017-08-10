@@ -3501,7 +3501,7 @@ void i915_gem_object_save_bit_17_swizzle(struct drm_i915_gem_object *obj,
 					 struct sg_table *pages);
 
 struct i915_gem_context *
-i915_gem_context_create_ipts(struct drm_i915_private *dev_priv);
+i915_gem_context_create_ipts(struct drm_device *dev);
 
 static inline struct i915_gem_context *
 i915_gem_context_lookup(struct drm_i915_file_private *file_priv, u32 id)

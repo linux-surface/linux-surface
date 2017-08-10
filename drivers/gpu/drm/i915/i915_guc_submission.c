@@ -1350,7 +1350,7 @@ int i915_guc_ipts_submission_enable(struct drm_i915_private *dev_priv,
 	}
 
 	guc->ipts_client = client;
-	host2guc_sample_forcewake(guc, client);
+	intel_guc_sample_forcewake(guc);
 	guc_init_doorbell_hw(guc);
 
 	return 0;
@@ -1371,6 +1371,6 @@ void i915_guc_ipts_reacquire_doorbell(struct drm_i915_private *dev_priv)
 {
 	struct intel_guc *guc = &dev_priv->guc;
 
-	if (host2guc_allocate_doorbell(guc, guc->ipts_client))
+	if (guc_allocate_doorbell(guc, guc->ipts_client))
 		DRM_ERROR("Not able to reacquire IPTS doorbell\n");
 }
