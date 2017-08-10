@@ -26,7 +26,7 @@
 #include "ipts-state.h"
 #include "ipts-binary-spec.h"
 
-//#define ENABLE_IPTS_DEBUG		/* enable IPTS debug */
+#define ENABLE_IPTS_DEBUG		/* enable IPTS debug */
 
 #ifdef ENABLE_IPTS_DEBUG
 

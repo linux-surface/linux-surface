@@ -286,8 +286,9 @@ err_dev:
 
 void ipts_hid_release(ipts_info_t *ipts)
 {
-	struct hid_device *hid = ipts->hid;
-	hid_destroy_device(hid);
+	if (!ipts->hid)
+			return;
+	hid_destroy_device(ipts->hid);
 }
 
 int ipts_handle_hid_data(ipts_info_t *ipts,
