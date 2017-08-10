@@ -20,7 +20,8 @@ int ipts_handle_cmd(ipts_info_t *ipts, u32 cmd, void *data, int data_size)
 
 	ret = mei_cldev_send(ipts->cldev, (u8*)&h2m_msg, len);
 	if (ret < 0) {
-		ipts_err(ipts, "mei_cldev_send() error 0x%X:%d\n", cmd, ret);
+		ipts_err(ipts, "mei_cldev_send() error 0x%X:%d\n",
+							cmd, ret);
 		return ret;
 	}
 
@@ -56,6 +57,7 @@ int ipts_send_sensor_quiesce_io_cmd(ipts_info_t *ipts)
 
 	ret = ipts_handle_cmd(ipts, TOUCH_SENSOR_QUIESCE_IO_CMD,
 				&quiesce_io_cmd, cmd_len);
+
 	return ret;
 }
 
@@ -326,7 +328,7 @@ int ipts_handle_resp(ipts_info_t *ipts, touch_sensor_msg_m2h_t *m2h_msg,
 				ipts_set_state(ipts, IPTS_STA_RAW_DATA_STARTED);
 			}
 
-			ipts_dbg(ipts, "touch enabled\n");
+			ipts_err(ipts, "touch enabled %d\n", ipts_get_state(ipts));
 
 			break;
 		case TOUCH_SENSOR_HID_READY_FOR_DATA_RSP:

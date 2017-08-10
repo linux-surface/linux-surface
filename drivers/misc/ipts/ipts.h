@@ -97,6 +97,7 @@ typedef struct ipts_info {
 
 	struct work_struct init_work;
 	struct work_struct raw_data_work;
+	struct work_struct gfx_status_work;
 
 	struct task_struct *event_loop;
 
@@ -119,6 +120,7 @@ typedef struct ipts_info {
 
 	ipts_gfx_info_t gfx_info;
 	u64		kernel_handle;
+	int             gfx_status;
 	bool		display_status;
 
 	bool		switch_sensor_mode;

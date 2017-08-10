@@ -36,23 +36,9 @@ static void gfx_processing_complete(void *data)
 static void notify_gfx_status(u32 status, void *data)
 {
 	ipts_info_t *ipts = data;
-	ipts_state_t state;
 
-	ipts_dbg(ipts, "notify gfx status : %d\n", status);
-
-	state = ipts_get_state(ipts);
-
-	if (state == IPTS_STA_RAW_DATA_STARTED || state == IPTS_STA_HID_STARTED) {
-		if (status == IPTS_NOTIFY_STA_BACKLIGHT_ON &&
-					ipts->display_status == false) {
-			ipts_send_sensor_clear_mem_window_cmd(ipts);
-			ipts->display_status = true;
-		} else if (status == IPTS_NOTIFY_STA_BACKLIGHT_OFF &&
-					ipts->display_status == true) {
-			ipts_send_sensor_quiesce_io_cmd(ipts);
-			ipts->display_status = false;
-		}
-	}
+	ipts->gfx_status = status;
+	schedule_work(&ipts->gfx_status_work);
 }
 
 static int connect_gfx(ipts_info_t *ipts)
@@ -81,8 +67,12 @@ static void disconnect_gfx(ipts_info_t *ipts)
 	intel_ipts_disconnect(ipts->gfx_info.gfx_handle);
 }
 
+#define RUN_DBG_THREAD
+
 #ifdef RUN_DBG_THREAD
 #include "../mei/mei_dev.h"
+
+static struct task_struct *dbg_thread;
 
 static void ipts_print_dbg_info(ipts_info_t* ipts)
 {
@@ -104,22 +94,24 @@ static void ipts_print_dbg_info(ipts_info_t* ipts)
 
 static int ipts_dbg_thread(void *data)
 {
-        ipts_info_t *ipts = (ipts_info_t*)data;
+	ipts_info_t *ipts = (ipts_info_t *)data;
 
-        pr_info(">> start debug thread\n");
-        while (1) {
+	pr_info(">> start debug thread\n");
+
+	while (!kthread_should_stop()) {
 		if (ipts_get_state(ipts) != IPTS_STA_RAW_DATA_STARTED) {
-			pr_info("state is not IPTS_STA_RAW_DATA_SATARTED\n");
+			pr_info("state is not IPTS_STA_RAW_DATA_STARTED : %d\n",
+							ipts_get_state(ipts));
 			msleep(5000);
 			continue;
 		}
 
 		ipts_print_dbg_info(ipts);
 
-                msleep(3000);
-        }
+		msleep(3000);
+	}
 
-        return 0;
+	return 0;
 }
 #endif
 
@@ -141,7 +133,7 @@ int ipts_open_gpu(ipts_info_t *ipts)
 	}
 
 #ifdef	RUN_DBG_THREAD
-	kthread_run(ipts_dbg_thread, (void*)ipts, "ipts_debug");
+	dbg_thread = kthread_run(ipts_dbg_thread, (void *)ipts, "ipts_debug");
 #endif
 
 	return 0;
@@ -150,6 +142,10 @@ int ipts_open_gpu(ipts_info_t *ipts)
 void ipts_close_gpu(ipts_info_t *ipts)
 {
 	disconnect_gfx(ipts);
+
+#ifdef	RUN_DBG_THREAD
+	kthread_stop(dbg_thread);
+#endif
 }
 
 intel_ipts_mapbuffer_t *ipts_map_buffer(ipts_info_t *ipts, u32 size, u32 flags)
