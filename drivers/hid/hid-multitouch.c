@@ -558,8 +558,12 @@ static int mt_touch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 			if (field->index >= field->report->maxfield ||
 			    usage->usage_index >= field->report_count)
 				return 1;
-			td->cc_index = field->index;
-			td->cc_value_index = usage->usage_index;
+
+			if (td->cc_index < 0) {
+				td->cc_index = field->index;
+				td->cc_value_index = usage->usage_index;
+			}
+
 			return 1;
 		case HID_DG_CONTACTMAX:
 			/* we don't set td->last_slot_field as contactcount and
@@ -857,8 +861,10 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 	    field->application != HID_DG_TOUCHSCREEN &&
 	    field->application != HID_DG_PEN &&
 	    field->application != HID_DG_TOUCHPAD &&
+	    field->application != HID_GD_MOUSE &&
 	    field->application != HID_GD_KEYBOARD &&
-	    field->application != HID_CP_CONSUMER_CONTROL)
+	    field->application != HID_CP_CONSUMER_CONTROL &&
+	    field->logical != HID_DG_TOUCHSCREEN)
 		return -1;
 
 	/*
@@ -1039,6 +1045,10 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
 	 */
 	if (hi->report->field[0]->physical == HID_DG_STYLUS) {
 		suffix = "Pen";
+		/* force BTN_STYLUS to allow tablet matching in udev */
+		__set_bit(BTN_STYLUS, hi->input->keybit);
+	} else if (hi->report->field[0]->logical == HID_DG_TOUCHSCREEN) {
+		suffix = "SingleTouch";
 		/* force BTN_STYLUS to allow tablet matching in udev */
 		__set_bit(BTN_STYLUS, hi->input->keybit);
 	} else {
