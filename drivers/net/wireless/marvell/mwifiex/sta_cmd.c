@@ -2308,7 +2308,7 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 		if (ret)
 			return -1;
 
-		if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
+		if (0 && priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
 			/* Enable IEEE PS by default */
 			priv->adapter->ps_mode = MWIFIEX_802_11_POWER_MODE_PSP;
 			ret = mwifiex_send_cmd(priv,
@@ -2364,7 +2364,7 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 	if (ret)
 		return -1;
 
-	if (!disable_auto_ds && first_sta &&
+	if (0 && !disable_auto_ds && first_sta &&
 	    priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
 		/* Enable auto deep sleep */
 		auto_ds.auto_ds = DEEP_SLEEP_ON;
