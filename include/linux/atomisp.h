@@ -307,6 +307,7 @@ struct atomisp_3a_statistics {
 	struct atomisp_3a_output __user *data;
 	struct atomisp_3a_rgby_output __user *rgby_data;
 	uint32_t exp_id; /* exposure ID */
+	uint32_t isp_config_id; /* isp config ID */
 };
 
 /**
@@ -551,6 +552,14 @@ struct atomisp_parameters {
 	 * frame, driver will send this id back with output frame together.
 	 */
 	uint32_t	isp_config_id;
+
+	/*
+	 * Switch to control per_frame setting:
+	 * 0: this is a global setting
+	 * 1: this is a per_frame setting
+	 * PLEASE KEEP THIS AT THE END OF THE STRUCTURE!!
+	 */
+	uint32_t	per_frame_setting;
 };
 
 #define ATOMISP_GAMMA_TABLE_SIZE        1024
@@ -670,7 +679,7 @@ struct atomisp_sensor_mode_data {
 	unsigned int output_height;
 	uint8_t binning_factor_x; /* horizontal binning factor used */
 	uint8_t binning_factor_y; /* vertical binning factor used */
-	uint8_t reserved[2];
+	uint16_t hts;
 };
 
 struct atomisp_exposure {
@@ -886,6 +895,12 @@ struct atomisp_acc_fw_load_to_pipe {
 	__u32 type;			/* Binary type */
 	__u32 reserved[3];		/* Set to zero */
 };
+/*
+ * Set Senor run mode
+ */
+struct atomisp_s_runmode {
+	__u32 mode;
+};
 
 #define ATOMISP_ACC_FW_LOAD_FL_PREVIEW		(1 << 0)
 #define ATOMISP_ACC_FW_LOAD_FL_COPY		(1 << 1)
@@ -914,6 +929,13 @@ struct atomisp_acc_state {
 	__u32 flags;			/* Flags, see list below */
 #define ATOMISP_STATE_FLAG_ENABLE	ATOMISP_ACC_FW_LOAD_FL_ENABLE
 	unsigned int fw_handle;
+};
+
+struct atomisp_update_exposure {
+	unsigned int gain;
+	unsigned int digi_gain;
+	unsigned int update_gain;
+	unsigned int update_digi_gain;
 };
 
 /*
@@ -1193,9 +1215,21 @@ struct atomisp_sensor_ae_bracketing_lut {
 #define ATOMISP_IOC_G_INVALID_FRAME_NUM \
 	_IOR('v', BASE_VIDIOC_PRIVATE + 44, unsigned int)
 
-#define ATOMISP_IOC_G_EFFECTIVE_RESOLUTION \
-	_IOR('v', BASE_VIDIOC_PRIVATE + 45, struct atomisp_resolution)
+#define ATOMISP_IOC_S_ARRAY_RESOLUTION \
+	_IOW('v', BASE_VIDIOC_PRIVATE + 45, struct atomisp_resolution)
 
+/* for depth mode sensor frame sync compensation */
+#define ATOMISP_IOC_G_DEPTH_SYNC_COMP \
+	_IOR('v', BASE_VIDIOC_PRIVATE + 46, unsigned int)
+
+#define ATOMISP_IOC_S_SENSOR_EE_CONFIG \
+	_IOW('v', BASE_VIDIOC_PRIVATE + 47, unsigned int)
+
+#define ATOMISP_IOC_S_SENSOR_RUNMODE \
+	_IOW('v', BASE_VIDIOC_PRIVATE + 48, struct atomisp_s_runmode)
+
+#define ATOMISP_IOC_G_UPDATE_EXPOSURE \
+	_IOWR('v', BASE_VIDIOC_PRIVATE + 49, struct atomisp_update_exposure)
 
 /*
  * Reserved ioctls. We have customer implementing it internally.
@@ -1301,6 +1335,8 @@ struct atomisp_sensor_ae_bracketing_lut {
 #define V4L2_CID_TEST_PATTERN_COLOR_GB	(V4L2_CID_CAMERA_LASTP1 + 35)
 #define V4L2_CID_TEST_PATTERN_COLOR_B	(V4L2_CID_CAMERA_LASTP1 + 36)
 
+#define V4L2_CID_ATOMISP_SELECT_ISP_VERSION	(V4L2_CID_CAMERA_LASTP1 + 38)
+
 #define V4L2_BUF_FLAG_BUFFER_INVALID       0x0400
 #define V4L2_BUF_FLAG_BUFFER_VALID         0x0800
 
@@ -1310,7 +1346,8 @@ struct atomisp_sensor_ae_bracketing_lut {
 #define V4L2_EVENT_ATOMISP_METADATA_READY   (V4L2_EVENT_PRIVATE_START + 2)
 #define V4L2_EVENT_ATOMISP_RAW_BUFFERS_ALLOC_DONE   (V4L2_EVENT_PRIVATE_START + 3)
 #define V4L2_EVENT_ATOMISP_ACC_COMPLETE     (V4L2_EVENT_PRIVATE_START + 4)
-
+#define V4L2_EVENT_ATOMISP_PAUSE_BUFFER	    (V4L2_EVENT_PRIVATE_START + 5)
+#define V4L2_EVENT_ATOMISP_CSS_RESET	    (V4L2_EVENT_PRIVATE_START + 6)
 /* Nonstandard color effects for V4L2_CID_COLORFX */
 enum {
 	V4L2_COLORFX_SKIN_WHITEN_LOW = 1001,

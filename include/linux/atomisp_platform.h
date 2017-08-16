@@ -18,9 +18,6 @@
  * 02110-1301, USA.
  *
  */
-#ifdef CSS15
-#include <linux/atomisp_platform_css15.h>
-#else
 #ifndef ATOMISP_PLATFORM_H_
 #define ATOMISP_PLATFORM_H_
 
@@ -31,6 +28,8 @@
 
 #define MAX_SENSORS_PER_PORT 4
 #define MAX_STREAMS_PER_CHANNEL 2
+
+#define CAMERA_MODULE_ID_LEN 64
 
 enum atomisp_bayer_order {
 	atomisp_bayer_order_grbg,
@@ -134,11 +133,11 @@ struct intel_v4l2_subdev_table {
 	struct intel_v4l2_subdev_i2c_board_info v4l2_subdev;
 	enum intel_v4l2_subdev_type type;
 	enum atomisp_camera_port port;
+	struct v4l2_subdev *subdev;
 };
 
 struct atomisp_platform_data {
 	struct intel_v4l2_subdev_table *subdevs;
-	const struct soft_platform_id *spid;
 };
 
 /* Describe the capacities of one single sensor. */
@@ -186,6 +185,25 @@ struct atomisp_input_stream_info {
 	struct atomisp_isys_config_info isys_info[MAX_STREAMS_PER_CHANNEL];
 };
 
+struct camera_vcm_control;
+struct camera_vcm_ops {
+	int (*power_up)(struct v4l2_subdev *sd, struct camera_vcm_control *vcm);
+	int (*power_down)(struct v4l2_subdev *sd,
+			struct camera_vcm_control *vcm);
+	int (*queryctrl)(struct v4l2_subdev *sd, struct v4l2_queryctrl *qc,
+			struct camera_vcm_control *vcm);
+	int (*g_ctrl)(struct v4l2_subdev *sd, struct v4l2_control *ctrl,
+			struct camera_vcm_control *vcm);
+	int (*s_ctrl)(struct v4l2_subdev *sd, struct v4l2_control *ctrl,
+			struct camera_vcm_control *vcm);
+};
+
+struct camera_vcm_control {
+	char camera_module[CAMERA_MODULE_ID_LEN];
+	struct camera_vcm_ops *ops;
+	struct list_head list;
+};
+
 struct camera_sensor_platform_data {
 	int (*gpio_ctrl)(struct v4l2_subdev *subdev, int flag);
 	int (*flisclk_ctrl)(struct v4l2_subdev *subdev, int flag);
@@ -197,6 +215,17 @@ struct camera_sensor_platform_data {
 	char *(*msr_file_name)(void);
 	struct atomisp_camera_caps *(*get_camera_caps)(void);
 	int (*gpio_intr_ctrl)(struct v4l2_subdev *subdev);
+
+	/* New G-Min power and GPIO interface, replaces
+	 * power/gpio_ctrl with methods to control individual
+	 * lines as implemented on all known camera modules. */
+	int (*gpio0_ctrl)(struct v4l2_subdev *subdev, int on);
+	int (*gpio1_ctrl)(struct v4l2_subdev *subdev, int on);
+	int (*v1p8_ctrl)(struct v4l2_subdev *subdev, int on);
+	int (*v2p8_ctrl)(struct v4l2_subdev *subdev, int on);
+	int (*v1p2_ctrl)(struct v4l2_subdev *subdev, int on);
+	struct camera_vcm_control * (*get_vcm_ctrl)(struct v4l2_subdev *subdev,
+						    char *module_id);
 };
 
 struct camera_af_platform_data {
@@ -220,5 +249,14 @@ struct camera_mipi_info {
 extern const struct atomisp_platform_data *atomisp_get_platform_data(void);
 extern const struct atomisp_camera_caps *atomisp_get_default_camera_caps(void);
 
+/* API from old platform_camera.h, new CPUID implementation */
+#define __IS_SOC(x) (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL && \
+		     boot_cpu_data.x86 == 6 &&                       \
+		     boot_cpu_data.x86_model == x)
+
+#define IS_MFLD	__IS_SOC(0x27)
+#define IS_BYT	__IS_SOC(0x37)
+#define IS_CHT	__IS_SOC(0x4C)
+#define IS_MOFD	__IS_SOC(0x5A)
+
 #endif /* ATOMISP_PLATFORM_H_ */
-#endif
