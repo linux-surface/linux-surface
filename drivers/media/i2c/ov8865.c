@@ -41,6 +41,8 @@
 #include <linux/bitops.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-chip-ident.h>
+#include <media/v4l2-mediabus.h>
+#include <media/v4l2-subdev.h>
 #include <asm/intel-mid.h>
 #include <linux/firmware.h>
 
@@ -988,7 +990,7 @@ static int ov8865_g_chip_ident(struct v4l2_subdev *sd,
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 
-	v4l2_chip_ident_i2c_client(client, chip, V4L2_IDENT_OV8865, 0);
+	//v4l2_chip_ident_i2c_client(client, chip, V4L2_IDENT_OV8865, 0);
 
 	return 0;
 }
@@ -1358,7 +1360,7 @@ static int __ov8865_try_mbus_fmt(struct v4l2_subdev *sd,
 		fmt->height = dev->curr_res_table[idx].height;
 	}
 
-	fmt->code = V4L2_MBUS_FMT_SBGGR10_1X10;
+	fmt->code = MEDIA_BUS_FMT_SBGGR10_1X10;
 	return 0;
 }
 
@@ -1448,7 +1450,7 @@ static int ov8865_g_mbus_fmt(struct v4l2_subdev *sd,
 	mutex_lock(&dev->input_lock);
 	fmt->width = dev->curr_res_table[dev->fmt_idx].width;
 	fmt->height = dev->curr_res_table[dev->fmt_idx].height;
-	fmt->code = V4L2_MBUS_FMT_SBGGR10_1X10;
+	fmt->code = MEDIA_BUS_FMT_SBGGR10_1X10;
 	mutex_unlock(&dev->input_lock);
 
 	return 0;
@@ -1572,7 +1574,7 @@ static int ov8865_enum_frameintervals(struct v4l2_subdev *sd,
 static int ov8865_enum_mbus_fmt(struct v4l2_subdev *sd, unsigned int index,
 				 enum v4l2_mbus_pixelcode *code)
 {
-	*code = V4L2_MBUS_FMT_SBGGR10_1X10;
+	//*code = MEDIA_BUS_FMT_SBGGR10_1X10;
 	return 0;
 }
 
@@ -1684,7 +1686,7 @@ ov8865_enum_mbus_code(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 {
 	if (code->index)
 		return -EINVAL;
-	code->code = V4L2_MBUS_FMT_SBGGR10_1X10;
+	code->code = MEDIA_BUS_FMT_SBGGR10_1X10;
 
 	return 0;
 }
@@ -1713,11 +1715,11 @@ ov8865_enum_frame_size(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 
 static struct v4l2_mbus_framefmt *
 __ov8865_get_pad_format(struct ov8865_device *sensor,
-			 struct v4l2_subdev_fh *fh, unsigned int pad,
+			 struct v4l2_subdev *sd, unsigned int pad,
 			 enum v4l2_subdev_format_whence which)
 {
 	if (which == V4L2_SUBDEV_FORMAT_TRY)
-		return v4l2_subdev_get_try_format(fh, pad);
+		return v4l2_subdev_get_try_format(sd, pad, 0);
 
 	return &sensor->format;
 }
@@ -1728,7 +1730,7 @@ ov8865_get_pad_format(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 {
 	struct ov8865_device *dev = to_ov8865_sensor(sd);
 
-	fmt->format = *__ov8865_get_pad_format(dev, fh, fmt->pad, fmt->which);
+	fmt->format = *__ov8865_get_pad_format(dev, sd, fmt->pad, fmt->which);
 
 	return 0;
 }
@@ -1739,7 +1741,7 @@ ov8865_set_pad_format(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 {
 	struct ov8865_device *dev = to_ov8865_sensor(sd);
 	struct v4l2_mbus_framefmt *format =
-			__ov8865_get_pad_format(dev, fh, fmt->pad, fmt->which);
+			__ov8865_get_pad_format(dev, sd, fmt->pad, fmt->which);
 
 	*format = fmt->format;
 
@@ -1879,12 +1881,12 @@ static int ov8865_g_skip_frames(struct v4l2_subdev *sd, u32 *frames)
 
 static const struct v4l2_subdev_video_ops ov8865_video_ops = {
 	.s_stream = ov8865_s_stream,
-	.enum_framesizes = ov8865_enum_framesizes,
-	.enum_frameintervals = ov8865_enum_frameintervals,
-	.enum_mbus_fmt = ov8865_enum_mbus_fmt,
-	.try_mbus_fmt = ov8865_try_mbus_fmt,
-	.g_mbus_fmt = ov8865_g_mbus_fmt,
-	.s_mbus_fmt = ov8865_s_mbus_fmt,
+	//.enum_framesizes = ov8865_enum_framesizes,
+	//.enum_frameintervals = ov8865_enum_frameintervals,
+	//.enum_mbus_fmt = ov8865_enum_mbus_fmt,
+	//.try_mbus_fmt = ov8865_try_mbus_fmt,
+	//.g_mbus_fmt = ov8865_g_mbus_fmt,
+	//.s_mbus_fmt = ov8865_s_mbus_fmt,
 	.g_frame_interval = ov8865_g_frame_interval,
 	//.s_frame_interval = ov8865_s_frame_interval,
 };
@@ -1894,10 +1896,10 @@ static const struct v4l2_subdev_sensor_ops ov8865_sensor_ops = {
 };
 
 static const struct v4l2_subdev_core_ops ov8865_core_ops = {
-	.g_chip_ident = ov8865_g_chip_ident,
-	.queryctrl = v4l2_subdev_queryctrl,
-	.g_ctrl = v4l2_subdev_g_ctrl,
-	.s_ctrl = v4l2_subdev_s_ctrl,
+	//.g_chip_ident = ov8865_g_chip_ident,
+	//.queryctrl = v4l2_subdev_queryctrl,
+	//.g_ctrl = v4l2_subdev_g_ctrl,
+	//.s_ctrl = v4l2_subdev_s_ctrl,
 	.s_power = ov8865_s_power,
 	.ioctl = ov8865_ioctl,
 	.init = ov8865_init,
@@ -1905,10 +1907,10 @@ static const struct v4l2_subdev_core_ops ov8865_core_ops = {
 
 /* REVISIT: Do we need pad operations? */
 static const struct v4l2_subdev_pad_ops ov8865_pad_ops = {
-	.enum_mbus_code = ov8865_enum_mbus_code,
+	/*.enum_mbus_code = ov8865_enum_mbus_code,
 	.enum_frame_size = ov8865_enum_frame_size,
 	.get_fmt = ov8865_get_pad_format,
-	.set_fmt = ov8865_set_pad_format,
+	.set_fmt = ov8865_set_pad_format,*/
 };
 
 static const struct v4l2_subdev_ops ov8865_ops = {
@@ -1925,10 +1927,10 @@ static int ov8865_remove(struct i2c_client *client)
 	if (dev->platform_data->platform_deinit)
 		dev->platform_data->platform_deinit();
 
-	media_entity_cleanup(&dev->sd.entity);
-	v4l2_ctrl_handler_free(&dev->ctrl_handler);
+	//media_entity_enum_cleanup(&dev->sd.entity);
+	//v4l2_ctrl_handler_free(&dev->ctrl_handler);
 	dev->platform_data->csi_cfg(sd, 0);
-	v4l2_device_unregister_subdev(sd);
+	//v4l2_device_unregister_subdev(sd);
 	kfree(dev);
 
 	return 0;
@@ -2068,7 +2070,7 @@ static int ov8865_probe(struct i2c_client *client,
 	mutex_init(&dev->input_lock);
 
 	dev->fmt_idx = 0;
-	v4l2_i2c_subdev_init(&(dev->sd), client, &ov8865_ops);
+	//v4l2_i2c_subdev_init(&(dev->sd), client, &ov8865_ops);
 
 	ret = bu64243_init(&dev->sd);
 	if (ret < 0)
@@ -2091,22 +2093,22 @@ static int ov8865_probe(struct i2c_client *client,
 				//printk("ov8865 s_config done\n");
 	dev->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
 	dev->pad.flags = MEDIA_PAD_FL_SOURCE;
-	dev->sd.entity.type = MEDIA_ENT_T_V4L2_SUBDEV_SENSOR;
-	dev->format.code = V4L2_MBUS_FMT_SBGGR10_1X10;
+	//dev->sd.type = MEDIA_ENT_T_V4L2_SUBDEV_SENSOR;
+	dev->format.code = MEDIA_BUS_FMT_SBGGR10_1X10;
 
-	ret = v4l2_ctrl_handler_init(&dev->ctrl_handler, ARRAY_SIZE(ctrls) + 1);
+	/*ret = v4l2_ctrl_handler_init(&dev->ctrl_handler, ARRAY_SIZE(ctrls) + 1);
 	if (ret) {
 		ov8865_remove(client);
 		return ret;
-	}
+	}*/
 
 	OV8865_LOG(1, "%s %d handle init done\n", __func__, __LINE__);
 				//printk("ov8865 handle init done\n");
-	dev->run_mode = v4l2_ctrl_new_custom(&dev->ctrl_handler,
-					     &ctrl_run_mode, NULL);
+	//dev->run_mode = v4l2_ctrl_new_custom(&dev->ctrl_handler,
+					//     &ctrl_run_mode, NULL);
 
-	for (i = 0; i < ARRAY_SIZE(ctrls); i++)
-		v4l2_ctrl_new_custom(&dev->ctrl_handler, &ctrls[i], NULL);
+	//for (i = 0; i < ARRAY_SIZE(ctrls); i++)
+	//	v4l2_ctrl_new_custom(&dev->ctrl_handler, &ctrls[i], NULL);
 
 	if (dev->ctrl_handler.error) {
 		ov8865_remove(client);
@@ -2116,15 +2118,15 @@ static int ov8865_probe(struct i2c_client *client,
 	/* Use same lock for controls as for everything else. */
 	dev->ctrl_handler.lock = &dev->input_lock;
 	dev->sd.ctrl_handler = &dev->ctrl_handler;
-	v4l2_ctrl_handler_setup(&dev->ctrl_handler);
+	//v4l2_ctrl_handler_setup(&dev->ctrl_handler);
 
 	OV8865_LOG(1, "%s %d ctrl added\n", __func__, __LINE__);
 				//printk("ov8865 ctrl added\n");
-	ret = media_entity_init(&dev->sd.entity, 1, &dev->pad, 0);
+	/*ret = media_entity_pads_init(&dev->sd.entity, 1, &dev->pad);
 	if (ret) {
 		ov8865_remove(client);
 		return ret;
-	}
+	}*/
 
 	global_dev = dev;
 	OV8865_LOG(2, "%s %d done\n", __func__, __LINE__);
@@ -2135,7 +2137,7 @@ out_free:
 
 	OV8865_LOG(1, "%s %d fail, free\n", __func__, __LINE__);
 				//printk("ov8865 fail, free\n");
-	v4l2_device_unregister_subdev(&dev->sd);
+	//v4l2_device_unregister_subdev(&dev->sd);
 	kfree(dev);
 	return ret;
 }
