@@ -20,6 +20,7 @@ Linux running on the Surface Book and Surface Pro 4. Following the instructions 
 * Suspend/Hibernate
 * Sensors (accelerometer, gyroscope, ambient light sensor)
 * Battery Readings
+* Docking/Undocking Tablet and Keyboard (for Surface Book)
 
 ### What's NOT Working
 
