@@ -26,21 +26,28 @@ Linux running on the Surface Book and Surface Pro 4. Following the instructions 
 * Dedicated GPU (if you have a performance base on a Surface Book, otherwise onboard works fine)
 * Cameras (not fully supported yet)
 
-### Instructions
-
-1. Copy the files under root to where they belong:
-  * $ sudo cp root/* /
-2. Extract ipts_firmware.zip to /lib/firmware/intel/ipts/
-  * $ sudo mkdir -p /lib/firmware/intel/ipts
-  * $ sudo unzip ipts_firmware.zip /lib/firmware/intel/ipts/
-3. Install the custom kernel and headers:
-  * $ sudo dpkg -i linux-image*dev linux-headers*deb
-
-### Download Pre-built Kernel and Headers
+### Download Pre-built Kernel, Headers and IPTS_firmware
 
 Downloads for ubuntu based distros (other distros will need to compile from source in the kernel folder):
 
 https://goo.gl/QSZCwq
+
+You will need to download :
+ - ipts_firmware.zip
+ - linux_image-*
+ - linux_header-*
+
+### Instructions
+
+1. Copy the files under root to where they belong:
+  * $ sudo cp -R root/* /
+2. Extract ipts_firmware.zip to /lib/firmware/intel/ipts/
+  * $ sudo mkdir -p /lib/firmware/intel/ipts
+  * $ unzip ipts_firmware.zip 
+  * $ sudo mv ipts_firmware/* /lib/firmware/intel/ipts/
+3. Install the custom kernel and headers:
+  * $ sudo dpkg -i linux-image*dev linux-headers*deb
+4. Reboot on installed kernel.
 
 ### Donations Appreciated!
 
