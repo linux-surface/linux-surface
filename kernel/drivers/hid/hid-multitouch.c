@@ -1490,6 +1490,11 @@ static const struct hid_device_id mt_devices[] = {
 		MT_USB_DEVICE(USB_VENDOR_ID_MICROSOFT,
 		USB_DEVICE_ID_MS_SURFACE_BOOK) },
 
+	/* Microsoft Surface Laptop */
+	{ .driver_data = MT_CLS_EXPORT_ALL_INPUTS,
+		MT_USB_DEVICE(USB_VENDOR_ID_MICROSOFT,
+		USB_DEVICE_ID_MS_SURFACE_LAPTOP) },
+
 	/* Microsoft Power Cover */
 	{ .driver_data = MT_CLS_EXPORT_ALL_INPUTS,
 		MT_USB_DEVICE(USB_VENDOR_ID_MICROSOFT,
