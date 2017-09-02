@@ -46,9 +46,11 @@ You will need to download :
   * $ sudo mkdir -p /lib/firmware/intel/ipts
   * $ unzip ipts_firmware.zip 
   * $ sudo mv ipts_firmware/* /lib/firmware/intel/ipts/
-3. Install the custom kernel and headers:
+3. Fix issue with Suspend to Disk:
+  * $ sudo ln -s /usr/lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -s /usr/lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
+4. Install the custom kernel and headers:
   * $ sudo dpkg -i linux-image*dev linux-headers*deb
-4. Reboot on installed kernel.
+5. Reboot on installed kernel.
 
 ### Donations Appreciated!
 
