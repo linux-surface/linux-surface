@@ -51,6 +51,8 @@
 #include <xen/interface/platform.h>
 #include <xen/interface/xen-mca.h>
 
+struct xen_dm_op_buf;
+
 /*
  * The hypercall asms have to meet several constraints:
  * - Work on 32- and 64-bit.
@@ -477,7 +479,7 @@ HYPERVISOR_xenpmu_op(unsigned int op, void *arg)
 
 static inline int
 HYPERVISOR_dm_op(
-	domid_t dom, unsigned int nr_bufs, void *bufs)
+	domid_t dom, unsigned int nr_bufs, struct xen_dm_op_buf *bufs)
 {
 	int ret;
 	stac();

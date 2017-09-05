@@ -9,7 +9,7 @@
  *	2 as published by the Free Software Foundation.
  *
  *  debugfs is for people to use instead of /proc or /sys.
- *  See Documentation/DocBook/kernel-api for more details.
+ *  See ./Documentation/core-api/kernel-api.rst for more details.
  *
  */
 
@@ -202,8 +202,6 @@ static int debug_fill_super(struct super_block *sb, void *data, int silent)
 	static const struct tree_descr debug_files[] = {{""}};
 	struct debugfs_fs_info *fsi;
 	int err;
-
-	save_mount_options(sb, data);
 
 	fsi = kzalloc(sizeof(struct debugfs_fs_info), GFP_KERNEL);
 	sb->s_fs_info = fsi;

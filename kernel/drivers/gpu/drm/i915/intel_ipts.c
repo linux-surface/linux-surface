@@ -197,7 +197,7 @@ static int create_ipts_context(void)
 	}
 
 	ret = execlists_context_pin(dev_priv->engine[RCS], ipts_ctx);
-	if (ret) {
+	if (IS_ERR(ret)) {
 		DRM_DEBUG("lr context pinning failed : %d\n", ret);
 		goto err_ctx;
 	}

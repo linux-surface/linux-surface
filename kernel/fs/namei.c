@@ -524,7 +524,7 @@ struct nameidata {
 	struct inode	*link_inode;
 	unsigned	root_seq;
 	int		dfd;
-};
+} __randomize_layout;
 
 static void set_nameidata(struct nameidata *p, int dfd, struct filename *name)
 {
@@ -1008,7 +1008,7 @@ static int may_linkat(struct path *link)
 	/* Source inode owner (or CAP_FOWNER) can hardlink all they like,
 	 * otherwise, it must be a safe source.
 	 */
-	if (inode_owner_or_capable(inode) || safe_hardlink_source(inode))
+	if (safe_hardlink_source(inode) || inode_owner_or_capable(inode))
 		return 0;
 
 	audit_log_link_denied("linkat", link);
@@ -3400,7 +3400,6 @@ out:
 
 struct dentry *vfs_tmpfile(struct dentry *dentry, umode_t mode, int open_flag)
 {
-	static const struct qstr name = QSTR_INIT("/", 1);
 	struct dentry *child = NULL;
 	struct inode *dir = dentry->d_inode;
 	struct inode *inode;
@@ -3414,7 +3413,7 @@ struct dentry *vfs_tmpfile(struct dentry *dentry, umode_t mode, int open_flag)
 	if (!dir->i_op->tmpfile)
 		goto out_err;
 	error = -ENOMEM;
-	child = d_alloc(dentry, &name);
+	child = d_alloc(dentry, &slash_name);
 	if (unlikely(!child))
 		goto out_err;
 	error = dir->i_op->tmpfile(dir, child, mode);
@@ -4332,6 +4331,7 @@ SYSCALL_DEFINE2(link, const char __user *, oldname, const char __user *, newname
  * The worst of all namespace operations - renaming directory. "Perverted"
  * doesn't even start to describe it. Somebody in UCB had a heck of a trip...
  * Problems:
+ *
  *	a) we can get into loop creation.
  *	b) race potential - two innocent renames can create a loop together.
  *	   That's where 4.4 screws up. Current fix: serialization on

@@ -113,9 +113,9 @@ static int hidp_send_message(struct hidp_session *session, struct socket *sock,
 		return -ENOMEM;
 	}
 
-	*skb_put(skb, 1) = hdr;
+	skb_put_u8(skb, hdr);
 	if (data && size > 0)
-		memcpy(skb_put(skb, size), data, size);
+		skb_put_data(skb, data, size);
 
 	skb_queue_tail(transmit, skb);
 	wake_up_interruptible(sk_sleep(sk));
@@ -1238,7 +1238,7 @@ static void hidp_session_run(struct hidp_session *session)
 	smp_mb__after_atomic();
 }
 
-static int hidp_session_wake_function(wait_queue_t *wait,
+static int hidp_session_wake_function(wait_queue_entry_t *wait,
 				      unsigned int mode,
 				      int sync, void *key)
 {

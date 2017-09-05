@@ -538,12 +538,9 @@ msi_setup_entry(struct pci_dev *dev, int nvec, const struct irq_affinity *affd)
 	struct msi_desc *entry;
 	u16 control;
 
-	if (affd) {
+	if (affd)
 		masks = irq_create_affinity_masks(nvec, affd);
-		if (!masks)
-			dev_err(&dev->dev, "can't allocate MSI affinity masks for %d vectors\n",
-				nvec);
-	}
+
 
 	/* MSI Entry Initialization */
 	entry = alloc_msi_entry(&dev->dev, nvec, masks);
@@ -679,12 +676,8 @@ static int msix_setup_entries(struct pci_dev *dev, void __iomem *base,
 	struct msi_desc *entry;
 	int ret, i;
 
-	if (affd) {
+	if (affd)
 		masks = irq_create_affinity_masks(nvec, affd);
-		if (!masks)
-			dev_err(&dev->dev, "can't allocate MSI-X affinity masks for %d vectors\n",
-				nvec);
-	}
 
 	for (i = 0, curmsk = masks; i < nvec; i++) {
 		entry = alloc_msi_entry(&dev->dev, 1, curmsk);
@@ -1453,7 +1446,7 @@ struct irq_domain *pci_msi_create_irq_domain(struct fwnode_handle *fwnode,
 	if (!domain)
 		return NULL;
 
-	domain->bus_token = DOMAIN_BUS_PCI_MSI;
+	irq_domain_update_bus_token(domain, DOMAIN_BUS_PCI_MSI);
 	return domain;
 }
 EXPORT_SYMBOL_GPL(pci_msi_create_irq_domain);

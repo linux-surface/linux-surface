@@ -176,12 +176,10 @@ mwifiex_form_mgmt_frame(struct sk_buff *skb, const u8 *buf, size_t len)
 	memcpy(skb_push(skb, sizeof(pkt_type)), &pkt_type, sizeof(pkt_type));
 
 	/* Add packet data and address4 */
-	memcpy(skb_put(skb, sizeof(struct ieee80211_hdr_3addr)), buf,
-	       sizeof(struct ieee80211_hdr_3addr));
-	memcpy(skb_put(skb, ETH_ALEN), addr, ETH_ALEN);
-	memcpy(skb_put(skb, len - sizeof(struct ieee80211_hdr_3addr)),
-	       buf + sizeof(struct ieee80211_hdr_3addr),
-	       len - sizeof(struct ieee80211_hdr_3addr));
+	skb_put_data(skb, buf, sizeof(struct ieee80211_hdr_3addr));
+	skb_put_data(skb, addr, ETH_ALEN);
+	skb_put_data(skb, buf + sizeof(struct ieee80211_hdr_3addr),
+		     len - sizeof(struct ieee80211_hdr_3addr));
 
 	skb->priority = LOW_PRIO_TID;
 	__net_timestamp(skb);
@@ -897,24 +895,20 @@ mwifiex_init_new_priv_params(struct mwifiex_private *priv,
 		priv->bss_num = mwifiex_get_unused_bss_num(adapter,
 			 MWIFIEX_BSS_TYPE_STA);
 		priv->bss_role =  MWIFIEX_BSS_ROLE_STA;
-		priv->bss_type = MWIFIEX_BSS_TYPE_STA;
 		break;
 	case NL80211_IFTYPE_P2P_CLIENT:
 		priv->bss_num = mwifiex_get_unused_bss_num(adapter,
 			 MWIFIEX_BSS_TYPE_P2P);
 		priv->bss_role =  MWIFIEX_BSS_ROLE_STA;
-		priv->bss_type = MWIFIEX_BSS_TYPE_P2P;
 		break;
 	case NL80211_IFTYPE_P2P_GO:
 		priv->bss_num = mwifiex_get_unused_bss_num(adapter,
 			 MWIFIEX_BSS_TYPE_P2P);
 		priv->bss_role =  MWIFIEX_BSS_ROLE_UAP;
-		priv->bss_type = MWIFIEX_BSS_TYPE_P2P;
 		break;
 	case NL80211_IFTYPE_AP:
 		priv->bss_num = mwifiex_get_unused_bss_num(adapter,
 			 MWIFIEX_BSS_TYPE_UAP);
-		priv->bss_type = MWIFIEX_BSS_TYPE_UAP;
 		priv->bss_role = MWIFIEX_BSS_ROLE_UAP;
 		break;
 	default:
@@ -1986,7 +1980,7 @@ static int mwifiex_cfg80211_start_ap(struct wiphy *wiphy,
 
 	if (mwifiex_set_secure_params(priv, bss_cfg, params)) {
 		mwifiex_dbg(priv->adapter, ERROR,
-			    "Failed to parse secuirty parameters!\n");
+			    "Failed to parse security parameters!\n");
 		goto out;
 	}
 
@@ -3036,7 +3030,7 @@ struct wireless_dev *mwifiex_add_virtual_intf(struct wiphy *wiphy,
 	INIT_DELAYED_WORK(&priv->dfs_chan_sw_work,
 			  mwifiex_dfs_chan_sw_work_queue);
 
-	sema_init(&priv->async_sem, 1);
+	mutex_init(&priv->async_mutex);
 
 	/* Register network device */
 	if (register_netdevice(dev)) {

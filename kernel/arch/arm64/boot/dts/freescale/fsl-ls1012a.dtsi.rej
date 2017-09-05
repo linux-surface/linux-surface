@@ -1,0 +1,78 @@
+--- scripts/dtc/include-prefixes/arm64/freescale/fsl-ls1012a.dtsi	2017-08-30 04:32:30.000000000 -0400
++++ scripts/dtc/include-prefixes/arm64/freescale/fsl-ls1012a.dtsi	2017-09-03 16:56:17.000000000 -0400
+@@ -1,7 +1,7 @@
+ /*
+  * Device Tree Include file for Freescale Layerscape-1012A family SoC.
+  *
+- * Copyright 2016, Freescale Semiconductor
++ * Copyright 2016 Freescale Semiconductor, Inc.
+  *
+  * This file is dual-licensed: you can use it either under the terms
+  * of the GPLv2 or the X11 license, at your option. Note that this dual
+@@ -76,10 +76,17 @@
+ 	sysclk: sysclk {
+ 		compatible = "fixed-clock";
+ 		#clock-cells = <0>;
+-		clock-frequency = <100000000>;
++		clock-frequency = <125000000>;
+ 		clock-output-names = "sysclk";
+ 	};
+ 
++	coreclk: coreclk {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <100000000>;
++		clock-output-names = "coreclk";
++	};
++
+ 	timer {
+ 		compatible = "arm,armv8-timer";
+ 		interrupts = <1 13 IRQ_TYPE_LEVEL_LOW>,/* Physical Secure PPI */
+@@ -117,12 +124,37 @@
+ 		#size-cells = <2>;
+ 		ranges;
+ 
++		esdhc0: esdhc@1560000 {
++			compatible = "fsl,ls1012a-esdhc", "fsl,esdhc";
++			reg = <0x0 0x1560000 0x0 0x10000>;
++			interrupts = <0 62 0x4>;
++			clocks = <&clockgen 4 0>;
++			voltage-ranges = <1800 1800 3300 3300>;
++			sdhci,auto-cmd12;
++			big-endian;
++			bus-width = <4>;
++			status = "disabled";
++		};
++
+ 		scfg: scfg@1570000 {
+ 			compatible = "fsl,ls1012a-scfg", "syscon";
+ 			reg = <0x0 0x1570000 0x0 0x10000>;
+ 			big-endian;
+ 		};
+ 
++		esdhc1: esdhc@1580000 {
++			compatible = "fsl,ls1012a-esdhc", "fsl,esdhc";
++			reg = <0x0 0x1580000 0x0 0x10000>;
++			interrupts = <0 65 0x4>;
++			clocks = <&clockgen 4 0>;
++			voltage-ranges = <1800 1800 3300 3300>;
++			sdhci,auto-cmd12;
++			big-endian;
++			broken-cd;
++			bus-width = <4>;
++			status = "disabled";
++		};
++
+ 		crypto: crypto@1700000 {
+ 			compatible = "fsl,sec-v5.4", "fsl,sec-v5.0",
+ 				     "fsl,sec-v4.0";
+@@ -223,7 +255,8 @@
+ 			compatible = "fsl,ls1012a-clockgen";
+ 			reg = <0x0 0x1ee1000 0x0 0x1000>;
+ 			#clock-cells = <2>;
+-			clocks = <&sysclk>;
++			clocks = <&sysclk &coreclk>;
++			clock-names = "sysclk", "coreclk";
+ 		};
+ 
+ 		tmu: tmu@1f00000 {

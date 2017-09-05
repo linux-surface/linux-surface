@@ -59,7 +59,7 @@ static int ir_spi_tx(struct rc_dev *dev,
 	for (i = 0; i < count; i++) {
 		unsigned int periods;
 		int j;
-		u16 val = ((i + 1) % 2) ? idata->pulse : idata->space;
+		u16 val;
 
 		periods = DIV_ROUND_CLOSEST(buffer[i] * idata->freq, 1000000);
 

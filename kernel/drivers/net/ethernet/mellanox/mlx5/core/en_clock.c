@@ -124,9 +124,8 @@ static void mlx5e_timestamp_overflow(struct work_struct *work)
 			   msecs_to_jiffies(tstamp->overflow_period * 1000));
 }
 
-int mlx5e_hwstamp_set(struct net_device *dev, struct ifreq *ifr)
+int mlx5e_hwstamp_set(struct mlx5e_priv *priv, struct ifreq *ifr)
 {
-	struct mlx5e_priv *priv = netdev_priv(dev);
 	struct hwtstamp_config config;
 	int err;
 
@@ -166,11 +165,12 @@ int mlx5e_hwstamp_set(struct net_device *dev, struct ifreq *ifr)
 	case HWTSTAMP_FILTER_PTP_V2_EVENT:
 	case HWTSTAMP_FILTER_PTP_V2_SYNC:
 	case HWTSTAMP_FILTER_PTP_V2_DELAY_REQ:
+	case HWTSTAMP_FILTER_NTP_ALL:
 		/* Disable CQE compression */
-		netdev_warn(dev, "Disabling cqe compression");
+		netdev_warn(priv->netdev, "Disabling cqe compression");
 		err = mlx5e_modify_rx_cqe_compression_locked(priv, false);
 		if (err) {
-			netdev_err(dev, "Failed disabling cqe compression err=%d\n", err);
+			netdev_err(priv->netdev, "Failed disabling cqe compression err=%d\n", err);
 			mutex_unlock(&priv->state_lock);
 			return err;
 		}
@@ -188,9 +188,8 @@ int mlx5e_hwstamp_set(struct net_device *dev, struct ifreq *ifr)
 			    sizeof(config)) ? -EFAULT : 0;
 }
 
-int mlx5e_hwstamp_get(struct net_device *dev, struct ifreq *ifr)
+int mlx5e_hwstamp_get(struct mlx5e_priv *priv, struct ifreq *ifr)
 {
-	struct mlx5e_priv *priv = netdev_priv(dev);
 	struct hwtstamp_config *cfg = &priv->tstamp.hwtstamp_config;
 
 	if (!MLX5_CAP_GEN(priv->mdev, device_frequency_khz))

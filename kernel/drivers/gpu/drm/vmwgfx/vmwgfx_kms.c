@@ -461,7 +461,7 @@ int vmw_du_primary_plane_atomic_check(struct drm_plane *plane,
 
 	ret = drm_plane_helper_check_update(plane, state->crtc, new_fb,
 					    &src, &dest, &clip,
-					    DRM_ROTATE_0,
+					    DRM_MODE_ROTATE_0,
 					    DRM_PLANE_HELPER_NO_SCALING,
 					    DRM_PLANE_HELPER_NO_SCALING,
 					    false, true, &visible);
@@ -740,7 +740,7 @@ void vmw_du_plane_reset(struct drm_plane *plane)
 
 	plane->state = &vps->base;
 	plane->state->plane = plane;
-	plane->state->rotation = DRM_ROTATE_0;
+	plane->state->rotation = DRM_MODE_ROTATE_0;
 }
 
 
@@ -1567,10 +1567,34 @@ vmw_kms_atomic_check_modeset(struct drm_device *dev,
 }
 
 
+/**
+ * vmw_kms_atomic_commit - Perform an atomic state commit
+ *
+ * @dev: DRM device
+ * @state: the driver state object
+ * @nonblock: Whether nonblocking behaviour is requested
+ *
+ * This is a simple wrapper around drm_atomic_helper_commit() for
+ * us to clear the nonblocking value.
+ *
+ * Nonblocking commits currently cause synchronization issues
+ * for vmwgfx.
+ *
+ * RETURNS
+ * Zero for success or negative error code on failure.
+ */
+int vmw_kms_atomic_commit(struct drm_device *dev,
+			  struct drm_atomic_state *state,
+			  bool nonblock)
+{
+	return drm_atomic_helper_commit(dev, state, false);
+}
+
+
 static const struct drm_mode_config_funcs vmw_kms_funcs = {
 	.fb_create = vmw_kms_fb_create,
 	.atomic_check = vmw_kms_atomic_check_modeset,
-	.atomic_commit = drm_atomic_helper_commit,
+	.atomic_commit = vmw_kms_atomic_commit,
 };
 
 static int vmw_kms_generic_present(struct vmw_private *dev_priv,

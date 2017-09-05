@@ -31,7 +31,7 @@ void f2fs_stop_checkpoint(struct f2fs_sb_info *sbi, bool end_io)
 	set_ckpt_flags(sbi, CP_ERROR_FLAG);
 	sbi->sb->s_flags |= MS_RDONLY;
 	if (!end_io)
-		f2fs_flush_merged_bios(sbi);
+		f2fs_flush_merged_writes(sbi);
 }
 
 /*
@@ -162,6 +162,7 @@ int ra_meta_pages(struct f2fs_sb_info *sbi, block_t start, int nrpages,
 		.op = REQ_OP_READ,
 		.op_flags = sync ? (REQ_META | REQ_PRIO) : REQ_RAHEAD,
 		.encrypted_page = NULL,
+		.in_list = false,
 	};
 	struct blk_plug plug;
 
@@ -207,12 +208,10 @@ int ra_meta_pages(struct f2fs_sb_info *sbi, block_t start, int nrpages,
 		}
 
 		fio.page = page;
-		fio.old_blkaddr = fio.new_blkaddr;
-		f2fs_submit_page_mbio(&fio);
+		f2fs_submit_page_bio(&fio);
 		f2fs_put_page(page, 0);
 	}
 out:
-	f2fs_submit_merged_bio(sbi, META, READ);
 	blk_finish_plug(&plug);
 	return blkno - start;
 }
@@ -249,13 +248,13 @@ static int f2fs_write_meta_page(struct page *page,
 	dec_page_count(sbi, F2FS_DIRTY_META);
 
 	if (wbc->for_reclaim)
-		f2fs_submit_merged_bio_cond(sbi, page->mapping->host,
-						0, page->index, META, WRITE);
+		f2fs_submit_merged_write_cond(sbi, page->mapping->host,
+						0, page->index, META);
 
 	unlock_page(page);
 
 	if (unlikely(f2fs_cp_error(sbi)))
-		f2fs_submit_merged_bio(sbi, META, WRITE);
+		f2fs_submit_merged_write(sbi, META);
 
 	return 0;
 
@@ -269,6 +268,9 @@ static int f2fs_write_meta_pages(struct address_space *mapping,
 {
 	struct f2fs_sb_info *sbi = F2FS_M_SB(mapping);
 	long diff, written;
+
+	if (unlikely(is_sbi_flag_set(sbi, SBI_POR_DOING)))
+		goto skip_write;
 
 	/* collect a number of dirty meta pages and write together */
 	if (wbc->for_kupdate ||
@@ -358,7 +360,7 @@ continue_unlock:
 	}
 stop:
 	if (nwritten)
-		f2fs_submit_merged_bio(sbi, type, WRITE);
+		f2fs_submit_merged_write(sbi, type);
 
 	blk_finish_plug(&plug);
 
@@ -877,6 +879,7 @@ int sync_dirty_inodes(struct f2fs_sb_info *sbi, enum inode_type type)
 	struct inode *inode;
 	struct f2fs_inode_info *fi;
 	bool is_dir = (type == DIR_INODE);
+	unsigned long ino = 0;
 
 	trace_f2fs_sync_dirty_inodes_enter(sbi->sb, is_dir,
 				get_pages(sbi, is_dir ?
@@ -899,14 +902,23 @@ retry:
 	inode = igrab(&fi->vfs_inode);
 	spin_unlock(&sbi->inode_lock[type]);
 	if (inode) {
+		unsigned long cur_ino = inode->i_ino;
+
 		filemap_fdatawrite(inode->i_mapping);
 		iput(inode);
+		/* We need to give cpu to another writers. */
+		if (ino == cur_ino) {
+			congestion_wait(BLK_RW_ASYNC, HZ/50);
+			cond_resched();
+		} else {
+			ino = cur_ino;
+		}
 	} else {
 		/*
 		 * We should submit bio, since it exists several
 		 * wribacking dentry pages in the freeing inode.
 		 */
-		f2fs_submit_merged_bio(sbi, DATA, WRITE);
+		f2fs_submit_merged_write(sbi, DATA);
 		cond_resched();
 	}
 	goto retry;
@@ -1296,7 +1308,7 @@ int write_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 
 	trace_f2fs_write_checkpoint(sbi->sb, cpc->reason, "finish block_ops");
 
-	f2fs_flush_merged_bios(sbi);
+	f2fs_flush_merged_writes(sbi);
 
 	/* this is the case of multiple fstrims without any changes */
 	if (cpc->reason & CP_DISCARD) {

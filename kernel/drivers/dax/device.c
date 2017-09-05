@@ -499,6 +499,7 @@ static int dax_open(struct inode *inode, struct file *filp)
 	inode->i_mapping = __dax_inode->i_mapping;
 	inode->i_mapping->host = __dax_inode;
 	filp->f_mapping = inode->i_mapping;
+	filp->f_wb_err = filemap_sample_wb_err(filp->f_mapping);
 	filp->private_data = dev_dax;
 	inode->i_flags = S_DAX;
 
@@ -567,7 +568,10 @@ struct dev_dax *devm_create_dev_dax(struct dax_region *dax_region,
 	struct inode *inode;
 	struct device *dev;
 	struct cdev *cdev;
-	int rc = 0, i;
+	int rc, i;
+
+	if (!count)
+		return ERR_PTR(-EINVAL);
 
 	dev_dax = kzalloc(sizeof(*dev_dax) + sizeof(*res) * count, GFP_KERNEL);
 	if (!dev_dax)
@@ -604,8 +608,10 @@ struct dev_dax *devm_create_dev_dax(struct dax_region *dax_region,
 	 * device outside of mmap of the resulting character device.
 	 */
 	dax_dev = alloc_dax(dev_dax, NULL, NULL);
-	if (!dax_dev)
+	if (!dax_dev) {
+		rc = -ENOMEM;
 		goto err_dax;
+	}
 
 	/* from here on we're committed to teardown via dax_dev_release() */
 	dev = &dev_dax->dev;

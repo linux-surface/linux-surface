@@ -2864,11 +2864,11 @@ bool flush_work(struct work_struct *work)
 EXPORT_SYMBOL_GPL(flush_work);
 
 struct cwt_wait {
-	wait_queue_t		wait;
+	wait_queue_entry_t		wait;
 	struct work_struct	*work;
 };
 
-static int cwt_wakefn(wait_queue_t *wait, unsigned mode, int sync, void *key)
+static int cwt_wakefn(wait_queue_entry_t *wait, unsigned mode, int sync, void *key)
 {
 	struct cwt_wait *cwait = container_of(wait, struct cwt_wait, wait);
 
@@ -3577,6 +3577,13 @@ static bool wq_calc_node_cpumask(const struct workqueue_attrs *attrs, int node,
 
 	/* yeap, return possible CPUs in @node that @attrs wants */
 	cpumask_and(cpumask, attrs->cpumask, wq_numa_possible_cpumask[node]);
+
+	if (cpumask_empty(cpumask)) {
+		pr_warn_once("WARNING: workqueue cpumask: online intersect > "
+				"possible intersect\n");
+		return false;
+	}
+
 	return !cpumask_equal(cpumask, attrs->cpumask);
 
 use_dfl:

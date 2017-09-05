@@ -321,12 +321,21 @@ struct sock *udp6_lib_lookup(struct net *net, const struct in6_addr *saddr, __be
 
 	sk =  __udp6_lib_lookup(net, saddr, sport, daddr, dport,
 				dif, &udp_table, NULL);
-	if (sk && !atomic_inc_not_zero(&sk->sk_refcnt))
+	if (sk && !refcount_inc_not_zero(&sk->sk_refcnt))
 		sk = NULL;
 	return sk;
 }
 EXPORT_SYMBOL_GPL(udp6_lib_lookup);
 #endif
+
+/* do not use the scratch area len for jumbogram: their length execeeds the
+ * scratch area space; note that the IP6CB flags is still in the first
+ * cacheline, so checking for jumbograms is cheap
+ */
+static int udp6_skb_len(struct sk_buff *skb)
+{
+	return unlikely(inet6_is_jumbogram(skb)) ? skb->len : udp_skb_len(skb);
+}
 
 /*
  *	This should be easy, if there is something there we
@@ -353,12 +362,13 @@ int udpv6_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
 		return ipv6_recv_rxpmtu(sk, msg, len, addr_len);
 
 try_again:
-	peeking = off = sk_peek_offset(sk, flags);
+	peeking = flags & MSG_PEEK;
+	off = sk_peek_offset(sk, flags);
 	skb = __skb_recv_udp(sk, flags, noblock, &peeked, &off, &err);
 	if (!skb)
 		return err;
 
-	ulen = skb->len;
+	ulen = udp6_skb_len(skb);
 	copied = len;
 	if (copied > ulen - off)
 		copied = ulen - off;
@@ -375,14 +385,18 @@ try_again:
 
 	if (copied < ulen || peeking ||
 	    (is_udplite && UDP_SKB_CB(skb)->partial_cov)) {
-		checksum_valid = !udp_lib_checksum_complete(skb);
+		checksum_valid = udp_skb_csum_unnecessary(skb) ||
+				!__udp_lib_checksum_complete(skb);
 		if (!checksum_valid)
 			goto csum_copy_err;
 	}
 
-	if (checksum_valid || skb_csum_unnecessary(skb))
-		err = skb_copy_datagram_msg(skb, off, msg, copied);
-	else {
+	if (checksum_valid || udp_skb_csum_unnecessary(skb)) {
+		if (udp_skb_is_linear(skb))
+			err = copy_linear_skb(skb, copied, off, &msg->msg_iter);
+		else
+			err = skb_copy_datagram_msg(skb, off, msg, copied);
+	} else {
 		err = skb_copy_and_csum_datagram_msg(skb, off, msg);
 		if (err == -EINVAL)
 			goto csum_copy_err;
@@ -451,7 +465,8 @@ try_again:
 	return err;
 
 csum_copy_err:
-	if (!__sk_queue_drop_skb(sk, skb, flags, udp_skb_destructor)) {
+	if (!__sk_queue_drop_skb(sk, &udp_sk(sk)->reader_queue, skb, flags,
+				 udp_skb_destructor)) {
 		if (is_udp4) {
 			UDP_INC_STATS(sock_net(sk),
 				      UDP_MIB_CSUMERRORS, is_udplite);
@@ -625,6 +640,7 @@ static int udpv6_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 		}
 	}
 
+	prefetch(&sk->sk_rmem_alloc);
 	if (rcu_access_pointer(sk->sk_filter) &&
 	    udp_lib_checksum_complete(skb))
 		goto csum_error;
@@ -752,6 +768,15 @@ start_lookup:
 	return 0;
 }
 
+static void udp6_sk_rx_dst_set(struct sock *sk, struct dst_entry *dst)
+{
+	if (udp_sk_rx_dst_set(sk, dst)) {
+		const struct rt6_info *rt = (const struct rt6_info *)dst;
+
+		inet6_sk(sk)->rx_dst_cookie = rt6_get_cookie(rt);
+	}
+}
+
 int __udp6_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 		   int proto)
 {
@@ -801,7 +826,7 @@ int __udp6_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 		int ret;
 
 		if (unlikely(sk->sk_rx_dst != dst))
-			udp_sk_rx_dst_set(sk, dst);
+			udp6_sk_rx_dst_set(sk, dst);
 
 		ret = udpv6_queue_rcv_skb(sk, skb);
 		sock_put(sk);
@@ -919,7 +944,7 @@ static void udp_v6_early_demux(struct sk_buff *skb)
 	else
 		return;
 
-	if (!sk || !atomic_inc_not_zero_hint(&sk->sk_refcnt, 2))
+	if (!sk || !refcount_inc_not_zero(&sk->sk_refcnt))
 		return;
 
 	skb->sk = sk;
@@ -929,12 +954,11 @@ static void udp_v6_early_demux(struct sk_buff *skb)
 	if (dst)
 		dst = dst_check(dst, inet6_sk(sk)->rx_dst_cookie);
 	if (dst) {
-		if (dst->flags & DST_NOCACHE) {
-			if (likely(atomic_inc_not_zero(&dst->__refcnt)))
-				skb_dst_set(skb, dst);
-		} else {
-			skb_dst_set_noref(skb, dst);
-		}
+		/* set noref for now.
+		 * any place which wants to hold dst has to call
+		 * dst_hold_safe()
+		 */
+		skb_dst_set_noref(skb, dst);
 	}
 }
 

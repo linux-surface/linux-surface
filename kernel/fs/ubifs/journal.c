@@ -549,8 +549,6 @@ int ubifs_jnl_update(struct ubifs_info *c, const struct inode *dir,
 	struct ubifs_ino_node *ino;
 	union ubifs_key dent_key, ino_key;
 
-	//dbg_jnl("ino %lu, dent '%.*s', data len %d in dir ino %lu",
-	//	inode->i_ino, nm->len, nm->name, ui->data_len, dir->i_ino);
 	ubifs_assert(mutex_is_locked(&host_ui->ui_mutex));
 
 	dlen = UBIFS_DENT_NODE_SZ + fname_len(nm) + 1;
@@ -585,7 +583,10 @@ int ubifs_jnl_update(struct ubifs_info *c, const struct inode *dir,
 
 	if (!xent) {
 		dent->ch.node_type = UBIFS_DENT_NODE;
-		dent_key_init(c, &dent_key, dir->i_ino, nm);
+		if (nm->hash)
+			dent_key_init_hash(c, &dent_key, dir->i_ino, nm->hash);
+		else
+			dent_key_init(c, &dent_key, dir->i_ino, nm);
 	} else {
 		dent->ch.node_type = UBIFS_XENT_NODE;
 		xent_key_init(c, &dent_key, dir->i_ino, nm);
@@ -629,7 +630,10 @@ int ubifs_jnl_update(struct ubifs_info *c, const struct inode *dir,
 	kfree(dent);
 
 	if (deletion) {
-		err = ubifs_tnc_remove_nm(c, &dent_key, nm);
+		if (nm->hash)
+			err = ubifs_tnc_remove_dh(c, &dent_key, nm->minor_hash);
+		else
+			err = ubifs_tnc_remove_nm(c, &dent_key, nm);
 		if (err)
 			goto out_ro;
 		err = ubifs_add_dirt(c, lnum, dlen);
@@ -950,9 +954,6 @@ int ubifs_jnl_xrename(struct ubifs_info *c, const struct inode *fst_dir,
 	int twoparents = (fst_dir != snd_dir);
 	void *p;
 
-	//dbg_jnl("dent '%pd' in dir ino %lu between dent '%pd' in dir ino %lu",
-	//	fst_dentry, fst_dir->i_ino, snd_dentry, snd_dir->i_ino);
-
 	ubifs_assert(ubifs_inode(fst_dir)->data_len == 0);
 	ubifs_assert(ubifs_inode(snd_dir)->data_len == 0);
 	ubifs_assert(mutex_is_locked(&ubifs_inode(fst_dir)->ui_mutex));
@@ -1096,8 +1097,6 @@ int ubifs_jnl_rename(struct ubifs_info *c, const struct inode *old_dir,
 	int move = (old_dir != new_dir);
 	struct ubifs_inode *uninitialized_var(new_ui);
 
-	//dbg_jnl("dent '%pd' in dir ino %lu to dent '%pd' in dir ino %lu",
-	//	old_dentry, old_dir->i_ino, new_dentry, new_dir->i_ino);
 	ubifs_assert(ubifs_inode(old_dir)->data_len == 0);
 	ubifs_assert(ubifs_inode(new_dir)->data_len == 0);
 	ubifs_assert(mutex_is_locked(&ubifs_inode(old_dir)->ui_mutex));
@@ -1300,7 +1299,9 @@ static int truncate_data_node(const struct ubifs_info *c, const struct inode *in
 			goto out;
 	}
 
-	if (compr_type != UBIFS_COMPR_NONE) {
+	if (compr_type == UBIFS_COMPR_NONE) {
+		out_len = *new_len;
+	} else {
 		err = ubifs_decompress(c, &dn->data, dlen, buf, &out_len, compr_type);
 		if (err)
 			goto out;
@@ -1487,9 +1488,6 @@ int ubifs_jnl_delete_xattr(struct ubifs_info *c, const struct inode *host,
 	int sync = IS_DIRSYNC(host);
 	struct ubifs_inode *host_ui = ubifs_inode(host);
 
-	//dbg_jnl("host %lu, xattr ino %lu, name '%s', data len %d",
-	//	host->i_ino, inode->i_ino, nm->name,
-	//	ubifs_inode(inode)->data_len);
 	ubifs_assert(inode->i_nlink == 0);
 	ubifs_assert(mutex_is_locked(&host_ui->ui_mutex));
 
