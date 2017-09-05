@@ -139,7 +139,6 @@ struct mt_device {
 
 static void mt_post_parse_default_settings(struct mt_device *td);
 static void mt_post_parse(struct mt_device *td);
-static int contact_count_seen;
 
 /* classes of device behavior */
 #define MT_CLS_DEFAULT				0x0001
@@ -584,10 +583,9 @@ static int mt_touch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 			    usage->usage_index >= field->report_count)
 				return 1;
 
-			if (contact_count_seen != 1) {
+			if (td->cc_index < 0) {
 				td->cc_index = field->index;
 				td->cc_value_index = usage->usage_index;
-				contact_count_seen++;
 			}
 
 			return 1;
