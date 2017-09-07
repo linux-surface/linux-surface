@@ -48,9 +48,12 @@ You will need to download :
   * $ sudo mv ipts_firmware/* /lib/firmware/intel/ipts/
 3. Fix issue with Suspend to Disk:
   * $ sudo ln -s /usr/lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -s /usr/lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
-4. Install the custom kernel and headers:
+4. Set permissions on mwifiex_pcie.sh script:
+  * $ sudo chown root /lib/systemd/system-sleep/mwifiex_pcie.sh
+  * $ sudo chmow 755 /lib/systemd/system-sleep/mwifiex_pcie.sh
+5. Install the custom kernel and headers:
   * $ sudo dpkg -i linux-image*dev linux-headers*deb
-5. Reboot on installed kernel.
+6. Reboot on installed kernel.
 
 ### Donations Appreciated!
 
