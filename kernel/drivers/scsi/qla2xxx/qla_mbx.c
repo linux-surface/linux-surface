@@ -54,6 +54,7 @@ static struct rom_cmd {
 	{ MBC_GET_MEM_OFFLOAD_CNTRL_STAT },
 	{ MBC_GET_RETRY_COUNT },
 	{ MBC_TRACE_CONTROL },
+	{ MBC_INITIALIZE_MULTIQ },
 };
 
 static int is_rom_cmd(uint16_t cmd)
@@ -3689,7 +3690,7 @@ qla24xx_report_id_acquisition(scsi_qla_host_t *vha,
 				if (qla_ini_mode_enabled(vha) &&
 				    ha->flags.fawwpn_enabled &&
 				    (rptid_entry->u.f1.flags &
-				     VP_FLAGS_NAME_VALID)) {
+				     BIT_6)) {
 					memcpy(vha->port_name,
 					    rptid_entry->u.f1.port_name,
 					    WWN_SIZE);
