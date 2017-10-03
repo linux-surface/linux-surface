@@ -34,7 +34,6 @@
 #include <linux/moduleparam.h>
 #include <linux/pwm.h>
 #include "intel_drv.h"
-#include "intel_ipts.h"
 
 #define CRC_PMIC_PWM_PERIOD_NS	21333
 
@@ -111,7 +110,8 @@ intel_pch_panel_fitting(struct intel_crtc *intel_crtc,
 
 	/* Native modes don't need fitting */
 	if (adjusted_mode->crtc_hdisplay == pipe_config->pipe_src_w &&
-	    adjusted_mode->crtc_vdisplay == pipe_config->pipe_src_h)
+	    adjusted_mode->crtc_vdisplay == pipe_config->pipe_src_h &&
+	    !pipe_config->ycbcr420)
 		goto done;
 
 	switch (fitting_mode) {
@@ -719,9 +719,6 @@ static void lpt_disable_backlight(const struct drm_connector_state *old_conn_sta
 	struct drm_i915_private *dev_priv = to_i915(connector->base.dev);
 	u32 tmp;
 
-	if (INTEL_GEN(dev_priv) >= 9 && i915.enable_guc_submission)
-		intel_ipts_notify_backlight_status(false);
-
 	intel_panel_actually_set_backlight(old_conn_state, 0);
 
 	/*
@@ -909,9 +906,6 @@ static void lpt_enable_backlight(const struct intel_crtc_state *crtc_state,
 
 	/* This won't stick until the above enable. */
 	intel_panel_actually_set_backlight(conn_state, panel->backlight.level);
-
-	if (INTEL_GEN(dev_priv) >= 9 && i915.enable_guc_submission)
-		intel_ipts_notify_backlight_status(true);
 }
 
 static void pch_enable_backlight(const struct intel_crtc_state *crtc_state,
@@ -1705,6 +1699,8 @@ bxt_setup_backlight(struct intel_connector *connector, enum pipe unused)
 	if (!panel->backlight.max)
 		return -ENODEV;
 
+	panel->backlight.min = get_backlight_min_vbt(connector);
+
 	val = bxt_get_backlight(connector);
 	val = intel_panel_compute_brightness(connector, val);
 	panel->backlight.level = clamp(val, panel->backlight.min,
@@ -1740,6 +1736,8 @@ cnp_setup_backlight(struct intel_connector *connector, enum pipe unused)
 
 	if (!panel->backlight.max)
 		return -ENODEV;
+
+	panel->backlight.min = get_backlight_min_vbt(connector);
 
 	val = bxt_get_backlight(connector);
 	val = intel_panel_compute_brightness(connector, val);
@@ -1926,11 +1924,13 @@ intel_panel_init_backlight_funcs(struct intel_panel *panel)
 
 int intel_panel_init(struct intel_panel *panel,
 		     struct drm_display_mode *fixed_mode,
+		     struct drm_display_mode *alt_fixed_mode,
 		     struct drm_display_mode *downclock_mode)
 {
 	intel_panel_init_backlight_funcs(panel);
 
 	panel->fixed_mode = fixed_mode;
+	panel->alt_fixed_mode = alt_fixed_mode;
 	panel->downclock_mode = downclock_mode;
 
 	return 0;
@@ -1943,6 +1943,10 @@ void intel_panel_fini(struct intel_panel *panel)
 
 	if (panel->fixed_mode)
 		drm_mode_destroy(intel_connector->base.dev, panel->fixed_mode);
+
+	if (panel->alt_fixed_mode)
+		drm_mode_destroy(intel_connector->base.dev,
+				panel->alt_fixed_mode);
 
 	if (panel->downclock_mode)
 		drm_mode_destroy(intel_connector->base.dev,

@@ -222,22 +222,21 @@ xfs_bmap_eof(
  * Count leaf blocks given a range of extent records.  Delayed allocation
  * extents are not counted towards the totals.
  */
-STATIC void
+xfs_extnum_t
 xfs_bmap_count_leaves(
 	struct xfs_ifork	*ifp,
-	xfs_extnum_t		*numrecs,
 	xfs_filblks_t		*count)
 {
-	xfs_extnum_t		i;
-	xfs_extnum_t		nr_exts = xfs_iext_count(ifp);
+	struct xfs_bmbt_irec	got;
+	xfs_extnum_t		numrecs = 0, i = 0;
 
-	for (i = 0; i < nr_exts; i++) {
-		xfs_bmbt_rec_host_t *frp = xfs_iext_get_ext(ifp, i);
-		if (!isnullstartblock(xfs_bmbt_get_startblock(frp))) {
-			(*numrecs)++;
-			*count += xfs_bmbt_get_blockcount(frp);
+	while (xfs_iext_get_extent(ifp, i++, &got)) {
+		if (!isnullstartblock(got.br_startblock)) {
+			*count += got.br_blockcount;
+			numrecs++;
 		}
 	}
+	return numrecs;
 }
 
 /*
@@ -370,7 +369,7 @@ xfs_bmap_count_blocks(
 
 	switch (XFS_IFORK_FORMAT(ip, whichfork)) {
 	case XFS_DINODE_FMT_EXTENTS:
-		xfs_bmap_count_leaves(ifp, nextents, count);
+		*nextents = xfs_bmap_count_leaves(ifp, count);
 		return 0;
 	case XFS_DINODE_FMT_BTREE:
 		if (!(ifp->if_flags & XFS_IFEXTENTS)) {
@@ -1136,7 +1135,7 @@ xfs_alloc_file_space(
 		/*
 		 * Complete the transaction
 		 */
-		error = xfs_defer_finish(&tp, &dfops, NULL);
+		error = xfs_defer_finish(&tp, &dfops);
 		if (error)
 			goto error0;
 
@@ -1202,7 +1201,8 @@ xfs_unmap_extent(
 	if (error)
 		goto out_bmap_cancel;
 
-	error = xfs_defer_finish(&tp, &dfops, ip);
+	xfs_defer_ijoin(&dfops, ip);
+	error = xfs_defer_finish(&tp, &dfops);
 	if (error)
 		goto out_bmap_cancel;
 
@@ -1459,7 +1459,19 @@ xfs_shift_file_space(
 		return error;
 
 	/*
-	 * The extent shiting code works on extent granularity. So, if
+	 * Clean out anything hanging around in the cow fork now that
+	 * we've flushed all the dirty data out to disk to avoid having
+	 * CoW extents at the wrong offsets.
+	 */
+	if (xfs_is_reflink_inode(ip)) {
+		error = xfs_reflink_cancel_cow_range(ip, offset, NULLFILEOFF,
+				true);
+		if (error)
+			return error;
+	}
+
+	/*
+	 * The extent shifting code works on extent granularity. So, if
 	 * stop_fsb is not the starting block of extent, we need to split
 	 * the extent at stop_fsb.
 	 */
@@ -1496,7 +1508,7 @@ xfs_shift_file_space(
 		if (error)
 			goto out_bmap_cancel;
 
-		error = xfs_defer_finish(&tp, &dfops, NULL);
+		error = xfs_defer_finish(&tp, &dfops);
 		if (error)
 			goto out_bmap_cancel;
 
@@ -1777,7 +1789,8 @@ xfs_swap_extent_rmap(
 			if (error)
 				goto out_defer;
 
-			error = xfs_defer_finish(tpp, &dfops, ip);
+			xfs_defer_ijoin(&dfops, ip);
+			error = xfs_defer_finish(tpp, &dfops);
 			if (error)
 				goto out_defer;
 
@@ -1953,7 +1966,7 @@ xfs_swap_change_owner(
 		if (error != -EAGAIN)
 			break;
 
-		error = xfs_trans_roll(tpp, NULL);
+		error = xfs_trans_roll(tpp);
 		if (error)
 			break;
 		tp = *tpp;

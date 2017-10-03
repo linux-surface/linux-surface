@@ -189,9 +189,7 @@ static int mwifiex_cmd_tx_rate_cfg(struct mwifiex_private *priv,
 	if (pbitmap_rates != NULL) {
 		rate_scope->hr_dsss_rate_bitmap = cpu_to_le16(pbitmap_rates[0]);
 		rate_scope->ofdm_rate_bitmap = cpu_to_le16(pbitmap_rates[1]);
-		for (i = 0;
-		     i < sizeof(rate_scope->ht_mcs_rate_bitmap) / sizeof(u16);
-		     i++)
+		for (i = 0; i < ARRAY_SIZE(rate_scope->ht_mcs_rate_bitmap); i++)
 			rate_scope->ht_mcs_rate_bitmap[i] =
 				cpu_to_le16(pbitmap_rates[2 + i]);
 		if (priv->adapter->fw_api_ver == MWIFIEX_FW_V15) {
@@ -206,9 +204,7 @@ static int mwifiex_cmd_tx_rate_cfg(struct mwifiex_private *priv,
 			cpu_to_le16(priv->bitmap_rates[0]);
 		rate_scope->ofdm_rate_bitmap =
 			cpu_to_le16(priv->bitmap_rates[1]);
-		for (i = 0;
-		     i < sizeof(rate_scope->ht_mcs_rate_bitmap) / sizeof(u16);
-		     i++)
+		for (i = 0; i < ARRAY_SIZE(rate_scope->ht_mcs_rate_bitmap); i++)
 			rate_scope->ht_mcs_rate_bitmap[i] =
 				cpu_to_le16(priv->bitmap_rates[2 + i]);
 		if (priv->adapter->fw_api_ver == MWIFIEX_FW_V15) {
@@ -1755,7 +1751,7 @@ mwifiex_cmd_tdls_oper(struct mwifiex_private *priv,
 	struct mwifiex_ie_types_vhtcap *vht_capab;
 	struct mwifiex_ie_types_aid *aid;
 	struct mwifiex_ie_types_tdls_idle_timeout *timeout;
-	u8 *pos, qos_info;
+	u8 *pos;
 	u16 config_len = 0;
 	struct station_parameters *params = priv->sta_params;
 
@@ -1789,12 +1785,11 @@ mwifiex_cmd_tdls_oper(struct mwifiex_private *priv,
 		put_unaligned_le16(params->capability, pos);
 		config_len += sizeof(params->capability);
 
-		qos_info = params->uapsd_queues | (params->max_sp << 5);
-		wmm_qos_info = (struct mwifiex_ie_types_qos_info *)(pos +
-								    config_len);
+		wmm_qos_info = (void *)(pos + config_len);
 		wmm_qos_info->header.type = cpu_to_le16(WLAN_EID_QOS_CAPA);
-		wmm_qos_info->header.len = cpu_to_le16(sizeof(qos_info));
-		wmm_qos_info->qos_info = qos_info;
+		wmm_qos_info->header.len =
+				cpu_to_le16(sizeof(wmm_qos_info->qos_info));
+		wmm_qos_info->qos_info = 0;
 		config_len += sizeof(struct mwifiex_ie_types_qos_info);
 
 		if (params->ht_capa) {
@@ -2318,7 +2313,7 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 		if (ret)
 			return -1;
 
-		if (0 && priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
+		if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
 			/* Enable IEEE PS by default */
 			priv->adapter->ps_mode = MWIFIEX_802_11_POWER_MODE_PSP;
 			ret = mwifiex_send_cmd(priv,
@@ -2374,7 +2369,7 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 	if (ret)
 		return -1;
 
-	if (0 && !disable_auto_ds && first_sta &&
+	if (!disable_auto_ds && first_sta &&
 	    priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
 		/* Enable auto deep sleep */
 		auto_ds.auto_ds = DEEP_SLEEP_ON;

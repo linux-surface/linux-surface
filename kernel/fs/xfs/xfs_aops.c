@@ -80,6 +80,19 @@ xfs_find_bdev_for_inode(
 		return mp->m_ddev_targp->bt_bdev;
 }
 
+struct dax_device *
+xfs_find_daxdev_for_inode(
+	struct inode		*inode)
+{
+	struct xfs_inode	*ip = XFS_I(inode);
+	struct xfs_mount	*mp = ip->i_mount;
+
+	if (XFS_IS_REALTIME_INODE(ip))
+		return mp->m_rtdev_targp->bt_daxdev;
+	else
+		return mp->m_ddev_targp->bt_daxdev;
+}
+
 /*
  * We're now finished for good with this page.  Update the page state via the
  * associated buffer_heads, paying attention to the start and end offsets that
@@ -330,7 +343,8 @@ xfs_end_io(
 		error = xfs_reflink_end_cow(ip, offset, size);
 		break;
 	case XFS_IO_UNWRITTEN:
-		error = xfs_iomap_write_unwritten(ip, offset, size);
+		/* writeback should never update isize */
+		error = xfs_iomap_write_unwritten(ip, offset, size, false);
 		break;
 	default:
 		ASSERT(!xfs_ioend_is_append(ioend) || ioend->io_append_trans);
@@ -540,7 +554,7 @@ xfs_init_bio_from_bh(
 	struct buffer_head	*bh)
 {
 	bio->bi_iter.bi_sector = bh->b_blocknr * (bh->b_size >> 9);
-	bio->bi_bdev = bh->b_bdev;
+	bio_set_dev(bio, bh->b_bdev);
 }
 
 static struct xfs_ioend *

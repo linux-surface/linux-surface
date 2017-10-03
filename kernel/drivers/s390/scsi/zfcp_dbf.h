@@ -208,12 +208,12 @@ enum zfcp_dbf_scsi_id {
  * @scsi_result: scsi result
  * @scsi_retries: current retry number of scsi request
  * @scsi_allowed: allowed retries
- * @fcp_rsp_info: FCP response info
+ * @fcp_rsp_info: FCP response info code
  * @scsi_opcode: scsi opcode
  * @fsf_req_id: request id of fsf request
  * @host_scribble: LLD specific data attached to SCSI request
- * @pl_len: length of paload stored as zfcp_dbf_pay
- * @fsf_rsp: response for fsf request
+ * @pl_len: length of payload stored as zfcp_dbf_pay
+ * @fcp_rsp: response for FCP request
  * @scsi_lun_64_hi: scsi device logical unit number, high part of 64 bit
  */
 struct zfcp_dbf_scsi {
@@ -301,7 +301,7 @@ bool zfcp_dbf_hba_fsf_resp_suppress(struct zfcp_fsf_req *req)
 
 	if (qtcb->prefix.qtcb_type != FSF_IO_COMMAND)
 		return false; /* not an FCP response */
-	fcp_rsp = (struct fcp_resp *)&qtcb->bottom.io.fcp_rsp;
+	fcp_rsp = &qtcb->bottom.io.fcp_rsp.iu.resp;
 	rsp_flags = fcp_rsp->fr_flags;
 	fr_status = fcp_rsp->fr_status;
 	return (fsf_stat == FSF_FCP_RSP_AVAILABLE) &&

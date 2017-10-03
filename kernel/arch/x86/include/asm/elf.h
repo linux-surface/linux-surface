@@ -126,15 +126,15 @@ do {						\
 	pr_reg[4] = regs->di;			\
 	pr_reg[5] = regs->bp;			\
 	pr_reg[6] = regs->ax;			\
-	pr_reg[7] = regs->ds & 0xffff;		\
-	pr_reg[8] = regs->es & 0xffff;		\
-	pr_reg[9] = regs->fs & 0xffff;		\
+	pr_reg[7] = regs->ds;			\
+	pr_reg[8] = regs->es;			\
+	pr_reg[9] = regs->fs;			\
 	pr_reg[11] = regs->orig_ax;		\
 	pr_reg[12] = regs->ip;			\
-	pr_reg[13] = regs->cs & 0xffff;		\
+	pr_reg[13] = regs->cs;			\
 	pr_reg[14] = regs->flags;		\
 	pr_reg[15] = regs->sp;			\
-	pr_reg[16] = regs->ss & 0xffff;		\
+	pr_reg[16] = regs->ss;			\
 } while (0);
 
 #define ELF_CORE_COPY_REGS(pr_reg, regs)	\
@@ -305,8 +305,8 @@ static inline int mmap_is_ia32(void)
 		test_thread_flag(TIF_ADDR32));
 }
 
-extern unsigned long tasksize_32bit(void);
-extern unsigned long tasksize_64bit(void);
+extern unsigned long task_size_32bit(void);
+extern unsigned long task_size_64bit(int full_addr_space);
 extern unsigned long get_mmap_base(int is_legacy);
 
 #ifdef CONFIG_X86_32

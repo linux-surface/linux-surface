@@ -211,6 +211,8 @@
 
 #define WA_TAIL_DWORDS 2
 
+static int execlists_context_deferred_alloc(struct i915_gem_context *ctx,
+					    struct intel_engine_cs *engine);
 static void execlists_init_reg_state(u32 *reg_state,
 				     struct i915_gem_context *ctx,
 				     struct intel_engine_cs *engine,
@@ -817,7 +819,7 @@ static void execlists_schedule(struct drm_i915_gem_request *request, int prio)
 	/* XXX Do we need to preempt to make room for us and our deps? */
 }
 
-struct intel_ring *
+static struct intel_ring *
 execlists_context_pin(struct intel_engine_cs *engine,
 		      struct i915_gem_context *ctx)
 {
@@ -878,7 +880,7 @@ err:
 	return ERR_PTR(ret);
 }
 
-void execlists_context_unpin(struct intel_engine_cs *engine,
+static void execlists_context_unpin(struct intel_engine_cs *engine,
 				    struct i915_gem_context *ctx)
 {
 	struct intel_context *ce = &ctx->engine[engine->id];
@@ -1325,6 +1327,31 @@ static void reset_common_ring(struct intel_engine_cs *engine,
 {
 	struct execlist_port *port = engine->execlist_port;
 	struct intel_context *ce;
+	unsigned int n;
+
+	/*
+	 * Catch up with any missed context-switch interrupts.
+	 *
+	 * Ideally we would just read the remaining CSB entries now that we
+	 * know the gpu is idle. However, the CSB registers are sometimes^W
+	 * often trashed across a GPU reset! Instead we have to rely on
+	 * guessing the missed context-switch events by looking at what
+	 * requests were completed.
+	 */
+	if (!request) {
+		for (n = 0; n < ARRAY_SIZE(engine->execlist_port); n++)
+			i915_gem_request_put(port_request(&port[n]));
+		memset(engine->execlist_port, 0, sizeof(engine->execlist_port));
+		return;
+	}
+
+	if (request->ctx != port_request(port)->ctx) {
+		i915_gem_request_put(port_request(port));
+		port[0] = port[1];
+		memset(&port[1], 0, sizeof(port[1]));
+	}
+
+	GEM_BUG_ON(request->ctx != port_request(port)->ctx);
 
 	/* If the request was innocent, we leave the request in the ELSP
 	 * and will try to replay it on restarting. The context image may
@@ -1336,7 +1363,7 @@ static void reset_common_ring(struct intel_engine_cs *engine,
 	 * and have to at least restore the RING register in the context
 	 * image back to the expected values to skip over the guilty request.
 	 */
-	if (!request || request->fence.error != -EIO)
+	if (request->fence.error != -EIO)
 		return;
 
 	/* We want a simple context + ring to execute the breadcrumb update.
@@ -1357,15 +1384,6 @@ static void reset_common_ring(struct intel_engine_cs *engine,
 
 	request->ring->head = request->postfix;
 	intel_ring_update_space(request->ring);
-
-	/* Catch up with any missed context-switch interrupts */
-	if (request->ctx != port_request(port)->ctx) {
-		i915_gem_request_put(port_request(port));
-		port[0] = port[1];
-		memset(&port[1], 0, sizeof(port[1]));
-	}
-
-	GEM_BUG_ON(request->ctx != port_request(port)->ctx);
 
 	/* Reset WaIdleLiteRestore:bdw,skl as well */
 	request->tail =
@@ -1791,8 +1809,7 @@ int logical_render_ring_init(struct intel_engine_cs *engine)
 	int ret;
 
 	logical_ring_setup(engine);
-	engine->irq_keep_mask |= GT_RENDER_PIPECTL_NOTIFY_INTERRUPT
-							<< GEN8_RCS_IRQ_SHIFT;
+
 	if (HAS_L3_DPF(dev_priv))
 		engine->irq_keep_mask |= GT_RENDER_L3_PARITY_ERROR_INTERRUPT;
 
@@ -2021,7 +2038,7 @@ populate_lr_context(struct i915_gem_context *ctx,
 	return 0;
 }
 
-int execlists_context_deferred_alloc(struct i915_gem_context *ctx,
+static int execlists_context_deferred_alloc(struct i915_gem_context *ctx,
 					    struct intel_engine_cs *engine)
 {
 	struct drm_i915_gem_object *ctx_obj;
@@ -2091,7 +2108,7 @@ void intel_lr_context_resume(struct drm_i915_private *dev_priv)
 	 * So to avoid that we reset the context images upon resume. For
 	 * simplicity, we just zero everything out.
 	 */
-	list_for_each_entry(ctx, &dev_priv->context_list, link) {
+	list_for_each_entry(ctx, &dev_priv->contexts.list, link) {
 		for_each_engine(engine, dev_priv, id) {
 			struct intel_context *ce = &ctx->engine[engine->id];
 			u32 *reg;

@@ -184,22 +184,26 @@ static struct ieee80211_rate iwl_cfg80211_rates[] = {
  * @NVM_CHANNEL_INDOOR_ONLY: only indoor use is allowed
  * @NVM_CHANNEL_GO_CONCURRENT: GO operation is allowed when connected to BSS
  *	on same channel on 2.4 or same UNII band on 5.2
- * @NVM_CHANNEL_WIDE: 20 MHz channel okay (?)
- * @NVM_CHANNEL_40MHZ: 40 MHz channel okay (?)
- * @NVM_CHANNEL_80MHZ: 80 MHz channel okay (?)
- * @NVM_CHANNEL_160MHZ: 160 MHz channel okay (?)
+ * @NVM_CHANNEL_UNIFORM: uniform spreading required
+ * @NVM_CHANNEL_20MHZ: 20 MHz channel okay
+ * @NVM_CHANNEL_40MHZ: 40 MHz channel okay
+ * @NVM_CHANNEL_80MHZ: 80 MHz channel okay
+ * @NVM_CHANNEL_160MHZ: 160 MHz channel okay
+ * @NVM_CHANNEL_DC_HIGH: DC HIGH required/allowed (?)
  */
 enum iwl_nvm_channel_flags {
-	NVM_CHANNEL_VALID = BIT(0),
-	NVM_CHANNEL_IBSS = BIT(1),
-	NVM_CHANNEL_ACTIVE = BIT(3),
-	NVM_CHANNEL_RADAR = BIT(4),
-	NVM_CHANNEL_INDOOR_ONLY = BIT(5),
-	NVM_CHANNEL_GO_CONCURRENT = BIT(6),
-	NVM_CHANNEL_WIDE = BIT(8),
-	NVM_CHANNEL_40MHZ = BIT(9),
-	NVM_CHANNEL_80MHZ = BIT(10),
-	NVM_CHANNEL_160MHZ = BIT(11),
+	NVM_CHANNEL_VALID		= BIT(0),
+	NVM_CHANNEL_IBSS		= BIT(1),
+	NVM_CHANNEL_ACTIVE		= BIT(3),
+	NVM_CHANNEL_RADAR		= BIT(4),
+	NVM_CHANNEL_INDOOR_ONLY		= BIT(5),
+	NVM_CHANNEL_GO_CONCURRENT	= BIT(6),
+	NVM_CHANNEL_UNIFORM		= BIT(7),
+	NVM_CHANNEL_20MHZ		= BIT(8),
+	NVM_CHANNEL_40MHZ		= BIT(9),
+	NVM_CHANNEL_80MHZ		= BIT(10),
+	NVM_CHANNEL_160MHZ		= BIT(11),
+	NVM_CHANNEL_DC_HIGH		= BIT(12),
 };
 
 #define CHECK_AND_PRINT_I(x)	\
@@ -334,7 +338,7 @@ static int iwl_init_channel_map(struct device *dev, const struct iwl_cfg *cfg,
 			channel->flags = 0;
 
 		IWL_DEBUG_EEPROM(dev,
-				 "Ch. %d [%sGHz] flags 0x%x %s%s%s%s%s%s%s%s%s%s(%ddBm): Ad-Hoc %ssupported\n",
+				 "Ch. %d [%sGHz] flags 0x%x %s%s%s%s%s%s%s%s%s%s%s%s(%ddBm): Ad-Hoc %ssupported\n",
 				 channel->hw_value,
 				 is_5ghz ? "5.2" : "2.4",
 				 ch_flags,
@@ -344,10 +348,12 @@ static int iwl_init_channel_map(struct device *dev, const struct iwl_cfg *cfg,
 				 CHECK_AND_PRINT_I(RADAR),
 				 CHECK_AND_PRINT_I(INDOOR_ONLY),
 				 CHECK_AND_PRINT_I(GO_CONCURRENT),
-				 CHECK_AND_PRINT_I(WIDE),
+				 CHECK_AND_PRINT_I(UNIFORM),
+				 CHECK_AND_PRINT_I(20MHZ),
 				 CHECK_AND_PRINT_I(40MHZ),
 				 CHECK_AND_PRINT_I(80MHZ),
 				 CHECK_AND_PRINT_I(160MHZ),
+				 CHECK_AND_PRINT_I(DC_HIGH),
 				 channel->max_power,
 				 ((ch_flags & NVM_CHANNEL_IBSS) &&
 				  !(ch_flags & NVM_CHANNEL_RADAR))
@@ -576,7 +582,7 @@ static void iwl_set_hw_address_family_8000(struct iwl_trans *trans,
 					   const struct iwl_cfg *cfg,
 					   struct iwl_nvm_data *data,
 					   const __le16 *mac_override,
-					   const __le16 *nvm_hw)
+					   const __be16 *nvm_hw)
 {
 	const u8 *hw_addr;
 
@@ -623,7 +629,7 @@ static void iwl_set_hw_address_family_8000(struct iwl_trans *trans,
 
 static int iwl_set_hw_address(struct iwl_trans *trans,
 			      const struct iwl_cfg *cfg,
-			      struct iwl_nvm_data *data, const __le16 *nvm_hw,
+			      struct iwl_nvm_data *data, const __be16 *nvm_hw,
 			      const __le16 *mac_override)
 {
 	if (cfg->mac_addr_from_csr) {
@@ -655,7 +661,7 @@ static int iwl_set_hw_address(struct iwl_trans *trans,
 
 static bool
 iwl_nvm_no_wide_in_5ghz(struct device *dev, const struct iwl_cfg *cfg,
-			const __le16 *nvm_hw)
+			const __be16 *nvm_hw)
 {
 	/*
 	 * Workaround a bug in Indonesia SKUs where the regulatory in
@@ -671,8 +677,7 @@ iwl_nvm_no_wide_in_5ghz(struct device *dev, const struct iwl_cfg *cfg,
 		 * Unlike the other sections in the NVM, the hw
 		 * section uses big-endian.
 		 */
-		u16 subsystem_id = be16_to_cpup((const __be16 *)nvm_hw
-						+ SUBSYSTEM_ID);
+		u16 subsystem_id = be16_to_cpup(nvm_hw + SUBSYSTEM_ID);
 		u8 sku = (subsystem_id & 0x1e) >> 1;
 
 		if (sku == 5 || sku == 9) {
@@ -688,7 +693,7 @@ iwl_nvm_no_wide_in_5ghz(struct device *dev, const struct iwl_cfg *cfg,
 
 struct iwl_nvm_data *
 iwl_parse_nvm_data(struct iwl_trans *trans, const struct iwl_cfg *cfg,
-		   const __le16 *nvm_hw, const __le16 *nvm_sw,
+		   const __be16 *nvm_hw, const __le16 *nvm_sw,
 		   const __le16 *nvm_calib, const __le16 *regulatory,
 		   const __le16 *mac_override, const __le16 *phy_sku,
 		   u8 tx_chains, u8 rx_chains, bool lar_fw_supported)
@@ -910,19 +915,27 @@ iwl_parse_nvm_mcc_info(struct device *dev, const struct iwl_cfg *cfg,
 		prev_reg_rule_flags = reg_rule_flags;
 
 		IWL_DEBUG_DEV(dev, IWL_DL_LAR,
-			      "Ch. %d [%sGHz] %s%s%s%s%s%s%s%s%s(0x%02x) reg_flags 0x%x: %s\n",
+			      "Ch. %d [%sGHz] %s%s%s%s%s%s%s%s%s%s%s%s(0x%02x)\n",
 			      center_freq,
 			      band == NL80211_BAND_5GHZ ? "5.2" : "2.4",
 			      CHECK_AND_PRINT_I(VALID),
+			      CHECK_AND_PRINT_I(IBSS),
 			      CHECK_AND_PRINT_I(ACTIVE),
 			      CHECK_AND_PRINT_I(RADAR),
-			      CHECK_AND_PRINT_I(WIDE),
+			      CHECK_AND_PRINT_I(INDOOR_ONLY),
+			      CHECK_AND_PRINT_I(GO_CONCURRENT),
+			      CHECK_AND_PRINT_I(UNIFORM),
+			      CHECK_AND_PRINT_I(20MHZ),
 			      CHECK_AND_PRINT_I(40MHZ),
 			      CHECK_AND_PRINT_I(80MHZ),
 			      CHECK_AND_PRINT_I(160MHZ),
-			      CHECK_AND_PRINT_I(INDOOR_ONLY),
-			      CHECK_AND_PRINT_I(GO_CONCURRENT),
-			      ch_flags, reg_rule_flags,
+			      CHECK_AND_PRINT_I(DC_HIGH),
+			      ch_flags);
+		IWL_DEBUG_DEV(dev, IWL_DL_LAR,
+			      "Ch. %d [%sGHz] reg_flags 0x%x: %s\n",
+			      center_freq,
+			      band == NL80211_BAND_5GHZ ? "5.2" : "2.4",
+			      reg_rule_flags,
 			      ((ch_flags & NVM_CHANNEL_ACTIVE) &&
 			       !(ch_flags & NVM_CHANNEL_RADAR))
 					 ? "Ad-Hoc" : "");

@@ -190,7 +190,7 @@ static struct drm_gem_object *vgem_gem_create(struct drm_device *dev,
 		return ERR_CAST(obj);
 
 	ret = drm_gem_handle_create(file, &obj->base, handle);
-	drm_gem_object_unreference_unlocked(&obj->base);
+	drm_gem_object_put_unlocked(&obj->base);
 	if (ret)
 		goto err;
 
@@ -245,7 +245,7 @@ static int vgem_gem_dumb_map(struct drm_file *file, struct drm_device *dev,
 
 	*offset = drm_vma_node_offset_addr(&obj->vma_node);
 unref:
-	drm_gem_object_unreference_unlocked(obj);
+	drm_gem_object_put_unlocked(obj);
 
 	return ret;
 }
@@ -278,6 +278,7 @@ static const struct file_operations vgem_driver_fops = {
 	.poll		= drm_poll,
 	.read		= drm_read,
 	.unlocked_ioctl = drm_ioctl,
+	.compat_ioctl	= drm_compat_ioctl,
 	.release	= drm_release,
 };
 

@@ -39,6 +39,7 @@ i915-y += i915_cmd_parser.o \
 	  i915_gem_gtt.o \
 	  i915_gem_internal.o \
 	  i915_gem.o \
+	  i915_gem_object.o \
 	  i915_gem_render_state.o \
 	  i915_gem_request.o \
 	  i915_gem_shrinker.o \
@@ -117,9 +118,6 @@ i915-y += dvo_ch7017.o \
 	  intel_panel.o \
 	  intel_sdvo.o \
 	  intel_tv.o
-
-# intel precise touch & stylus
-i915-y  += intel_ipts.o
 
 # Post-mortem debug and GPU hang state capture
 i915-$(CONFIG_DRM_I915_CAPTURE_ERROR) += i915_gpu_error.o

@@ -11,6 +11,7 @@
  * General Public License for more details.
  */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+#include <linux/sched/mm.h>
 #include <linux/vmalloc.h>
 #include <linux/uaccess.h>
 #include <linux/module.h>
@@ -234,6 +235,7 @@ long nvdimm_clear_poison(struct device *dev, phys_addr_t phys,
 	struct nd_cmd_clear_error clear_err;
 	struct nd_cmd_ars_cap ars_cap;
 	u32 clear_err_unit, mask;
+	unsigned int noio_flag;
 	int cmd_rc, rc;
 
 	if (!nvdimm_bus)
@@ -250,8 +252,10 @@ long nvdimm_clear_poison(struct device *dev, phys_addr_t phys,
 	memset(&ars_cap, 0, sizeof(ars_cap));
 	ars_cap.address = phys;
 	ars_cap.length = len;
+	noio_flag = memalloc_noio_save();
 	rc = nd_desc->ndctl(nd_desc, NULL, ND_CMD_ARS_CAP, &ars_cap,
 			sizeof(ars_cap), &cmd_rc);
+	memalloc_noio_restore(noio_flag);
 	if (rc < 0)
 		return rc;
 	if (cmd_rc < 0)
@@ -266,8 +270,10 @@ long nvdimm_clear_poison(struct device *dev, phys_addr_t phys,
 	memset(&clear_err, 0, sizeof(clear_err));
 	clear_err.address = phys;
 	clear_err.length = len;
+	noio_flag = memalloc_noio_save();
 	rc = nd_desc->ndctl(nd_desc, NULL, ND_CMD_CLEAR_ERROR, &clear_err,
 			sizeof(clear_err), &cmd_rc);
+	memalloc_noio_restore(noio_flag);
 	if (rc < 0)
 		return rc;
 	if (cmd_rc < 0)
@@ -981,10 +987,6 @@ static int __nd_ioctl(struct nvdimm_bus *nvdimm_bus, struct nvdimm *nvdimm,
 		dev_dbg(dev, "%s:%s, idx: %llu, in: %u, out: %u, len %llu\n",
 				__func__, dimm_name, pkg.nd_command,
 				in_len, out_len, buf_len);
-
-		for (i = 0; i < ARRAY_SIZE(pkg.nd_reserved2); i++)
-			if (pkg.nd_reserved2[i])
-				return -EINVAL;
 	}
 
 	/* process an output envelope */

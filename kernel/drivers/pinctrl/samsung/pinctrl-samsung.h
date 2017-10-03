@@ -25,10 +25,6 @@
 
 #include <linux/gpio.h>
 
-/* pinmux function number for pin as gpio output line */
-#define FUNC_INPUT	0x0
-#define FUNC_OUTPUT	0x1
-
 /**
  * enum pincfg_type - possible pin configuration types supported.
  * @PINCFG_TYPE_FUNC: Function configuration.
@@ -234,8 +230,8 @@ struct samsung_retention_data {
  */
 struct samsung_pin_ctrl {
 	const struct samsung_pin_bank_data *pin_banks;
-	u32		nr_banks;
-	int		nr_ext_resources;
+	unsigned int	nr_banks;
+	unsigned int	nr_ext_resources;
 	const struct samsung_retention_data *retention_data;
 
 	int		(*eint_gpio_init)(struct samsung_pinctrl_drv_data *);
@@ -279,7 +275,7 @@ struct samsung_pinctrl_drv_data {
 	unsigned int			nr_functions;
 
 	struct samsung_pin_bank		*pin_banks;
-	u32				nr_banks;
+	unsigned int			nr_banks;
 	unsigned int			pin_base;
 	unsigned int			nr_pins;
 
