@@ -119,6 +119,7 @@
 
 #define MEI_DEV_ID_SPT        0x9D3A  /* Sunrise Point */
 #define MEI_DEV_ID_SPT_2      0x9D3B  /* Sunrise Point 2 */
+#define MEI_DEV_ID_SPT_4      0x9D3E  /* Sunrise Point 4 */
 #define MEI_DEV_ID_SPT_H      0xA13A  /* Sunrise Point H */
 #define MEI_DEV_ID_SPT_H_2    0xA13B  /* Sunrise Point H 2 */
 

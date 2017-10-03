@@ -211,8 +211,6 @@
 
 #define WA_TAIL_DWORDS 2
 
-static int execlists_context_deferred_alloc(struct i915_gem_context *ctx,
-					    struct intel_engine_cs *engine);
 static void execlists_init_reg_state(u32 *reg_state,
 				     struct i915_gem_context *ctx,
 				     struct intel_engine_cs *engine,
@@ -819,7 +817,7 @@ static void execlists_schedule(struct drm_i915_gem_request *request, int prio)
 	/* XXX Do we need to preempt to make room for us and our deps? */
 }
 
-static struct intel_ring *
+struct intel_ring *
 execlists_context_pin(struct intel_engine_cs *engine,
 		      struct i915_gem_context *ctx)
 {
@@ -880,7 +878,7 @@ err:
 	return ERR_PTR(ret);
 }
 
-static void execlists_context_unpin(struct intel_engine_cs *engine,
+void execlists_context_unpin(struct intel_engine_cs *engine,
 				    struct i915_gem_context *ctx)
 {
 	struct intel_context *ce = &ctx->engine[engine->id];
@@ -1810,6 +1808,9 @@ int logical_render_ring_init(struct intel_engine_cs *engine)
 
 	logical_ring_setup(engine);
 
+	engine->irq_keep_mask |= GT_RENDER_PIPECTL_NOTIFY_INTERRUPT
+							<< GEN8_RCS_IRQ_SHIFT;
+
 	if (HAS_L3_DPF(dev_priv))
 		engine->irq_keep_mask |= GT_RENDER_L3_PARITY_ERROR_INTERRUPT;
 
@@ -2038,7 +2039,7 @@ populate_lr_context(struct i915_gem_context *ctx,
 	return 0;
 }
 
-static int execlists_context_deferred_alloc(struct i915_gem_context *ctx,
+int execlists_context_deferred_alloc(struct i915_gem_context *ctx,
 					    struct intel_engine_cs *engine)
 {
 	struct drm_i915_gem_object *ctx_obj;
