@@ -2336,8 +2336,8 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
 				return -1;
 		}
 
-		mwifiex_send_cmd(priv, HostCmd_CMD_CHAN_REGION_CFG,
-				 HostCmd_ACT_GEN_GET, 0, NULL, true);
+		//mwifiex_send_cmd(priv, HostCmd_CMD_CHAN_REGION_CFG,
+		//		 HostCmd_ACT_GEN_GET, 0, NULL, true);
 	}
 
 	/* get tx rate */
