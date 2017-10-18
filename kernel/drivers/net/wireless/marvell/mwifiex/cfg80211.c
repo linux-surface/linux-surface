@@ -2506,6 +2506,7 @@ mwifiex_cfg80211_scan(struct wiphy *wiphy,
 	struct ieee80211_channel *chan;
 	struct ieee_types_header *ie;
 	struct mwifiex_user_scan_cfg *user_scan_cfg;
+	u8 mac_addr[ETH_ALEN];
 
 	mwifiex_dbg(priv->adapter, CMD,
 		    "info: received scan request on %s\n", dev->name);
@@ -2532,15 +2533,10 @@ mwifiex_cfg80211_scan(struct wiphy *wiphy,
 	priv->scan_request = request;
 
 	if (request->flags & NL80211_SCAN_FLAG_RANDOM_ADDR) {
-		ether_addr_copy(priv->random_mac, request->mac_addr);
-		for (i = 0; i < ETH_ALEN; i++) {
-			priv->random_mac[i] &= request->mac_addr_mask[i];
-			priv->random_mac[i] |= get_random_int() &
-					       ~(request->mac_addr_mask[i]);
-		}
-		ether_addr_copy(user_scan_cfg->random_mac, priv->random_mac);
-	} else {
-		eth_zero_addr(priv->random_mac);
+		get_random_mask_addr(mac_addr, request->mac_addr,
+				     request->mac_addr_mask);
+		ether_addr_copy(request->mac_addr, mac_addr);
+		ether_addr_copy(user_scan_cfg->random_mac, mac_addr);
 	}
 
 	user_scan_cfg->num_ssids = request->n_ssids;
