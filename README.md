@@ -9,7 +9,7 @@ Linux running on the Surface Book and Surface Pro 4. Following the instructions 
 * Touchpad
 * 2D/3D Acceleration
 * Touchscreen
-* Pen
+* Pen (if paired and multi-touch mode enabled)
 * WiFi
 * Bluetooth
 * Speakers
@@ -54,6 +54,8 @@ You will need to download :
 5. Install the custom kernel and headers:
   * $ sudo dpkg -i linux-image*dev linux-headers*deb
 6. Reboot on installed kernel.
+
+NOTE: If your network won't connect on the 4.14.x series, you need to apply the apparmor-fix-4.14.patch file in /etc/
 
 ### Donations Appreciated!
 
