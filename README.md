@@ -52,10 +52,10 @@ You will need to download :
   * $ sudo chown root /lib/systemd/system-sleep/mwifiex_pcie.sh
   * $ sudo chmod 755 /lib/systemd/system-sleep/mwifiex_pcie.sh
 5. Install the custom kernel and headers:
-  * $ sudo dpkg -i linux-image*dev linux-headers*deb
+  * $ sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb
 6. Reboot on installed kernel.
 
-NOTE: If your network won't connect on the 4.14.x series, you need to apply the apparmor-fix-4.14.patch file in /etc/
+NOTE: If your network won't connect on the 4.14.x series, you need to apply the apparmor-fix-4.14.patch file in /etc/: $ cd /etc/ && sudo patch -p1 < /path/to/apparmor-fix-4.14.patch
 
 ### Donations Appreciated!
 
