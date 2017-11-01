@@ -34,7 +34,6 @@ Downloads for ubuntu based distros (other distros will need to compile from sour
 https://goo.gl/QSZCwq
 
 You will need to download :
- - ipts_firmware.zip
  - linux_image-*
  - linux_header-*
 
@@ -44,8 +43,7 @@ You will need to download :
   * $ sudo cp -R root/* /
 2. Extract ipts_firmware.zip to /lib/firmware/intel/ipts/
   * $ sudo mkdir -p /lib/firmware/intel/ipts
-  * $ unzip ipts_firmware.zip 
-  * $ sudo mv ipts_firmware/* /lib/firmware/intel/ipts/
+  * $ sudo unzip ipts_firmware.zip -d /lib/firmware/intel/ipts/
 3. Fix issue with Suspend to Disk:
   * $ sudo ln -s /usr/lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -s /usr/lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
 4. Set permissions on mwifiex_pcie.sh script:
