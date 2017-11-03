@@ -27,15 +27,13 @@ Linux running on the Surface Book and Surface Pro 4. Following the instructions 
 * Dedicated GPU (if you have a performance base on a Surface Book, otherwise onboard works fine)
 * Cameras (not fully supported yet)
 
-### Download Pre-built Kernel, Headers and IPTS_firmware
+### Download Pre-built Kernel and Headers
 
 Downloads for ubuntu based distros (other distros will need to compile from source in the kernel folder):
 
 https://goo.gl/QSZCwq
 
-You will need to download :
- - linux_image-*
- - linux_header-*
+You will need to download both the image and headers deb files for the version you want to install.
 
 ### Instructions
 
@@ -44,14 +42,17 @@ You will need to download :
 2. Extract ipts_firmware.zip to /lib/firmware/intel/ipts/
   * $ sudo mkdir -p /lib/firmware/intel/ipts
   * $ sudo unzip ipts_firmware.zip -d /lib/firmware/intel/ipts/
-3. Fix issue with Suspend to Disk:
+3. Extract i915_firmware.zip to /lib/firmware/i915/
+  * $ sudo mkdir -p /lib/firmware/i915
+  * $ sudo unzip i915_firmware.zip -d /lib/firmware/i915/
+4. Fix issue with Suspend to Disk:
   * $ sudo ln -s /usr/lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -s /usr/lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
-4. Set permissions on mwifiex_pcie.sh script:
+5. Set permissions on mwifiex_pcie.sh script:
   * $ sudo chown root /lib/systemd/system-sleep/mwifiex_pcie.sh
   * $ sudo chmod 755 /lib/systemd/system-sleep/mwifiex_pcie.sh
-5. Install the custom kernel and headers:
+6. Install the custom kernel and headers:
   * $ sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb
-6. Reboot on installed kernel.
+7. Reboot on installed kernel.
 
 NOTE: If your network won't connect on the 4.14.x series, you need to apply the apparmor-fix-4.14.patch file in /etc/: $ cd /etc/ && sudo patch -p1 < /path/to/apparmor-fix-4.14.patch
 
