@@ -680,9 +680,8 @@ static int i915_load_modeset_init(struct drm_device *dev)
 
 	drm_kms_helper_poll_init(dev);
 
-pr_info(">> let init ipts\n");
 	if (INTEL_GEN(dev_priv) >= 9 && i915.enable_guc_submission)
-                intel_ipts_init(dev);
+        intel_ipts_init(dev);
 
 	return 0;
 

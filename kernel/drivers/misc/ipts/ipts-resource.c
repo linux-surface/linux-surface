@@ -55,7 +55,7 @@ static int allocate_common_resource(ipts_info_t *ipts)
 	addr = dmam_alloc_coherent(&ipts->cldev->dev,
 			buffer_size,
 			&dma_addr,
-			GFP_ATOMIC|GFP_DMA32);
+			GFP_ATOMIC|__GFP_ZERO);
 	if (addr == NULL)
 		return -ENOMEM;
 
@@ -76,7 +76,7 @@ static int allocate_common_resource(ipts_info_t *ipts)
 		feedback_buffer[i].addr = dmam_alloc_coherent(&ipts->cldev->dev,
 				ipts->device_info.feedback_size,
 				&feedback_buffer[i].dma_addr,
-				GFP_ATOMIC|GFP_DMA32);
+				GFP_ATOMIC|__GFP_ZERO);
 
 		if (feedback_buffer[i].addr == NULL) {
 			ret = -ENOMEM;
@@ -110,7 +110,7 @@ static int allocate_hid_resource(ipts_info_t *ipts)
 	buffer_hid->addr = dmam_alloc_coherent(&ipts->cldev->dev,
 				ipts->device_info.frame_size,
 				&buffer_hid->dma_addr,
-				GFP_ATOMIC|GFP_DMA32);
+				GFP_ATOMIC|__GFP_ZERO);
 	if (buffer_hid->addr == NULL) {
 		return -ENOMEM;
 	}

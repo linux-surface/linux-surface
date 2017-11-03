@@ -1358,7 +1358,7 @@ int i915_guc_ipts_submission_enable(struct drm_i915_private *dev_priv,
 	/* client for execbuf submission */
 	client = guc_client_alloc(dev_priv,
 				  INTEL_INFO(dev_priv)->ring_mask,
-				  GUC_CLIENT_PRIORITY_KMD_NORMAL,
+				  GUC_CLIENT_PRIORITY_NORMAL,
 				  ctx);
 	if (!client) {
 		DRM_ERROR("Failed to create normal GuC client!\n");
@@ -1387,7 +1387,7 @@ void i915_guc_ipts_reacquire_doorbell(struct drm_i915_private *dev_priv)
 {
 	struct intel_guc *guc = &dev_priv->guc;
 
-	int err = __guc_allocate_doorbell(guc, guc->ipts_client);
+	int err = __guc_allocate_doorbell(guc, guc->ipts_client->stage_id);
 
 	if (err)
 		DRM_ERROR("Not able to reacquire IPTS doorbell\n");

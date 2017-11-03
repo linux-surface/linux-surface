@@ -69,7 +69,7 @@ typedef struct intel_ipts_object {
 
 static intel_ipts_object_t *ipts_object_create(size_t size, u32 flags)
 {
-	struct drm_i915_private *dev_priv = intel_ipts.dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(intel_ipts.dev);
 	intel_ipts_object_t *obj = NULL;
 	struct drm_i915_gem_object *gem_obj = NULL;
 	int ret = 0;
@@ -132,7 +132,7 @@ static int ipts_object_pin(intel_ipts_object_t* obj,
 {
 	struct i915_address_space *vm = NULL;
 	struct i915_vma *vma = NULL;
-	struct drm_i915_private *dev_priv = intel_ipts.dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(intel_ipts.dev);
 	int ret = 0;
 
 	if (ipts_ctx->ppgtt) {
@@ -172,7 +172,8 @@ static void ipts_object_unmap(intel_ipts_object_t* obj)
 static int create_ipts_context(void)
 {
 	struct i915_gem_context *ipts_ctx = NULL;
-	struct drm_i915_private *dev_priv = intel_ipts.dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(intel_ipts.dev);
+	struct intel_ring *pin_ret;
 	int ret = 0;
 
 	/* Initialize the context right away.*/
@@ -196,9 +197,9 @@ static int create_ipts_context(void)
 		goto err_ctx;
 	}
 
-	ret = execlists_context_pin(dev_priv->engine[RCS], ipts_ctx);
-	if (ret) {
-		DRM_DEBUG("lr context pinning failed : %d\n", ret);
+	pin_ret = execlists_context_pin(dev_priv->engine[RCS], ipts_ctx);
+	if (IS_ERR(pin_ret)) {
+		DRM_DEBUG("lr context pinning failed :  %ld\n", PTR_ERR(pin_ret));
 		goto err_ctx;
 	}
 
@@ -225,7 +226,7 @@ err_unlock:
 static void destroy_ipts_context(void)
 {
 	struct i915_gem_context *ipts_ctx = NULL;
-	struct drm_i915_private *dev_priv = intel_ipts.dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(intel_ipts.dev);
 	int ret = 0;
 
 	ipts_ctx = intel_ipts.ipts_context;
@@ -308,7 +309,7 @@ static int intel_ipts_get_wq_info(uint64_t gfx_handle,
 
 static int set_wq_info(void)
 {
-	struct drm_i915_private *dev_priv = intel_ipts.dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(intel_ipts.dev);
 	struct intel_guc *guc = &dev_priv->guc;
 	struct i915_guc_client *client;
 	struct guc_process_desc *desc;
@@ -402,7 +403,7 @@ static int intel_ipts_map_buffer(u64 gfx_handle, intel_ipts_mapbuffer_t *mapbuf)
 {
 	intel_ipts_object_t* obj;
 	struct i915_gem_context *ipts_ctx = NULL;
-	struct drm_i915_private *dev_priv = intel_ipts.dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(intel_ipts.dev);
 	struct i915_address_space *vm = NULL;
 	struct i915_vma *vma = NULL;
 	int ret = 0;
@@ -482,7 +483,7 @@ static int intel_ipts_unmap_buffer(uint64_t gfx_handle, uint64_t buf_handle)
 
 int intel_ipts_connect(intel_ipts_connect_t *ipts_connect)
 {
-	struct drm_i915_private *dev_priv = intel_ipts.dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(intel_ipts.dev);
 	int ret = 0;
 
 	if (!intel_ipts.initialized)
@@ -583,6 +584,8 @@ reschedule_work:
 int intel_ipts_init(struct drm_device *dev)
 {
 	int ret = 0;
+
+	pr_info("ipts: initializing ipts\n");
 
 	intel_ipts.dev = dev;
 	INIT_DELAYED_WORK(&intel_ipts.reacquire_db_work, reacquire_db_work_func);
