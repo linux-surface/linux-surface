@@ -1,6 +1,6 @@
 # Linux Surface
 
-Linux running on the Surface Book and Surface Pro 4. Following the instructions below to install the latest kernel and config files.
+Linux running on the Surface Book and Surface Pro 4. Follow the instructions below to install the latest kernel and config files.
 
 
 ### What's Working
@@ -58,6 +58,6 @@ NOTE: If your network won't connect on the 4.14.x series, you need to apply the 
 
 ### Donations Appreciated!
 
-PayPal: contact for details!
+PayPal: https://www.paypal.me/jakeday42
 
 Bitcoin: 1JkpbAJ41W6SUjH9vCRDpHNNpecjPK3Zid
