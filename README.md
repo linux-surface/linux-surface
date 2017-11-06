@@ -45,16 +45,16 @@ You will need to download both the image and headers deb files for the version y
 3. Extract i915_firmware.zip to /lib/firmware/i915/
   * $ sudo mkdir -p /lib/firmware/i915
   * $ sudo unzip i915_firmware.zip -d /lib/firmware/i915/
-4 (Ubuntu 17.10). Fix issue with Suspend to Disk:
+4. (Ubuntu 17.10) Fix issue with Suspend to Disk:
   * $ sudo ln -s /lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -s /lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
-4 (all other distros). Fix issue with Suspend to Disk:
+5. (all other distros) Fix issue with Suspend to Disk:
   * $ sudo ln -s /usr/lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -s /usr/lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
-5. Set permissions on mwifiex_pcie.sh script:
+6. Set permissions on mwifiex_pcie.sh script:
   * $ sudo chown root /lib/systemd/system-sleep/mwifiex_pcie.sh
   * $ sudo chmod 755 /lib/systemd/system-sleep/mwifiex_pcie.sh
-6. Install the custom kernel and headers:
+7. Install the custom kernel and headers:
   * $ sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb
-7. Reboot on installed kernel.
+8. Reboot on installed kernel.
 
 NOTE: If your network won't connect on the 4.14.x series, you need to apply the apparmor-fix-4.14.patch file in /etc/: $ cd /etc/ && sudo patch -p1 < /path/to/apparmor-fix-4.14.patch
 
