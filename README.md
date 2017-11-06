@@ -45,7 +45,9 @@ You will need to download both the image and headers deb files for the version y
 3. Extract i915_firmware.zip to /lib/firmware/i915/
   * $ sudo mkdir -p /lib/firmware/i915
   * $ sudo unzip i915_firmware.zip -d /lib/firmware/i915/
-4. Fix issue with Suspend to Disk:
+4 (Ubuntu 17.10). Fix issue with Suspend to Disk:
+  * $ sudo ln -s /lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -s /lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
+4 (all other distros). Fix issue with Suspend to Disk:
   * $ sudo ln -s /usr/lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -s /usr/lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
 5. Set permissions on mwifiex_pcie.sh script:
   * $ sudo chown root /lib/systemd/system-sleep/mwifiex_pcie.sh
