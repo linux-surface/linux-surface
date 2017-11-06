@@ -296,11 +296,13 @@ static const struct gmin_cfg_var ecs7_vars[] = {
 	{"INT33BE:00_CsiFmt", "13"},
 	{"INT33BE:00_CsiBayer", "2"},
 	{"INT33BE:00_CamClk", "0"},
+	{"INT33BE:00_ClkSrc", "1"},
 	{"INT33F0:00_CsiPort", "0"},
 	{"INT33F0:00_CsiLanes", "1"},
 	{"INT33F0:00_CsiFmt", "13"},
 	{"INT33F0:00_CsiBayer", "0"},
 	{"INT33F0:00_CamClk", "1"},
+	{"INT33BE:00_I2CAddr", "-1"},
 	{"gmin_V2P8GPIO", "402"},
 	{},
 };
@@ -325,6 +327,8 @@ static const struct {
 	{ "MRD7", mrd7_vars },
 	{ "ST70408", ecs7_vars },
 	{ "VTA0803", i8880_vars },
+	{ "Surface Book" , ecs7_vars } ,
+	{ "Surface Pro 4" , ecs7_vars } ,
 };
 
 

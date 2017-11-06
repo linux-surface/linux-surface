@@ -33,7 +33,7 @@
 #include <linux/v4l2-mediabus.h>
 #include <media/media-entity.h>
 
-#include "../../include/linux/atomisp_platform.h"
+#include "../../include/linux/atomisp_gmin_platform.h"
 
 #define OV5693_NAME		"ov5693"
 
@@ -78,7 +78,8 @@
  * bits 7-0: min f-number denominator
  */
 #define OV5693_F_NUMBER_RANGE 0x180a180a
-#define OV5693_ID	0x5690
+#define OV5690_ID	0x5690
+#define OV5693_ID	0x5693
 
 #define OV5693_FINE_INTG_TIME_MIN 0
 #define OV5693_FINE_INTG_TIME_MAX_MARGIN 0
