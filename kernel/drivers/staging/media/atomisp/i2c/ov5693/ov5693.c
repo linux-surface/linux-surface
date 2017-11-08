@@ -1332,7 +1332,7 @@ static int power_ctrl(struct v4l2_subdev *sd, bool flag)
 
 static int gpio_ctrl(struct v4l2_subdev *sd, bool flag)
 {
-	int ret;
+	int ret = 0;
 	struct ov5693_device *dev = to_ov5693_sensor(sd);
 
 	if (!dev || !dev->platform_data)
@@ -1342,16 +1342,8 @@ static int gpio_ctrl(struct v4l2_subdev *sd, bool flag)
 	if (dev->platform_data->gpio_ctrl)
 		return dev->platform_data->gpio_ctrl(sd, flag);
 
-	if (flag) {
-		ret = dev->platform_data->gpio0_ctrl(sd, 0);
-		ret = dev->platform_data->gpio1_ctrl(sd, 0);
-		msleep(60);
-		ret |= dev->platform_data->gpio0_ctrl(sd, 1);
-		ret |= dev->platform_data->gpio1_ctrl(sd, 1);
-	} else {
-		ret = dev->platform_data->gpio0_ctrl(sd, 0);
-		ret = dev->platform_data->gpio1_ctrl(sd, 0);
-	}
+	if (dev->platform_data->gpio0_ctrl)
+		ret = dev->platform_data->gpio0_ctrl(sd, flag);
 
 	return ret;
 }
