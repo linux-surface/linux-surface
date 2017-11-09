@@ -1172,7 +1172,7 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
 			__set_bit(BTN_STYLUS, hi->input->keybit);
 			break;
 		case HID_DG_TOUCHSCREEN:
-			/* we do not set suffix = "Touchscreen" */
+			suffix = "Touchscreen";
 			break;
 		case HID_DG_TOUCHPAD:
 			suffix = "Touchpad";
