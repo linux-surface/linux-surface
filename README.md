@@ -20,7 +20,7 @@ Linux running on the Surface Book and Surface Pro 4. Follow the instructions bel
 * Suspend/Hibernate
 * Sensors (accelerometer, gyroscope, ambient light sensor)
 * Battery Readings
-* Docking/Undocking Tablet and Keyboard (for Surface Book)
+* Docking/Undocking Tablet and Keyboard
 
 ### What's NOT Working
 
@@ -37,11 +37,13 @@ You will need to download both the image and headers deb files for the version y
 
 ### Instructions
 
+NOTE: For the ipts_firmware files, please select a version. v76 has been reportedly the best for the Surface Book and v78 for the Surface Pro 4 and 2017.
+
 1. Copy the files under root to where they belong:
   * $ sudo cp -R root/* /
-2. Extract ipts_firmware.zip to /lib/firmware/intel/ipts/
+2. Extract ipts_firmware_[VERSION].zip to /lib/firmware/intel/ipts/
   * $ sudo mkdir -p /lib/firmware/intel/ipts
-  * $ sudo unzip ipts_firmware.zip -d /lib/firmware/intel/ipts/
+  * $ sudo unzip ipts_firmware_[VERSION].zip -d /lib/firmware/intel/ipts/
 3. Extract i915_firmware.zip to /lib/firmware/i915/
   * $ sudo mkdir -p /lib/firmware/i915
   * $ sudo unzip i915_firmware.zip -d /lib/firmware/i915/
