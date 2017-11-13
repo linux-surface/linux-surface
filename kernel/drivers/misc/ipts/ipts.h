@@ -38,7 +38,7 @@
 	dev_info(&ipts->cldev->dev, format, ##arg);\
 } while (0)
 
-#define RUN_DBG_THREAD
+//#define RUN_DBG_THREAD
 
 #else
 

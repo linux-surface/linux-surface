@@ -67,8 +67,6 @@ static void disconnect_gfx(ipts_info_t *ipts)
 	intel_ipts_disconnect(ipts->gfx_info.gfx_handle);
 }
 
-#define RUN_DBG_THREAD
-
 #ifdef RUN_DBG_THREAD
 #include "../mei/mei_dev.h"
 
