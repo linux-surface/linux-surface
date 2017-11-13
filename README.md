@@ -1,6 +1,6 @@
 # Linux Surface
 
-Linux running on the Surface Book and Surface Pro 4. Follow the instructions below to install the latest kernel and config files.
+Linux running on the Surface Book, Surface Pro 4, Surface Pro 2017 and Surface Laptop. Follow the instructions below to install the latest kernel and config files.
 
 
 ### What's Working
@@ -37,7 +37,11 @@ You will need to download both the image and headers deb files for the version y
 
 ### Instructions
 
-NOTE: For the ipts_firmware files, please select a version. v76 has been reportedly the best for the Surface Book and v78 for the Surface Pro 4 and 2017.
+NOTE: For the ipts_firmware files, please select the version for your device.
+v76 for the Surface Book
+v78 for the Surface Pro 4
+v79 for the Surface Laptop
+v102 for the Surface Pro 2017
 
 1. Copy the files under root to where they belong:
   * $ sudo cp -R root/* /
