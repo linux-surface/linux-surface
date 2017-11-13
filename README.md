@@ -38,10 +38,10 @@ You will need to download both the image and headers deb files for the version y
 ### Instructions
 
 NOTE: For the ipts_firmware files, please select the version for your device.
-v76 for the Surface Book
-v78 for the Surface Pro 4
-v79 for the Surface Laptop
-v102 for the Surface Pro 2017
+* v76 for the Surface Book
+* v78 for the Surface Pro 4
+* v79 for the Surface Laptop
+* v102 for the Surface Pro 2017
 
 1. Copy the files under root to where they belong:
   * $ sudo cp -R root/* /
