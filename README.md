@@ -37,7 +37,7 @@ You will need to download both the image and headers deb files for the version y
 
 ### Instructions
 
-NOTE: For the ipts_firmware files, please select the version for your device.
+For the ipts_firmware files, please select the version for your device.
 * v76 for the Surface Book
 * v78 for the Surface Pro 4
 * v79 for the Surface Laptop
@@ -62,7 +62,12 @@ NOTE: For the ipts_firmware files, please select the version for your device.
   * $ sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb
 8. Reboot on installed kernel.
 
-NOTE: If your network won't connect on the 4.14.x series, you need to apply the apparmor-fix-4.14.patch file in /etc/: $ cd /etc/ && sudo patch -p1 < /path/to/apparmor-fix-4.14.patch
+### NOTES
+
+If your network won't connect on the 4.14.x series, you need to apply the apparmor-fix-4.14.patch file in /etc/:
+* $ cd /etc/ && sudo patch -p1 < /path/to/apparmor-fix-4.14.patch
+
+If you are getting stuck at boot when loading the ramdisk, you need to install the Processor Microcode Firmware for Intel CPUs (usually found under Additional Drivers in Software and Updates).
 
 ### Donations Appreciated!
 
