@@ -416,9 +416,6 @@ mwifiex_cfg80211_set_power_mgmt(struct wiphy *wiphy,
 
 	ps_mode = enabled;
 
-	mwifiex_dbg(priv->adapter, ERROR, "overriding ps_mode to false\n");
-	ps_mode = 0;
-
 	return mwifiex_drv_set_power(priv, &ps_mode);
 }
 
