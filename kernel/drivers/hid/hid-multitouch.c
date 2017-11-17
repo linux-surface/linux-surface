@@ -1155,6 +1155,7 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
 		suffix = "Pen";
 		/* force BTN_STYLUS to allow tablet matching in udev */
 		__set_bit(BTN_STYLUS, hi->input->keybit);
+        __set_bit(INPUT_PROP_DIRECT, hi->input->propbit);
 	} else {
 		switch (field->application) {
 		case HID_GD_KEYBOARD:
@@ -1170,6 +1171,7 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
 			suffix = "Pen";
 			/* force BTN_STYLUS to allow tablet matching in udev */
 			__set_bit(BTN_STYLUS, hi->input->keybit);
+            __set_bit(INPUT_PROP_DIRECT, hi->input->propbit);
 			break;
 		case HID_DG_TOUCHSCREEN:
 			suffix = "Touchscreen";
