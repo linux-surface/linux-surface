@@ -56,9 +56,10 @@ For the ipts_firmware files, please select the version for your device.
   * $ sudo ln -s /lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -s /lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
 5. (all other distros) Fix issue with Suspend to Disk:
   * $ sudo ln -s /usr/lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -s /usr/lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
-6. Set permissions on mwifiex_pcie.sh script:
-  * $ sudo chown root /lib/systemd/system-sleep/mwifiex_pcie.sh
-  * $ sudo chmod 755 /lib/systemd/system-sleep/mwifiex_pcie.sh
+6. Install the latest marvell firmware:
+  * git clone git://git.marvell.com/mwifiex-firmware.git  
+  * sudo mkdir -p /lib/firmware/mrvl/  
+  * sudo cp mwifiex-firmware/mrvl/* /lib/firmware/mrvl/
 7. Install the custom kernel and headers:
   * $ sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb
 8. Reboot on installed kernel.
