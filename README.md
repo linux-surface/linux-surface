@@ -43,7 +43,7 @@ For the ipts_firmware files, please select the version for your device.
 * v79 for the Surface Laptop
 * v101 for Surface Book 2 15"
 * v102 for the Surface Pro 2017
-* v103 for the Surface Book 2 13"
+* v137 for the Surface Book 2 13"
 
 1. Copy the files under root to where they belong:
   * $ sudo cp -R root/* /
