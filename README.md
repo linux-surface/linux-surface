@@ -67,9 +67,6 @@ For the ipts_firmware files, please select the version for your device.
 
 ### NOTES
 
-If your network won't connect on the 4.14.x series, you need to apply the apparmor-fix-4.14.patch file in /etc/:
-* $ cd /etc/ && sudo patch -p1 < /path/to/apparmor-fix-4.14.patch
-
 If you are getting stuck at boot when loading the ramdisk, you need to install the Processor Microcode Firmware for Intel CPUs (usually found under Additional Drivers in Software and Updates).
 
 ### Donations Appreciated!
