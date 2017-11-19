@@ -16,7 +16,7 @@ Linux running on the Surface Book, Surface Book 2, Surface Pro 4, Surface Pro 20
 * Power Button
 * Volume Buttons
 * SD Card Reader
-* Cameras (partial support)
+* Cameras (partial support, disabled for now)
 * Suspend/Hibernate
 * Sensors (accelerometer, gyroscope, ambient light sensor)
 * Battery Readings
@@ -26,6 +26,9 @@ Linux running on the Surface Book, Surface Book 2, Surface Pro 4, Surface Pro 20
 
 * Dedicated GPU (if you have a performance base on a Surface Book, otherwise onboard works fine)
 * Cameras (not fully supported yet)
+
+### Untested
+* DisplayPort
 
 ### Download Pre-built Kernel and Headers
 
