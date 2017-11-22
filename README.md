@@ -49,7 +49,9 @@ For the ipts_firmware files, please select the version for your device.
 * v137 for the Surface Book 2 13"
 
 1. Copy the files under root to where they belong:
-  * $ sudo cp -R root/* /
+  * $ sudo cp -R root/* /
+2. Make /lib/systemd/system-sleep/hibernate.sh as executable:
+  * $ sudo chmod a+x /lib/systemd/system-sleep/hibernate.sh
 2. Extract ipts_firmware_[VERSION].zip to /lib/firmware/intel/ipts/
   * $ sudo mkdir -p /lib/firmware/intel/ipts
   * $ sudo unzip ipts_firmware_[VERSION].zip -d /lib/firmware/intel/ipts/
