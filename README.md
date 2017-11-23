@@ -9,7 +9,7 @@ Linux running on the Surface Book, Surface Book 2, Surface Pro 4, Surface Pro 20
 * Touchpad
 * 2D/3D Acceleration
 * Touchscreen
-* Pen (if paired and multi-touch mode enabled)
+* Pen
 * WiFi
 * Bluetooth
 * Speakers
@@ -17,18 +17,20 @@ Linux running on the Surface Book, Surface Book 2, Surface Pro 4, Surface Pro 20
 * Volume Buttons
 * SD Card Reader
 * Cameras (partial support, disabled for now)
-* Suspend/Hibernate
+* Hibernate
 * Sensors (accelerometer, gyroscope, ambient light sensor)
 * Battery Readings
 * Docking/Undocking Tablet and Keyboard
+* DisplayPort
 
 ### What's NOT Working
 
 * Dedicated GPU (if you have a performance base on a Surface Book, otherwise onboard works fine)
 * Cameras (not fully supported yet)
+* Suspend (uses Connected Standby which is not supported yet)
 
-### Untested
-* DisplayPort
+### Notes on What's Working
+* For the most part, things are tested on a Surface Book. While most things are reportedly fully working on other devices, your mileage may vary. Please look at the issues list for possible exceptions.
 
 ### Download Pre-built Kernel and Headers
 
