@@ -137,9 +137,7 @@ int ipts_start(ipts_info_t *ipts)
 	ipts_set_state(ipts, IPTS_STA_INIT);
 	ipts->num_of_parallel_data_buffers = TOUCH_SENSOR_MAX_DATA_BUFFERS;
 
-#ifdef ENABLE_IPTS_DEBUG
 	ipts->sensor_mode = TOUCH_SENSOR_MODE_RAW_DATA; /* start with RAW_DATA */
-#endif
 
 	ret = ipts_handle_cmd(ipts, TOUCH_SENSOR_NOTIFY_DEV_READY_CMD, NULL, 0);
 
