@@ -22,10 +22,11 @@ Linux running on the Surface Book, Surface Book 2, Surface Pro 4, Surface Pro 20
 * Battery Readings
 * Docking/Undocking Tablet and Keyboard
 * DisplayPort
+* Dedicated Nvidia GPU (Surface Book 2)
 
 ### What's NOT Working
 
-* Dedicated GPU (if you have a performance base on a Surface Book, otherwise onboard works fine)
+* Dedicated Nvidia GPU (if you have a performance base on a Surface Book 1, otherwise onboard works fine)
 * Cameras (not fully supported yet)
 * Suspend (uses Connected Standby which is not supported yet)
 
