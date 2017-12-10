@@ -82,4 +82,4 @@ For the ipts_firmware files, please select the version for your device.
 
 PayPal: https://www.paypal.me/jakeday42
 
-Bitcoin: 1JkpbAJ41W6SUjH9vCRDpHNNpecjPK3Zid
+Bitcoin: 1AH7ByeJBjMoAwsgi9oeNvVLmZHvGoQg68
