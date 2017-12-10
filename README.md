@@ -75,7 +75,8 @@ For the ipts_firmware files, please select the version for your device.
 
 ### NOTES
 
-If you are getting stuck at boot when loading the ramdisk, you need to install the Processor Microcode Firmware for Intel CPUs (usually found under Additional Drivers in Software and Updates).
+* If you are getting stuck at boot when loading the ramdisk, you need to install the Processor Microcode Firmware for Intel CPUs (usually found under Additional Drivers in Software and Updates).
+* If you are having issues with the position of the cursor matching the pen/stylus, you'll need to update your libwacom as mentioned here: https://github.com/jakeday/linux-surface/issues/46
 
 ### Donations Appreciated!
 
