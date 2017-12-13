@@ -57,10 +57,10 @@ For the ipts_firmware files, please select the version for your device.
   * $ sudo chmod a+x /lib/systemd/system-sleep/hibernate.sh
 3. Extract ipts_firmware_[VERSION].zip to /lib/firmware/intel/ipts/
   * $ sudo mkdir -p /lib/firmware/intel/ipts
-  * $ sudo unzip ipts_firmware_[VERSION].zip -d /lib/firmware/intel/ipts/
+  * $ sudo unzip firmware/ipts_firmware_[VERSION].zip -d /lib/firmware/intel/ipts/
 4. Extract i915_firmware.zip to /lib/firmware/i915/
   * $ sudo mkdir -p /lib/firmware/i915
-  * $ sudo unzip i915_firmware.zip -d /lib/firmware/i915/
+  * $ sudo unzip firmware/i915_firmware.zip -d /lib/firmware/i915/
 5. (Ubuntu 17.10) Fix issue with Suspend to Disk:
   * $ sudo ln -s /lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -s /lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
 6. (all other distros) Fix issue with Suspend to Disk:
