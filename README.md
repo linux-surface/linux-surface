@@ -13,13 +13,13 @@ Linux running on the Surface Book, Surface Book 2, Surface Pro 4, Surface Pro 20
 * WiFi
 * Bluetooth
 * Speakers
-* Power Button
-* Volume Buttons
+* Power Button (not yet working for SB2/SP2017)
+* Volume Buttons (not yet working for SB2/SP2017)
 * SD Card Reader
 * Cameras (partial support, disabled for now)
 * Hibernate
 * Sensors (accelerometer, gyroscope, ambient light sensor)
-* Battery Readings
+* Battery Readings (not yet working for SB2/SP2017)
 * Docking/Undocking Tablet and Keyboard
 * DisplayPort
 * Dedicated Nvidia GPU (Surface Book 2)
