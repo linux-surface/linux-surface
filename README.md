@@ -1,6 +1,6 @@
 # Linux Surface
 
-Linux running on the Surface Book, Surface Book 2, Surface Pro 4, Surface Pro 2017 and Surface Laptop. Follow the instructions below to install the latest kernel and config files.
+Linux running on the Surface Book, Surface Book 2, Surface Pro 3, Surface Pro 4, Surface Pro 2017 and Surface Laptop. Follow the instructions below to install the latest kernel and config files.
 
 
 ### What's Working
@@ -69,7 +69,7 @@ For the ipts_firmware files, please select the version for your device.
   * git clone git://git.marvell.com/mwifiex-firmware.git  
   * sudo mkdir -p /lib/firmware/mrvl/  
   * sudo cp mwifiex-firmware/mrvl/* /lib/firmware/mrvl/
-8. Install the custom kernel and headers:
+8. Install the custom kernel and headers (or follow the steps for compiling the kernel from source below):
   * $ sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb
 9. Reboot on installed kernel.
 
@@ -79,6 +79,27 @@ For the ipts_firmware files, please select the version for your device.
 * If you are having issues with the position of the cursor matching the pen/stylus, you'll need to update your libwacom as mentioned here: https://github.com/jakeday/linux-surface/issues/46
 * If you are on a SP4 and have trouble with the type cover re-attaching, add this udev rule:
 ACTION=="add", SUBSYSTEM=="usb", ATTR{product}=="Surface Type Cover", RUN+="/sbin/modprobe -r i2c_hid && /sbin/modprobe i2c_hid"
+
+### Compiling the Kernel from Source
+
+If you don't want to use the pre-built kernel and headers, you can compile the kernel yourself following these steps:
+
+1. Assuming you cloned the linux-surface repo (this one) into ~/linux-surface, go to the parent directory:
+  * $ cd ~
+2. Clone the mainline stable kernel repo:
+  * $ git clone git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git
+3. Go into the linux-stable directory:
+  * $ cd linux-stable
+4. Checkout the version of the kernel you wish to target (replacing with your target version):
+  * $ git checkout v4.y.z
+5. Apply the kernel patches from the linux-surface repo (this one):
+  * $ for i in ~/linux-surface/patches/*.patch; do patch -p1 < $i; done
+6. Copy over the config file from the linux-surface repo (this one):
+  * $ cp ~/linux-surface/config .config
+7. Compile the kernel and headers (for ubuntu, refer to the build guild for your distro):
+  * $ make -j `getconf _NPROCESSORS_ONLN` deb-pkg LOCALVERSION=-linux-surface
+8. Install the kernel and headers:
+  * $ sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb
 
 ### Donations Appreciated!
 
