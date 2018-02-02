@@ -55,7 +55,6 @@ For the i915_firmware files, please select the version for your device.
 * kbl for series 5 devices (Surface Book 2, Surface Pro 2017)
 * skl for series 4 devices (Surface Book, Surface Pro 4, Surface Laptop)
 * bxt for series 3 devices (Surface Pro 3)
-* v78 for the Surface Pro 4
 
 1. Copy the files under root to where they belong:
   * $ sudo cp -R root/* /
