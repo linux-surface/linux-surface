@@ -102,7 +102,7 @@ If you don't want to use the pre-built kernel and headers, you can compile the k
 6. Copy over the config file from the linux-surface repo (this one):
   * $ cp ~/linux-surface/config .config
 7. Compile the kernel and headers (for ubuntu, refer to the build guild for your distro):
-  * $ make -j `getconf _NPROCESSORS_ONLN` deb-pkg LOCALVERSION=-linux-surface
+  * $ make -j \`getconf _NPROCESSORS_ONLN\` deb-pkg LOCALVERSION=-linux-surface
 8. Install the kernel and headers:
   * $ sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb
 
