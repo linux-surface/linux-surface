@@ -1,0 +1,173 @@
+From a359b5adc91cb9f2d3cc07705d804ef60bf6e4e3 Mon Sep 17 00:00:00 2001
+From: Jake Day <jake@ninebysix.com>
+Date: Fri, 2 Feb 2018 12:57:32 -0500
+Subject: fixes for marvell mwifiex
+
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/11n_aggr.c b/drivers/net/wireless/marvell/mwifiex/11n_aggr.c
+index 042a1d0..fc9041f 100644
+--- a/drivers/net/wireless/marvell/mwifiex/11n_aggr.c
++++ b/drivers/net/wireless/marvell/mwifiex/11n_aggr.c
+@@ -200,8 +200,7 @@ mwifiex_11n_aggregate_pkt(struct mwifiex_private *priv,
+ 
+ 	do {
+ 		/* Check if AMSDU can accommodate this MSDU */
+-		if ((skb_aggr->len + skb_src->len + LLC_SNAP_LEN) >
+-		    adapter->tx_buf_size)
++		if (skb_tailroom(skb_aggr) < (skb_src->len + LLC_SNAP_LEN))
+ 			break;
+ 
+ 		skb_src = skb_dequeue(&pra_list->skb_head);
+diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+index 6e0d9a9..d008687 100644
+--- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
++++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+@@ -416,6 +416,9 @@ mwifiex_cfg80211_set_power_mgmt(struct wiphy *wiphy,
+ 
+ 	ps_mode = enabled;
+ 
++	mwifiex_dbg(priv->adapter, ERROR, "overriding ps_mode to false\n");
++	ps_mode = 0;
++
+ 	return mwifiex_drv_set_power(priv, &ps_mode);
+ }
+ 
+diff --git a/drivers/net/wireless/marvell/mwifiex/init.c b/drivers/net/wireless/marvell/mwifiex/init.c
+index e1aa860..328829b 100644
+--- a/drivers/net/wireless/marvell/mwifiex/init.c
++++ b/drivers/net/wireless/marvell/mwifiex/init.c
+@@ -60,7 +60,7 @@ static void wakeup_timer_fn(struct timer_list *t)
+ 	adapter->hw_status = MWIFIEX_HW_STATUS_RESET;
+ 	mwifiex_cancel_all_pending_cmd(adapter);
+ 
+-	if (adapter->if_ops.card_reset && !adapter->hs_activated)
++	if (adapter->if_ops.card_reset)
+ 		adapter->if_ops.card_reset(adapter);
+ }
+ 
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
+index cd31494..50df1c0 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
+@@ -310,6 +310,8 @@ static void mwifiex_pcie_remove(struct pci_dev *pdev)
+ 		mwifiex_init_shutdown_fw(priv, MWIFIEX_FUNC_SHUTDOWN);
+ 	}
+ 
++	cancel_work_sync(&card->work);
++
+ 	mwifiex_remove_card(adapter);
+ }
+ 
+@@ -1729,6 +1731,16 @@ static int mwifiex_pcie_process_cmd_complete(struct mwifiex_adapter *adapter)
+ 	}
+ 
+ 	rx_len = get_unaligned_le16(skb->data);
++
++
++	if (rx_len == 0) {
++		mwifiex_dbg(adapter, ERROR,
++				    "0 byte cmdrsp\n");
++		mwifiex_map_pci_memory(adapter, skb, MWIFIEX_UPLD_SIZE,
++					   PCI_DMA_FROMDEVICE);
++		return 0;
++	}
++
+ 	skb_put(skb, MWIFIEX_UPLD_SIZE - skb->len);
+ 	skb_trim(skb, rx_len);
+ 
+diff --git a/drivers/net/wireless/marvell/mwifiex/sdio.c b/drivers/net/wireless/marvell/mwifiex/sdio.c
+index fd5183c..832824a 100644
+--- a/drivers/net/wireless/marvell/mwifiex/sdio.c
++++ b/drivers/net/wireless/marvell/mwifiex/sdio.c
+@@ -399,6 +399,8 @@ mwifiex_sdio_remove(struct sdio_func *func)
+ 		mwifiex_init_shutdown_fw(priv, MWIFIEX_FUNC_SHUTDOWN);
+ 	}
+ 
++	cancel_work_sync(&card->work);
++
+ 	mwifiex_remove_card(adapter);
+ }
+ 
+diff --git a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
+index fb09014..5b8329e 100644
+--- a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
++++ b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
+@@ -2313,7 +2313,7 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
+ 		if (ret)
+ 			return -1;
+ 
+-		if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
++		if (0 && priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
+ 			/* Enable IEEE PS by default */
+ 			priv->adapter->ps_mode = MWIFIEX_802_11_POWER_MODE_PSP;
+ 			ret = mwifiex_send_cmd(priv,
+@@ -2336,8 +2336,8 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
+ 				return -1;
+ 		}
+ 
+-		mwifiex_send_cmd(priv, HostCmd_CMD_CHAN_REGION_CFG,
+-				 HostCmd_ACT_GEN_GET, 0, NULL, true);
++		//mwifiex_send_cmd(priv, HostCmd_CMD_CHAN_REGION_CFG,
++		//		 HostCmd_ACT_GEN_GET, 0, NULL, true);
+ 	}
+ 
+ 	/* get tx rate */
+@@ -2369,7 +2369,7 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
+ 	if (ret)
+ 		return -1;
+ 
+-	if (!disable_auto_ds && first_sta &&
++	if (0 && !disable_auto_ds && first_sta &&
+ 	    priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
+ 		/* Enable auto deep sleep */
+ 		auto_ds.auto_ds = DEEP_SLEEP_ON;
+diff --git a/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c b/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c
+index 1bd4e13..27d2bac 100644
+--- a/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c
++++ b/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c
+@@ -48,9 +48,14 @@ mwifiex_process_cmdresp_error(struct mwifiex_private *priv,
+ 	struct host_cmd_ds_802_11_ps_mode_enh *pm;
+ 	unsigned long flags;
+ 
+-	mwifiex_dbg(adapter, ERROR,
+-		    "CMD_RESP: cmd %#x error, result=%#x\n",
+-		    resp->command, resp->result);
++	if (resp->command == 271 && resp->result == 2){
++		// ignore this command as the firmware does not support it
++	}
++	else {
++		mwifiex_dbg(adapter, ERROR,
++				"CMD_RESP: cmd %#x error, result=%#x\n",
++				resp->command, resp->result);
++	}
+ 
+ 	if (adapter->curr_cmd->wait_q_enabled)
+ 		adapter->cmd_wait_q.status = -1;
+diff --git a/net/wireless/sme.c b/net/wireless/sme.c
+index fdb3646..b44b23b 100644
+--- a/net/wireless/sme.c
++++ b/net/wireless/sme.c
+@@ -690,6 +690,11 @@ void __cfg80211_connect_result(struct net_device *dev,
+ 		return;
+ 	}
+ 
++	if (WARN_ON(!wdev->ssid_len)) {
++		cfg80211_put_bss(wdev->wiphy, cr->bss);
++		return;
++	}
++
+ 	nl80211_send_connect_result(wiphy_to_rdev(wdev->wiphy), dev, cr,
+ 				    GFP_KERNEL);
+ 
+@@ -1105,7 +1110,7 @@ int cfg80211_connect(struct cfg80211_registered_device *rdev,
+ 	/*
+ 	 * If we have an ssid_len, we're trying to connect or are
+ 	 * already connected, so reject a new SSID unless it's the
+-	 * same (which is the case for re-association.)
++	 * same (which is the case for Re-Association.
+ 	 */
+ 	if (wdev->ssid_len &&
+ 	    (wdev->ssid_len != connect->ssid_len ||
+diff --git a/scripts/leaking_addresses.pl b/scripts/leaking_addresses.pl
+old mode 100755
+new mode 100644
