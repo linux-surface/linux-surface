@@ -98,7 +98,7 @@ If you don't want to use the pre-built kernel and headers, you can compile the k
 4. Checkout the version of the kernel you wish to target (replacing with your target version):
   * $ git checkout v4.y.z
 5. Apply the kernel patches from the linux-surface repo (this one):
-  * $ for i in ~/linux-surface/patches/*.patch; do patch -p1 < $i; done
+  * $ for i in ~/linux-surface/patches-[VERSION]/*.patch; do patch -p1 < $i; done
 6. Copy over the config file from the linux-surface repo (this one):
   * $ cp ~/linux-surface/config .config
 7. Compile the kernel and headers (for ubuntu, refer to the build guild for your distro):
