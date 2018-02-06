@@ -45,20 +45,106 @@ index e1aa860..328829b 100644
  		adapter->if_ops.card_reset(adapter);
  }
  
+diff --git a/drivers/net/wireless/marvell/mwifiex/main.c b/drivers/net/wireless/marvell/mwifiex/main.c
+index a96bd7e..79b026f 100644
+--- a/drivers/net/wireless/marvell/mwifiex/main.c
++++ b/drivers/net/wireless/marvell/mwifiex/main.c
+@@ -163,6 +163,7 @@ void mwifiex_queue_main_work(struct mwifiex_adapter *adapter)
+ 	spin_lock_irqsave(&adapter->main_proc_lock, flags);
+ 	if (adapter->mwifiex_processing) {
+ 		adapter->more_task_flag = true;
++		adapter->more_rx_task_flag = true;
+ 		spin_unlock_irqrestore(&adapter->main_proc_lock, flags);
+ 	} else {
+ 		spin_unlock_irqrestore(&adapter->main_proc_lock, flags);
+@@ -171,18 +172,20 @@ void mwifiex_queue_main_work(struct mwifiex_adapter *adapter)
+ }
+ EXPORT_SYMBOL_GPL(mwifiex_queue_main_work);
+ 
+-static void mwifiex_queue_rx_work(struct mwifiex_adapter *adapter)
++void mwifiex_queue_rx_work(struct mwifiex_adapter *adapter)
+ {
+ 	unsigned long flags;
+ 
+ 	spin_lock_irqsave(&adapter->rx_proc_lock, flags);
+ 	if (adapter->rx_processing) {
++		adapter->more_rx_task_flag = true;
+ 		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
+ 	} else {
+ 		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
+ 		queue_work(adapter->rx_workqueue, &adapter->rx_work);
+ 	}
+ }
++EXPORT_SYMBOL_GPL(mwifiex_queue_rx_work);
+ 
+ static int mwifiex_process_rx(struct mwifiex_adapter *adapter)
+ {
+@@ -192,13 +195,14 @@ static int mwifiex_process_rx(struct mwifiex_adapter *adapter)
+ 
+ 	spin_lock_irqsave(&adapter->rx_proc_lock, flags);
+ 	if (adapter->rx_processing || adapter->rx_locked) {
++		adapter->more_rx_task_flag = true;
+ 		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
+ 		goto exit_rx_proc;
+ 	} else {
+ 		adapter->rx_processing = true;
+ 		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
+ 	}
+-
++rx_process_start:
+ 	/* Check for Rx data */
+ 	while ((skb = skb_dequeue(&adapter->rx_data_q))) {
+ 		atomic_dec(&adapter->rx_pending);
+@@ -220,6 +224,11 @@ static int mwifiex_process_rx(struct mwifiex_adapter *adapter)
+ 		}
+ 	}
+ 	spin_lock_irqsave(&adapter->rx_proc_lock, flags);
++	if (adapter->more_rx_task_flag) {
++		adapter->more_rx_task_flag = false;
++		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
++		goto rx_process_start;
++	}
+ 	adapter->rx_processing = false;
+ 	spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
+ 
+@@ -283,10 +292,10 @@ int mwifiex_main_process(struct mwifiex_adapter *adapter)
+ 				mwifiex_process_hs_config(adapter);
+ 			if (adapter->if_ops.process_int_status)
+ 				adapter->if_ops.process_int_status(adapter);
++			if (adapter->rx_work_enabled && adapter->data_received)
++				mwifiex_queue_rx_work(adapter);
+ 		}
+ 
+-		if (adapter->rx_work_enabled && adapter->data_received)
+-			mwifiex_queue_rx_work(adapter);
+ 
+ 		/* Need to wake up the card ? */
+ 		if ((adapter->ps_state == PS_STATE_SLEEP) &&
+diff --git a/drivers/net/wireless/marvell/mwifiex/main.h b/drivers/net/wireless/marvell/mwifiex/main.h
+index 154c079..4205344 100644
+--- a/drivers/net/wireless/marvell/mwifiex/main.h
++++ b/drivers/net/wireless/marvell/mwifiex/main.h
+@@ -889,6 +889,7 @@ struct mwifiex_adapter {
+ 	spinlock_t main_proc_lock;
+ 	u32 mwifiex_processing;
+ 	u8 more_task_flag;
++	u8 more_rx_task_flag;
+ 	u16 tx_buf_size;
+ 	u16 curr_tx_buf_size;
+ 	/* sdio single port rx aggregation capability */
+@@ -1661,6 +1662,7 @@ void mwifiex_upload_device_dump(struct mwifiex_adapter *adapter, void *drv_info,
+ 				int drv_info_size);
+ void *mwifiex_alloc_dma_align_buf(int rx_len, gfp_t flags);
+ void mwifiex_queue_main_work(struct mwifiex_adapter *adapter);
++void mwifiex_queue_rx_work(struct mwifiex_adapter *adapter);
+ int mwifiex_get_wakeup_reason(struct mwifiex_private *priv, u16 action,
+ 			      int cmd_type,
+ 			      struct mwifiex_ds_wakeup_reason *wakeup_reason);
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
-index cd31494..50df1c0 100644
+index cd31494..575da92 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie.c
 +++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
-@@ -310,6 +310,8 @@ static void mwifiex_pcie_remove(struct pci_dev *pdev)
- 		mwifiex_init_shutdown_fw(priv, MWIFIEX_FUNC_SHUTDOWN);
- 	}
- 
-+	cancel_work_sync(&card->work);
-+
- 	mwifiex_remove_card(adapter);
- }
- 
-@@ -1729,6 +1731,16 @@ static int mwifiex_pcie_process_cmd_complete(struct mwifiex_adapter *adapter)
+@@ -1729,6 +1729,16 @@ static int mwifiex_pcie_process_cmd_complete(struct mwifiex_adapter *adapter)
  	}
  
  	rx_len = get_unaligned_le16(skb->data);
@@ -75,19 +161,15 @@ index cd31494..50df1c0 100644
  	skb_put(skb, MWIFIEX_UPLD_SIZE - skb->len);
  	skb_trim(skb, rx_len);
  
-diff --git a/drivers/net/wireless/marvell/mwifiex/sdio.c b/drivers/net/wireless/marvell/mwifiex/sdio.c
-index fd5183c..832824a 100644
---- a/drivers/net/wireless/marvell/mwifiex/sdio.c
-+++ b/drivers/net/wireless/marvell/mwifiex/sdio.c
-@@ -399,6 +399,8 @@ mwifiex_sdio_remove(struct sdio_func *func)
- 		mwifiex_init_shutdown_fw(priv, MWIFIEX_FUNC_SHUTDOWN);
- 	}
+@@ -2781,7 +2791,7 @@ static void mwifiex_pcie_card_reset_work(struct mwifiex_adapter *adapter)
+ {
+ 	struct pcie_service_card *card = adapter->card;
  
-+	cancel_work_sync(&card->work);
-+
- 	mwifiex_remove_card(adapter);
+-	pci_reset_function(card->dev);
++	pci_try_reset_function(card->dev);
  }
  
+ static void mwifiex_pcie_work(struct work_struct *work)
 diff --git a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
 index fb09014..5b8329e 100644
 --- a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
@@ -143,6 +225,19 @@ index 1bd4e13..27d2bac 100644
  
  	if (adapter->curr_cmd->wait_q_enabled)
  		adapter->cmd_wait_q.status = -1;
+diff --git a/drivers/net/wireless/marvell/mwifiex/usb.c b/drivers/net/wireless/marvell/mwifiex/usb.c
+index 4bc2448..d20fda1 100644
+--- a/drivers/net/wireless/marvell/mwifiex/usb.c
++++ b/drivers/net/wireless/marvell/mwifiex/usb.c
+@@ -144,6 +144,8 @@ static int mwifiex_usb_recv(struct mwifiex_adapter *adapter,
+ 		skb_queue_tail(&adapter->rx_data_q, skb);
+ 		adapter->data_received = true;
+ 		atomic_inc(&adapter->rx_pending);
++		if (adapter->rx_work_enabled)
++			mwifiex_queue_rx_work(adapter);
+ 		break;
+ 	default:
+ 		mwifiex_dbg(adapter, ERROR,
 diff --git a/net/wireless/sme.c b/net/wireless/sme.c
 index fdb3646..b44b23b 100644
 --- a/net/wireless/sme.c
