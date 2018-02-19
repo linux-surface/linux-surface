@@ -32,7 +32,7 @@ index 2acf3b3..ab69d8d 100644
  i915-$(CONFIG_DRM_I915_CAPTURE_ERROR) += i915_gpu_error.o
  i915-$(CONFIG_DRM_I915_SELFTEST) += \
 diff --git a/drivers/gpu/drm/i915/i915_drv.c b/drivers/gpu/drm/i915/i915_drv.c
-index 2cf10d1..7fc4324 100644
+index 2cf10d1..25cb2ee 100644
 --- a/drivers/gpu/drm/i915/i915_drv.c
 +++ b/drivers/gpu/drm/i915/i915_drv.c
 @@ -51,6 +51,7 @@
@@ -101,10 +101,38 @@ index f782cf2..a8dd495 100644
  {
  	struct i915_gem_context *ctx;
 diff --git a/drivers/gpu/drm/i915/i915_guc_submission.c b/drivers/gpu/drm/i915/i915_guc_submission.c
-index f84c267..485d86e 100644
+index f84c267..c29d64b 100644
 --- a/drivers/gpu/drm/i915/i915_guc_submission.c
 +++ b/drivers/gpu/drm/i915/i915_guc_submission.c
-@@ -331,7 +331,14 @@ static void guc_stage_desc_init(struct intel_guc *guc,
+@@ -88,6 +88,7 @@ static inline bool is_high_priority(struct i915_guc_client* client)
+ 
+ static int __reserve_doorbell(struct i915_guc_client *client)
+ {
++	struct drm_i915_private *dev_priv = guc_to_i915(client->guc);
+ 	unsigned long offset;
+ 	unsigned long end;
+ 	u16 id;
+@@ -100,10 +101,15 @@ static int __reserve_doorbell(struct i915_guc_client *client)
+ 	 * priority contexts, the second half for high-priority ones.
+ 	 */
+ 	offset = 0;
+-	end = GUC_NUM_DOORBELLS/2;
+-	if (is_high_priority(client)) {
+-		offset = end;
+-		end += offset;
++	if (IS_SKYLAKE(dev_priv)) {
++		end = GUC_NUM_DOORBELLS;
++	}
++	else {
++		end = GUC_NUM_DOORBELLS/2;
++		if (is_high_priority(client)) {
++			offset = end;
++			end += offset;
++		}
+ 	}
+ 
+ 	id = find_next_zero_bit(client->guc->doorbell_bitmap, end, offset);
+@@ -331,7 +337,14 @@ static void guc_stage_desc_init(struct intel_guc *guc,
  	desc = __get_stage_desc(client);
  	memset(desc, 0, sizeof(*desc));
  
@@ -120,7 +148,7 @@ index f84c267..485d86e 100644
  	desc->stage_id = client->stage_id;
  	desc->priority = client->priority;
  	desc->db_id = client->doorbell_id;
-@@ -1042,7 +1049,8 @@ static void guc_interrupts_capture(struct drm_i915_private *dev_priv)
+@@ -1042,7 +1055,8 @@ static void guc_interrupts_capture(struct drm_i915_private *dev_priv)
  		I915_WRITE(RING_MODE_GEN7(engine), irqs);
  
  	/* route USER_INTERRUPT to Host, all others are sent to GuC. */
@@ -130,7 +158,7 @@ index f84c267..485d86e 100644
  	       GT_RENDER_USER_INTERRUPT << GEN8_BCS_IRQ_SHIFT;
  	/* These three registers have the same bit definitions */
  	I915_WRITE(GUC_BCS_RCS_IER, ~irqs);
-@@ -1176,3 +1184,47 @@ void i915_guc_submission_disable(struct drm_i915_private *dev_priv)
+@@ -1176,3 +1190,47 @@ void i915_guc_submission_disable(struct drm_i915_private *dev_priv)
  	guc_client_free(guc->execbuf_client);
  	guc->execbuf_client = NULL;
  }
@@ -144,7 +172,7 @@ index f84c267..485d86e 100644
 +	/* client for execbuf submission */
 +	client = guc_client_alloc(dev_priv,
 +				  INTEL_INFO(dev_priv)->ring_mask,
-+				  GUC_CLIENT_PRIORITY_NORMAL,
++				  IS_SKYLAKE(dev_priv) ? GUC_CLIENT_PRIORITY_HIGH : GUC_CLIENT_PRIORITY_NORMAL,
 +				  ctx);
 +	if (!client) {
 +		DRM_ERROR("Failed to create normal GuC client!\n");
@@ -267,7 +295,7 @@ index 418450b..c1bd36c 100644
  #endif
 diff --git a/drivers/gpu/drm/i915/intel_ipts.c b/drivers/gpu/drm/i915/intel_ipts.c
 new file mode 100644
-index 0000000..f5fa111
+index 0000000..be9fa6f
 --- /dev/null
 +++ b/drivers/gpu/drm/i915/intel_ipts.c
 @@ -0,0 +1,627 @@
@@ -1006,7 +1034,7 @@ index 689fde1..54a076d 100644
 +
  #endif /* _INTEL_LRC_H_ */
 diff --git a/drivers/gpu/drm/i915/intel_panel.c b/drivers/gpu/drm/i915/intel_panel.c
-index adc51e4..c23c8c1 100644
+index adc51e4..a3294c4 100644
 --- a/drivers/gpu/drm/i915/intel_panel.c
 +++ b/drivers/gpu/drm/i915/intel_panel.c
 @@ -34,6 +34,7 @@
@@ -1038,7 +1066,7 @@ index adc51e4..c23c8c1 100644
  
  static void pch_enable_backlight(const struct intel_crtc_state *crtc_state,
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index dd416e9..6d2e8d3 100644
+index 65ea23b..80c2899 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -145,6 +145,7 @@ struct mt_device {
@@ -5957,7 +5985,7 @@ index 0ccccba..c29f128 100644
  #define MEI_DEV_ID_SPT_H_2    0xA13B  /* Sunrise Point H 2 */
  
 diff --git a/drivers/misc/mei/pci-me.c b/drivers/misc/mei/pci-me.c
-index f4f1755..451005f 100644
+index 4a0ccda..bf71d31 100644
 --- a/drivers/misc/mei/pci-me.c
 +++ b/drivers/misc/mei/pci-me.c
 @@ -86,6 +86,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
