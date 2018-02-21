@@ -37,7 +37,7 @@ Linux running on the Surface Book, Surface Book 2, Surface Pro 3, Surface Pro 4,
 
 Downloads for ubuntu based distros (other distros will need to compile from source in the kernel folder):
 
-https://goo.gl/QSZCwq
+https://github.com/jakeday/linux-surface/releases
 
 You will need to download both the image and headers deb files for the version you want to install.
 
