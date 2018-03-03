@@ -1,0 +1,283 @@
+diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
+index 2c745e8..3b746c5 100644
+--- a/drivers/platform/x86/Kconfig
++++ b/drivers/platform/x86/Kconfig
+@@ -1113,6 +1113,15 @@ config SURFACE_3_BUTTON
+ 	---help---
+ 	  This driver handles the power/home/volume buttons on the Microsoft Surface 3 tablet.
+ 
++config ACPI_SURFACE
++	tristate "Microsoft Surface Extras"
++	depends on ACPI
++	depends on ACPI_WMI
++	depends on INPUT
++	---help---
++	  This driver adds support for access to certain system events
++	  on Microsoft Surface devices.
++
+ config INTEL_PUNIT_IPC
+ 	tristate "Intel P-Unit IPC Driver"
+ 	---help---
+diff --git a/drivers/platform/x86/Makefile b/drivers/platform/x86/Makefile
+index c32b34a..6b04d7f 100644
+--- a/drivers/platform/x86/Makefile
++++ b/drivers/platform/x86/Makefile
+@@ -78,6 +78,7 @@ obj-$(CONFIG_INTEL_PMC_IPC)	+= intel_pmc_ipc.o
+ obj-$(CONFIG_SILEAD_DMI)	+= silead_dmi.o
+ obj-$(CONFIG_SURFACE_PRO3_BUTTON)	+= surfacepro3_button.o
+ obj-$(CONFIG_SURFACE_3_BUTTON)	+= surface3_button.o
++obj-$(CONFIG_ACPI_SURFACE)	+= surface_acpi.o
+ obj-$(CONFIG_INTEL_PUNIT_IPC)  += intel_punit_ipc.o
+ obj-$(CONFIG_INTEL_BXTWC_PMIC_TMU)	+= intel_bxtwc_tmu.o
+ obj-$(CONFIG_INTEL_TELEMETRY)	+= intel_telemetry_core.o \
+diff --git a/drivers/platform/x86/surface_acpi.c b/drivers/platform/x86/surface_acpi.c
+new file mode 100644
+index 0000000..c113d96
+--- /dev/null
++++ b/drivers/platform/x86/surface_acpi.c
+@@ -0,0 +1,245 @@
++/*
++ *  surface_acpi.c - Microsoft Surface ACPI Notify
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2 of the License, or
++ *  (at your option) any later version.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ *  The full GNU General Public License is included in this distribution in
++ *  the file called "COPYING".
++ */
++
++#define SURFACE_ACPI_VERSION	"0.1"
++#define SURFACE_EVENT_GUID		"93b666c5-70c6-469f-a215-3d487c91ab3c"
++#define SURFACE_GEN_VERSION		0x08
++#define PROC_SURFACE			"surface"
++
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/types.h>
++#include <linux/acpi.h>
++#include <linux/power_supply.h>
++#include <linux/thermal.h>
++#include <linux/dmi.h>
++#include <acpi/acpi_bus.h>
++#include <acpi/acpi_drivers.h>
++
++MODULE_AUTHOR("Jake Day");
++MODULE_DESCRIPTION("Microsoft Surface ACPI Notify Driver");
++MODULE_LICENSE("GPL");
++
++#define SUR_METHOD_DSM			"_DSM"
++#define SUR_METHOD_REG			"_REG"
++
++#define SUR_QUERY_DEVICE		0x00
++#define SUR_SET_DVER			0x01
++#define SUR_GET_BOARD_REVID		0x02
++#define SUR_BAT1_STATE_CHANGE	0x03
++#define SUR_BAT1_INFO_CHANGE	0x04
++#define SUR_PSU_STATE_CHANGE	0x05
++#define SUR_PSU_INFO_CHANGE		0x06
++#define SUR_BAT2_STATE_CHANGE	0x07
++#define SUR_BAT2_INFO_CHANGE	0x08
++#define SUR_SENSOR_TRIP_POINT	0x09
++
++#define REG_AVAILABLE			0x01
++#define REG_INIT				0x09
++
++struct surface_acpi_dev {
++	struct acpi_device *acpi_dev;
++	struct acpi_device *bat1_dev;
++	struct acpi_device *bat2_dev;
++	struct acpi_device *psu_dev;
++
++	bool bat1_registered;
++	bool bat2_registered;
++	bool psu_registered;
++};
++
++static struct surface_acpi_dev *surface_acpi;
++
++static struct proc_dir_entry *surface_proc_dir;
++
++static int surface_acpi_reg(void)
++{
++	union acpi_object in_objs[2], out_objs[1];
++	struct acpi_object_list params;
++	struct acpi_buffer results;
++	acpi_status status;
++
++	params.count = ARRAY_SIZE(in_objs);
++	params.pointer = in_objs;
++	in_objs[0].type = ACPI_TYPE_INTEGER;
++	in_objs[0].integer.value = REG_INIT;
++	in_objs[1].type = ACPI_TYPE_INTEGER;
++	in_objs[1].integer.value = REG_AVAILABLE;
++	results.length = sizeof(out_objs);
++	results.pointer = out_objs;
++
++	if (acpi_has_method(surface_acpi->acpi_dev->handle, SUR_METHOD_REG)) {
++		status = acpi_evaluate_object(surface_acpi->acpi_dev->handle,
++				SUR_METHOD_REG, &params, &results);
++
++		if (ACPI_FAILURE(status)) {
++			pr_err("surface_acpi: ACPI event failure status %s\n",
++					acpi_format_exception(status));
++			return AE_ERROR;
++		}
++	}
++	else
++		return AE_NOT_FOUND;
++
++	return AE_OK;
++}
++
++static int surface_acpi_event_handler(u32 event)
++{
++	union acpi_object in_objs[4], out_objs[5];
++	struct acpi_object_list params;
++	struct acpi_buffer results;
++	acpi_status status;
++
++	params.count = ARRAY_SIZE(in_objs);
++	params.pointer = in_objs;
++	in_objs[0].type = ACPI_TYPE_STRING;
++	in_objs[0].string.pointer = SURFACE_EVENT_GUID;
++	in_objs[1].type = ACPI_TYPE_INTEGER;
++	in_objs[1].integer.value = SUR_QUERY_DEVICE;
++	in_objs[2].type = ACPI_TYPE_INTEGER;
++	in_objs[2].integer.value = event;
++	in_objs[3].type = ACPI_TYPE_INTEGER;
++	in_objs[3].integer.value = SURFACE_GEN_VERSION;
++	results.length = sizeof(out_objs);
++	results.pointer = out_objs;
++
++	if (acpi_has_method(surface_acpi->acpi_dev->handle, SUR_METHOD_DSM)) {
++		status = acpi_evaluate_object(surface_acpi->acpi_dev->handle,
++				SUR_METHOD_DSM, &params, &results);
++
++		if (ACPI_FAILURE(status)) {
++			pr_err("surface_acpi: ACPI event failure status %s\n",
++					acpi_format_exception(status));
++			return AE_ERROR;
++		}
++	}
++	else
++		return AE_NOT_FOUND;
++
++	return AE_OK;
++}
++
++static void surface_acpi_load(void)
++{
++	int ret;
++
++	ret = surface_acpi_event_handler(SUR_SET_DVER);
++	if (ACPI_FAILURE(ret))
++		pr_err("surface_acpi: Error setting Driver Version\n");
++
++	ret = surface_acpi_event_handler(SUR_SENSOR_TRIP_POINT);
++	if (ACPI_FAILURE(ret))
++		pr_err("surface_acpi: Error setting Sensor Trip Point\n");
++
++	ret = surface_acpi_event_handler(SUR_BAT1_INFO_CHANGE);
++	if (ACPI_FAILURE(ret))
++		pr_err("surface_acpi: Error attaching BAT1\n");
++	else
++		surface_acpi->bat1_registered = true;
++
++	ret = surface_acpi_event_handler(SUR_BAT2_INFO_CHANGE);
++	if (ACPI_FAILURE(ret))
++		pr_err("surface_acpi: Error attaching BAT2\n");
++	else
++		surface_acpi->bat2_registered = true;
++
++	ret = surface_acpi_event_handler(SUR_PSU_INFO_CHANGE);
++	if (ACPI_FAILURE(ret))
++		pr_err("surface_acpi: Error registering PSU\n");
++	else
++		surface_acpi->psu_registered = true;
++}
++
++static int surface_acpi_add(struct acpi_device *acpi_dev)
++{
++	if (surface_acpi)
++		return AE_ALREADY_ACQUIRED;
++
++	pr_info("surface_acpi: Microsoft Surface ACPI Notify version %s\n",
++	       SURFACE_ACPI_VERSION);
++
++	surface_acpi = kzalloc(sizeof(*surface_acpi), GFP_KERNEL);
++	if (!surface_acpi)
++		return AE_NO_MEMORY;
++
++	surface_acpi->acpi_dev = acpi_dev;
++
++	surface_acpi_reg();
++
++	surface_acpi_load();
++
++	return AE_OK;
++}
++
++static int surface_acpi_remove(struct acpi_device *dev)
++{
++	return AE_OK;
++}
++
++static void surface_acpi_notify(struct acpi_device *dev, u32 event)
++{
++	pr_info("surface_acpi: Event received %x\n", event);
++}
++
++static const struct acpi_device_id surface_device_ids[] = {
++	{"MSHW0091", 0},
++	{"", 0},
++};
++MODULE_DEVICE_TABLE(acpi, surface_device_ids);
++
++static struct acpi_driver surface_acpi_driver = {
++	.name	= "Microsoft Surface ACPI Notify Driver",
++	.owner	= THIS_MODULE,
++	.ids	= surface_device_ids,
++	.flags	= ACPI_DRIVER_ALL_NOTIFY_EVENTS,
++	.ops	= {
++		.add	= surface_acpi_add,
++		.remove = surface_acpi_remove,
++		.notify = surface_acpi_notify,
++	},
++};
++
++static int __init surface_acpi_init(void)
++{
++	int ret;
++
++	surface_proc_dir = proc_mkdir(PROC_SURFACE, acpi_root_dir);
++	if (!surface_proc_dir) {
++		pr_err("surface_acpi: Unable to create proc dir " PROC_SURFACE "\n");
++		return -ENODEV;
++	}
++
++	ret = acpi_bus_register_driver(&surface_acpi_driver);
++	if (ret) {
++		pr_err("surface_acpi: Failed to register ACPI driver: %d\n", ret);
++		remove_proc_entry(PROC_SURFACE, acpi_root_dir);
++	}
++
++	return ret;
++}
++
++static void __exit surface_acpi_exit(void)
++{
++	acpi_bus_unregister_driver(&surface_acpi_driver);
++	if (surface_proc_dir)
++		remove_proc_entry(PROC_SURFACE, acpi_root_dir);
++}
++
++module_init(surface_acpi_init);
++module_exit(surface_acpi_exit);
