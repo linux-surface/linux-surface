@@ -32,10 +32,10 @@ index c32b34a..6b04d7f 100644
  obj-$(CONFIG_INTEL_TELEMETRY)	+= intel_telemetry_core.o \
 diff --git a/drivers/platform/x86/surface_acpi.c b/drivers/platform/x86/surface_acpi.c
 new file mode 100644
-index 0000000..c113d96
+index 0000000..f9666d9
 --- /dev/null
 +++ b/drivers/platform/x86/surface_acpi.c
-@@ -0,0 +1,245 @@
+@@ -0,0 +1,345 @@
 +/*
 + *  surface_acpi.c - Microsoft Surface ACPI Notify
 + *
@@ -96,9 +96,9 @@ index 0000000..c113d96
 +	struct acpi_device *bat2_dev;
 +	struct acpi_device *psu_dev;
 +
-+	bool bat1_registered;
-+	bool bat2_registered;
-+	bool psu_registered;
++	unsigned int bat1_attached:1;
++	unsigned int bat2_attached:1;
++	unsigned int psu_registered:1;
 +};
 +
 +static struct surface_acpi_dev *surface_acpi;
@@ -189,19 +189,115 @@ index 0000000..c113d96
 +	if (ACPI_FAILURE(ret))
 +		pr_err("surface_acpi: Error attaching BAT1\n");
 +	else
-+		surface_acpi->bat1_registered = true;
++		surface_acpi->bat1_attached = 1;
 +
 +	ret = surface_acpi_event_handler(SUR_BAT2_INFO_CHANGE);
 +	if (ACPI_FAILURE(ret))
 +		pr_err("surface_acpi: Error attaching BAT2\n");
 +	else
-+		surface_acpi->bat2_registered = true;
++		surface_acpi->bat2_attached = 1;
 +
 +	ret = surface_acpi_event_handler(SUR_PSU_INFO_CHANGE);
 +	if (ACPI_FAILURE(ret))
 +		pr_err("surface_acpi: Error registering PSU\n");
 +	else
-+		surface_acpi->psu_registered = true;
++		surface_acpi->psu_registered = 1;
++}
++
++static int bat1_proc_show(struct seq_file *m, void *v)
++{
++	seq_printf(m, "attached: %d\n", surface_acpi->bat1_attached);
++	return 0;
++}
++
++static int bat1_proc_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, bat1_proc_show, PDE_DATA(inode));
++}
++
++static const struct file_operations bat1_proc_fops = {
++	.owner		= THIS_MODULE,
++	.open		= bat1_proc_open,
++	.read		= seq_read,
++	.llseek		= seq_lseek,
++	.release	= single_release,
++};
++
++static int bat2_proc_show(struct seq_file *m, void *v)
++{
++	seq_printf(m, "attached: %d\n", surface_acpi->bat2_attached);
++	return 0;
++}
++
++static int bat2_proc_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, bat2_proc_show, PDE_DATA(inode));
++}
++
++static const struct file_operations bat2_proc_fops = {
++	.owner		= THIS_MODULE,
++	.open		= bat2_proc_open,
++	.read		= seq_read,
++	.llseek		= seq_lseek,
++	.release	= single_release,
++};
++
++static int psu_proc_show(struct seq_file *m, void *v)
++{
++	seq_printf(m, "registered: %d\n", surface_acpi->psu_registered);
++	return 0;
++}
++
++static int psu_proc_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, psu_proc_show, PDE_DATA(inode));
++}
++
++static const struct file_operations psu_proc_fops = {
++	.owner		= THIS_MODULE,
++	.open		= psu_proc_open,
++	.read		= seq_read,
++	.llseek		= seq_lseek,
++	.release	= single_release,
++};
++
++static int version_proc_show(struct seq_file *m, void *v)
++{
++	seq_printf(m, "driver: %s\n", SURFACE_ACPI_VERSION);
++	return 0;
++}
++
++static int version_proc_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, version_proc_show, PDE_DATA(inode));
++}
++
++static const struct file_operations version_proc_fops = {
++	.owner		= THIS_MODULE,
++	.open		= version_proc_open,
++	.read		= seq_read,
++	.llseek		= seq_lseek,
++	.release	= single_release,
++};
++
++static void create_surface_proc_entries(void)
++{
++	proc_create_data("BAT1", 0, surface_proc_dir,
++			 &bat1_proc_fops, surface_acpi->bat1_attached);
++	proc_create_data("BAT2", 0, surface_proc_dir,
++			 &bat2_proc_fops, surface_acpi->bat2_attached);
++	proc_create_data("ADP1", 0, surface_proc_dir,
++			 &psu_proc_fops, surface_acpi->psu_registered);
++	proc_create_data("version", 0, surface_proc_dir,
++			 &version_proc_fops, SURFACE_ACPI_VERSION);
++}
++
++static void remove_surface_proc_entries(void)
++{
++	remove_proc_entry("BAT1", surface_proc_dir);
++	remove_proc_entry("BAT2", surface_proc_dir);
++	remove_proc_entry("ADP1", surface_proc_dir);
++	remove_proc_entry("version", surface_proc_dir);
 +}
 +
 +static int surface_acpi_add(struct acpi_device *acpi_dev)
@@ -222,11 +318,15 @@ index 0000000..c113d96
 +
 +	surface_acpi_load();
 +
++	create_surface_proc_entries();
++
 +	return AE_OK;
 +}
 +
 +static int surface_acpi_remove(struct acpi_device *dev)
 +{
++	remove_surface_proc_entries();
++
 +	return AE_OK;
 +}
 +
