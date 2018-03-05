@@ -1,36 +1,8 @@
-From d13e067cecbdb0bebe7bf5f1afcb9a563891e973 Mon Sep 17 00:00:00 2001
-From: Jake Day <jake@ninebysix.com>
-Date: Thu, 1 Feb 2018 19:24:33 -0500
-Subject: support for surface keyboards and covers
-
-
-diff --git a/drivers/hid/hid-core.c b/drivers/hid/hid-core.c
-index 330ca98..fd75182 100644
---- a/drivers/hid/hid-core.c
-+++ b/drivers/hid/hid-core.c
-@@ -723,7 +723,8 @@ static void hid_scan_collection(struct hid_parser *parser, unsigned type)
- 		hid->group = HID_GROUP_SENSOR_HUB;
- 
- 	if (hid->vendor == USB_VENDOR_ID_MICROSOFT &&
--	    hid->product == USB_DEVICE_ID_MS_POWER_COVER &&
-+	    (hid->product == USB_DEVICE_ID_MS_SURFACE_LAPTOP ||
-+		 hid->product == USB_DEVICE_ID_MS_POWER_COVER) &&
- 	    hid->group == HID_GROUP_MULTITOUCH)
- 		hid->group = HID_GROUP_GENERIC;
- 
-@@ -2179,6 +2180,7 @@ static const struct hid_device_id hid_have_special_driver[] = {
- 	{ HID_USB_DEVICE(USB_VENDOR_ID_MICROSOFT, USB_DEVICE_ID_MS_DIGITAL_MEDIA_7K) },
- 	{ HID_USB_DEVICE(USB_VENDOR_ID_MICROSOFT, USB_DEVICE_ID_MS_DIGITAL_MEDIA_600) },
- 	{ HID_USB_DEVICE(USB_VENDOR_ID_MICROSOFT, USB_DEVICE_ID_MS_DIGITAL_MEDIA_3KV1) },
-+	{ HID_USB_DEVICE(USB_VENDOR_ID_MICROSOFT, USB_DEVICE_ID_MS_SURFACE_LAPTOP) },
- 	{ HID_USB_DEVICE(USB_VENDOR_ID_MICROSOFT, USB_DEVICE_ID_MS_POWER_COVER) },
- 	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_MICROSOFT, USB_DEVICE_ID_MS_PRESENTER_8K_BT) },
- #endif
 diff --git a/drivers/hid/hid-ids.h b/drivers/hid/hid-ids.h
-index be2e005..ebb9688 100644
+index ff539c0..d8cc7b2 100644
 --- a/drivers/hid/hid-ids.h
 +++ b/drivers/hid/hid-ids.h
-@@ -757,11 +757,21 @@
+@@ -760,11 +760,22 @@
  #define USB_DEVICE_ID_MS_DIGITAL_MEDIA_3KV1 0x0732
  #define USB_DEVICE_ID_MS_DIGITAL_MEDIA_600  0x0750
  #define USB_DEVICE_ID_MS_COMFORT_MOUSE_4500	0x076c
@@ -53,28 +25,16 @@ index be2e005..ebb9688 100644
 +#define USB_DEVICE_ID_MS_SURFACE_BOOK		0x07cd
 +#define USB_DEVICE_ID_MS_SURFACE_BOOK_2		0x0922
 +#define USB_DEVICE_ID_MS_SURFACE_LAPTOP		0xf001
++#define HID_DEVICE_ID_MS_SURFACE_LAPTOP		0x0064
 +#define USB_DEVICE_ID_MS_POWER_COVER		0x07da
  
  #define USB_VENDOR_ID_MOJO		0x8282
  #define USB_DEVICE_ID_RETRO_ADAPTER	0x3201
-diff --git a/drivers/hid/hid-microsoft.c b/drivers/hid/hid-microsoft.c
-index 96e7d32..9127164 100644
---- a/drivers/hid/hid-microsoft.c
-+++ b/drivers/hid/hid-microsoft.c
-@@ -274,6 +274,8 @@ static const struct hid_device_id ms_devices[] = {
- 		.driver_data = MS_NOGET },
- 	{ HID_USB_DEVICE(USB_VENDOR_ID_MICROSOFT, USB_DEVICE_ID_MS_COMFORT_MOUSE_4500),
- 		.driver_data = MS_DUPLICATE_USAGES },
-+	{ HID_USB_DEVICE(USB_VENDOR_ID_MICROSOFT, USB_DEVICE_ID_MS_SURFACE_LAPTOP),
-+		.driver_data = MS_HIDINPUT },
- 	{ HID_USB_DEVICE(USB_VENDOR_ID_MICROSOFT, USB_DEVICE_ID_MS_POWER_COVER),
- 		.driver_data = MS_HIDINPUT },
- 	{ HID_USB_DEVICE(USB_VENDOR_ID_MICROSOFT, USB_DEVICE_ID_MS_COMFORT_KEYBOARD),
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 97c7c99..4a837b6 100644
+index 9e8c4d2..bd1b82e 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
-@@ -1611,6 +1611,52 @@ static const struct hid_device_id mt_devices[] = {
+@@ -1594,6 +1594,58 @@ static const struct hid_device_id mt_devices[] = {
  		HID_USB_DEVICE(USB_VENDOR_ID_LG,
  			USB_DEVICE_ID_LG_MELFAS_MT) },
  
@@ -118,6 +78,12 @@ index 97c7c99..4a837b6 100644
 +	{ .driver_data = MT_CLS_EXPORT_ALL_INPUTS,
 +		MT_USB_DEVICE(USB_VENDOR_ID_MICROSOFT,
 +		USB_DEVICE_ID_MS_SURFACE_BOOK_2) },
++
++	/* Microsoft Surface Laptop */
++	{ .driver_data = MT_CLS_EXPORT_ALL_INPUTS,
++		HID_DEVICE(BUS_I2C, HID_GROUP_ANY,
++			USB_DEVICE_ID_MS_SURFACE_LAPTOP,
++			HID_DEVICE_ID_MS_SURFACE_LAPTOP) },
 +
 +	/* Microsoft Power Cover */
 +	{ .driver_data = MT_CLS_EXPORT_ALL_INPUTS,
