@@ -32,10 +32,10 @@ index c32b34a..6b04d7f 100644
  obj-$(CONFIG_INTEL_TELEMETRY)	+= intel_telemetry_core.o \
 diff --git a/drivers/platform/x86/surface_acpi.c b/drivers/platform/x86/surface_acpi.c
 new file mode 100644
-index 0000000..f9666d9
+index 0000000..4989d67
 --- /dev/null
 +++ b/drivers/platform/x86/surface_acpi.c
-@@ -0,0 +1,345 @@
+@@ -0,0 +1,432 @@
 +/*
 + *  surface_acpi.c - Microsoft Surface ACPI Notify
 + *
@@ -54,7 +54,6 @@ index 0000000..f9666d9
 + */
 +
 +#define SURFACE_ACPI_VERSION	"0.1"
-+#define SURFACE_EVENT_GUID		"93b666c5-70c6-469f-a215-3d487c91ab3c"
 +#define SURFACE_GEN_VERSION		0x08
 +#define PROC_SURFACE			"surface"
 +
@@ -75,6 +74,7 @@ index 0000000..f9666d9
 +
 +#define SUR_METHOD_DSM			"_DSM"
 +#define SUR_METHOD_REG			"_REG"
++#define SUR_METHOD_STA			"_STA"
 +
 +#define SUR_QUERY_DEVICE		0x00
 +#define SUR_SET_DVER			0x01
@@ -90,7 +90,15 @@ index 0000000..f9666d9
 +#define REG_AVAILABLE			0x01
 +#define REG_INIT				0x09
 +
++static char SURFACE_EVENT_GUID[] = "93b666c5-70c6-469f-a215-3d487c91ab3c";
++static char SUR_SAN_RQST[] = "\\_SB._SAN.RQST";
++static char SUR_SAN_RQSX[] = "\\_SB._SAN.RQSX";
++
 +struct surface_acpi_dev {
++	acpi_handle handle;
++	acpi_handle rqst_handle;
++	acpi_handle rqsx_handle;
++
 +	struct acpi_device *acpi_dev;
 +	struct acpi_device *bat1_dev;
 +	struct acpi_device *bat2_dev;
@@ -105,7 +113,28 @@ index 0000000..f9666d9
 +
 +static struct proc_dir_entry *surface_proc_dir;
 +
-+static int surface_acpi_reg(void)
++static acpi_status surface_acpi_check_status(void)
++{
++	unsigned long long value;
++	acpi_status status;
++
++	if (acpi_has_method(surface_acpi->handle, SUR_METHOD_STA)) {
++		status = acpi_evaluate_integer(surface_acpi->handle,
++				SUR_METHOD_STA, NULL, &value);
++
++		if (ACPI_FAILURE(status)) {
++			pr_err("surface_acpi: ACPI event failure status %s\n",
++					acpi_format_exception(status));
++			return AE_ERROR;
++		}
++	}
++	else
++		return AE_NOT_FOUND;
++
++	return AE_OK;
++}
++
++static acpi_status surface_acpi_reg(void)
 +{
 +	union acpi_object in_objs[2], out_objs[1];
 +	struct acpi_object_list params;
@@ -121,8 +150,8 @@ index 0000000..f9666d9
 +	results.length = sizeof(out_objs);
 +	results.pointer = out_objs;
 +
-+	if (acpi_has_method(surface_acpi->acpi_dev->handle, SUR_METHOD_REG)) {
-+		status = acpi_evaluate_object(surface_acpi->acpi_dev->handle,
++	if (acpi_has_method(surface_acpi->handle, SUR_METHOD_REG)) {
++		status = acpi_evaluate_object(surface_acpi->handle,
 +				SUR_METHOD_REG, &params, &results);
 +
 +		if (ACPI_FAILURE(status)) {
@@ -137,7 +166,7 @@ index 0000000..f9666d9
 +	return AE_OK;
 +}
 +
-+static int surface_acpi_event_handler(u32 event)
++static acpi_status surface_acpi_event_handler(u32 event)
 +{
 +	union acpi_object in_objs[4], out_objs[5];
 +	struct acpi_object_list params;
@@ -146,19 +175,21 @@ index 0000000..f9666d9
 +
 +	params.count = ARRAY_SIZE(in_objs);
 +	params.pointer = in_objs;
-+	in_objs[0].type = ACPI_TYPE_STRING;
-+	in_objs[0].string.pointer = SURFACE_EVENT_GUID;
++	in_objs[0].type = ACPI_TYPE_BUFFER;
++	in_objs[0].buffer.length = sizeof(SURFACE_EVENT_GUID);
++	in_objs[0].buffer.pointer = SURFACE_EVENT_GUID;
 +	in_objs[1].type = ACPI_TYPE_INTEGER;
 +	in_objs[1].integer.value = SUR_QUERY_DEVICE;
 +	in_objs[2].type = ACPI_TYPE_INTEGER;
 +	in_objs[2].integer.value = event;
-+	in_objs[3].type = ACPI_TYPE_INTEGER;
-+	in_objs[3].integer.value = SURFACE_GEN_VERSION;
++	in_objs[3].type = ACPI_TYPE_PACKAGE;
++	in_objs[3].package.count = 0;
++	in_objs[3].package.elements = SURFACE_GEN_VERSION;
 +	results.length = sizeof(out_objs);
 +	results.pointer = out_objs;
 +
-+	if (acpi_has_method(surface_acpi->acpi_dev->handle, SUR_METHOD_DSM)) {
-+		status = acpi_evaluate_object(surface_acpi->acpi_dev->handle,
++	if (acpi_has_method(surface_acpi->handle, SUR_METHOD_DSM)) {
++		status = acpi_evaluate_object(surface_acpi->handle,
 +				SUR_METHOD_DSM, &params, &results);
 +
 +		if (ACPI_FAILURE(status)) {
@@ -175,7 +206,7 @@ index 0000000..f9666d9
 +
 +static void surface_acpi_load(void)
 +{
-+	int ret;
++	acpi_status ret;
 +
 +	ret = surface_acpi_event_handler(SUR_SET_DVER);
 +	if (ACPI_FAILURE(ret))
@@ -300,6 +331,59 @@ index 0000000..f9666d9
 +	remove_proc_entry("version", surface_proc_dir);
 +}
 +
++static void surface_acpi_notify(struct acpi_device *dev, u32 event)
++{
++	pr_info("surface_acpi: Event received %x\n", event);
++}
++
++static void surface_acpi_register_rqst_handler(void)
++{
++	acpi_status status;
++
++	status = acpi_get_handle(NULL, SUR_SAN_RQST, &surface_acpi->rqst_handle);
++	if (ACPI_FAILURE(status)) {
++		pr_err("surface_acpi: ACPI event failure status %s\n",
++					acpi_format_exception(status));
++	}
++}
++
++static void surface_acpi_register_rqsx_handler(void)
++{
++	acpi_status status;
++
++	status = acpi_get_handle(NULL, SUR_SAN_RQSX, &surface_acpi->rqsx_handle);
++	if (ACPI_FAILURE(status)) {
++		pr_err("surface_acpi: ACPI event failure status %s\n",
++					acpi_format_exception(status));
++	}
++}
++
++static acpi_status surface_acpi_walk_callback(acpi_handle handle, u32 level,
++						void *context, void **return_value)
++{
++	struct acpi_device_info *info;
++
++	if (ACPI_SUCCESS(acpi_get_object_info(handle, &info))) {
++		pr_warn("method: name: %4.4s, args %X\n",
++			(char *)&info->name, info->param_count);
++
++		kfree(info);
++	}
++
++	return AE_OK;
++}
++
++static void surface_acpi_walk_namespace(void)
++{
++	acpi_status status;
++
++	status = acpi_walk_namespace(ACPI_TYPE_METHOD,
++			surface_acpi->handle, 1, surface_acpi_walk_callback,
++			NULL, NULL, NULL);
++	if (ACPI_FAILURE(status))
++		pr_warn("surface_acpi: Unable to walk acpi resources\n");
++}
++
 +static int surface_acpi_add(struct acpi_device *acpi_dev)
 +{
 +	if (surface_acpi)
@@ -313,6 +397,14 @@ index 0000000..f9666d9
 +		return AE_NO_MEMORY;
 +
 +	surface_acpi->acpi_dev = acpi_dev;
++	surface_acpi->handle = acpi_dev->handle;
++
++	surface_acpi_register_rqst_handler();
++	surface_acpi_register_rqsx_handler();
++
++	surface_acpi_check_status();
++
++	surface_acpi_walk_namespace();
 +
 +	surface_acpi_reg();
 +
@@ -328,11 +420,6 @@ index 0000000..f9666d9
 +	remove_surface_proc_entries();
 +
 +	return AE_OK;
-+}
-+
-+static void surface_acpi_notify(struct acpi_device *dev, u32 event)
-+{
-+	pr_info("surface_acpi: Event received %x\n", event);
 +}
 +
 +static const struct acpi_device_id surface_device_ids[] = {
