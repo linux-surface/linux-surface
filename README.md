@@ -89,7 +89,7 @@ If you don't want to use the pre-built kernel and headers, you can compile the k
 
 
 0. (Prep) Install the required packages for compiling the kernel:
-  * $ sudo apt-get install build-essential binutils-dev libncurses5-dev libssl-dev ccache
+  * $ sudo apt-get install build-essential binutils-dev libncurses5-dev libssl-dev ccache bison flex
 1. Assuming you cloned the linux-surface repo (this one) into ~/linux-surface, go to the parent directory:
   * $ cd ~
 2. Clone the mainline stable kernel repo:
