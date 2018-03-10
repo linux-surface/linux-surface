@@ -1,0 +1,20 @@
+From fbd83f772a3be3a00bae323f6d71a59b26352c57 Mon Sep 17 00:00:00 2001
+From: Jake Day <jake@ninebysix.com>
+Date: Fri, 2 Feb 2018 11:22:21 -0500
+Subject: fix for surface sd card reader
+
+
+diff --git a/drivers/usb/core/hub.c b/drivers/usb/core/hub.c
+index cf7bbcb..826fdb8 100644
+--- a/drivers/usb/core/hub.c
++++ b/drivers/usb/core/hub.c
+@@ -4047,7 +4047,8 @@ void usb_enable_lpm(struct usb_device *udev)
+ 	if (!udev || !udev->parent ||
+ 			udev->speed < USB_SPEED_SUPER ||
+ 			!udev->lpm_capable ||
+-			udev->state < USB_STATE_DEFAULT)
++			udev->state < USB_STATE_DEFAULT ||
++			!udev->bos || !udev->bos->ss_cap)
+ 		return;
+ 
+ 	udev->lpm_disable_count--;
