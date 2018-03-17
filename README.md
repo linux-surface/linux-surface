@@ -35,7 +35,7 @@ Linux running on the Surface Book, Surface Book 2, Surface Pro 3, Surface Pro 4,
 
 ### Download Pre-built Kernel and Headers
 
-Downloads for ubuntu based distros (other distros will need to compile from source in the kernel folder):
+Downloads for ubuntu based distros (other distros will need to compile from source using the included patches):
 
 https://github.com/jakeday/linux-surface/releases
 
