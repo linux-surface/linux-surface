@@ -32,10 +32,10 @@ index c32b34a..6b04d7f 100644
  obj-$(CONFIG_INTEL_TELEMETRY)	+= intel_telemetry_core.o \
 diff --git a/drivers/platform/x86/surface_acpi.c b/drivers/platform/x86/surface_acpi.c
 new file mode 100644
-index 0000000..4989d67
+index 0000000..60e4db3
 --- /dev/null
 +++ b/drivers/platform/x86/surface_acpi.c
-@@ -0,0 +1,432 @@
+@@ -0,0 +1,471 @@
 +/*
 + *  surface_acpi.c - Microsoft Surface ACPI Notify
 + *
@@ -75,6 +75,8 @@ index 0000000..4989d67
 +#define SUR_METHOD_DSM			"_DSM"
 +#define SUR_METHOD_REG			"_REG"
 +#define SUR_METHOD_STA			"_STA"
++#define SUR_METHOD_INI			"_INI"
++#define SUR_METHOD_CRS			"_CRS"
 +
 +#define SUR_QUERY_DEVICE		0x00
 +#define SUR_SET_DVER			0x01
@@ -99,7 +101,8 @@ index 0000000..4989d67
 +	acpi_handle rqst_handle;
 +	acpi_handle rqsx_handle;
 +
-+	struct acpi_device *acpi_dev;
++	struct acpi_device *san_dev;
++	struct acpi_device *ssh_dev;
 +	struct acpi_device *bat1_dev;
 +	struct acpi_device *bat2_dev;
 +	struct acpi_device *psu_dev;
@@ -113,13 +116,13 @@ index 0000000..4989d67
 +
 +static struct proc_dir_entry *surface_proc_dir;
 +
-+static acpi_status surface_acpi_check_status(void)
++static acpi_status surface_acpi_check_status(struct acpi_device *dev)
 +{
 +	unsigned long long value;
 +	acpi_status status;
 +
-+	if (acpi_has_method(surface_acpi->handle, SUR_METHOD_STA)) {
-+		status = acpi_evaluate_integer(surface_acpi->handle,
++	if (acpi_has_method(dev->handle, SUR_METHOD_STA)) {
++		status = acpi_evaluate_integer(dev->handle,
 +				SUR_METHOD_STA, NULL, &value);
 +
 +		if (ACPI_FAILURE(status)) {
@@ -134,7 +137,7 @@ index 0000000..4989d67
 +	return AE_OK;
 +}
 +
-+static acpi_status surface_acpi_reg(void)
++static acpi_status surface_acpi_san_reg(void)
 +{
 +	union acpi_object in_objs[2], out_objs[1];
 +	struct acpi_object_list params;
@@ -204,7 +207,7 @@ index 0000000..4989d67
 +	return AE_OK;
 +}
 +
-+static void surface_acpi_load(void)
++static void surface_acpi_san_load(void)
 +{
 +	acpi_status ret;
 +
@@ -233,6 +236,26 @@ index 0000000..4989d67
 +		pr_err("surface_acpi: Error registering PSU\n");
 +	else
 +		surface_acpi->psu_registered = 1;
++}
++
++static acpi_status surface_acpi_ssh_initialize(void)
++{
++	acpi_status status;
++
++	if (acpi_has_method(surface_acpi->ssh_dev->handle, SUR_METHOD_INI)) {
++		status = acpi_evaluate_object(surface_acpi->ssh_dev->handle,
++				SUR_METHOD_INI, NULL, NULL);
++
++		if (ACPI_FAILURE(status)) {
++			pr_err("surface_acpi: ACPI event failure status %s\n",
++					acpi_format_exception(status));
++			return AE_ERROR;
++		}
++	}
++	else
++		return AE_NOT_FOUND;
++
++	return AE_OK;
 +}
 +
 +static int bat1_proc_show(struct seq_file *m, void *v)
@@ -373,44 +396,56 @@ index 0000000..4989d67
 +	return AE_OK;
 +}
 +
-+static void surface_acpi_walk_namespace(void)
++static void surface_acpi_walk_namespace(struct acpi_device *dev)
 +{
 +	acpi_status status;
 +
 +	status = acpi_walk_namespace(ACPI_TYPE_METHOD,
-+			surface_acpi->handle, 1, surface_acpi_walk_callback,
++			dev->handle, 1, surface_acpi_walk_callback,
 +			NULL, NULL, NULL);
 +	if (ACPI_FAILURE(status))
 +		pr_warn("surface_acpi: Unable to walk acpi resources\n");
 +}
 +
-+static int surface_acpi_add(struct acpi_device *acpi_dev)
++static int surface_acpi_add(struct acpi_device *dev)
 +{
-+	if (surface_acpi)
-+		return AE_ALREADY_ACQUIRED;
-+
-+	pr_info("surface_acpi: Microsoft Surface ACPI Notify version %s\n",
-+	       SURFACE_ACPI_VERSION);
-+
-+	surface_acpi = kzalloc(sizeof(*surface_acpi), GFP_KERNEL);
 +	if (!surface_acpi)
-+		return AE_NO_MEMORY;
++	{
++		surface_acpi = kzalloc(sizeof(*surface_acpi), GFP_KERNEL);
++		if (!surface_acpi)
++			return AE_NO_MEMORY;
++	}
 +
-+	surface_acpi->acpi_dev = acpi_dev;
-+	surface_acpi->handle = acpi_dev->handle;
++	if (acpi_has_method(dev->handle, SUR_METHOD_DSM))
++	{
++		pr_info("surface_acpi: Attaching device MSHW0091\n");
 +
-+	surface_acpi_register_rqst_handler();
-+	surface_acpi_register_rqsx_handler();
++		surface_acpi->san_dev = dev;
++		surface_acpi->handle = dev->handle;
 +
-+	surface_acpi_check_status();
++		surface_acpi_walk_namespace(surface_acpi->san_dev);
++		surface_acpi_check_status(surface_acpi->san_dev);
 +
-+	surface_acpi_walk_namespace();
++		surface_acpi_register_rqst_handler();
++		surface_acpi_register_rqsx_handler();
 +
-+	surface_acpi_reg();
++		surface_acpi_san_reg();
++		surface_acpi_san_load();
 +
-+	surface_acpi_load();
++		create_surface_proc_entries();
++	}
++	else
++	{
++		pr_info("surface_acpi: Attaching device MSHW0084\n");
 +
-+	create_surface_proc_entries();
++		surface_acpi->ssh_dev = dev;
++
++		surface_acpi_walk_namespace(surface_acpi->ssh_dev);
++		surface_acpi_check_status(surface_acpi->ssh_dev);
++
++		surface_acpi_ssh_initialize();
++		//surface_acpi_ssh_load();
++	}
 +
 +	return AE_OK;
 +}
@@ -424,12 +459,13 @@ index 0000000..4989d67
 +
 +static const struct acpi_device_id surface_device_ids[] = {
 +	{"MSHW0091", 0},
++	{"MSHW0084", 0},
 +	{"", 0},
 +};
 +MODULE_DEVICE_TABLE(acpi, surface_device_ids);
 +
 +static struct acpi_driver surface_acpi_driver = {
-+	.name	= "Microsoft Surface ACPI Notify Driver",
++	.name	= "surface_acpi",
 +	.owner	= THIS_MODULE,
 +	.ids	= surface_device_ids,
 +	.flags	= ACPI_DRIVER_ALL_NOTIFY_EVENTS,
@@ -443,6 +479,9 @@ index 0000000..4989d67
 +static int __init surface_acpi_init(void)
 +{
 +	int ret;
++
++	pr_info("surface_acpi: Microsoft Surface ACPI Notify version %s\n",
++	       SURFACE_ACPI_VERSION);
 +
 +	surface_proc_dir = proc_mkdir(PROC_SURFACE, acpi_root_dir);
 +	if (!surface_proc_dir) {
