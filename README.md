@@ -43,7 +43,7 @@ You will need to download both the image and headers deb files for the version y
 
 ### Instructions
 
-For the ipts_firmware files, please select the version for your device.
+For the ipts_firmware files (series 4/5 devices only), please select the version for your device.
 * v76 for the Surface Book
 * v78 for the Surface Pro 4
 * v79 for the Surface Laptop
@@ -51,7 +51,7 @@ For the ipts_firmware files, please select the version for your device.
 * v102 for the Surface Pro 2017
 * v137 for the Surface Book 2 13"
 
-For the i915_firmware files, please select the version for your device.
+For the i915_firmware files (series 3/4/5 devices only), please select the version for your device.
 * kbl for series 5 devices (Surface Book 2, Surface Pro 2017)
 * skl for series 4 devices (Surface Book, Surface Pro 4, Surface Laptop)
 * bxt for series 3 devices (Surface Pro 3)
@@ -65,12 +65,12 @@ For the i915_firmware files, please select the version for your device.
   ```
    sudo chmod a+x /lib/systemd/system-sleep/hibernate.sh
   ```
-3. Extract ipts_firmware_[VERSION].zip to /lib/firmware/intel/ipts/
+3. (Series 4/5 only) Extract ipts_firmware_[VERSION].zip to /lib/firmware/intel/ipts/
   ```
    sudo mkdir -p /lib/firmware/intel/ipts
    sudo unzip firmware/ipts_firmware_[VERSION].zip -d /lib/firmware/intel/ipts/
   ```
-4. Extract i915_firmware_[VERSION].zip to /lib/firmware/i915/
+4. (Series 3/4/5 only) Extract i915_firmware_[VERSION].zip to /lib/firmware/i915/
   ```
   sudo mkdir -p /lib/firmware/i915
   sudo unzip firmware/i915_firmware_[VERSION].zip -d /lib/firmware/i915/
