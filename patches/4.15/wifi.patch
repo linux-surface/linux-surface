@@ -1,9 +1,3 @@
-From a359b5adc91cb9f2d3cc07705d804ef60bf6e4e3 Mon Sep 17 00:00:00 2001
-From: Jake Day <jake@ninebysix.com>
-Date: Fri, 2 Feb 2018 12:57:32 -0500
-Subject: fixes for marvell mwifiex
-
-
 diff --git a/drivers/net/wireless/marvell/mwifiex/11n_aggr.c b/drivers/net/wireless/marvell/mwifiex/11n_aggr.c
 index 042a1d0..fc9041f 100644
 --- a/drivers/net/wireless/marvell/mwifiex/11n_aggr.c
@@ -19,7 +13,7 @@ index 042a1d0..fc9041f 100644
  
  		skb_src = skb_dequeue(&pra_list->skb_head);
 diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
-index 6e0d9a9..d008687 100644
+index f324011..7f31e43 100644
 --- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
 +++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
 @@ -416,6 +416,9 @@ mwifiex_cfg80211_set_power_mgmt(struct wiphy *wiphy,
@@ -33,10 +27,10 @@ index 6e0d9a9..d008687 100644
  }
  
 diff --git a/drivers/net/wireless/marvell/mwifiex/cmdevt.c b/drivers/net/wireless/marvell/mwifiex/cmdevt.c
-index 0edc5d6..c0c9c70 100644
+index dcc529e..3998ffb 100644
 --- a/drivers/net/wireless/marvell/mwifiex/cmdevt.c
 +++ b/drivers/net/wireless/marvell/mwifiex/cmdevt.c
-@@ -998,6 +998,7 @@ mwifiex_cmd_timeout_func(unsigned long function_context)
+@@ -995,6 +995,7 @@ mwifiex_cmd_timeout_func(struct timer_list *t)
  		if (cmd_node->wait_q_enabled) {
  			adapter->cmd_wait_q.status = -ETIMEDOUT;
  			mwifiex_cancel_pending_ioctl(adapter);
@@ -153,7 +147,7 @@ index 154c079..4205344 100644
  			      int cmd_type,
  			      struct mwifiex_ds_wakeup_reason *wakeup_reason);
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
-index cd31494..575da92 100644
+index 9511f5f..4a4737c 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie.c
 +++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
 @@ -1729,6 +1729,16 @@ static int mwifiex_pcie_process_cmd_complete(struct mwifiex_adapter *adapter)
@@ -241,6 +235,22 @@ index 4bc2448..d20fda1 100644
  		break;
  	default:
  		mwifiex_dbg(adapter, ERROR,
+diff --git a/drivers/pci/pcie/portdrv_pci.c b/drivers/pci/pcie/portdrv_pci.c
+index ffbf4e7..3ad81e3 100644
+--- a/drivers/pci/pcie/portdrv_pci.c
++++ b/drivers/pci/pcie/portdrv_pci.c
+@@ -150,6 +150,11 @@ static int pcie_portdrv_probe(struct pci_dev *dev,
+ 
+ 	pci_save_state(dev);
+ 
++	/*
++	 * D3cold disabled by default
++	 */
++	dev->d3cold_allowed = false;
++
+ 	if (pci_bridge_d3_possible(dev)) {
+ 		/*
+ 		 * Keep the port resumed 100ms to make sure things like
 diff --git a/net/wireless/sme.c b/net/wireless/sme.c
 index fdb3646..b44b23b 100644
 --- a/net/wireless/sme.c
