@@ -61,9 +61,9 @@ For the i915_firmware files (series 3/4/5 devices only), please select the versi
   ```
    sudo cp -R root/* /
   ```
-2. Make /lib/systemd/system-sleep/hibernate.sh as executable:
+2. Make /lib/systemd/system-sleep/hibernate as executable:
   ```
-   sudo chmod a+x /lib/systemd/system-sleep/hibernate.sh
+   sudo chmod a+x /lib/systemd/system-sleep/hibernate
   ```
 3. (Series 4/5 only) Extract ipts_firmware_[VERSION].zip to /lib/firmware/intel/ipts/
   ```
