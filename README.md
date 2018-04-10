@@ -129,9 +129,10 @@ If you don't want to use the pre-built kernel and headers, you can compile the k
   ```
   for i in ~/linux-surface/patches/[VERSION]/*.patch; do patch -p1 < $i; done
   ```
-6. Copy over the config file from the linux-surface repo (this one):
+6. Get current config file and patch it:
   ```
-  cp ~/linux-surface/config .config
+  cat /boot/config-$(uname -r) > .config
+  patch -p1 < ~/linux-surface/patches/config.patch
   ```
 7. Compile the kernel and headers (for ubuntu, refer to the build guild for your distro):
   ```
