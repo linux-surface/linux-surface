@@ -91,7 +91,7 @@ For the i915_firmware files (series 3/4/5 devices only), please select the versi
   ```
 8. Install the custom kernel and headers (or follow the steps for compiling the kernel from source below):
   ```
-  sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb
+  sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb linux-libc-dev-[VERSION].deb
   ```
 9. Reboot on installed kernel.
 
