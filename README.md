@@ -75,25 +75,31 @@ For the i915_firmware files (series 3/4/5 devices only), please select the versi
   sudo mkdir -p /lib/firmware/i915
   sudo unzip firmware/i915_firmware_[VERSION].zip -d /lib/firmware/i915/
   ```
-5. (Ubuntu 17.10) Fix issue with Suspend to Disk:
+5. (Surface Book 2 only) Extract nvidia_firmware_gp108.zip to /lib/firmware/nvidia/gp108/
+  ```
+  sudo mkdir -p /lib/firmware/nvidia/gp108
+  sudo unzip firmware/nvidia_firmware_gp108.zip -d /lib/firmware/nvidia/gp108/
+  ```
+
+6. (Ubuntu 17.10) Fix issue with Suspend to Disk:
   ```
   sudo ln -s /lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -s /lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
   ```
-6. (all other distros) Fix issue with Suspend to Disk:
+7. (all other distros) Fix issue with Suspend to Disk:
   ```
   sudo ln -s /usr/lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -s /usr/lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
   ```
-7. Install the latest marvell firmware (if their repo is down, use my copy at https://github.com/jakeday/mwifiex-firmware):
+8. Install the latest marvell firmware (if their repo is down, use my copy at https://github.com/jakeday/mwifiex-firmware):
   ```
   git clone git://git.marvell.com/mwifiex-firmware.git
   sudo mkdir -p /lib/firmware/mrvl/
   sudo cp mwifiex-firmware/mrvl/* /lib/firmware/mrvl/
   ```
-8. Install the custom kernel and headers (or follow the steps for compiling the kernel from source below):
+9. Install the custom kernel and headers (or follow the steps for compiling the kernel from source below):
   ```
   sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb linux-libc-dev-[VERSION].deb
   ```
-9. Reboot on installed kernel.
+10. Reboot on installed kernel.
 
 ### NOTES
 
