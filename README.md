@@ -146,7 +146,7 @@ If you don't want to use the pre-built kernel and headers, you can compile the k
   ```
 8. Install the kernel and headers:
   ```
-  sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb
+  sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb linux-libc-dev-[VERSION].deb
   ```
 
 ### Donations Appreciated!
