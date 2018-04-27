@@ -96,7 +96,7 @@ These steps assume are you in the linux-surface repo.
   ```
   sudo ln -s /usr/lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -s /usr/lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
   ```
-8. Install the latest marvell firmware (if their repo is down, use my copy at https://github.com/jakeday/mwifiex-firmware):
+8. Install the latest marvell firmware (if their repo is down, use my copy in the firmware folder):
   ```
   git clone git://git.marvell.com/mwifiex-firmware.git
   sudo mkdir -p /lib/firmware/mrvl/
