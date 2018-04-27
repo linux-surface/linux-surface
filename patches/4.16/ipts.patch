@@ -13,7 +13,7 @@ index 091aef2..bb1a328 100644
  i915-$(CONFIG_DRM_I915_CAPTURE_ERROR) += i915_gpu_error.o
  i915-$(CONFIG_DRM_I915_SELFTEST) += \
 diff --git a/drivers/gpu/drm/i915/i915_drv.c b/drivers/gpu/drm/i915/i915_drv.c
-index 2f5209d..d7801c7 100644
+index f1cd4f0..86c0f6f 100644
 --- a/drivers/gpu/drm/i915/i915_drv.c
 +++ b/drivers/gpu/drm/i915/i915_drv.c
 @@ -52,6 +52,7 @@
@@ -45,7 +45,7 @@ index 2f5209d..d7801c7 100644
  
  	if (i915_gem_suspend(dev_priv))
 diff --git a/drivers/gpu/drm/i915/i915_drv.h b/drivers/gpu/drm/i915/i915_drv.h
-index d307429..63feba8 100644
+index 55c6d90..5afbd96 100644
 --- a/drivers/gpu/drm/i915/i915_drv.h
 +++ b/drivers/gpu/drm/i915/i915_drv.h
 @@ -3419,6 +3419,9 @@ void i915_gem_object_do_bit_17_swizzle(struct drm_i915_gem_object *obj,
@@ -139,6 +139,21 @@ index c963603..f8f63f0 100644
  	param(int, guc_log_level, -1) \
  	param(char *, guc_firmware_path, NULL) \
  	param(char *, huc_firmware_path, NULL) \
+diff --git a/drivers/gpu/drm/i915/intel_dp.c b/drivers/gpu/drm/i915/intel_dp.c
+index a29868c..60fd454 100644
+--- a/drivers/gpu/drm/i915/intel_dp.c
++++ b/drivers/gpu/drm/i915/intel_dp.c
+@@ -2504,8 +2504,8 @@ void intel_dp_sink_dpms(struct intel_dp *intel_dp, int mode)
+ 		return;
+ 
+ 	if (mode != DRM_MODE_DPMS_ON) {
+-		if (downstream_hpd_needs_d0(intel_dp))
+-			return;
++		//if (downstream_hpd_needs_d0(intel_dp))
++		//	return;
+ 
+ 		ret = drm_dp_dpcd_writeb(&intel_dp->aux, DP_SET_POWER,
+ 					 DP_SET_POWER_D3);
 diff --git a/drivers/gpu/drm/i915/intel_guc.h b/drivers/gpu/drm/i915/intel_guc.h
 index 52856a9..dbc05a2 100644
 --- a/drivers/gpu/drm/i915/intel_guc.h
@@ -1042,7 +1057,7 @@ index fa6831f..f3e97dc 100644
  
  static void pch_enable_backlight(const struct intel_crtc_state *crtc_state,
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 3b4739bd..9203c4c 100644
+index 2e1736b..f3952d9 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -150,6 +150,7 @@ struct mt_device {
@@ -1053,7 +1068,7 @@ index 3b4739bd..9203c4c 100644
  
  /* classes of device behavior */
  #define MT_CLS_DEFAULT				0x0001
-@@ -623,8 +624,12 @@ static int mt_touch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
+@@ -624,8 +625,12 @@ static int mt_touch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
  			if (field->index >= field->report->maxfield ||
  			    usage->usage_index >= field->report_count)
  				return 1;
@@ -1068,7 +1083,7 @@ index 3b4739bd..9203c4c 100644
  			return 1;
  		case HID_DG_AZIMUTH:
  			hid_map_usage(hi, usage, bit, max,
-@@ -676,6 +681,16 @@ static int mt_touch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
+@@ -677,6 +682,16 @@ static int mt_touch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
  	return 0;
  }
  
@@ -1085,7 +1100,7 @@ index 3b4739bd..9203c4c 100644
  static int mt_compute_slot(struct mt_device *td, struct input_dev *input)
  {
  	__s32 quirks = td->mtclass.quirks;
-@@ -1076,9 +1091,11 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
+@@ -1077,9 +1092,11 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
  	    field->application != HID_DG_TOUCHSCREEN &&
  	    field->application != HID_DG_PEN &&
  	    field->application != HID_DG_TOUCHPAD &&
@@ -1097,7 +1112,7 @@ index 3b4739bd..9203c4c 100644
  	    field->application != HID_GD_WIRELESS_RADIO_CTLS &&
  	    !(field->application == HID_VD_ASUS_CUSTOM_MEDIA_KEYS &&
  	      td->mtclass.quirks & MT_QUIRK_ASUS_CUSTOM_UP))
-@@ -1141,10 +1158,8 @@ static int mt_input_mapped(struct hid_device *hdev, struct hid_input *hi,
+@@ -1142,10 +1159,8 @@ static int mt_input_mapped(struct hid_device *hdev, struct hid_input *hi,
  		return 0;
  
  	if (field->application == HID_DG_TOUCHSCREEN ||
@@ -1110,7 +1125,7 @@ index 3b4739bd..9203c4c 100644
  
  	/* let hid-core decide for the others */
  	return 0;
-@@ -1287,6 +1302,7 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
+@@ -1288,6 +1303,7 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
  		suffix = "Pen";
  		/* force BTN_STYLUS to allow tablet matching in udev */
  		__set_bit(BTN_STYLUS, hi->input->keybit);
@@ -1118,7 +1133,7 @@ index 3b4739bd..9203c4c 100644
  	} else {
  		switch (field->application) {
  		case HID_GD_KEYBOARD:
-@@ -1302,9 +1318,10 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
+@@ -1303,9 +1319,10 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
  			suffix = "Pen";
  			/* force BTN_STYLUS to allow tablet matching in udev */
  			__set_bit(BTN_STYLUS, hi->input->keybit);
@@ -1130,7 +1145,7 @@ index 3b4739bd..9203c4c 100644
  			break;
  		case HID_DG_TOUCHPAD:
  			suffix = "Touchpad";
-@@ -1435,6 +1452,7 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+@@ -1436,6 +1453,7 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  	td->cc_index = -1;
  	td->scantime_index = -1;
  	td->mt_report_id = -1;
