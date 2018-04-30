@@ -74,36 +74,32 @@ If you don't want to use the pre-built kernel and headers, you can compile the k
   ```
   sudo apt install build-essential binutils-dev libncurses5-dev libssl-dev ccache bison flex
   ```
-1. Assuming you cloned the linux-surface repo (this one) into ~/linux-surface, go to the parent directory:
+1. Clone the mainline stable kernel repo:
   ```
-  cd ~
+  git clone git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git ~/linux-stable
   ```
-2. Clone the mainline stable kernel repo:
+2. Go into the linux-stable directory:
   ```
-  git clone git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git
+  cd ~/linux-stable
   ```
-3. Go into the linux-stable directory:
-  ```
-  cd linux-stable
-  ```
-4. Checkout the version of the kernel you wish to target (replacing with your target version):
+3. Checkout the version of the kernel you wish to target (replacing with your target version):
   ```
   git checkout v4.y.z
   ```
-5. Apply the kernel patches from the linux-surface repo (this one):
+4. Apply the kernel patches from the linux-surface repo (this one, and assuming you cloned it to ~/linux-surface):
   ```
   for i in ~/linux-surface/patches/[VERSION]/*.patch; do patch -p1 < $i; done
   ```
-6. Get current config file and patch it:
+5. Get current config file and patch it:
   ```
   cat /boot/config-$(uname -r) > .config
   patch -p1 < ~/linux-surface/patches/config.patch
   ```
-7. Compile the kernel and headers (for ubuntu, refer to the build guild for your distro):
+6. Compile the kernel and headers (for ubuntu, refer to the build guide for your distro):
   ```
   make -j \`getconf _NPROCESSORS_ONLN\` deb-pkg LOCALVERSION=-linux-surface
   ```
-8. Install the headers, kernel and libc-dev:
+7. Install the headers, kernel and libc-dev:
   ```
   sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb linux-libc-dev-[VERSION].deb
   ```
