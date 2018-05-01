@@ -65,6 +65,16 @@ if [ "$SUR_MODEL" = "Surface Pro 3" ]; then
 	unzip -o firmware/i915_firmware_bxt.zip -d /lib/firmware/i915/
 fi
 
+if [ "$SUR_MODEL" = "Surface Pro" ]; then
+	echo "\nInstalling IPTS firmware for Surface Pro 2017...\n"
+	mkdir -p /lib/firmware/intel/ipts
+	unzip -o firmware/ipts_firmware_v102.zip -d /lib/firmware/intel/ipts/
+
+	echo "\nInstalling i915 firmware for Surface Pro 2017...\n"
+	mkdir -p /lib/firmware/i915
+	unzip -o firmware/i915_firmware_kbl.zip -d /lib/firmware/i915/
+fi
+
 if [ "$SUR_MODEL" = "Surface Pro 4" ]; then
 	echo "\nInstalling IPTS firmware for Surface Pro 4...\n"
 	mkdir -p /lib/firmware/intel/ipts
