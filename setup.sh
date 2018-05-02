@@ -23,6 +23,7 @@ else
 fi
 
 SUR_MODEL="$(dmidecode | grep "Product Name" -m 1 | xargs | sed -e 's/Product Name: //g')"
+SUR_SKU="$(dmidecode | grep "SKU Number" -m 1 | xargs | sed -e 's/SKU Number: //g')"
 
 echo "\nRunning $LX_BASE version $LX_VERSION on a $SUR_MODEL.\n"
 
@@ -55,8 +56,9 @@ read -rp "Do you want use the patched libwacom packages? (type yes or no) " usel
 if [ "$uselibwacom" = "yes" ]; then
 	echo "Installing patched libwacom packages..."
 		dpkg -i packages/libwacom/*.deb
+		apt-mark hold libwacom
 else
-	echo "Not touching Suspend"
+	echo "Not touching libwacom"
 fi
 
 if [ "$SUR_MODEL" = "Surface Pro 3" ]; then
@@ -118,8 +120,11 @@ fi
 if [ "$SUR_MODEL" = "Surface Book 2" ]; then
 	echo "\nInstalling IPTS firmware for Surface Book 2...\n"
 	mkdir -p /lib/firmware/intel/ipts
-	unzip -o firmware/ipts_firmware_v137.zip -d /lib/firmware/intel/ipts/
-	unzip -o firmware/ipts_firmware_v101.zip -d /lib/firmware/intel/ipts/
+	if [ "$SUR_SKU" = "Surface_Book_1793" ]; then
+		unzip -o firmware/ipts_firmware_v101.zip -d /lib/firmware/intel/ipts/
+	else
+		unzip -o firmware/ipts_firmware_v137.zip -d /lib/firmware/intel/ipts/
+	fi
 
 	echo "\nInstalling i915 firmware for Surface Book 2...\n"
 	mkdir -p /lib/firmware/i915
