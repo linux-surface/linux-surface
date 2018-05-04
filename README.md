@@ -107,7 +107,6 @@ If you don't want to use the pre-built kernel and headers, you can compile the k
 ### NOTES
 
 * If you are getting stuck at boot when loading the ramdisk, you need to install the Processor Microcode Firmware for Intel CPUs (usually found under Additional Drivers in Software and Updates).
-* If you are having issues with the position of the cursor matching the pen/stylus, you'll need to update your libwacom as mentioned here: https://github.com/jakeday/linux-surface/issues/46
 
 ### Donations Appreciated!
 
