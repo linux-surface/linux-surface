@@ -109,6 +109,7 @@ If you don't want to use the pre-built kernel and headers, you can compile the k
 ### NOTES
 
 * If you are getting stuck at boot when loading the ramdisk, you need to install the Processor Microcode Firmware for Intel CPUs (usually found under Additional Drivers in Software and Updates).
+* Do not install TLP! It can cause slowdowns, laggy performance, and occasional hangs! You have been warned.
 
 ### Donations Appreciated!
 
