@@ -139,4 +139,21 @@ echo "Installing marvell firmware...\n"
 mkdir -p /lib/firmware/mrvl/
 unzip -o firmware/mrvl_firmware.zip -d /lib/firmware/mrvl/
 
+read -rp "Do you want this script to download and install the latest kernel for you? (type yes or no) " autoinstallkernel;echo
+
+if [ "$autoinstallkernel" = "yes" ]; then
+	echo "Downloading latest kernel...\n"
+
+	urls=$(curl --silent "https://api.github.com/repos/jakeday/linux-surface/releases/latest" | grep '"browser_download_url":' | sed -E 's/.*"([^"]+)".*/\1/')
+
+	resp=$(wget -P tmp $urls)
+
+	echo "Installing latest kernel...\n"
+
+	dpkg -i tmp/*.deb
+	rm -rf tmp
+else
+	echo "Not downloading latest kernel"
+fi
+
 echo "\nAll done! Please reboot."
