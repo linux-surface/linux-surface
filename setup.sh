@@ -139,6 +139,17 @@ echo "Installing marvell firmware...\n"
 mkdir -p /lib/firmware/mrvl/
 unzip -o firmware/mrvl_firmware.zip -d /lib/firmware/mrvl/
 
+read -rp "Do you want to set your clock to local time instead of UTC? This fixes issues when dual booting with Windows. (type yes or no) " uselocaltime;echo
+
+if [ "$uselocaltime" = "yes" ]; then
+	echo "Setting clock to local time...\n"
+
+	timedatectl set-local-rtc 1
+	hwclock --systohc --localtime
+else
+	echo "Not setting clock"
+fi
+
 read -rp "Do you want this script to download and install the latest kernel for you? (type yes or no) " autoinstallkernel;echo
 
 if [ "$autoinstallkernel" = "yes" ]; then
