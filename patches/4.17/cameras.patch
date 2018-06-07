@@ -1,0 +1,156 @@
+diff --git a/drivers/media/usb/uvc/uvc_driver.c b/drivers/media/usb/uvc/uvc_driver.c
+index 2469b49b2b30..d2f77132efea 100644
+--- a/drivers/media/usb/uvc/uvc_driver.c
++++ b/drivers/media/usb/uvc/uvc_driver.c
+@@ -2354,6 +2354,46 @@ static const struct uvc_device_info uvc_quirk_force_y8 = {
+  * though they are compliant.
+  */
+ static const struct usb_device_id uvc_ids[] = {
++	/* Microsoft Surface Pro 3 Front */
++	{ .match_flags          = USB_DEVICE_ID_MATCH_DEVICE
++				| USB_DEVICE_ID_MATCH_INT_INFO,
++	  .idVendor             = 0x045e,
++	  .idProduct            = 0x07be,
++	  .bInterfaceClass      = USB_CLASS_VIDEO,
++	  .bInterfaceSubClass   = 1,
++	  .bInterfaceProtocol   = 1 },
++	/* Microsoft Surface Pro 3 Rear */
++	{ .match_flags          = USB_DEVICE_ID_MATCH_DEVICE
++				| USB_DEVICE_ID_MATCH_INT_INFO,
++	  .idVendor             = 0x045e,
++	  .idProduct            = 0x07bf,
++	  .bInterfaceClass      = USB_CLASS_VIDEO,
++	  .bInterfaceSubClass   = 1,
++	  .bInterfaceProtocol   = 1 },
++	/* Microsoft Surface Pro 4 Cam */
++	{ .match_flags          = USB_DEVICE_ID_MATCH_DEVICE
++				| USB_DEVICE_ID_MATCH_INT_INFO,
++	  .idVendor             = 0x045e,
++	  .idProduct            = 0x090c,
++	  .bInterfaceClass      = USB_CLASS_VIDEO,
++	  .bInterfaceSubClass   = 1,
++	  .bInterfaceProtocol   = 1 },
++	/* Microsoft Surface Book Cam 1 */
++	{ .match_flags          = USB_DEVICE_ID_MATCH_DEVICE
++				| USB_DEVICE_ID_MATCH_INT_INFO,
++	  .idVendor             = 0x045e,
++	  .idProduct            = 0x090b,
++	  .bInterfaceClass      = USB_CLASS_VIDEO,
++	  .bInterfaceSubClass   = 1,
++	  .bInterfaceProtocol   = 1 },
++	/* Microsoft Surface Book Cam 2 */
++	{ .match_flags          = USB_DEVICE_ID_MATCH_DEVICE
++				| USB_DEVICE_ID_MATCH_INT_INFO,
++	  .idVendor             = 0x045e,
++	  .idProduct            = 0x091a,
++	  .bInterfaceClass      = USB_CLASS_VIDEO,
++	  .bInterfaceSubClass   = 1,
++	  .bInterfaceProtocol   = 1 },
+ 	/* LogiLink Wireless Webcam */
+ 	{ .match_flags		= USB_DEVICE_ID_MATCH_DEVICE
+ 				| USB_DEVICE_ID_MATCH_INT_INFO,
+diff --git a/drivers/staging/media/atomisp/i2c/ov5693/Kconfig b/drivers/staging/media/atomisp/i2c/ov5693/Kconfig
+index 3f527f2047a7..b8829488ff7a 100644
+--- a/drivers/staging/media/atomisp/i2c/ov5693/Kconfig
++++ b/drivers/staging/media/atomisp/i2c/ov5693/Kconfig
+@@ -1,7 +1,7 @@
+ config VIDEO_ATOMISP_OV5693
+        tristate "Omnivision ov5693 sensor support"
+ 	depends on ACPI
+-       depends on I2C && VIDEO_V4L2
++	   depends on I2C && VIDEO_V4L2 && MEDIA_CONTROLLER
+        ---help---
+ 	 This is a Video4Linux2 sensor-level driver for the Micron
+ 	 ov5693 5 Mpixel camera.
+diff --git a/drivers/staging/media/atomisp/i2c/ov5693/atomisp-ov5693.c b/drivers/staging/media/atomisp/i2c/ov5693/atomisp-ov5693.c
+index 714297c36b3e..7c1295bf2978 100644
+--- a/drivers/staging/media/atomisp/i2c/ov5693/atomisp-ov5693.c
++++ b/drivers/staging/media/atomisp/i2c/ov5693/atomisp-ov5693.c
+@@ -1339,11 +1339,15 @@ static int power_ctrl(struct v4l2_subdev *sd, bool flag)
+ static int gpio_ctrl(struct v4l2_subdev *sd, bool flag)
+ {
+ 	struct ov5693_device *dev = to_ov5693_sensor(sd);
++	int ret = 0;
+ 
+ 	if (!dev || !dev->platform_data)
+ 		return -ENODEV;
+ 
+-	return dev->platform_data->gpio0_ctrl(sd, flag);
++	if (dev->platform_data->gpio0_ctrl)
++		ret = dev->platform_data->gpio0_ctrl(sd, flag);
++
++	return ret;
+ }
+ 
+ static int __power_up(struct v4l2_subdev *sd)
+@@ -1711,7 +1715,7 @@ static int ov5693_detect(struct i2c_client *client)
+ 					OV5693_SC_CMMN_CHIP_ID_L, &low);
+ 	id = ((((u16) high) << 8) | (u16) low);
+ 
+-	if (id != OV5693_ID) {
++	if (id != OV5690_ID && id != OV5693_ID) {
+ 		dev_err(&client->dev, "sensor ID error 0x%x\n", id);
+ 		return -ENODEV;
+ 	}
+diff --git a/drivers/staging/media/atomisp/i2c/ov5693/ov5693.h b/drivers/staging/media/atomisp/i2c/ov5693/ov5693.h
+index 9058a82455a6..84f8ef6146d6 100644
+--- a/drivers/staging/media/atomisp/i2c/ov5693/ov5693.h
++++ b/drivers/staging/media/atomisp/i2c/ov5693/ov5693.h
+@@ -29,7 +29,7 @@
+ #include <linux/v4l2-mediabus.h>
+ #include <media/media-entity.h>
+ 
+-#include "../../include/linux/atomisp_platform.h"
++#include "../../include/linux/atomisp_gmin_platform.h"
+ 
+ #define OV5693_POWER_UP_RETRY_NUM 5
+ 
+@@ -72,7 +72,8 @@
+  * bits 7-0: min f-number denominator
+  */
+ #define OV5693_F_NUMBER_RANGE 0x180a180a
+-#define OV5693_ID	0x5690
++#define OV5690_ID	0x5690
++#define OV5693_ID	0x5693
+ 
+ #define OV5693_FINE_INTG_TIME_MIN 0
+ #define OV5693_FINE_INTG_TIME_MAX_MARGIN 0
+diff --git a/drivers/staging/media/atomisp/platform/intel-mid/atomisp_gmin_platform.c b/drivers/staging/media/atomisp/platform/intel-mid/atomisp_gmin_platform.c
+index 3283c1b05d6a..00b85f54dcc0 100644
+--- a/drivers/staging/media/atomisp/platform/intel-mid/atomisp_gmin_platform.c
++++ b/drivers/staging/media/atomisp/platform/intel-mid/atomisp_gmin_platform.c
+@@ -249,11 +249,13 @@ static struct gmin_cfg_var ecs7_vars[] = {
+ 	{"INT33BE:00_CsiFmt", "13"},
+ 	{"INT33BE:00_CsiBayer", "2"},
+ 	{"INT33BE:00_CamClk", "0"},
++	{"INT33BE:00_ClkSrc", "1"},
+ 	{"INT33F0:00_CsiPort", "0"},
+ 	{"INT33F0:00_CsiLanes", "1"},
+ 	{"INT33F0:00_CsiFmt", "13"},
+ 	{"INT33F0:00_CsiBayer", "0"},
+ 	{"INT33F0:00_CamClk", "1"},
++	{"INT33BE:00_I2CAddr", "-1"},
+ 	{"gmin_V2P8GPIO", "402"},
+ 	{},
+ };
+@@ -305,6 +307,20 @@ static const struct dmi_system_id gmin_vars[] = {
+ 		},
+ 		.driver_data = i8880_vars,
+ 	},
++	{
++		.ident = "Surface Book",
++		.matches = {
++			DMI_MATCH(DMI_BOARD_NAME, "Surface Book"),
++		},
++		.driver_data = ecs7_vars,
++	},
++	{
++		.ident = "Surface Pro 4",
++		.matches = {
++			DMI_MATCH(DMI_BOARD_NAME, "Surface Pro 4"),
++		},
++		.driver_data = ecs7_vars,
++	},
+ 	{}
+ };
+ 
