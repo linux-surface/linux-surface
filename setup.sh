@@ -34,8 +34,8 @@ echo "\nContinuing setup...\n"
 echo "Coping the config files under root to where they belong...\n"
 cp -R root/* /
 
-echo "Making /lib/systemd/system-sleep/hibernate executable...\n"
-chmod a+x /lib/systemd/system-sleep/hibernate
+echo "Making /lib/systemd/system-sleep/sleep executable...\n"
+chmod a+x /lib/systemd/system-sleep/sleep
 
 read -rp "Do you want to replace suspend with hibernate? (type yes or no) " usehibernate;echo
 
