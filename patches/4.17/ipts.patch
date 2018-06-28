@@ -13,7 +13,7 @@ index 4eee91a3a236..eb7c3284d23a 100644
  i915-$(CONFIG_DRM_I915_CAPTURE_ERROR) += i915_gpu_error.o
  i915-$(CONFIG_DRM_I915_SELFTEST) += \
 diff --git a/drivers/gpu/drm/i915/i915_drv.c b/drivers/gpu/drm/i915/i915_drv.c
-index 3b4daafebdcb..803359cd291f 100644
+index 3b4daafebdcb..31968ebd3132 100644
 --- a/drivers/gpu/drm/i915/i915_drv.c
 +++ b/drivers/gpu/drm/i915/i915_drv.c
 @@ -53,6 +53,7 @@
@@ -28,7 +28,7 @@ index 3b4daafebdcb..803359cd291f 100644
  	/* Only enable hotplug handling once the fbdev is fully set up. */
  	intel_hpd_init(dev_priv);
  
-+	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc)
++	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
 +        intel_ipts_init(dev);
 +
  	return 0;
@@ -38,7 +38,7 @@ index 3b4daafebdcb..803359cd291f 100644
  	struct drm_i915_private *dev_priv = to_i915(dev);
  	struct pci_dev *pdev = dev_priv->drm.pdev;
  
-+	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc)
++	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
 +		intel_ipts_cleanup(dev);
 +
  	i915_driver_unregister(dev_priv);
@@ -114,20 +114,23 @@ index 633c18785c1e..ef6fbeb9eb54 100644
  			GT_RENDER_USER_INTERRUPT << GEN8_BCS_IRQ_SHIFT |
  			GT_CONTEXT_SWITCH_INTERRUPT << GEN8_BCS_IRQ_SHIFT,
 diff --git a/drivers/gpu/drm/i915/i915_params.c b/drivers/gpu/drm/i915/i915_params.c
-index 08108ce5be21..e7861fa51b72 100644
+index 08108ce5be21..db321ac57fa5 100644
 --- a/drivers/gpu/drm/i915/i915_params.c
 +++ b/drivers/gpu/drm/i915/i915_params.c
-@@ -152,7 +152,7 @@ i915_param_named_unsafe(edp_vswing, int, 0400,
+@@ -152,7 +152,10 @@ i915_param_named_unsafe(edp_vswing, int, 0400,
  i915_param_named_unsafe(enable_guc, int, 0400,
  	"Enable GuC load for GuC submission and/or HuC load. "
  	"Required functionality can be selected using bitmask values. "
 -	"(-1=auto, 0=disable [default], 1=GuC submission, 2=HuC load)");
 +	"(-1=auto, 0=disable, 1=GuC submission [default], 2=HuC load)");
++
++i915_param_named_unsafe(enable_ipts, bool, 0400,
++	"Enable IPTS Touchscreen and Pen support (default: true)");
  
  i915_param_named(guc_log_level, int, 0400,
  	"GuC firmware logging level. Requires GuC to be loaded. "
 diff --git a/drivers/gpu/drm/i915/i915_params.h b/drivers/gpu/drm/i915/i915_params.h
-index 430f5f9d0ff4..53779b0a98f8 100644
+index 430f5f9d0ff4..2b80220dbc36 100644
 --- a/drivers/gpu/drm/i915/i915_params.h
 +++ b/drivers/gpu/drm/i915/i915_params.h
 @@ -47,7 +47,7 @@ struct drm_printer;
@@ -139,6 +142,16 @@ index 430f5f9d0ff4..53779b0a98f8 100644
  	param(int, guc_log_level, 0) \
  	param(char *, guc_firmware_path, NULL) \
  	param(char *, huc_firmware_path, NULL) \
+@@ -69,7 +69,8 @@ struct drm_printer;
+ 	param(bool, nuclear_pageflip, false) \
+ 	param(bool, enable_dp_mst, true) \
+ 	param(bool, enable_dpcd_backlight, false) \
+-	param(bool, enable_gvt, false)
++	param(bool, enable_gvt, false) \
++	param(bool, enable_ipts, true)
+ 
+ #define MEMBER(T, member, ...) T member;
+ struct i915_params {
 diff --git a/drivers/gpu/drm/i915/intel_dp.c b/drivers/gpu/drm/i915/intel_dp.c
 index b7b4cfdeb974..5163c29ca311 100644
 --- a/drivers/gpu/drm/i915/intel_dp.c
@@ -1040,7 +1053,7 @@ index 59d7b86012e9..c3d42a5dfe22 100644
 +
  #endif /* _INTEL_LRC_H_ */
 diff --git a/drivers/gpu/drm/i915/intel_panel.c b/drivers/gpu/drm/i915/intel_panel.c
-index 41d00b1603e3..fb644f215875 100644
+index 41d00b1603e3..c0de071d19e7 100644
 --- a/drivers/gpu/drm/i915/intel_panel.c
 +++ b/drivers/gpu/drm/i915/intel_panel.c
 @@ -34,6 +34,7 @@
@@ -1055,7 +1068,7 @@ index 41d00b1603e3..fb644f215875 100644
  	struct drm_i915_private *dev_priv = to_i915(connector->base.dev);
  	u32 tmp;
  
-+	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc)
++	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
 +		intel_ipts_notify_backlight_status(false);
 +
  	intel_panel_actually_set_backlight(old_conn_state, 0);
@@ -1066,7 +1079,7 @@ index 41d00b1603e3..fb644f215875 100644
  	/* This won't stick until the above enable. */
  	intel_panel_actually_set_backlight(conn_state, panel->backlight.level);
 +
-+	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc)
++	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
 +		intel_ipts_notify_backlight_status(true);
  }
  
