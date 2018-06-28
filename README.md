@@ -12,8 +12,8 @@ Linux running on the Surface Book, Surface Book 2, Surface Pro 3, Surface Pro 4,
 * WiFi
 * Bluetooth
 * Speakers
-* Power Button (not yet working for SB2/SP2017)
-* Volume Buttons (not yet working for SB2/SP2017)
+* Power Button
+* Volume Buttons
 * SD Card Reader
 * Cameras (partial support, disabled for now)
 * Hibernate
