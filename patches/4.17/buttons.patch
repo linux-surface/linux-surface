@@ -270,3 +270,26 @@ index 000000000000..8dc48435b5f4
 +MODULE_AUTHOR("Maximilian Luz");
 +MODULE_DESCRIPTION("Surface Book 2/Surface Pro (2017) Button Driver");
 +MODULE_LICENSE("GPL v2");
+diff --git a/drivers/platform/x86/surfacepro3_button.c b/drivers/platform/x86/surfacepro3_button.c
+index 1b491690ce07..9385262b65be 100644
+--- a/drivers/platform/x86/surfacepro3_button.c
++++ b/drivers/platform/x86/surfacepro3_button.c
+@@ -22,6 +22,7 @@
+ #define SURFACE_PRO3_BUTTON_HID		"MSHW0028"
+ #define SURFACE_PRO4_BUTTON_HID		"MSHW0040"
+ #define SURFACE_BUTTON_OBJ_NAME		"VGBI"
++#define SURFACE_METHOD_DSM			"_DSM"
+ #define SURFACE_BUTTON_DEVICE_NAME	"Surface Pro 3/4 Buttons"
+ 
+ #define SURFACE_BUTTON_NOTIFY_TABLET_MODE	0xc8
+@@ -158,6 +159,9 @@ static int surface_button_add(struct acpi_device *device)
+ 	    strlen(SURFACE_BUTTON_OBJ_NAME)))
+ 		return -ENODEV;
+ 
++	if (acpi_has_method(device->handle, SURFACE_METHOD_DSM))
++		return -ENODEV;
++
+ 	button = kzalloc(sizeof(struct surface_button), GFP_KERNEL);
+ 	if (!button)
+ 		return -ENOMEM;
+
