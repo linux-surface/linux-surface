@@ -28,10 +28,10 @@ index 8fd5b93bb20d..28c4cede2d91 100644
  obj-$(CONFIG_ACPI_SURFACE)	+= surface_platform.o
 diff --git a/drivers/platform/x86/surfacebook2_button.c b/drivers/platform/x86/surfacebook2_button.c
 new file mode 100644
-index 000000000000..8dc48435b5f4
+index 000000000000..9a23bfd32c97
 --- /dev/null
 +++ b/drivers/platform/x86/surfacebook2_button.c
-@@ -0,0 +1,238 @@
+@@ -0,0 +1,242 @@
 +/*
 + * Supports for Surface Book 2 and Surface Pro (2017) power and volume
 + * buttons.
@@ -70,7 +70,8 @@ index 000000000000..8dc48435b5f4
 + * are not. To support both, we register two platform devices, and put
 + * buttons into them based on whether the key should be auto repeat.
 + */
-+#define BUTTON_TYPES	2
++#define BUTTON_TYPES			2
++#define SURFACE_METHOD_DSM		"_DSM"
 +
 +struct soc_button_data {
 +	struct platform_device *children[BUTTON_TYPES];
@@ -201,6 +202,9 @@ index 000000000000..8dc48435b5f4
 +	if (!id)
 +		return -ENODEV;
 +
++	if (!acpi_has_method(ACPI_HANDLE(dev), SURFACE_METHOD_DSM))
++		return -ENODEV;
++
 +	button_info = (struct soc_button_info *)id->driver_data;
 +
 +	error = gpiod_count(dev, NULL);
@@ -258,7 +262,7 @@ index 000000000000..8dc48435b5f4
 +MODULE_DEVICE_TABLE(acpi, soc_button_acpi_match);
 +
 +static struct platform_driver soc_button_driver_sb2 = {
-+	.probe          = soc_button_probe,
++	.probe		= soc_button_probe,
 +	.remove		= soc_button_remove,
 +	.driver		= {
 +		.name = "surfacebook2_button",
