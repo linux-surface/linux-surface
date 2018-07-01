@@ -60,7 +60,7 @@ You will need to download the image, headers and libc-dev deb files for the vers
   ```
    sudo sh setup.sh
   ```
-5. Reboot on installed kernel.
+4. Reboot on installed kernel.
 
 The setup script will handle installing the latest kernel for you. You can also choose to download any version you want and install yourself:
 Install the headers, kernel and libc-dev (make sure you cd to your download location first):
