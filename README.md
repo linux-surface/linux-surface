@@ -74,7 +74,7 @@ If you don't want to use the pre-built kernel and headers, you can compile the k
 
 0. (Prep) Install the required packages for compiling the kernel:
   ```
-  sudo apt install build-essential binutils-dev libncurses5-dev libssl-dev ccache bison flex
+  sudo apt install build-essential binutils-dev libncurses5-dev libssl-dev ccache bison flex libelf-dev
   ```
 1. Clone the mainline stable kernel repo:
   ```
@@ -99,7 +99,7 @@ If you don't want to use the pre-built kernel and headers, you can compile the k
   ```
 6. Compile the kernel and headers (for ubuntu, refer to the build guide for your distro):
   ```
-  make -j \`getconf _NPROCESSORS_ONLN\` deb-pkg LOCALVERSION=-linux-surface
+  make -j `getconf _NPROCESSORS_ONLN` deb-pkg LOCALVERSION=-linux-surface
   ```
 7. Install the headers, kernel and libc-dev:
   ```
