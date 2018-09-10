@@ -32,7 +32,7 @@ read -rp "Press enter if this is correct, or CTRL-C to cancel." cont;echo
 echo "\nContinuing setup...\n"
 
 echo "Coping the config files under root to where they belong...\n"
-cp -R root/* /
+cp -Rb root/* /
 
 echo "Making /lib/systemd/system-sleep/sleep executable...\n"
 chmod a+x /lib/systemd/system-sleep/sleep
@@ -42,10 +42,10 @@ read -rp "Do you want to replace suspend with hibernate? (type yes or no) " useh
 if [ "$usehibernate" = "yes" ]; then
 	if [ "$LX_BASE" = "ubuntu" ] && [ 1 -eq "$(echo "${LX_VERSION} >= 17.10" | bc)" ]; then
 		echo "Using Hibernate instead of Suspend...\n"
-		ln -sf /lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -sf /lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
+		ln -sfb /lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -sfb /lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
 	else
 		echo "Using Hibernate instead of Suspend...\n"
-		ln -sf /usr/lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -sf /usr/lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
+		ln -sfb /usr/lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -sfb /usr/lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
 	fi
 else
 	echo "Not touching Suspend\n"
