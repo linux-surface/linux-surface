@@ -135,6 +135,12 @@ if [ "$SUR_MODEL" = "Surface Book 2" ]; then
 	unzip -o firmware/nvidia_firmware_gp108.zip -d /lib/firmware/nvidia/gp108/
 fi
 
+if [ "$SUR_MODEL" = "Surface Go" ]; then
+	echo "\nInstalling ath10k firmware for Surface Go...\n"
+	mkdir -p /lib/firmware/ath10k
+	unzip -o firmware/ath10k_firmware.zip -d /lib/firmware/ath10k/
+fi
+
 echo "Installing marvell firmware...\n"
 mkdir -p /lib/firmware/mrvl/
 unzip -o firmware/mrvl_firmware.zip -d /lib/firmware/mrvl/
