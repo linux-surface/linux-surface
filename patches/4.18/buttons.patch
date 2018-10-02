@@ -1,0 +1,156 @@
+From 9c4948b06b2e8d23bbb4d65c7453b6b847d3f237 Mon Sep 17 00:00:00 2001
+From: qzed <qzed@users.noreply.github.com>
+Date: Wed, 19 Sep 2018 19:21:14 +0200
+Subject: [PATCH] Surface Book 2 / Surface Pro 2017 button support
+
+---
+ drivers/input/misc/soc_button_array.c     | 67 +++++++++++++++++++++--
+ drivers/platform/x86/surfacepro3_button.c |  9 +++
+ 2 files changed, 70 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/input/misc/soc_button_array.c b/drivers/input/misc/soc_button_array.c
+index 23520df7650f..d74f8c3dd54b 100644
+--- a/drivers/input/misc/soc_button_array.c
++++ b/drivers/input/misc/soc_button_array.c
+@@ -29,12 +29,20 @@ struct soc_button_info {
+ 	bool wakeup;
+ };
+
++struct soc_device_data {
++	/* Button info, may be NULL. */
++	struct soc_button_info *button_info;
++	/* Special device check function, may be NULL. */
++	int (*check)(struct device *);
++};
++
+ /*
+  * Some of the buttons like volume up/down are auto repeat, while others
+  * are not. To support both, we register two platform devices, and put
+  * buttons into them based on whether the key should be auto repeat.
+  */
+-#define BUTTON_TYPES	2
++#define BUTTON_TYPES            2
++#define SURFACE_METHOD_DSM      "_DSM"
+
+ struct soc_button_data {
+ 	struct platform_device *children[BUTTON_TYPES];
+@@ -310,6 +318,7 @@ static int soc_button_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+ 	const struct acpi_device_id *id;
++	struct soc_device_data *device_data;
+ 	struct soc_button_info *button_info;
+ 	struct soc_button_data *priv;
+ 	struct platform_device *pd;
+@@ -320,12 +329,20 @@ static int soc_button_probe(struct platform_device *pdev)
+ 	if (!id)
+ 		return -ENODEV;
+
+-	if (!id->driver_data) {
++	device_data = (struct soc_device_data *)id->driver_data;
++	if (device_data && device_data->check) {
++		// device dependent check, required for MSHW0040
++		error = device_data->check(dev);
++		if (error != 0)
++			return error;
++	}
++
++	if (device_data && device_data->button_info) {
++		button_info = (struct soc_button_info *)device_data->button_info;
++	} else {
+ 		button_info = soc_button_get_button_info(dev);
+ 		if (IS_ERR(button_info))
+ 			return PTR_ERR(button_info);
+-	} else {
+-		button_info = (struct soc_button_info *)id->driver_data;
+ 	}
+
+ 	error = gpiod_count(dev, NULL);
+@@ -357,7 +374,7 @@ static int soc_button_probe(struct platform_device *pdev)
+ 	if (!priv->children[0] && !priv->children[1])
+ 		return -ENODEV;
+
+-	if (!id->driver_data)
++	if (!device_data || !device_data->button_info)
+ 		devm_kfree(dev, button_info);
+
+ 	return 0;
+@@ -377,9 +394,47 @@ static struct soc_button_info soc_button_PNP0C40[] = {
+ 	{ }
+ };
+
++static struct soc_device_data soc_device_PNP0C40 = {
++	.button_info = soc_button_PNP0C40,
++	.check = NULL,
++};
++
++/*
++ * Special device check for Surface Book 2 and Surface Pro (2017).
++ * Both, the Surface Pro 4 (surfacepro3_button.c) and the above mentioned
++ * devices use MSHW0040 for power and volume buttons, however the way they
++ * have to be addressed differs. Make sure that we only load this drivers
++ * for the correct devices by checking if the _DSM method exists.
++ */
++static int soc_device_check_MSHW0040(struct device *dev)
++{
++	if (!acpi_has_method(ACPI_HANDLE(dev), SURFACE_METHOD_DSM))
++		return -ENODEV;
++
++	return 0;
++}
++
++/*
++ * Button infos for Microsoft Surface Book 2 and Surface Pro (2017).
++ * Extracted from DSDT.
++ */
++static struct soc_button_info soc_button_MSHW0040[] = {
++	{ "power", 0, EV_KEY, KEY_POWER, false, true },
++	{ "volume_up", 2, EV_KEY, KEY_VOLUMEUP, true, false },
++	{ "volume_down", 4, EV_KEY, KEY_VOLUMEDOWN, true, false },
++	{ }
++};
++
++static struct soc_device_data soc_device_MSHW0040 = {
++	.button_info = soc_button_MSHW0040,
++	.check = soc_device_check_MSHW0040,
++};
++
+ static const struct acpi_device_id soc_button_acpi_match[] = {
+-	{ "PNP0C40", (unsigned long)soc_button_PNP0C40 },
++	{ "PNP0C40", (unsigned long)&soc_device_PNP0C40 },
+ 	{ "ACPI0011", 0 },
++	/* Microsoft Surface Book 2 and Surface Pro (2017) */
++	{ "MSHW0040", (unsigned long)&soc_device_MSHW0040 },
+ 	{ }
+ };
+
+diff --git a/drivers/platform/x86/surfacepro3_button.c b/drivers/platform/x86/surfacepro3_button.c
+index 1b491690ce07..006c94eda7be 100644
+--- a/drivers/platform/x86/surfacepro3_button.c
++++ b/drivers/platform/x86/surfacepro3_button.c
+@@ -22,6 +22,7 @@
+ #define SURFACE_PRO3_BUTTON_HID		"MSHW0028"
+ #define SURFACE_PRO4_BUTTON_HID		"MSHW0040"
+ #define SURFACE_BUTTON_OBJ_NAME		"VGBI"
++#define SURFACE_METHOD_DSM		"_DSM"
+ #define SURFACE_BUTTON_DEVICE_NAME	"Surface Pro 3/4 Buttons"
+
+ #define SURFACE_BUTTON_NOTIFY_TABLET_MODE	0xc8
+@@ -158,6 +159,14 @@ static int surface_button_add(struct acpi_device *device)
+ 	    strlen(SURFACE_BUTTON_OBJ_NAME)))
+ 		return -ENODEV;
+
++	/*
++	 * Surface Pro 4 and Surface Book 2 / Surface Pro 2017 use the same device
++	 * ID (MSHW0040) for the power/volume buttons. Make sure this is the right
++	 * device by checking for the _DSM method.
++	 */
++	if (acpi_has_method(device->handle, SURFACE_METHOD_DSM))
++		return -ENODEV;
++
+ 	button = kzalloc(sizeof(struct surface_button), GFP_KERNEL);
+ 	if (!button)
+ 		return -ENOMEM;
+--
+2.19.0
+

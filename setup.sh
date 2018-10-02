@@ -32,7 +32,7 @@ read -rp "Press enter if this is correct, or CTRL-C to cancel." cont;echo
 echo "\nContinuing setup...\n"
 
 echo "Coping the config files under root to where they belong...\n"
-cp -R root/* /
+cp -Rb root/* /
 
 echo "Making /lib/systemd/system-sleep/sleep executable...\n"
 chmod a+x /lib/systemd/system-sleep/sleep
@@ -42,10 +42,10 @@ read -rp "Do you want to replace suspend with hibernate? (type yes or no) " useh
 if [ "$usehibernate" = "yes" ]; then
 	if [ "$LX_BASE" = "ubuntu" ] && [ 1 -eq "$(echo "${LX_VERSION} >= 17.10" | bc)" ]; then
 		echo "Using Hibernate instead of Suspend...\n"
-		ln -sf /lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -sf /lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
+		ln -sfb /lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -sfb /lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
 	else
 		echo "Using Hibernate instead of Suspend...\n"
-		ln -sf /usr/lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -sf /usr/lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
+		ln -sfb /usr/lib/systemd/system/hibernate.target /etc/systemd/system/suspend.target && sudo ln -sfb /usr/lib/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
 	fi
 else
 	echo "Not touching Suspend\n"
@@ -133,6 +133,12 @@ if [ "$SUR_MODEL" = "Surface Book 2" ]; then
 	echo "\nInstalling nvidia firmware for Surface Book 2...\n"
 	mkdir -p /lib/firmware/nvidia/gp108
 	unzip -o firmware/nvidia_firmware_gp108.zip -d /lib/firmware/nvidia/gp108/
+fi
+
+if [ "$SUR_MODEL" = "Surface Go" ]; then
+	echo "\nInstalling ath10k firmware for Surface Go...\n"
+	mkdir -p /lib/firmware/ath10k
+	unzip -o firmware/ath10k_firmware.zip -d /lib/firmware/ath10k/
 fi
 
 echo "Installing marvell firmware...\n"
