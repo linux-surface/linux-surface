@@ -1,7 +1,10 @@
 # Signing a custom kernel for Secure Boot
 
-(Instructions are for ubuntu, but should work similar for other distros, if they are using shim
-and grub as bootloader.)
+Instructions are for ubuntu, but should work similar for other distros, if they are using shim
+and grub as bootloader. If your distro is not using shim (e.g. Linux Foundation Preloader), there
+should be similar steps to complete the signing (e.g. HashTool instead of MokUtil for LF Preloader)
+or you can install shim to use instead. The ubuntu package for shim is called `shim-signed`, but
+please inform yourself on how to install it correctly, so you do not mess up your bootloader.
 
 Since the most recent GRUB2 update (2.02+dfsg1-5ubuntu1) in Ubuntu, GRUB2 does not load unsigned
 kernels anymore, as long as Secure Boot is enabled. Users of Ubuntu 18.04 will be notified during
@@ -13,9 +16,11 @@ Thus you have three options to solve this problem:
 2. You use a signed, generic kernel of your distro.
 3. You disable Secure Boot.
 
-Since option two and three are not really viable, these are the steps to sign the kernel yourself:
+Since option two and three are not really viable, these are the steps to sign the kernel yourself.
 
 Instructions adapted from [the Ubuntu Blog](https://blog.ubuntu.com/2017/08/11/how-to-sign-things-for-secure-boot).
+Before following, please backup your /boot/EFI directory, so you can restore everything. Follow
+these steps on your own risk.
 
 1. Create the config to create the signing key, save as mokconfig.cnf:
 ```
