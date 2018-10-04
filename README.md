@@ -106,6 +106,10 @@ If you don't want to use the pre-built kernel and headers, you can compile the k
   sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb linux-libc-dev-[VERSION].deb
   ```
 
+### Signing the kernel for Secure Boot
+
+Please consult the [SIGNING.md](SIGNING.md).
+
 ### NOTES
 
 * If you are getting stuck at boot when loading the ramdisk, you need to install the Processor Microcode Firmware for Intel CPUs (usually found under Additional Drivers in Software and Updates).
