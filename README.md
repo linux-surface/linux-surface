@@ -50,7 +50,7 @@ You will need to download the image, headers and libc-dev deb files for the vers
   ```
 1. Clone the linux-surface repo:
   ```
-   git clone https://github.com/jakeday/linux-surface.git ~/linux-surface
+   git clone --depth 1 https://github.com/jakeday/linux-surface.git ~/linux-surface
   ```
 2. Change directory to linux-surface repo:
   ```
