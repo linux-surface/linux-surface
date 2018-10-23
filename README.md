@@ -1,6 +1,6 @@
 # Linux Surface
 
-Linux running on the Surface Book, Surface Book 2, Surface Go, Surface Pro 3, Surface Pro 4, Surface Pro 2017 and Surface Laptop. Follow the instructions below to install the latest kernel and config files.
+Linux running on the Surface Book, Surface Book 2, Surface Go, Surface Pro 3, Surface Pro 4, Surface Pro 2017, Surface Pro 6, Surface Laptop and Surface Laptop 2. Follow the instructions below to install the latest kernel and config files.
 
 ### What's Working
 
