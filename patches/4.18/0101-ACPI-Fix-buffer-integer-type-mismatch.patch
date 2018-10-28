@@ -1,0 +1,58 @@
+From 902cc2930c358a6306a0204e4087edb37ab3f3bd Mon Sep 17 00:00:00 2001
+From: qzed <qzed@users.noreply.github.com>
+Date: Thu, 20 Sep 2018 00:23:49 +0200
+Subject: [PATCH] ACPI: Fix buffer/integer type mismatch
+
+---
+ drivers/acpi/acpica/dsopcode.c |  2 +-
+ drivers/acpi/acpica/exfield.c  | 12 +++++++++---
+ 2 files changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/acpi/acpica/dsopcode.c b/drivers/acpi/acpica/dsopcode.c
+index e9fb0bf3c8d2..cad7d94fa8d8 100644
+--- a/drivers/acpi/acpica/dsopcode.c
++++ b/drivers/acpi/acpica/dsopcode.c
+@@ -123,7 +123,7 @@ acpi_ds_init_buffer_field(u16 aml_opcode,
+
+ 		/* Offset is in bits, count is in bits */
+
+-		field_flags = AML_FIELD_ACCESS_BYTE;
++		field_flags = AML_FIELD_ACCESS_BUFFER;
+ 		bit_offset = offset;
+ 		bit_count = (u32) length_desc->integer.value;
+
+diff --git a/drivers/acpi/acpica/exfield.c b/drivers/acpi/acpica/exfield.c
+index b272c329d45d..e75e84091617 100644
+--- a/drivers/acpi/acpica/exfield.c
++++ b/drivers/acpi/acpica/exfield.c
+@@ -102,6 +102,7 @@ acpi_ex_read_data_from_field(struct acpi_walk_state *walk_state,
+ 	void *buffer;
+ 	u32 function;
+ 	u16 accessor_type;
++	u8 field_flags;
+
+ 	ACPI_FUNCTION_TRACE_PTR(ex_read_data_from_field, obj_desc);
+
+@@ -199,11 +200,16 @@ acpi_ex_read_data_from_field(struct acpi_walk_state *walk_state,
+ 	 * Note: Field.length is in bits.
+ 	 */
+ 	length =
+-	    (acpi_size)ACPI_ROUND_BITS_UP_TO_BYTES(obj_desc->field.bit_length);
++	    (acpi_size)ACPI_ROUND_BITS_UP_TO_BYTES(obj_desc->common_field.bit_length);
++	field_flags = obj_desc->common_field.field_flags;
+
+-	if (length > acpi_gbl_integer_byte_width) {
++	if (length > acpi_gbl_integer_byte_width ||
++	    (field_flags & AML_FIELD_ACCESS_TYPE_MASK) == AML_FIELD_ACCESS_BUFFER) {
+
+-		/* Field is too large for an Integer, create a Buffer instead */
++		/*
++		 * Field is either too large for an Integer, or a actually of type
++		 * buffer, so create a Buffer.
++		 */
+
+ 		buffer_desc = acpi_ut_create_buffer_object(length);
+ 		if (!buffer_desc) {
+--
+2.19.0
+

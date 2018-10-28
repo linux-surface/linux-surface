@@ -1,0 +1,138 @@
+From 7ce2363e61250c09dad42c6bd305312166e5b6f7 Mon Sep 17 00:00:00 2001
+From: qzed <qzed@users.noreply.github.com>
+Date: Wed, 10 Oct 2018 15:17:35 +0200
+Subject: [PATCH] serdev: Find ACPI clients by ResourceSource tag
+
+If serdev can't find ACPI clients directly under the controller node,
+search for (UART) devices in the whole ACPI tree by matching the
+ResourceSource tag of the corresponding resource descriptor to the
+controller's path.
+---
+ drivers/tty/serdev/core.c | 90 ++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 88 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/tty/serdev/core.c b/drivers/tty/serdev/core.c
+index 9e59f4788589..d9f4700722b6 100644
+--- a/drivers/tty/serdev/core.c
++++ b/drivers/tty/serdev/core.c
+@@ -466,8 +466,7 @@ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
+ 	struct serdev_device *serdev = NULL;
+ 	int err;
+ 
+-	if (acpi_bus_get_status(adev) || !adev->status.present ||
+-	    acpi_device_enumerated(adev))
++	if (acpi_bus_get_status(adev) || !adev->status.present)
+ 		return AE_OK;
+ 
+ 	serdev = serdev_device_alloc(ctrl);
+@@ -490,6 +489,81 @@ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
+ 	return AE_OK;
+ }
+ 
++struct acpi_serdev_add_device_from_resource_ctx {
++	acpi_handle ctrl_handle;
++	acpi_handle device_handle;
++	struct serdev_controller *ctrl;
++	struct acpi_device *device;
++};
++
++static acpi_status
++acpi_serdev_add_device_from_resource(struct acpi_resource *resource, void *data)
++{
++	struct acpi_serdev_add_device_from_resource_ctx* ctx = data;
++	struct acpi_resource_source *ctrl_name;
++	acpi_handle ctrl_handle;
++	acpi_status status;
++
++	if (resource->type != ACPI_RESOURCE_TYPE_SERIAL_BUS)
++		return AE_OK;
++
++	if (resource->data.common_serial_bus.type != ACPI_RESOURCE_SERIAL_TYPE_UART)
++		return AE_OK;
++
++	ctrl_name = &resource->data.common_serial_bus.resource_source;
++	if (ctrl_name->string_length == 0 || !ctrl_name->string_ptr) {
++		return AE_OK;
++	}
++
++	status = acpi_get_handle(ctx->device_handle, ctrl_name->string_ptr,
++				 &ctrl_handle);
++	if (ACPI_FAILURE(status)) {
++		return AE_OK;
++	}
++
++	if (ctrl_handle == ctx->ctrl_handle) {
++		return acpi_serdev_register_device(ctx->ctrl, ctx->device);
++	}
++
++	return AE_OK;
++}
++
++static acpi_status
++acpi_serdev_add_devices_from_resources(acpi_handle handle, u32 level,
++				       void *data, void **return_value)
++{
++	struct acpi_serdev_add_device_from_resource_ctx *ctx = data;
++	acpi_status status;
++
++	ctx->device_handle = handle;
++
++	status = acpi_bus_get_device(handle, &ctx->device);
++	if (status) return AE_OK;
++
++	status = acpi_walk_resources(handle, METHOD_NAME__CRS,
++	                             acpi_serdev_add_device_from_resource,
++				     ctx);
++
++	if (status == AE_NOT_FOUND)
++		return AE_OK;		// not finding _CRS is not an error
++	else
++		return status;
++}
++
++static int
++acpi_serdev_register_devices_from_resources(acpi_handle handle,
++					    struct serdev_controller *ctrl)
++{
++	struct acpi_serdev_add_device_from_resource_ctx ctx = {
++		.ctrl = ctrl,
++		.ctrl_handle = handle,
++	};
++
++	return acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT, 128,
++				   acpi_serdev_add_devices_from_resources,
++				   NULL, &ctx, NULL);
++}
++
+ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
+ 				       void *data, void **return_value)
+ {
+@@ -499,6 +573,9 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
+ 	if (acpi_bus_get_device(handle, &adev))
+ 		return AE_OK;
+ 
++	if (acpi_device_enumerated(adev))
++		return AE_OK;
++
+ 	return acpi_serdev_register_device(ctrl, adev);
+ }
+ 
+@@ -516,6 +593,15 @@ static int acpi_serdev_register_devices(struct serdev_controller *ctrl)
+ 	if (ACPI_FAILURE(status))
+ 		dev_dbg(&ctrl->dev, "failed to enumerate serdev slaves\n");
+ 
++	if (!ctrl->serdev) {
++		status = acpi_serdev_register_devices_from_resources(handle, ctrl);
++		if (ACPI_FAILURE(status)) {
++			dev_dbg(&ctrl->dev,
++			        "failed to register serdev slaves from resources: %x\n",
++				status);
++		}
++	}
++
+ 	if (!ctrl->serdev)
+ 		return -ENODEV;
+ 
+-- 
+2.19.1
+
