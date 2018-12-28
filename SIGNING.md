@@ -87,14 +87,20 @@ sudo mokutil --list-enrolled
 sudo sbsign --key MOK.priv --cert MOK.pem /boot/vmlinuz-[KERNEL-VERSION]-surface-linux-surface --output /boot/vmlinuz-[KERNEL-VERSION]-surface-linux-surface.signed
 ```
 
-8. Update your grub-config
+8. Copy the initram of the unsigned kernel, so we also have an initram for the signed one.
+```
+sudo cp /boot/initrd.img-[KERNEL-VERSION]-surface-linux-surface{,.signed}
+```
+
+9. Update your grub-config
 ```
 sudo update-grub
 ```
 
-9. Reboot your system and select signed kernel. If booting works, you can remove the unsigned kernel:
+10. Reboot your system and select the signed kernel. If booting works, you can remove the unsigned kernel:
 ```
 sudo mv /boot/vmlinuz-[KERNEL-VERSION]-surface-linux-surface{.signed,}
+sudo mv /boot/initrd.img-[KERNEL-VERSION]-surface-linux-surface{.signed,}
 sudo update-grub
 ```
 
