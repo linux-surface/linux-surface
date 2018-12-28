@@ -65,6 +65,9 @@ if [ "$SUR_MODEL" = "Surface Pro 3" ]; then
 	echo "\nInstalling i915 firmware for Surface Pro 3...\n"
 	mkdir -p /lib/firmware/i915
 	unzip -o firmware/i915_firmware_bxt.zip -d /lib/firmware/i915/
+
+	echo "\nRemove unneeded udev rules for Surface Pro 3...\n"
+	rm /etc/udev/rules.d/98-keyboardscovers.rules
 fi
 
 if [ "$SUR_MODEL" = "Surface Pro" ]; then
