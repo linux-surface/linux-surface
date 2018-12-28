@@ -1,7 +1,7 @@
-From 9c4948b06b2e8d23bbb4d65c7453b6b847d3f237 Mon Sep 17 00:00:00 2001
+From ac9ac2a05180af9e356f2f4d6840b132b1fb45f7 Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
-Date: Wed, 19 Sep 2018 19:21:14 +0200
-Subject: [PATCH] Surface Book 2 / Surface Pro 2017 button support
+Date: Mon, 24 Dec 2018 14:05:07 +0100
+Subject: [PATCH 3/8] buttons
 
 ---
  drivers/input/misc/soc_button_array.c     | 67 +++++++++++++++++++++--
@@ -15,7 +15,7 @@ index 23520df7650f..d74f8c3dd54b 100644
 @@ -29,12 +29,20 @@ struct soc_button_info {
  	bool wakeup;
  };
-
+ 
 +struct soc_device_data {
 +	/* Button info, may be NULL. */
 +	struct soc_button_info *button_info;
@@ -31,7 +31,7 @@ index 23520df7650f..d74f8c3dd54b 100644
 -#define BUTTON_TYPES	2
 +#define BUTTON_TYPES            2
 +#define SURFACE_METHOD_DSM      "_DSM"
-
+ 
  struct soc_button_data {
  	struct platform_device *children[BUTTON_TYPES];
 @@ -310,6 +318,7 @@ static int soc_button_probe(struct platform_device *pdev)
@@ -45,7 +45,7 @@ index 23520df7650f..d74f8c3dd54b 100644
 @@ -320,12 +329,20 @@ static int soc_button_probe(struct platform_device *pdev)
  	if (!id)
  		return -ENODEV;
-
+ 
 -	if (!id->driver_data) {
 +	device_data = (struct soc_device_data *)id->driver_data;
 +	if (device_data && device_data->check) {
@@ -64,21 +64,21 @@ index 23520df7650f..d74f8c3dd54b 100644
 -	} else {
 -		button_info = (struct soc_button_info *)id->driver_data;
  	}
-
+ 
  	error = gpiod_count(dev, NULL);
 @@ -357,7 +374,7 @@ static int soc_button_probe(struct platform_device *pdev)
  	if (!priv->children[0] && !priv->children[1])
  		return -ENODEV;
-
+ 
 -	if (!id->driver_data)
 +	if (!device_data || !device_data->button_info)
  		devm_kfree(dev, button_info);
-
+ 
  	return 0;
 @@ -377,9 +394,47 @@ static struct soc_button_info soc_button_PNP0C40[] = {
  	{ }
  };
-
+ 
 +static struct soc_device_data soc_device_PNP0C40 = {
 +	.button_info = soc_button_PNP0C40,
 +	.check = NULL,
@@ -123,7 +123,7 @@ index 23520df7650f..d74f8c3dd54b 100644
 +	{ "MSHW0040", (unsigned long)&soc_device_MSHW0040 },
  	{ }
  };
-
+ 
 diff --git a/drivers/platform/x86/surfacepro3_button.c b/drivers/platform/x86/surfacepro3_button.c
 index 1b491690ce07..006c94eda7be 100644
 --- a/drivers/platform/x86/surfacepro3_button.c
@@ -134,12 +134,12 @@ index 1b491690ce07..006c94eda7be 100644
  #define SURFACE_BUTTON_OBJ_NAME		"VGBI"
 +#define SURFACE_METHOD_DSM		"_DSM"
  #define SURFACE_BUTTON_DEVICE_NAME	"Surface Pro 3/4 Buttons"
-
+ 
  #define SURFACE_BUTTON_NOTIFY_TABLET_MODE	0xc8
 @@ -158,6 +159,14 @@ static int surface_button_add(struct acpi_device *device)
  	    strlen(SURFACE_BUTTON_OBJ_NAME)))
  		return -ENODEV;
-
+ 
 +	/*
 +	 * Surface Pro 4 and Surface Book 2 / Surface Pro 2017 use the same device
 +	 * ID (MSHW0040) for the power/volume buttons. Make sure this is the right
@@ -151,6 +151,6 @@ index 1b491690ce07..006c94eda7be 100644
  	button = kzalloc(sizeof(struct surface_button), GFP_KERNEL);
  	if (!button)
  		return -ENOMEM;
---
-2.19.0
+-- 
+2.20.1
 
