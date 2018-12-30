@@ -4,7 +4,7 @@ Linux running on the Surface Book, Surface Book 2, Surface Go, Surface Pro 3, Su
 
 ### What's Working
 
-* Keyboard (and backlight) (not yet working for Surface Laptop)
+* Keyboard (and backlight)
 * Touchpad
 * 2D/3D Acceleration
 * Touchscreen
