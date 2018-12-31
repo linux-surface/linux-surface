@@ -92,10 +92,9 @@ If you don't want to use the pre-built kernel and headers, you can compile the k
   ```
   for i in ~/linux-surface/patches/[VERSION]/*.patch; do patch -p1 < $i; done
   ```
-5. Get current config file and patch it:
+5. Use config for kernel series (may need to manually change for your distro):
   ```
-  cat /boot/config-$(uname -r) > .config
-  patch -p1 < ~/linux-surface/patches/config.patch
+  cp ~/linux-surface/configs/[VERSION]/config .config
   ```
 6. Compile the kernel and headers (for ubuntu, refer to the build guide for your distro):
   ```
