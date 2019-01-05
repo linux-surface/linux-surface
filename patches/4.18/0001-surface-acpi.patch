@@ -1,6 +1,6 @@
-From f742e9a20013dbf17f0d7bacb69047f8b7f77894 Mon Sep 17 00:00:00 2001
+From d381440759f8f055517dc9e48b32e912188821d6 Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
-Date: Mon, 24 Dec 2018 13:31:00 +0100
+Date: Thu, 3 Jan 2019 17:53:22 +0100
 Subject: [PATCH 1/8] surface-acpi
 
 ---
@@ -8,9 +8,9 @@ Subject: [PATCH 1/8] surface-acpi
  drivers/acpi/acpica/exfield.c       |   26 +-
  drivers/platform/x86/Kconfig        |   56 +
  drivers/platform/x86/Makefile       |    1 +
- drivers/platform/x86/surface_acpi.c | 2705 +++++++++++++++++++++++++++
+ drivers/platform/x86/surface_acpi.c | 2727 +++++++++++++++++++++++++++
  drivers/tty/serdev/core.c           |   90 +-
- 6 files changed, 2861 insertions(+), 19 deletions(-)
+ 6 files changed, 2883 insertions(+), 19 deletions(-)
  create mode 100644 drivers/platform/x86/surface_acpi.c
 
 diff --git a/drivers/acpi/acpica/dsopcode.c b/drivers/acpi/acpica/dsopcode.c
@@ -160,14 +160,15 @@ index 2ba6cb795338..4a76e3fca5d5 100644
  obj-$(CONFIG_FUJITSU_TABLET)	+= fujitsu-tablet.o
 diff --git a/drivers/platform/x86/surface_acpi.c b/drivers/platform/x86/surface_acpi.c
 new file mode 100644
-index 000000000000..e7d3c21e6f42
+index 000000000000..6a3aa6a01493
 --- /dev/null
 +++ b/drivers/platform/x86/surface_acpi.c
-@@ -0,0 +1,2705 @@
+@@ -0,0 +1,2727 @@
 +#include <asm/unaligned.h>
 +#include <linux/acpi.h>
 +#include <linux/completion.h>
 +#include <linux/crc-ccitt.h>
++#include <linux/delay.h>
 +#include <linux/device.h>
 +#include <linux/dmaengine.h>
 +#include <linux/hid.h>
@@ -239,7 +240,7 @@ index 000000000000..e7d3c21e6f42
 +struct device_link *surfacegen5_ec_consumer_add(struct device *consumer, u32 flags);
 +int surfacegen5_ec_consumer_remove(struct device_link *link);
 +
-+int surfacegen5_ec_rqst(struct surfacegen5_rqst *rqst, struct surfacegen5_buf *result);
++int surfacegen5_ec_rqst(const struct surfacegen5_rqst *rqst, struct surfacegen5_buf *result);
 +
 +int surfacegen5_ec_enable_event_source(u8 tc, u8 unknown, u16 rqid);
 +int surfacegen5_ec_disable_event_source(u8 tc, u8 unknown, u16 rqid);
@@ -458,7 +459,7 @@ index 000000000000..e7d3c21e6f42
 +
 +
 +static int surfacegen5_ec_rqst_unlocked(struct surfacegen5_ec *ec,
-+                                 struct surfacegen5_rqst *rqst,
++                                 const struct surfacegen5_rqst *rqst,
 +				 struct surfacegen5_buf *result);
 +
 +
@@ -749,7 +750,7 @@ index 000000000000..e7d3c21e6f42
 +}
 +
 +inline static void surfacegen5_ssh_write_hdr(struct surfacegen5_ec_writer *writer,
-+                                             struct surfacegen5_rqst *rqst,
++                                             const struct surfacegen5_rqst *rqst,
 +                                             struct surfacegen5_ec *ec)
 +{
 +	struct surfacegen5_frame_ctrl *hdr = (struct surfacegen5_frame_ctrl *)writer->ptr;
@@ -766,7 +767,7 @@ index 000000000000..e7d3c21e6f42
 +}
 +
 +inline static void surfacegen5_ssh_write_cmd(struct surfacegen5_ec_writer *writer,
-+                                             struct surfacegen5_rqst *rqst,
++                                             const struct surfacegen5_rqst *rqst,
 +                                             struct surfacegen5_ec *ec)
 +{
 +	struct surfacegen5_frame_cmd *cmd = (struct surfacegen5_frame_cmd *)writer->ptr;
@@ -826,7 +827,7 @@ index 000000000000..e7d3c21e6f42
 +}
 +
 +inline static void surfacegen5_ssh_write_msg_cmd(struct surfacegen5_ec *ec,
-+                                                 struct surfacegen5_rqst *rqst)
++                                                 const struct surfacegen5_rqst *rqst)
 +{
 +	surfacegen5_ssh_writer_reset(&ec->writer);
 +	surfacegen5_ssh_write_syn(&ec->writer);
@@ -843,7 +844,7 @@ index 000000000000..e7d3c21e6f42
 +}
 +
 +inline static void surfacegen5_ssh_receiver_restart(struct surfacegen5_ec *ec,
-+                                                    struct surfacegen5_rqst *rqst)
++                                                    const struct surfacegen5_rqst *rqst)
 +{
 +	unsigned long flags;
 +
@@ -869,7 +870,7 @@ index 000000000000..e7d3c21e6f42
 +}
 +
 +static int surfacegen5_ec_rqst_unlocked(struct surfacegen5_ec *ec,
-+                                 struct surfacegen5_rqst *rqst,
++                                 const struct surfacegen5_rqst *rqst,
 +				 struct surfacegen5_buf *result)
 +{
 +	struct device *dev = &ec->serdev->dev;
@@ -896,7 +897,8 @@ index 000000000000..e7d3c21e6f42
 +
 +		rem = wait_for_completion_timeout(&ec->receiver.signal, SG5_READ_TIMEOUT);
 +		if (rem) {
-+			kfifo_out(&ec->receiver.fifo, &packet, sizeof(packet));
++			// completion assures valid packet, thus ignore returned length
++			(void) !kfifo_out(&ec->receiver.fifo, &packet, sizeof(packet));
 +
 +			if (packet.type == SG5_FRAME_TYPE_ACK) {
 +				break;
@@ -918,14 +920,16 @@ index 000000000000..e7d3c21e6f42
 +	if (rqst->snc && result) {
 +		rem = wait_for_completion_timeout(&ec->receiver.signal, SG5_READ_TIMEOUT);
 +		if (rem) {
-+			kfifo_out(&ec->receiver.fifo, &packet, sizeof(packet));
++			// completion assures valid packet, thus ignore returned length
++			(void) !kfifo_out(&ec->receiver.fifo, &packet, sizeof(packet));
 +
 +			if (result->cap < packet.len) {
 +				status = -EINVAL;
 +				goto ec_rqst_out;
 +			}
 +
-+			kfifo_out(&ec->receiver.fifo, result->data, packet.len);
++			// completion assures valid packet, thus ignore returned length
++			(void) !kfifo_out(&ec->receiver.fifo, result->data, packet.len);
 +			result->len = packet.len;
 +		} else {
 +			dev_err(dev, SG5_RQST_TAG "communication timed out\n");
@@ -946,7 +950,7 @@ index 000000000000..e7d3c21e6f42
 +	return status;
 +}
 +
-+int surfacegen5_ec_rqst(struct surfacegen5_rqst *rqst, struct surfacegen5_buf *result)
++int surfacegen5_ec_rqst(const struct surfacegen5_rqst *rqst, struct surfacegen5_buf *result)
 +{
 +	struct surfacegen5_ec *ec;
 +	int status;
@@ -1869,6 +1873,8 @@ index 000000000000..e7d3c21e6f42
 +
 +#define SG5_SAN_RQST_TAG            	"san_rqst: "
 +
++#define SG5_QUIRK_BASE_STATE_DELAY     1000
++
 +
 +struct surfacegen5_san_acpi_consumer {
 +	char *path;
@@ -2195,14 +2201,30 @@ index 000000000000..e7d3c21e6f42
 +		if (status != -EIO) break;
 +	}
 +
-+	if (!status) {
++	if (rqst.tc == 0x11 && rqst.cid == 0x0D && status == -EPERM) {
++		/* Base state quirk:
++		 * The base state may be queried from ACPI when the EC is
++		 * still suspended. In this case it will return '-EPERM'.
++		 * Returning 0xff (unknown base status) here will suppress
++		 * error messages and cause an immediate re-query of the
++		 * state. Delay return to avoid spinning.
++		 */
++
++		buffer->status          = 0x00;
++		buffer->len             = 0x03;
++		buffer->data.out.status = 0x00;
++		buffer->data.out.len    = 0x01;
++		buffer->data.out.pld[0] = 0xFF;
++		msleep(SG5_QUIRK_BASE_STATE_DELAY);
++
++	} else if (!status) {		// success
 +		buffer->status          = 0x00;
 +		buffer->len             = result.len + 2;
 +		buffer->data.out.status = 0x00;
 +		buffer->data.out.len    = result.len;
 +		memcpy(&buffer->data.out.pld[0], result.data, result.len);
 +
-+	} else {
++	} else {			// failure
 +		dev_err(ctx->dev, SG5_SAN_RQST_TAG "failed with error %d\n", status);
 +		buffer->status          = 0x00;
 +		buffer->len             = 0x02;
