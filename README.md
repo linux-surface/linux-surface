@@ -70,6 +70,8 @@ Install the headers, kernel and libc-dev (make sure you cd to your download loca
 
 ### Compiling the Kernel from Source
 
+#### For Debian-Based Systems
+
 If you don't want to use the pre-built kernel and headers, you can compile the kernel yourself following these steps:
 
 0. (Prep) Install the required packages for compiling the kernel:
@@ -104,6 +106,10 @@ If you don't want to use the pre-built kernel and headers, you can compile the k
   ```
   sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb linux-libc-dev-[VERSION].deb
   ```
+
+#### For Arch-Based Systems
+
+Have a look at [this](https://github.com/dmhacker/arch-linux-surface) repository.
 
 ### Signing the kernel for Secure Boot
 
