@@ -120,6 +120,10 @@ Please consult the [SIGNING.md](SIGNING.md).
 * If you are getting stuck at boot when loading the ramdisk, you need to install the Processor Microcode Firmware for Intel CPUs (usually found under Additional Drivers in Software and Updates).
 * Do not install TLP! It can cause slowdowns, laggy performance, and occasional hangs! You have been warned.
 
+### Support
+
+If you have an issue with the kernel, please feel free to create on issue here to track it. If you have questions or need support, please use our [Gitter Community](https://gitter.im/linux-surface)!
+
 ### Donations Appreciated!
 
 PayPal: https://www.paypal.me/jakeday42
