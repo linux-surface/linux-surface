@@ -18,7 +18,7 @@ Linux running on the Surface Book, Surface Book 2, Surface Go, Surface Pro 3, Su
 * Cameras (partial support, disabled for now)
 * Hibernate
 * Sensors (accelerometer, gyroscope, ambient light sensor)
-* Battery Readings (not yet working for SB2/SP2017)
+* Battery Readings
 * Docking/Undocking Tablet and Keyboard
 * Surface Docks
 * DisplayPort
