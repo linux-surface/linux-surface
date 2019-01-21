@@ -161,6 +161,13 @@ if [ "$SUR_MODEL" = "Surface Go" ]; then
 	echo "\nInstalling ath10k firmware for Surface Go...\n"
 	mkdir -p /lib/firmware/ath10k
 	unzip -o firmware/ath10k_firmware.zip -d /lib/firmware/ath10k/
+
+	if [ ! -f "/etc/init.d/surfacego-touchscreen" ]; then
+		echo "\nPatching power control for Surface Go touchscreen...\n"
+		echo "echo \"on\" > /sys/devices/pci0000:00/0000:00:15.1/i2c_designware.1/power/control" > /etc/init.d/surfacego-touchscreen
+		chmod 755 /etc/init.d/surfacego-touchscreen
+		update-rc.d surfacego-touchscreen defaults
+	fi
 fi
 
 echo "Installing marvell firmware...\n"
