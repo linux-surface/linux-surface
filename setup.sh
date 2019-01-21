@@ -174,6 +174,10 @@ echo "Installing marvell firmware...\n"
 mkdir -p /lib/firmware/mrvl/
 unzip -o firmware/mrvl_firmware.zip -d /lib/firmware/mrvl/
 
+echo "Installing mwlwifi firmware...\n"
+mkdir -p /lib/firmware/mwlwifi/
+unzip -o firmware/mwlwifi_firmware.zip -d /lib/firmware/mwlwifi/
+
 read -rp "Do you want to set your clock to local time instead of UTC? This fixes issues when dual booting with Windows. (type yes or no) " uselocaltime;echo
 
 if [ "$uselocaltime" = "yes" ]; then
