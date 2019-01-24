@@ -14,9 +14,8 @@ Subject: [PATCH 08/11] wifi
  drivers/net/wireless/marvell/mwifiex/sta_cmd.c  |  8 ++++----
  .../net/wireless/marvell/mwifiex/sta_cmdresp.c  | 11 ++++++++---
  drivers/net/wireless/marvell/mwifiex/usb.c      |  2 ++
- net/wireless/sme.c                              |  5 +++++
  scripts/leaking_addresses.pl                    |  0
- 12 files changed, 51 insertions(+), 14 deletions(-)
+ 11 files changed, 46 insertions(+), 14 deletions(-)
  mode change 100755 => 100644 scripts/leaking_addresses.pl
 
 diff --git a/drivers/net/wireless/marvell/mwifiex/11n_aggr.c b/drivers/net/wireless/marvell/mwifiex/11n_aggr.c
@@ -265,22 +264,6 @@ index 88f4c89f89ba..4f740f6feec4 100644
  		break;
  	default:
  		mwifiex_dbg(adapter, ERROR,
-diff --git a/net/wireless/sme.c b/net/wireless/sme.c
-index d536b07582f8..17fd97e9d857 100644
---- a/net/wireless/sme.c
-+++ b/net/wireless/sme.c
-@@ -690,6 +690,11 @@ void __cfg80211_connect_result(struct net_device *dev,
- 		return;
- 	}
- 
-+	if (WARN_ON(!wdev->ssid_len)) {
-+		cfg80211_put_bss(wdev->wiphy, cr->bss);
-+		return;
-+	}
-+
- 	nl80211_send_connect_result(wiphy_to_rdev(wdev->wiphy), dev, cr,
- 				    GFP_KERNEL);
- 
 diff --git a/scripts/leaking_addresses.pl b/scripts/leaking_addresses.pl
 old mode 100755
 new mode 100644
