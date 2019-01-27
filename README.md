@@ -119,6 +119,7 @@ Please consult the [SIGNING.md](SIGNING.md).
 
 * If you are getting stuck at boot when loading the ramdisk, you need to install the Processor Microcode Firmware for Intel CPUs (usually found under Additional Drivers in Software and Updates).
 * Do not install TLP! It can cause slowdowns, laggy performance, and occasional hangs! You have been warned.
+* For Surface (Pro) 3, you may need to add the boot command for either i915.enable_guc=0 or i915.enable_ipts=0 to boot.
 
 ### Support
 
