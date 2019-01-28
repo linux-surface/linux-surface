@@ -67,7 +67,17 @@ if [ "$removexorg" = "yes" ]; then
 	echo "Removing the example intel xorg config..."
 		rm /etc/X11/xorg.conf.d/20-intel_example.conf
 else
-	echo "Not touching example intel xorg config"
+	echo "Not touching example intel xorg config (/etc/X11/xorg.conf.d/20-intel_example.conf)"
+fi
+
+read -rp "Do you want to remove the example pulse audio config files? (type yes or no) " removepulse;echo
+
+if [ "$removepulse" = "yes" ]; then
+	echo "Removing the example pulse audio config files..."
+		rm /etc/pulse/daemon_example.conf
+		rm /etc/pulse/default_example.pa
+else
+	echo "Not touching example pulse audio config files (/etc/pulse/*_example.*)"
 fi
 
 if [ "$SUR_MODEL" = "Surface Pro 3" ]; then
