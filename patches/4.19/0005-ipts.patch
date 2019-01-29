@@ -1,7 +1,7 @@
-From bcd4a6318d1e33330eade2b1716ac8d1010c2d25 Mon Sep 17 00:00:00 2001
+From 0ee4cc7146ffaf31332c845ae7242f746d88e0e7 Mon Sep 17 00:00:00 2001
 From: Jake Day <jake@ninebysix.com>
-Date: Sun, 27 Jan 2019 10:52:28 -0500
-Subject: [PATCH 05/11] ipts
+Date: Mon, 28 Jan 2019 19:24:45 -0500
+Subject: [PATCH 5/5] ipts
 
 ---
  drivers/gpu/drm/i915/Makefile               |    3 +
@@ -13,7 +13,7 @@ Subject: [PATCH 05/11] ipts
  drivers/gpu/drm/i915/i915_params.h          |    5 +-
  drivers/gpu/drm/i915/intel_dp.c             |    4 +-
  drivers/gpu/drm/i915/intel_guc.h            |    1 +
- drivers/gpu/drm/i915/intel_guc_submission.c |   79 +-
+ drivers/gpu/drm/i915/intel_guc_submission.c |   89 +-
  drivers/gpu/drm/i915/intel_guc_submission.h |    4 +
  drivers/gpu/drm/i915/intel_ipts.c           |  642 ++++++++++++
  drivers/gpu/drm/i915/intel_ipts.h           |   34 +
@@ -45,7 +45,7 @@ Subject: [PATCH 05/11] ipts
  drivers/misc/mei/hw-me-regs.h               |    1 +
  drivers/misc/mei/pci-me.c                   |    1 +
  include/linux/intel_ipts_if.h               |   75 ++
- 41 files changed, 5541 insertions(+), 22 deletions(-)
+ 41 files changed, 5548 insertions(+), 25 deletions(-)
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.c
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.h
  create mode 100644 drivers/misc/ipts/Kconfig
@@ -153,7 +153,7 @@ index b10770cfccd2..0222f0a55262 100644
  {
  	struct i915_gem_context *ctx;
 diff --git a/drivers/gpu/drm/i915/i915_irq.c b/drivers/gpu/drm/i915/i915_irq.c
-index 29877969310d..e199a6d687b2 100644
+index 29877969310d..f98fdb5fc282 100644
 --- a/drivers/gpu/drm/i915/i915_irq.c
 +++ b/drivers/gpu/drm/i915/i915_irq.c
 @@ -36,6 +36,7 @@
@@ -168,7 +168,7 @@ index 29877969310d..e199a6d687b2 100644
  		tasklet |= USES_GUC_SUBMISSION(engine->i915);
  	}
  
-+	if (iir & GT_RENDER_PIPECTL_NOTIFY_INTERRUPT)
++	if (iir & GT_RENDER_PIPECTL_NOTIFY_INTERRUPT && i915_modparams.enable_ipts)
 +		intel_ipts_notify_complete();
 +
  	if (tasklet)
@@ -251,10 +251,22 @@ index 4121928a495e..8967376accf3 100644
  	struct guc_preempt_work preempt_work[I915_NUM_ENGINES];
  	struct workqueue_struct *preempt_wq;
 diff --git a/drivers/gpu/drm/i915/intel_guc_submission.c b/drivers/gpu/drm/i915/intel_guc_submission.c
-index 4aa5e6463e7b..c153ee6af69a 100644
+index 4aa5e6463e7b..8f517c7e93a3 100644
 --- a/drivers/gpu/drm/i915/intel_guc_submission.c
 +++ b/drivers/gpu/drm/i915/intel_guc_submission.c
-@@ -94,6 +94,7 @@ static inline bool is_high_priority(struct intel_guc_client *client)
+@@ -88,12 +88,17 @@ static inline struct i915_priolist *to_priolist(struct rb_node *rb)
+ 
+ static inline bool is_high_priority(struct intel_guc_client *client)
+ {
+-	return (client->priority == GUC_CLIENT_PRIORITY_KMD_HIGH ||
+-		client->priority == GUC_CLIENT_PRIORITY_HIGH);
++	return (client->priority == GUC_CLIENT_PRIORITY_HIGH);
++}
++
++static inline bool is_high_priority_kmd(struct intel_guc_client *client)
++{
++	return (client->priority == GUC_CLIENT_PRIORITY_KMD_HIGH);
+ }
  
  static int reserve_doorbell(struct intel_guc_client *client)
  {
@@ -262,7 +274,7 @@ index 4aa5e6463e7b..c153ee6af69a 100644
  	unsigned long offset;
  	unsigned long end;
  	u16 id;
-@@ -106,10 +107,15 @@ static int reserve_doorbell(struct intel_guc_client *client)
+@@ -106,10 +111,15 @@ static int reserve_doorbell(struct intel_guc_client *client)
  	 * priority contexts, the second half for high-priority ones.
  	 */
  	offset = 0;
@@ -282,12 +294,13 @@ index 4aa5e6463e7b..c153ee6af69a 100644
  	}
  
  	id = find_next_zero_bit(client->guc->doorbell_bitmap, end, offset);
-@@ -355,8 +361,14 @@ static void guc_stage_desc_init(struct intel_guc *guc,
+@@ -355,9 +365,15 @@ static void guc_stage_desc_init(struct intel_guc *guc,
  	desc = __get_stage_desc(client);
  	memset(desc, 0, sizeof(*desc));
  
 -	desc->attribute = GUC_STAGE_DESC_ATTR_ACTIVE |
 -			  GUC_STAGE_DESC_ATTR_KERNEL;
+-	if (is_high_priority(client))
 +	desc->attribute = GUC_STAGE_DESC_ATTR_ACTIVE;
 +	if ((client->priority == GUC_CLIENT_PRIORITY_KMD_NORMAL) ||
 +			(client->priority == GUC_CLIENT_PRIORITY_KMD_HIGH)) {
@@ -296,10 +309,11 @@ index 4aa5e6463e7b..c153ee6af69a 100644
 +		desc->attribute  |= GUC_STAGE_DESC_ATTR_PCH;
 +	}
 +
- 	if (is_high_priority(client))
++	if (is_high_priority_kmd(client))
  		desc->attribute |= GUC_STAGE_DESC_ATTR_PREEMPT;
  	desc->stage_id = client->stage_id;
-@@ -1204,7 +1216,8 @@ static void guc_interrupts_capture(struct drm_i915_private *dev_priv)
+ 	desc->priority = client->priority;
+@@ -1204,7 +1220,8 @@ static void guc_interrupts_capture(struct drm_i915_private *dev_priv)
  		I915_WRITE(RING_MODE_GEN7(engine), irqs);
  
  	/* route USER_INTERRUPT to Host, all others are sent to GuC. */
@@ -309,7 +323,7 @@ index 4aa5e6463e7b..c153ee6af69a 100644
  	       GT_RENDER_USER_INTERRUPT << GEN8_BCS_IRQ_SHIFT;
  	/* These three registers have the same bit definitions */
  	I915_WRITE(GUC_BCS_RCS_IER, ~irqs);
-@@ -1349,6 +1362,58 @@ void intel_guc_submission_disable(struct intel_guc *guc)
+@@ -1349,6 +1366,58 @@ void intel_guc_submission_disable(struct intel_guc *guc)
  	guc_clients_doorbell_fini(guc);
  }
  
@@ -324,7 +338,7 @@ index 4aa5e6463e7b..c153ee6af69a 100644
 +	/* client for execbuf submission */
 +	client = guc_client_alloc(dev_priv,
 +				  INTEL_INFO(dev_priv)->ring_mask,
-+				  GUC_CLIENT_PRIORITY_NORMAL,
++				  IS_SKYLAKE(dev_priv) || IS_KABYLAKE(dev_priv) ? GUC_CLIENT_PRIORITY_HIGH : GUC_CLIENT_PRIORITY_NORMAL,
 +				  ctx);
 +	if (IS_ERR(client)) {
 +		DRM_ERROR("Failed to create normal GuC client!\n");
