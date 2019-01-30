@@ -165,6 +165,8 @@ if [ "$SUR_MODEL" = "Surface Book 2" ]; then
 	echo "\nInstalling nvidia firmware for Surface Book 2...\n"
 	mkdir -p /lib/firmware/nvidia/gp108
 	unzip -o firmware/nvidia_firmware_gp108.zip -d /lib/firmware/nvidia/gp108/
+	mkdir -p /lib/firmware/nvidia/gv100
+	unzip -o firmware/nvidia_firmware_gv100.zip -d /lib/firmware/nvidia/gv100/
 fi
 
 if [ "$SUR_MODEL" = "Surface Go" ]; then
