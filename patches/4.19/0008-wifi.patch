@@ -1,6 +1,6 @@
-From fc19b38f066347b2acffe213bfe6c96e745698b2 Mon Sep 17 00:00:00 2001
+From 6b592ac2fb808cc68d3d7fb65039ce6795636226 Mon Sep 17 00:00:00 2001
 From: Jake Day <jake@ninebysix.com>
-Date: Sun, 27 Jan 2019 10:53:31 -0500
+Date: Thu, 31 Jan 2019 07:12:13 -0500
 Subject: [PATCH 08/11] wifi
 
 ---
@@ -11,11 +11,11 @@ Subject: [PATCH 08/11] wifi
  drivers/net/wireless/marvell/mwifiex/main.c     | 17 +++++++++++++----
  drivers/net/wireless/marvell/mwifiex/main.h     |  2 ++
  drivers/net/wireless/marvell/mwifiex/pcie.c     |  9 +++++++++
- drivers/net/wireless/marvell/mwifiex/sta_cmd.c  |  8 ++++----
+ drivers/net/wireless/marvell/mwifiex/sta_cmd.c  |  2 +-
  .../net/wireless/marvell/mwifiex/sta_cmdresp.c  | 11 ++++++++---
  drivers/net/wireless/marvell/mwifiex/usb.c      |  2 ++
  scripts/leaking_addresses.pl                    |  0
- 11 files changed, 46 insertions(+), 14 deletions(-)
+ 11 files changed, 43 insertions(+), 11 deletions(-)
  mode change 100755 => 100644 scripts/leaking_addresses.pl
 
 diff --git a/drivers/net/wireless/marvell/mwifiex/11n_aggr.c b/drivers/net/wireless/marvell/mwifiex/11n_aggr.c
@@ -197,38 +197,18 @@ index 3fe81b2a929a..6e734a83e6bf 100644
  	skb_trim(skb, rx_len);
  
 diff --git a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
-index 4ed10cf82f9a..f17af83f5669 100644
+index 4ed10cf82f9a..3218a8f3d91f 100644
 --- a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
 +++ b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
-@@ -2339,7 +2339,7 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
- 		if (ret)
- 			return -1;
+@@ -31,7 +31,7 @@ module_param(drcs, bool, 0644);
+ MODULE_PARM_DESC(drcs, "multi-channel operation:1, single-channel operation:0");
  
--		if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
-+		if (0 && priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
- 			/* Enable IEEE PS by default */
- 			priv->adapter->ps_mode = MWIFIEX_802_11_POWER_MODE_PSP;
- 			ret = mwifiex_send_cmd(priv,
-@@ -2362,8 +2362,8 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
- 				return -1;
- 		}
- 
--		mwifiex_send_cmd(priv, HostCmd_CMD_CHAN_REGION_CFG,
--				 HostCmd_ACT_GEN_GET, 0, NULL, true);
-+		//mwifiex_send_cmd(priv, HostCmd_CMD_CHAN_REGION_CFG,
-+		//		 HostCmd_ACT_GEN_GET, 0, NULL, true);
- 	}
- 
- 	/* get tx rate */
-@@ -2395,7 +2395,7 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
- 	if (ret)
- 		return -1;
- 
--	if (!disable_auto_ds && first_sta &&
-+	if (0 && !disable_auto_ds && first_sta &&
- 	    priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
- 		/* Enable auto deep sleep */
- 		auto_ds.auto_ds = DEEP_SLEEP_ON;
+ static bool disable_auto_ds;
+-module_param(disable_auto_ds, bool, 0);
++module_param(disable_auto_ds, bool, 1);
+ MODULE_PARM_DESC(disable_auto_ds,
+ 		 "deepsleep enabled=0(default), deepsleep disabled=1");
+ /*
 diff --git a/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c b/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c
 index 69e3b624adbb..884bad677cc3 100644
 --- a/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c
