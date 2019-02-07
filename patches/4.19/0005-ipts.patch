@@ -1,11 +1,11 @@
-From ffdb2838f469f74fbf2724b9fcd0a65c6cb0ffde Mon Sep 17 00:00:00 2001
+From f034c7d89ebb931a24345cd2003a7222a6cfcb58 Mon Sep 17 00:00:00 2001
 From: Jake Day <jake@ninebysix.com>
-Date: Thu, 31 Jan 2019 07:11:31 -0500
+Date: Thu, 7 Feb 2019 07:22:57 -0500
 Subject: [PATCH 05/11] ipts
 
 ---
  drivers/gpu/drm/i915/Makefile               |    3 +
- drivers/gpu/drm/i915/i915_drv.c             |   13 +
+ drivers/gpu/drm/i915/i915_drv.c             |   19 +
  drivers/gpu/drm/i915/i915_drv.h             |    3 +
  drivers/gpu/drm/i915/i915_gem_context.c     |   12 +
  drivers/gpu/drm/i915/i915_irq.c             |    7 +-
@@ -45,7 +45,7 @@ Subject: [PATCH 05/11] ipts
  drivers/misc/mei/hw-me-regs.h               |    1 +
  drivers/misc/mei/pci-me.c                   |    1 +
  include/linux/intel_ipts_if.h               |   75 ++
- 41 files changed, 5563 insertions(+), 25 deletions(-)
+ 41 files changed, 5569 insertions(+), 25 deletions(-)
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.c
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.h
  create mode 100644 drivers/misc/ipts/Kconfig
@@ -84,7 +84,7 @@ index 5794f102f9b8..6ae0e91a213a 100644
  i915-$(CONFIG_DRM_I915_CAPTURE_ERROR) += i915_gpu_error.o
  i915-$(CONFIG_DRM_I915_SELFTEST) += \
 diff --git a/drivers/gpu/drm/i915/i915_drv.c b/drivers/gpu/drm/i915/i915_drv.c
-index f8cfd16be534..72c2f0fd2c73 100644
+index f8cfd16be534..dc7c7e680938 100644
 --- a/drivers/gpu/drm/i915/i915_drv.c
 +++ b/drivers/gpu/drm/i915/i915_drv.c
 @@ -53,6 +53,7 @@
@@ -135,6 +135,26 @@ index f8cfd16be534..72c2f0fd2c73 100644
  	return 0;
  }
  
+@@ -2593,6 +2606,9 @@ static int intel_runtime_suspend(struct device *kdev)
+ 
+ 	DRM_DEBUG_KMS("Suspending device\n");
+ 
++	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
++		intel_ipts_suspend(dev);
++
+ 	disable_rpm_wakeref_asserts(dev_priv);
+ 
+ 	/*
+@@ -2730,6 +2746,9 @@ static int intel_runtime_resume(struct device *kdev)
+ 
+ 	enable_rpm_wakeref_asserts(dev_priv);
+ 
++	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
++        intel_ipts_resume(dev);
++
+ 	if (ret)
+ 		DRM_ERROR("Runtime resume failed, disabling it (%d)\n", ret);
+ 	else
 diff --git a/drivers/gpu/drm/i915/i915_drv.h b/drivers/gpu/drm/i915/i915_drv.h
 index d6c25bea4382..d6b507fb7626 100644
 --- a/drivers/gpu/drm/i915/i915_drv.h
