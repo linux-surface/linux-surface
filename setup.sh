@@ -136,7 +136,17 @@ if [ "$SUR_MODEL" = "Surface Laptop" ]; then
 
 	echo "\nInstalling i915 firmware for Surface Laptop...\n"
 	mkdir -p /lib/firmware/i915
-	unzip -o firmware/i915_firmware_skl.zip -d /lib/firmware/i915/
+	unzip -o firmware/i915_firmware_kbl.zip -d /lib/firmware/i915/
+fi
+
+if [ "$SUR_MODEL" = "Surface Laptop 2" ]; then
+	echo "\nInstalling IPTS firmware for Surface Laptop 2...\n"
+	mkdir -p /lib/firmware/intel/ipts
+	unzip -o firmware/ipts_firmware_v79.zip -d /lib/firmware/intel/ipts/
+
+	echo "\nInstalling i915 firmware for Surface Laptop 2...\n"
+	mkdir -p /lib/firmware/i915
+	unzip -o firmware/i915_firmware_kbl.zip -d /lib/firmware/i915/
 fi
 
 if [ "$SUR_MODEL" = "Surface Book" ]; then
