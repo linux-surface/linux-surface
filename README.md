@@ -1,6 +1,18 @@
 # Linux Surface
 
-Linux running on the Surface Book, Surface Book 2, Surface Go, Surface Pro 3, Surface Pro 4, Surface Pro 2017, Surface Pro 6, Surface Laptop and Surface Laptop 2. Follow the instructions below to install the latest kernel and config files.
+Linux running on the Microsoft Surface devices . Follow the instructions below to install the latest kernel and config files.
+
+### Supported Devices
+
+* Surface Book
+* Surface Book 2
+* Surface Go
+* Surface Laptop
+* Surface Laptop 2
+* Surface Pro 3
+* Surface Pro 4
+* Surface Pro 2017
+* Surface Pro 6
 
 ### What's Working
 
@@ -29,7 +41,7 @@ Linux running on the Surface Book, Surface Book 2, Surface Go, Surface Pro 3, Su
 
 * Dedicated Nvidia GPU (if you have a performance base on a Surface Book 1, otherwise onboard works fine)
 * Cameras (not fully supported yet)
-* Suspend (uses Connected Standby which is not supported yet)
+* Connected Standby is not supported yet
 
 ### Disclaimer
 * For the most part, things are tested on a Surface Book. While most things are reportedly fully working on other devices, your mileage may vary. Please look at the issues list for possible exceptions.
