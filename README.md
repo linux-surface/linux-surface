@@ -13,6 +13,7 @@ Linux running on the Microsoft Surface devices . Follow the instructions below t
 * Surface Pro 4
 * Surface Pro 2017
 * Surface Pro 6
+* Surface Studio
 
 ### What's Working
 
