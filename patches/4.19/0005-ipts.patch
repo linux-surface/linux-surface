@@ -1,11 +1,11 @@
-From f034c7d89ebb931a24345cd2003a7222a6cfcb58 Mon Sep 17 00:00:00 2001
+From 9fba423120431ed30f1225d25e26e3c3882559f9 Mon Sep 17 00:00:00 2001
 From: Jake Day <jake@ninebysix.com>
-Date: Thu, 7 Feb 2019 07:22:57 -0500
+Date: Sat, 16 Feb 2019 13:24:10 -0500
 Subject: [PATCH 05/11] ipts
 
 ---
  drivers/gpu/drm/i915/Makefile               |    3 +
- drivers/gpu/drm/i915/i915_drv.c             |   19 +
+ drivers/gpu/drm/i915/i915_drv.c             |   13 +
  drivers/gpu/drm/i915/i915_drv.h             |    3 +
  drivers/gpu/drm/i915/i915_gem_context.c     |   12 +
  drivers/gpu/drm/i915/i915_irq.c             |    7 +-
@@ -15,7 +15,7 @@ Subject: [PATCH 05/11] ipts
  drivers/gpu/drm/i915/intel_guc.h            |    1 +
  drivers/gpu/drm/i915/intel_guc_submission.c |   89 +-
  drivers/gpu/drm/i915/intel_guc_submission.h |    4 +
- drivers/gpu/drm/i915/intel_ipts.c           |  649 ++++++++++++
+ drivers/gpu/drm/i915/intel_ipts.c           |  657 ++++++++++++
  drivers/gpu/drm/i915/intel_ipts.h           |   36 +
  drivers/gpu/drm/i915/intel_lrc.c            |   12 +-
  drivers/gpu/drm/i915/intel_lrc.h            |    8 +
@@ -45,7 +45,7 @@ Subject: [PATCH 05/11] ipts
  drivers/misc/mei/hw-me-regs.h               |    1 +
  drivers/misc/mei/pci-me.c                   |    1 +
  include/linux/intel_ipts_if.h               |   75 ++
- 41 files changed, 5569 insertions(+), 25 deletions(-)
+ 41 files changed, 5571 insertions(+), 25 deletions(-)
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.c
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.h
  create mode 100644 drivers/misc/ipts/Kconfig
@@ -84,7 +84,7 @@ index 5794f102f9b8..6ae0e91a213a 100644
  i915-$(CONFIG_DRM_I915_CAPTURE_ERROR) += i915_gpu_error.o
  i915-$(CONFIG_DRM_I915_SELFTEST) += \
 diff --git a/drivers/gpu/drm/i915/i915_drv.c b/drivers/gpu/drm/i915/i915_drv.c
-index f8cfd16be534..dc7c7e680938 100644
+index f8cfd16be534..72c2f0fd2c73 100644
 --- a/drivers/gpu/drm/i915/i915_drv.c
 +++ b/drivers/gpu/drm/i915/i915_drv.c
 @@ -53,6 +53,7 @@
@@ -135,26 +135,6 @@ index f8cfd16be534..dc7c7e680938 100644
  	return 0;
  }
  
-@@ -2593,6 +2606,9 @@ static int intel_runtime_suspend(struct device *kdev)
- 
- 	DRM_DEBUG_KMS("Suspending device\n");
- 
-+	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
-+		intel_ipts_suspend(dev);
-+
- 	disable_rpm_wakeref_asserts(dev_priv);
- 
- 	/*
-@@ -2730,6 +2746,9 @@ static int intel_runtime_resume(struct device *kdev)
- 
- 	enable_rpm_wakeref_asserts(dev_priv);
- 
-+	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
-+        intel_ipts_resume(dev);
-+
- 	if (ret)
- 		DRM_ERROR("Runtime resume failed, disabling it (%d)\n", ret);
- 	else
 diff --git a/drivers/gpu/drm/i915/i915_drv.h b/drivers/gpu/drm/i915/i915_drv.h
 index d6c25bea4382..d6b507fb7626 100644
 --- a/drivers/gpu/drm/i915/i915_drv.h
@@ -438,10 +418,10 @@ index fb081cefef93..71fc7986585a 100644
  #endif
 diff --git a/drivers/gpu/drm/i915/intel_ipts.c b/drivers/gpu/drm/i915/intel_ipts.c
 new file mode 100644
-index 000000000000..4a3efea3bac3
+index 000000000000..b276a2f7839c
 --- /dev/null
 +++ b/drivers/gpu/drm/i915/intel_ipts.c
-@@ -0,0 +1,649 @@
+@@ -0,0 +1,657 @@
 +/*
 + * Copyright  2016 Intel Corporation
 + *
@@ -1067,6 +1047,14 @@ index 000000000000..4a3efea3bac3
 +
 +	if (intel_ipts.dev == dev) {
 +		list_for_each_entry_safe(obj, n, &intel_ipts.buffers.list, list) {
++			struct i915_vma *vma, *vn;
++
++			list_for_each_entry_safe(vma, vn,
++						 &obj->list, obj_link) {
++				vma->flags &= ~I915_VMA_PIN_MASK;
++				i915_vma_destroy(vma);
++			}
++
 +			list_del(&obj->list);
 +
 +			if (!obj->gem_obj->phys_handle)
@@ -6077,7 +6065,7 @@ index 000000000000..1fcd02146b50
 +
 +#endif // _IPTS_H_
 diff --git a/drivers/misc/mei/hw-me-regs.h b/drivers/misc/mei/hw-me-regs.h
-index 23739a60517f..92a2a0c5947c 100644
+index bb1ee9834a02..2bbffe8aad40 100644
 --- a/drivers/misc/mei/hw-me-regs.h
 +++ b/drivers/misc/mei/hw-me-regs.h
 @@ -119,6 +119,7 @@
@@ -6089,7 +6077,7 @@ index 23739a60517f..92a2a0c5947c 100644
  #define MEI_DEV_ID_SPT_H_2    0xA13B  /* Sunrise Point H 2 */
  
 diff --git a/drivers/misc/mei/pci-me.c b/drivers/misc/mei/pci-me.c
-index c8e21c894a5f..e26c9280d6ba 100644
+index 4299658d48d6..a13fc65bb8e1 100644
 --- a/drivers/misc/mei/pci-me.c
 +++ b/drivers/misc/mei/pci-me.c
 @@ -86,6 +86,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
@@ -6182,5 +6170,5 @@ index 000000000000..f329bbfb8079
 +
 +#endif // INTEL_IPTS_IF_H
 -- 
-2.17.1
+2.19.1
 
