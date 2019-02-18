@@ -1,62 +1,60 @@
-From 231f570c3fa8118037f6de384b4d611d85e5a99b Mon Sep 17 00:00:00 2001
+From 2d71b2c1172ac4c9f749255dd1a87cfc4767d81b Mon Sep 17 00:00:00 2001
 From: Jake Day <jake@ninebysix.com>
-Date: Sat, 16 Feb 2019 13:25:03 -0500
+Date: Mon, 18 Feb 2019 13:18:19 -0500
 Subject: [PATCH 09/11] surface3-power
 
 ---
- drivers/acpi/Kconfig          |   6 +
- drivers/acpi/Makefile         |   2 +
- drivers/acpi/surface3_power.c | 702 ++++++++++++++++++++++++++++++++++
- 3 files changed, 710 insertions(+)
- create mode 100644 drivers/acpi/surface3_power.c
+ drivers/platform/x86/Kconfig          |   7 +
+ drivers/platform/x86/Makefile         |   1 +
+ drivers/platform/x86/surface3_power.c | 604 ++++++++++++++++++++++++++
+ 3 files changed, 612 insertions(+)
+ create mode 100644 drivers/platform/x86/surface3_power.c
 
-diff --git a/drivers/acpi/Kconfig b/drivers/acpi/Kconfig
-index dd1eea90f67f..b5a978e6d487 100644
---- a/drivers/acpi/Kconfig
-+++ b/drivers/acpi/Kconfig
-@@ -498,6 +498,12 @@ config ACPI_EXTLOG
- 	  driver adds support for that functionality with corresponding
- 	  tracepoint which carries that information to userspace.
+diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
+index 716a32e1c66f..e8ad396debb5 100644
+--- a/drivers/platform/x86/Kconfig
++++ b/drivers/platform/x86/Kconfig
+@@ -1214,6 +1214,13 @@ config SURFACE_3_BUTTON
+ 	---help---
+ 	  This driver handles the power/home/volume buttons on the Microsoft Surface 3 tablet.
  
-+config ACPI_SURFACE3_POWER_OPREGION
++config SURFACE_3_POWER_OPREGION
 +	tristate "Surface 3 battery platform operation region support"
++	depends on ACPI && I2C
 +	help
 +	  Select this option to enable support for ACPI operation
 +	  region of the Surface 3 battery platform driver.
 +
- menuconfig PMIC_OPREGION
- 	bool "PMIC (Power Management Integrated Circuit) operation region support"
- 	help
-diff --git a/drivers/acpi/Makefile b/drivers/acpi/Makefile
-index 6d59aa109a91..a6f02538cd65 100644
---- a/drivers/acpi/Makefile
-+++ b/drivers/acpi/Makefile
-@@ -103,6 +103,8 @@ obj-$(CONFIG_ACPI_APEI)		+= apei/
- 
- obj-$(CONFIG_ACPI_EXTLOG)	+= acpi_extlog.o
- 
-+obj-$(CONFIG_ACPI_SURFACE3_POWER_OPREGION) += surface3_power.o
-+
- obj-$(CONFIG_PMIC_OPREGION)	+= pmic/intel_pmic.o
- obj-$(CONFIG_CRC_PMIC_OPREGION) += pmic/intel_pmic_crc.o
- obj-$(CONFIG_XPOWER_PMIC_OPREGION) += pmic/intel_pmic_xpower.o
-diff --git a/drivers/acpi/surface3_power.c b/drivers/acpi/surface3_power.c
+ config INTEL_PUNIT_IPC
+ 	tristate "Intel P-Unit IPC Driver"
+ 	---help---
+diff --git a/drivers/platform/x86/Makefile b/drivers/platform/x86/Makefile
+index ab8be80b6596..a5f5c2e7db9f 100644
+--- a/drivers/platform/x86/Makefile
++++ b/drivers/platform/x86/Makefile
+@@ -82,6 +82,7 @@ obj-$(CONFIG_INTEL_PMC_IPC)	+= intel_pmc_ipc.o
+ obj-$(CONFIG_TOUCHSCREEN_DMI)	+= touchscreen_dmi.o
+ obj-$(CONFIG_SURFACE_PRO3_BUTTON)	+= surfacepro3_button.o
+ obj-$(CONFIG_SURFACE_3_BUTTON)	+= surface3_button.o
++obj-$(CONFIG_SURFACE_3_POWER_OPREGION) += surface3_power.o
+ obj-$(CONFIG_INTEL_PUNIT_IPC)  += intel_punit_ipc.o
+ obj-$(CONFIG_INTEL_BXTWC_PMIC_TMU)	+= intel_bxtwc_tmu.o
+ obj-$(CONFIG_INTEL_TELEMETRY)	+= intel_telemetry_core.o \
+diff --git a/drivers/platform/x86/surface3_power.c b/drivers/platform/x86/surface3_power.c
 new file mode 100644
-index 000000000000..6d59c7f6e4a5
+index 000000000000..e0af01a60302
 --- /dev/null
-+++ b/drivers/acpi/surface3_power.c
-@@ -0,0 +1,702 @@
++++ b/drivers/platform/x86/surface3_power.c
+@@ -0,0 +1,604 @@
++// SPDX-License-Identifier: GPL-2.0+
++
 +/*
 + * Supports for the power IC on the Surface 3 tablet.
 + *
-+ * (C) Copyright 2016-2017 Red Hat, Inc
-+ * (C) Copyright 2016-2017 Benjamin Tissoires <benjamin.tissoires@gmail.com>
++ * (C) Copyright 2016-2018 Red Hat, Inc
++ * (C) Copyright 2016-2018 Benjamin Tissoires <benjamin.tissoires@gmail.com>
 + * (C) Copyright 2016 Stephen Just <stephenjust@gmail.com>
 + *
-+ * This program is free software; you can redistribute it and/or
-+ * modify it under the terms of the GNU General Public License
-+ * as published by the Free Software Foundation; version 2
-+ * of the License.
 + */
 +
 +/*
@@ -96,15 +94,10 @@ index 000000000000..6d59c7f6e4a5
 +
 +#define POLL_INTERVAL		(2 * HZ)
 +
-+static bool dump_registers;
-+module_param_named(dump_registers, dump_registers, bool, 0644);
-+MODULE_PARM_DESC(dump_registers,
-+		 "Dump the SMBus register at probe (debugging only).");
-+
 +struct mshw0011_data {
 +	struct i2c_client	*adp1;
 +	struct i2c_client	*bat0;
-+	unsigned short		notify_version;
++	unsigned short		notify_mask;
 +	struct task_struct	*poll_task;
 +	bool			kthread_running;
 +
@@ -173,9 +166,10 @@ index 000000000000..6d59c7f6e4a5
 +	} __packed;
 +} __packed;
 +
-+#define ACPI_BATTERY_STATE_DISCHARGING	0x1
-+#define ACPI_BATTERY_STATE_CHARGING	0x2
-+#define ACPI_BATTERY_STATE_CRITICAL	0x4
++
++#define ACPI_BATTERY_STATE_DISCHARGING	BIT(0)
++#define ACPI_BATTERY_STATE_CHARGING	BIT(1)
++#define ACPI_BATTERY_STATE_CRITICAL	BIT(2)
 +
 +#define MSHW0011_CMD_DEST_BAT0		0x01
 +#define MSHW0011_CMD_DEST_ADP1		0x03
@@ -212,29 +206,11 @@ index 000000000000..6d59c7f6e4a5
 +
 +#define MSHW0011_EV_2_5			0x1ff
 +
-+static int mshw0011_i2c_read_block(struct i2c_client *client, u8 reg, u8 *buf,
-+				   int len)
-+{
-+	int status, i;
-+
-+	for (i = 0; i < len; i++) {
-+		status = i2c_smbus_read_byte_data(client, reg + i);
-+		if (status < 0) {
-+			buf[i] = 0xff;
-+			continue;
-+		}
-+
-+		buf[i] = (u8)status;
-+	}
-+
-+	return 0;
-+}
-+
 +static int
 +mshw0011_notify(struct mshw0011_data *cdata, u8 arg1, u8 arg2,
 +		unsigned int *ret_value)
 +{
-+	static const uuid_le mshw0011_guid =
++	static const guid_t mshw0011_guid =
 +		GUID_INIT(0x3F99E367, 0x6220, 0x4955,
 +			  0x8B, 0x0F, 0x06, 0xEF, 0x2A, 0xE7, 0x94, 0x12);
 +	union acpi_object *obj;
@@ -300,7 +276,7 @@ index 000000000000..6d59c7f6e4a5
 +			ret);
 +		return ret;
 +	}
-+	bix->design_capacity = le16_to_cpu(ret);
++	bix->design_capacity = ret;
 +
 +	/* get last full charge capacity */
 +	ret = i2c_smbus_read_word_data(client,
@@ -310,18 +286,17 @@ index 000000000000..6d59c7f6e4a5
 +			"Error reading last full charge capacity: %d\n", ret);
 +		return ret;
 +	}
-+	bix->last_full_charg_capacity = le16_to_cpu(ret);
++	bix->last_full_charg_capacity = ret;
 +
 +	/* get serial number */
-+	ret = mshw0011_i2c_read_block(client, MSHW0011_BAT0_REG_SERIAL_NO,
-+				      buf, 10);
-+	if (ret) {
++	ret = i2c_smbus_read_i2c_block_data(client, MSHW0011_BAT0_REG_SERIAL_NO,
++					    10, buf);
++	if (ret != 10) {
 +		dev_err(&client->dev, "Error reading serial no: %d\n", ret);
 +		return ret;
 +	}
-+	memcpy(bix->serial, buf + 7, 3);
-+	memcpy(bix->serial + 3, buf, 6);
-+	bix->serial[9] = '\0';
++	snprintf(bix->serial, ARRAY_SIZE(bix->serial),
++		 "%*pE%*pE", 3, buf + 7, 6, buf);
 +
 +	/* get cycle count */
 +	ret = i2c_smbus_read_word_data(client, MSHW0011_BAT0_REG_CYCLE_CNT);
@@ -329,16 +304,16 @@ index 000000000000..6d59c7f6e4a5
 +		dev_err(&client->dev, "Error reading cycle count: %d\n", ret);
 +		return ret;
 +	}
-+	bix->cycle_count = le16_to_cpu(ret);
++	bix->cycle_count = ret;
 +
 +	/* get OEM name */
-+	ret = mshw0011_i2c_read_block(client, MSHW0011_BAT0_REG_OEM, buf, 4);
-+	if (ret) {
++	ret = i2c_smbus_read_i2c_block_data(client, MSHW0011_BAT0_REG_OEM,
++					    4, buf);
++	if (ret != 4) {
 +		dev_err(&client->dev, "Error reading cycle count: %d\n", ret);
 +		return ret;
 +	}
-+	memcpy(bix->OEM, buf, 3);
-+	bix->OEM[4] = '\0';
++	snprintf(bix->OEM, ARRAY_SIZE(bix->OEM), "%*pE", 3, buf);
 +
 +	return 0;
 +}
@@ -361,7 +336,7 @@ index 000000000000..6d59c7f6e4a5
 +	if (voltage < 0)
 +		return voltage;
 +
-+	tmp = le16_to_cpu(rate);
++	tmp = rate;
 +	bst->battery_present_rate = abs((s32)tmp);
 +
 +	state = 0;
@@ -371,8 +346,8 @@ index 000000000000..6d59c7f6e4a5
 +		state |= ACPI_BATTERY_STATE_DISCHARGING;
 +	bst->battery_state = state;
 +
-+	bst->battery_remaining_capacity = le16_to_cpu(capacity);
-+	bst->battery_present_voltage = le16_to_cpu(voltage);
++	bst->battery_remaining_capacity = capacity;
++	bst->battery_present_voltage = voltage;
 +
 +	return 0;
 +}
@@ -403,7 +378,7 @@ index 000000000000..6d59c7f6e4a5
 +	status = ret;
 +
 +	if (status != cdata->charging)
-+		mshw0011_notify(cdata, cdata->notify_version,
++		mshw0011_notify(cdata, cdata->notify_mask,
 +				MSHW0011_NOTIFY_ADP1, &ret);
 +
 +	cdata->charging = status;
@@ -415,7 +390,7 @@ index 000000000000..6d59c7f6e4a5
 +	bat_status = bst.battery_state;
 +
 +	if (bat_status != cdata->bat_charging)
-+		mshw0011_notify(cdata, cdata->notify_version,
++		mshw0011_notify(cdata, cdata->notify_mask,
 +				MSHW0011_NOTIFY_BAT0_BST, &ret);
 +
 +	cdata->bat_charging = bat_status;
@@ -424,7 +399,7 @@ index 000000000000..6d59c7f6e4a5
 +	if (ret < 0)
 +		return ret;
 +	if (bix.last_full_charg_capacity != cdata->full_capacity)
-+		mshw0011_notify(cdata, cdata->notify_version,
++		mshw0011_notify(cdata, cdata->notify_mask,
 +				MSHW0011_NOTIFY_BAT0_BIX, &ret);
 +
 +	cdata->full_capacity = bix.last_full_charg_capacity;
@@ -506,13 +481,11 @@ index 000000000000..6d59c7f6e4a5
 +
 +	switch (gsb->cmd.arg1) {
 +	case MSHW0011_CMD_BAT0_STA:
-+		ret = 0;
 +		break;
 +	case MSHW0011_CMD_BAT0_BIX:
 +		ret = mshw0011_bix(cdata, &gsb->bix);
 +		break;
 +	case MSHW0011_CMD_BAT0_BTP:
-+		ret = 0;
 +		cdata->trip_point = gsb->cmd.arg2;
 +		break;
 +	case MSHW0011_CMD_BAT0_BST:
@@ -592,71 +565,14 @@ index 000000000000..6d59c7f6e4a5
 +	acpi_bus_detach_private_data(handle);
 +}
 +
-+static int acpi_find_i2c(struct acpi_resource *ares, void *data)
++static int mshw0011_probe(struct i2c_client *client)
 +{
-+	struct mshw0011_lookup *lookup = data;
-+
-+	if (ares->type != ACPI_RESOURCE_TYPE_SERIAL_BUS)
-+		return 1;
-+
-+	if (lookup->n++ == lookup->index && !lookup->addr)
-+		lookup->addr = ares->data.i2c_serial_bus.slave_address;
-+
-+	return 1;
-+}
-+
-+static int mshw0011_i2c_resource_lookup(struct mshw0011_data *cdata,
-+					unsigned int index)
-+{
-+	struct i2c_client *client = cdata->adp1;
-+	struct acpi_device *adev = ACPI_COMPANION(&client->dev);
-+	struct mshw0011_lookup lookup = {
-+		.cdata = cdata,
-+		.index = index,
-+	};
-+	struct list_head res_list;
-+	int ret;
-+
-+	INIT_LIST_HEAD(&res_list);
-+
-+	ret = acpi_dev_get_resources(adev, &res_list, acpi_find_i2c, &lookup);
-+	if (ret < 0)
-+		return ret;
-+
-+	acpi_dev_free_resource_list(&res_list);
-+
-+	if (!lookup.addr)
-+		return -ENOENT;
-+
-+	return lookup.addr;
-+}
-+
-+static void mshw0011_dump_registers(struct i2c_client *client,
-+				    struct i2c_client *bat0, u8 end_register)
-+{
-+	char *rd_buf;
-+	char prefix[128];
-+	unsigned int length = end_register + 1;
-+	int error;
-+
-+	snprintf(prefix, ARRAY_SIZE(prefix), "%s: ", bat0->name);
-+	prefix[127] = '\0';
-+
-+	rd_buf = kzalloc(length, GFP_KERNEL);
-+	error = mshw0011_i2c_read_block(bat0, 0, rd_buf, length);
-+	print_hex_dump(KERN_INFO, prefix, DUMP_PREFIX_OFFSET, 16, 1,
-+		       rd_buf, length, true);
-+
-+	kfree(rd_buf);
-+}
-+
-+static int mshw0011_probe(struct i2c_client *client,
-+			  const struct i2c_device_id *id)
-+{
++	struct i2c_board_info board_info;
 +	struct device *dev = &client->dev;
 +	struct i2c_client *bat0;
++
 +	struct mshw0011_data *data;
-+	int error, version, addr;
++	int error, mask;
 +
 +	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
 +	if (!data)
@@ -665,27 +581,21 @@ index 000000000000..6d59c7f6e4a5
 +	data->adp1 = client;
 +	i2c_set_clientdata(client, data);
 +
-+	addr = mshw0011_i2c_resource_lookup(data, 1);
-+	if (addr < 0)
-+		return addr;
++	memset(&board_info, 0, sizeof(board_info));
++	strlcpy(board_info.type, "MSHW0011-bat0", I2C_NAME_SIZE);
 +
-+	bat0 = i2c_new_dummy(client->adapter, addr);
++	bat0 = i2c_acpi_new_device(dev, 1, &board_info);
 +	if (!bat0)
 +		return -ENOMEM;
 +
 +	data->bat0 = bat0;
 +	i2c_set_clientdata(bat0, data);
 +
-+	if (dump_registers) {
-+		mshw0011_dump_registers(client, client, 0xFF);
-+		mshw0011_dump_registers(client, bat0, 0x80);
-+	}
-+
-+	error = mshw0011_notify(data, 1, MSHW0011_NOTIFY_GET_VERSION, &version);
++	error = mshw0011_notify(data, 1, MSHW0011_NOTIFY_GET_VERSION, &mask);
 +	if (error)
 +		goto out_err;
 +
-+	data->notify_version = version == MSHW0011_EV_2_5;
++	data->notify_mask = mask == MSHW0011_EV_2_5;
 +
 +	data->poll_task = kthread_run(mshw0011_poll_task, data, "mshw0011_adp");
 +	if (IS_ERR(data->poll_task)) {
@@ -721,23 +631,15 @@ index 000000000000..6d59c7f6e4a5
 +	return 0;
 +}
 +
-+static const struct i2c_device_id mshw0011_id[] = {
-+	{ }
-+};
-+MODULE_DEVICE_TABLE(i2c, mshw0011_id);
-+
-+#ifdef CONFIG_ACPI
 +static const struct acpi_device_id mshw0011_acpi_match[] = {
 +	{ "MSHW0011", 0 },
 +	{ }
 +};
 +MODULE_DEVICE_TABLE(acpi, mshw0011_acpi_match);
-+#endif
 +
 +static struct i2c_driver mshw0011_driver = {
-+	.probe = mshw0011_probe,
++	.probe_new = mshw0011_probe,
 +	.remove = mshw0011_remove,
-+	.id_table = mshw0011_id,
 +	.driver = {
 +		.name = "mshw0011",
 +		.acpi_match_table = ACPI_PTR(mshw0011_acpi_match),
