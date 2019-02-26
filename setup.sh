@@ -32,7 +32,7 @@ read -rp "Press enter if this is correct, or CTRL-C to cancel." cont;echo
 echo "\nContinuing setup...\n"
 
 echo "Coping the config files under root to where they belong...\n"
-cp -Rb root/* /
+for dir in $(ls root/); do cp -Rb root/$dir/* /$dir/; done
 
 echo "Making /lib/systemd/system-sleep/sleep executable...\n"
 chmod a+x /lib/systemd/system-sleep/sleep
