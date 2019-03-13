@@ -101,7 +101,7 @@ If you don't want to use the pre-built kernel and headers, you can compile the k
   ```
 3. Checkout the version of the kernel you wish to target (replacing with your target version):
   ```
-  git checkout v4.y.z
+  git checkout v5.y.z
   ```
 4. Apply the kernel patches from the linux-surface repo (this one, and assuming you cloned it to ~/linux-surface):
   ```
