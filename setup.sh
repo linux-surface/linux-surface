@@ -31,12 +31,13 @@ read -rp "Press enter if this is correct, or CTRL-C to cancel." cont;echo
 
 echo "\nContinuing setup...\n"
 
-echo "Coping the config files under root to where they belong...\n"
+echo "Copying the config files under root to where they belong...\n"
 for dir in $(ls root/); do cp -Rb root/$dir/* /$dir/; done
 
 echo "Making /lib/systemd/system-sleep/sleep executable...\n"
 chmod a+x /lib/systemd/system-sleep/sleep
 
+echo "Suspend is recommended over hibernate. If you chose to use hibernate, please make sure you've setup your swap file per the instructions in the README.\n"
 read -rp "Do you want to replace suspend with hibernate? (type yes or no) " usehibernate;echo
 
 if [ "$usehibernate" = "yes" ]; then
@@ -51,7 +52,9 @@ else
 	echo "Not touching Suspend\n"
 fi
 
-read -rp "Do you want use the patched libwacom packages? (type yes or no) " uselibwacom;echo
+echo "Patched libwacom packages are available to better support the pen. If you intend to use the pen, it's recommended that you install them!\n"
+
+read -rp "Do you want to install the patched libwacom packages? (type yes or no) " uselibwacom;echo
 
 if [ "$uselibwacom" = "yes" ]; then
 	echo "Installing patched libwacom packages..."
@@ -60,6 +63,8 @@ if [ "$uselibwacom" = "yes" ]; then
 else
 	echo "Not touching libwacom"
 fi
+
+echo "This repo comes with example xorg and pulse audio configs. If you chose to keep them, be sure to rename them and uncomment out what you'd like to keep!\n"
 
 read -rp "Do you want to remove the example intel xorg config? (type yes or no) " removexorg;echo
 

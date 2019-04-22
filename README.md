@@ -132,6 +132,7 @@ Please consult the [SIGNING.md](SIGNING.md).
 
 * If you are getting stuck at boot when loading the ramdisk, you need to install the Processor Microcode Firmware for Intel CPUs (usually found under Additional Drivers in Software and Updates).
 * Do not install TLP! It can cause slowdowns, laggy performance, and occasional hangs! You have been warned.
+* If you chose to use hibernate over suspend, please follow the instructions [here](https://fitzcarraldoblog.wordpress.com/2018/07/14/configuring-lubuntu-18-04-to-enable-hibernation-using-a-swap-file/).
 
 ### Support
 
