@@ -1,44 +1,36 @@
-From 72113fc16eb482e9ee1a5bf31e829128de2e4a65 Mon Sep 17 00:00:00 2001
-From: Jake Day <jake@ninebysix.com>
-Date: Thu, 7 Mar 2019 11:55:17 -0500
+From 3421b5f76fef2381ed85bd9a74b66a99719ecaa8 Mon Sep 17 00:00:00 2001
+From: qzed <qzed@users.noreply.github.com>
+Date: Wed, 24 Apr 2019 20:34:29 +0200
 Subject: [PATCH 03/11] buttons
 
 ---
- drivers/input/misc/soc_button_array.c     | 84 +++++++++++++++++++++--
- drivers/platform/x86/surfacepro3_button.c | 36 ++++++++++
- 2 files changed, 114 insertions(+), 6 deletions(-)
+ drivers/input/misc/soc_button_array.c     | 133 ++++++++++++++++++++--
+ drivers/platform/x86/surfacepro3_button.c |  38 +++++++
+ 2 files changed, 159 insertions(+), 12 deletions(-)
 
 diff --git a/drivers/input/misc/soc_button_array.c b/drivers/input/misc/soc_button_array.c
-index 23520df7650f..1ea239ff426d 100644
+index 55cd6e0b409c..ad4d591cf179 100644
 --- a/drivers/input/misc/soc_button_array.c
 +++ b/drivers/input/misc/soc_button_array.c
-@@ -29,12 +29,24 @@ struct soc_button_info {
+@@ -29,6 +29,17 @@ struct soc_button_info {
  	bool wakeup;
  };
  
++/**
++ * struct soc_device_data - driver data for different device types
++ * @button_info: specifications of buttons, if NULL specification is assumed to
++ *               be present in _DSD
++ * @check: device-specific check (NULL means all will be accepted)
++ */
 +struct soc_device_data {
-+	/* Button info, may be NULL. */
 +	struct soc_button_info *button_info;
-+	/* Special device check function, may be NULL. */
-+	int (*check)(struct device *);
++	int (*check)(struct device *dev);
 +};
 +
  /*
   * Some of the buttons like volume up/down are auto repeat, while others
   * are not. To support both, we register two platform devices, and put
-  * buttons into them based on whether the key should be auto repeat.
-  */
--#define BUTTON_TYPES	2
-+#define BUTTON_TYPES            	2
-+
-+#define MSHW0040_DSM_REVISION		0x01
-+#define MSHW0040_DSM_GET_OMPR		0x02	// get OEM Platform Revision
-+static const guid_t MSHW0040_DSM_UUID =
-+	GUID_INIT(0x6fd05c69, 0xcde3, 0x49f4, 0x95, 0xed, 0xab, 0x16, 0x65, 0x49, 0x80, 0x35);
- 
- struct soc_button_data {
- 	struct platform_device *children[BUTTON_TYPES];
-@@ -310,6 +322,7 @@ static int soc_button_probe(struct platform_device *pdev)
+@@ -310,6 +321,7 @@ static int soc_button_probe(struct platform_device *pdev)
  {
  	struct device *dev = &pdev->dev;
  	const struct acpi_device_id *id;
@@ -46,16 +38,15 @@ index 23520df7650f..1ea239ff426d 100644
  	struct soc_button_info *button_info;
  	struct soc_button_data *priv;
  	struct platform_device *pd;
-@@ -320,12 +333,20 @@ static int soc_button_probe(struct platform_device *pdev)
+@@ -320,18 +332,19 @@ static int soc_button_probe(struct platform_device *pdev)
  	if (!id)
  		return -ENODEV;
  
 -	if (!id->driver_data) {
 +	device_data = (struct soc_device_data *)id->driver_data;
 +	if (device_data && device_data->check) {
-+		// device dependent check, required for MSHW0040
 +		error = device_data->check(dev);
-+		if (error != 0)
++		if (error)
 +			return error;
 +	}
 +
@@ -67,10 +58,16 @@ index 23520df7650f..1ea239ff426d 100644
  			return PTR_ERR(button_info);
 -	} else {
 -		button_info = (struct soc_button_info *)id->driver_data;
+-	}
+-
+-	error = gpiod_count(dev, NULL);
+-	if (error < 0) {
+-		dev_dbg(dev, "no GPIO attached, ignoring...\n");
+-		return -ENODEV;
  	}
  
- 	error = gpiod_count(dev, NULL);
-@@ -357,7 +378,7 @@ static int soc_button_probe(struct platform_device *pdev)
+ 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
+@@ -357,12 +370,32 @@ static int soc_button_probe(struct platform_device *pdev)
  	if (!priv->children[0] && !priv->children[1])
  		return -ENODEV;
  
@@ -79,14 +76,40 @@ index 23520df7650f..1ea239ff426d 100644
  		devm_kfree(dev, button_info);
  
  	return 0;
-@@ -377,9 +398,60 @@ static struct soc_button_info soc_button_PNP0C40[] = {
+ }
+ 
++
++static int soc_device_check_generic(struct device *dev)
++{
++	int gpios;
++
++	gpios = gpiod_count(dev, NULL);
++	if (gpios < 0) {
++		dev_dbg(dev, "no GPIO attached, ignoring...\n");
++		return -ENODEV;
++	}
++
++	return 0;
++}
++
++static struct soc_device_data soc_device_ACPI0011 = {
++	.button_info = NULL,
++	.check = soc_device_check_generic,
++};
++
++
+ /*
+  * Definition of buttons on the tablet. The ACPI index of each button
+  * is defined in section 2.8.7.2 of "Windows ACPI Design Guide for SoC
+@@ -377,9 +410,85 @@ static struct soc_button_info soc_button_PNP0C40[] = {
  	{ }
  };
  
 +static struct soc_device_data soc_device_PNP0C40 = {
 +	.button_info = soc_button_PNP0C40,
-+	.check = NULL,
++	.check = soc_device_check_generic,
 +};
++
 +
 +/*
 + * Special device check for Surface Book 2 and Surface Pro (2017).
@@ -96,29 +119,50 @@ index 23520df7650f..1ea239ff426d 100644
 + * for the correct devices by checking the OEM Platform Revision provided by
 + * the _DSM method.
 + */
++#define MSHW0040_DSM_REVISION		0x01
++#define MSHW0040_DSM_GET_OMPR		0x02	// get OEM Platform Revision
++static const guid_t MSHW0040_DSM_UUID =
++	GUID_INIT(0x6fd05c69, 0xcde3, 0x49f4, 0x95, 0xed, 0xab, 0x16, 0x65,
++	          0x49, 0x80, 0x35);
++
 +static int soc_device_check_MSHW0040(struct device *dev)
 +{
 +	acpi_handle handle = ACPI_HANDLE(dev);
 +	union acpi_object *result;
 +	u64 oem_platform_rev = 0;
++	int gpios;
 +
-+	// get OEM board revision
-+	result = acpi_evaluate_dsm_typed(handle, &MSHW0040_DSM_UUID, MSHW0040_DSM_REVISION,
-+	                                 MSHW0040_DSM_GET_OMPR, NULL, ACPI_TYPE_INTEGER);
++	// get OEM platform revision
++	result = acpi_evaluate_dsm_typed(handle, &MSHW0040_DSM_UUID,
++					 MSHW0040_DSM_REVISION,
++	                                 MSHW0040_DSM_GET_OMPR, NULL,
++					 ACPI_TYPE_INTEGER);
 +
 +	if (result) {
 +		oem_platform_rev = result->integer.value;
 +		ACPI_FREE(result);
 +	}
 +
++	if (oem_platform_rev == 0)
++		return -ENODEV;
++
 +	dev_dbg(dev, "OEM Platform Revision %llu\n", oem_platform_rev);
 +
-+	return oem_platform_rev > 0 ? 0 : -ENODEV;
++	/*
++	 * We are _really_ expecting GPIOs here. If we do not get any, this
++	 * means the GPIO driver has not been loaded yet (which can happen).
++	 * Try again later.
++	 */
++	gpios = gpiod_count(dev, NULL);
++	if (gpios < 0)
++		return -EAGAIN;
++
++	return 0;
 +}
 +
 +/*
 + * Button infos for Microsoft Surface Book 2 and Surface Pro (2017).
-+ * Extracted from DSDT.
++ * Obtained from DSDT/testing.
 + */
 +static struct soc_button_info soc_button_MSHW0040[] = {
 +	{ "power", 0, EV_KEY, KEY_POWER, false, true },
@@ -132,17 +176,21 @@ index 23520df7650f..1ea239ff426d 100644
 +	.check = soc_device_check_MSHW0040,
 +};
 +
++
  static const struct acpi_device_id soc_button_acpi_match[] = {
 -	{ "PNP0C40", (unsigned long)soc_button_PNP0C40 },
+-	{ "ACPI0011", 0 },
 +	{ "PNP0C40", (unsigned long)&soc_device_PNP0C40 },
- 	{ "ACPI0011", 0 },
-+	/* Microsoft Surface Book 2 and Surface Pro (2017) */
++	{ "ACPI0011", (unsigned long)&soc_device_ACPI0011 },
++
++	/* Microsoft Surface Devices (5th and 6th generation) */
 +	{ "MSHW0040", (unsigned long)&soc_device_MSHW0040 },
++
  	{ }
  };
  
 diff --git a/drivers/platform/x86/surfacepro3_button.c b/drivers/platform/x86/surfacepro3_button.c
-index 1b491690ce07..b67f559ee209 100644
+index 1b491690ce07..eaec30380b11 100644
 --- a/drivers/platform/x86/surfacepro3_button.c
 +++ b/drivers/platform/x86/surfacepro3_button.c
 @@ -24,6 +24,12 @@
@@ -152,13 +200,13 @@ index 1b491690ce07..b67f559ee209 100644
 +#define MSHW0040_DSM_REVISION		0x01
 +#define MSHW0040_DSM_GET_OMPR		0x02	// get OEM Platform Revision
 +static const guid_t MSHW0040_DSM_UUID =
-+	GUID_INIT(0x6fd05c69, 0xcde3, 0x49f4, 0x95, 0xed, 0xab, 0x16, 0x65, 0x49, 0x80, 0x35);
-+
++	GUID_INIT(0x6fd05c69, 0xcde3, 0x49f4, 0x95, 0xed, 0xab, 0x16, 0x65,
++		  0x49, 0x80, 0x35);
 +
  #define SURFACE_BUTTON_NOTIFY_TABLET_MODE	0xc8
  
  #define SURFACE_BUTTON_NOTIFY_PRESS_POWER	0xc6
-@@ -146,6 +152,32 @@ static int surface_button_resume(struct device *dev)
+@@ -146,6 +152,34 @@ static int surface_button_resume(struct device *dev)
  }
  #endif
  
@@ -173,9 +221,11 @@ index 1b491690ce07..b67f559ee209 100644
 +	union acpi_object *result;
 +	u64 oem_platform_rev = 0;
 +
-+	// get OEM board revision
-+	result = acpi_evaluate_dsm_typed(handle, &MSHW0040_DSM_UUID, MSHW0040_DSM_REVISION,
-+	                                 MSHW0040_DSM_GET_OMPR, NULL, ACPI_TYPE_INTEGER);
++	// get OEM platform revision
++	result = acpi_evaluate_dsm_typed(handle, &MSHW0040_DSM_UUID,
++					 MSHW0040_DSM_REVISION,
++					 MSHW0040_DSM_GET_OMPR,
++					 NULL, ACPI_TYPE_INTEGER);
 +
 +	if (result) {
 +		oem_platform_rev = result->integer.value;
@@ -191,7 +241,7 @@ index 1b491690ce07..b67f559ee209 100644
  static int surface_button_add(struct acpi_device *device)
  {
  	struct surface_button *button;
-@@ -158,6 +190,10 @@ static int surface_button_add(struct acpi_device *device)
+@@ -158,6 +192,10 @@ static int surface_button_add(struct acpi_device *device)
  	    strlen(SURFACE_BUTTON_OBJ_NAME)))
  		return -ENODEV;
  
@@ -203,5 +253,5 @@ index 1b491690ce07..b67f559ee209 100644
  	if (!button)
  		return -ENOMEM;
 -- 
-2.19.1
+2.21.0
 
