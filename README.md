@@ -49,6 +49,8 @@ Linux running on the Microsoft Surface devices . Follow the instructions below t
 
 ### Download Pre-built Kernel and Headers
 
+The setup.sh script in the below Instructions will handle downloading these for you. Otherwise, you may still download them directly (not recommended as you will want to run the setup.sh script).
+
 Downloads for ubuntu based distros (other distros will need to compile from source using the included patches):
 
 https://github.com/jakeday/linux-surface/releases
