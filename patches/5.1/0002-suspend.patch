@@ -1,0 +1,145 @@
+From 3fe86ef98282f3509f77b2b454447d792f18b7b8 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Thu, 16 May 2019 00:56:09 +0200
+Subject: [PATCH 02/12] suspend
+
+---
+ drivers/nvme/host/nvme.h |  5 +++++
+ drivers/nvme/host/pci.c  | 10 +++++++++-
+ drivers/pci/quirks.c     |  4 ++++
+ include/linux/pci_ids.h  |  2 ++
+ kernel/power/suspend.c   | 11 +++++++++++
+ kernel/sysctl.c          |  9 +++++++++
+ 6 files changed, 40 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/nvme/host/nvme.h b/drivers/nvme/host/nvme.h
+index 527d64545023..35840869c8d4 100644
+--- a/drivers/nvme/host/nvme.h
++++ b/drivers/nvme/host/nvme.h
+@@ -92,6 +92,11 @@ enum nvme_quirks {
+ 	 * Broken Write Zeroes.
+ 	 */
+ 	NVME_QUIRK_DISABLE_WRITE_ZEROES		= (1 << 9),
++
++	/*
++	* Do not disable nvme when suspending (s2idle)
++	*/
++	NVME_QUIRK_NO_DISABLE			= (1 << 10),
+ };
+ 
+ /*
+diff --git a/drivers/nvme/host/pci.c b/drivers/nvme/host/pci.c
+index a90cf5d63aac..de5d5a2b1d38 100644
+--- a/drivers/nvme/host/pci.c
++++ b/drivers/nvme/host/pci.c
+@@ -23,6 +23,7 @@
+ #include <linux/io-64-nonatomic-lo-hi.h>
+ #include <linux/sed-opal.h>
+ #include <linux/pci-p2pdma.h>
++#include <linux/suspend.h>
+ 
+ #include "trace.h"
+ #include "nvme.h"
+@@ -2850,8 +2851,11 @@ static int nvme_suspend(struct device *dev)
+ {
+ 	struct pci_dev *pdev = to_pci_dev(dev);
+ 	struct nvme_dev *ndev = pci_get_drvdata(pdev);
++	struct nvme_ctrl *ctrl = &ndev->ctrl;
++
++	if (!(pm_suspend_via_s2idle() && (ctrl->quirks & NVME_QUIRK_NO_DISABLE)))
++		nvme_dev_disable(ndev, true);
+ 
+-	nvme_dev_disable(ndev, true);
+ 	return 0;
+ }
+ 
+@@ -2957,6 +2961,10 @@ static const struct pci_device_id nvme_id_table[] = {
+ 		.driver_data = NVME_QUIRK_LIGHTNVM, },
+ 	{ PCI_DEVICE(0x1d1d, 0x2601),	/* CNEX Granby */
+ 		.driver_data = NVME_QUIRK_LIGHTNVM, },
++	{ PCI_VDEVICE(SK_HYNIX, 0x1527),   /* Sk Hynix */
++		.driver_data = NVME_QUIRK_NO_DISABLE, },
++	{ PCI_VDEVICE(TOSHIBA, 0x010f),   /* TOSHIBA NVMe found on Surface Book with Performance Base */
++		.driver_data = NVME_QUIRK_NO_DISABLE, },
+ 	{ PCI_DEVICE_CLASS(PCI_CLASS_STORAGE_EXPRESS, 0xffffff) },
+ 	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x2001) },
+ 	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x2003) },
+diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
+index a077f67fe1da..f8be239321a9 100644
+--- a/drivers/pci/quirks.c
++++ b/drivers/pci/quirks.c
+@@ -1357,6 +1357,10 @@ DECLARE_PCI_FIXUP_CLASS_EARLY(PCI_VENDOR_ID_AL, PCI_ANY_ID,
+    occur when mode detecting */
+ DECLARE_PCI_FIXUP_CLASS_EARLY(PCI_VENDOR_ID_VIA, PCI_ANY_ID,
+ 				PCI_CLASS_STORAGE_IDE, 8, quirk_no_ata_d3);
++DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_SK_HYNIX, 0x1527, quirk_no_ata_d3);
++/* TOSHIBA NVMe disk found on Surface Book with Performance Base
++   cannot wakeup from D3 state after s2idle */
++DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_TOSHIBA, 0x010f, quirk_no_ata_d3);
+ 
+ /*
+  * This was originally an Alpha-specific thing, but it really fits here.
+diff --git a/include/linux/pci_ids.h b/include/linux/pci_ids.h
+index 70e86148cb1e..44e07bd7e7ee 100644
+--- a/include/linux/pci_ids.h
++++ b/include/linux/pci_ids.h
+@@ -3102,4 +3102,6 @@
+ 
+ #define PCI_VENDOR_ID_NCUBE		0x10ff
+ 
++#define PCI_VENDOR_ID_SK_HYNIX		0x1c5c
++
+ #endif /* _LINUX_PCI_IDS_H */
+diff --git a/kernel/power/suspend.c b/kernel/power/suspend.c
+index 0bd595a0b610..a8385e8894a5 100644
+--- a/kernel/power/suspend.c
++++ b/kernel/power/suspend.c
+@@ -526,6 +526,8 @@ int suspend_devices_and_enter(suspend_state_t state)
+ 	goto Resume_devices;
+ }
+ 
++unsigned int resume_delay = 3000;
++
+ /**
+  * suspend_finish - Clean up before finishing the suspend sequence.
+  *
+@@ -534,6 +536,15 @@ int suspend_devices_and_enter(suspend_state_t state)
+  */
+ static void suspend_finish(void)
+ {
++	if (resume_delay) {
++		/* Give kernel threads a head start, such that usb-storage
++		 * can detect devices before syslog attempts to write log
++		 * messages from the suspend code.
++		 */
++		thaw_kernel_threads();
++		pr_debug("PM: Sleeping for %d milliseconds.\n", resume_delay);
++		msleep(resume_delay);
++	}
+ 	suspend_thaw_processes();
+ 	pm_notifier_call_chain(PM_POST_SUSPEND);
+ 	pm_restore_console();
+diff --git a/kernel/sysctl.c b/kernel/sysctl.c
+index c9ec050bcf46..155e94652093 100644
+--- a/kernel/sysctl.c
++++ b/kernel/sysctl.c
+@@ -321,7 +321,16 @@ static int min_extfrag_threshold;
+ static int max_extfrag_threshold = 1000;
+ #endif
+ 
++extern unsigned int resume_delay;
++
+ static struct ctl_table kern_table[] = {
++	{
++		.procname	= "resume_delay",
++		.data		= &resume_delay,
++		.maxlen		= sizeof(unsigned int),
++		.mode		= 0644,
++		.proc_handler	= proc_dointvec,
++	},
+ 	{
+ 		.procname	= "sched_child_runs_first",
+ 		.data		= &sysctl_sched_child_runs_first,
+-- 
+2.21.0
+
