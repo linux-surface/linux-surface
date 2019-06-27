@@ -231,7 +231,7 @@ read -rp "Do you want this script to download and install the latest kernel for 
 if [ "$autoinstallkernel" = "yes" ]; then
 	echo "Downloading latest kernel...\n"
 
-	urls=$(curl --silent "https://api.github.com/repos/jakeday/linux-surface/releases/latest" | grep '"browser_download_url":' | sed -E 's/.*"([^"]+)".*/\1/')
+	urls=$(curl --silent "https://api.github.com/repos/jakeday/linux-surface/releases/latest" | tr ',' '\n' | grep '"browser_download_url":' | sed -E 's/.*"([^"]+)".*/\1/')
 
 	resp=$(wget -P tmp $urls)
 
