@@ -1,15 +1,15 @@
-From 8de0f7cda746d317469159d0bc9956a92e7bd8c1 Mon Sep 17 00:00:00 2001
-From: Jake Day <jake@ninebysix.com>
-Date: Wed, 26 Jun 2019 20:42:57 -0400
+From ba453a89148ea2289e71741225273a02ae2db768 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Tue, 2 Jul 2019 23:49:56 +0200
 Subject: [PATCH 03/11] buttons
 
 ---
- drivers/input/misc/soc_button_array.c     | 133 ++++++++++++++++++++--
- drivers/platform/x86/surfacepro3_button.c |  38 +++++++
- 2 files changed, 159 insertions(+), 12 deletions(-)
+ drivers/input/misc/soc_button_array.c     | 145 ++++++++++++++++++++--
+ drivers/platform/x86/surfacepro3_button.c |  38 ++++++
+ 2 files changed, 171 insertions(+), 12 deletions(-)
 
 diff --git a/drivers/input/misc/soc_button_array.c b/drivers/input/misc/soc_button_array.c
-index 55cd6e0b409c..ad4d591cf179 100644
+index 55cd6e0b409c..bd8a8601cf0c 100644
 --- a/drivers/input/misc/soc_button_array.c
 +++ b/drivers/input/misc/soc_button_array.c
 @@ -29,6 +29,17 @@ struct soc_button_info {
@@ -38,7 +38,7 @@ index 55cd6e0b409c..ad4d591cf179 100644
  	struct soc_button_info *button_info;
  	struct soc_button_data *priv;
  	struct platform_device *pd;
-@@ -320,18 +332,19 @@ static int soc_button_probe(struct platform_device *pdev)
+@@ -320,18 +332,20 @@ static int soc_button_probe(struct platform_device *pdev)
  	if (!id)
  		return -ENODEV;
  
@@ -51,7 +51,8 @@ index 55cd6e0b409c..ad4d591cf179 100644
 +	}
 +
 +	if (device_data && device_data->button_info) {
-+		button_info = (struct soc_button_info *)device_data->button_info;
++		button_info = (struct soc_button_info *)
++				device_data->button_info;
 +	} else {
  		button_info = soc_button_get_button_info(dev);
  		if (IS_ERR(button_info))
@@ -67,7 +68,7 @@ index 55cd6e0b409c..ad4d591cf179 100644
  	}
  
  	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
-@@ -357,12 +370,32 @@ static int soc_button_probe(struct platform_device *pdev)
+@@ -357,12 +371,32 @@ static int soc_button_probe(struct platform_device *pdev)
  	if (!priv->children[0] && !priv->children[1])
  		return -ENODEV;
  
@@ -101,7 +102,7 @@ index 55cd6e0b409c..ad4d591cf179 100644
  /*
   * Definition of buttons on the tablet. The ACPI index of each button
   * is defined in section 2.8.7.2 of "Windows ACPI Design Guide for SoC
-@@ -377,9 +410,85 @@ static struct soc_button_info soc_button_PNP0C40[] = {
+@@ -377,9 +411,96 @@ static struct soc_button_info soc_button_PNP0C40[] = {
  	{ }
  };
  
@@ -123,7 +124,9 @@ index 55cd6e0b409c..ad4d591cf179 100644
 +#define MSHW0040_DSM_GET_OMPR		0x02	// get OEM Platform Revision
 +static const guid_t MSHW0040_DSM_UUID =
 +	GUID_INIT(0x6fd05c69, 0xcde3, 0x49f4, 0x95, 0xed, 0xab, 0x16, 0x65,
-+	          0x49, 0x80, 0x35);
++		  0x49, 0x80, 0x35);
++
++#ifdef CONFIG_ACPI
 +
 +static int soc_device_check_MSHW0040(struct device *dev)
 +{
@@ -135,7 +138,7 @@ index 55cd6e0b409c..ad4d591cf179 100644
 +	// get OEM platform revision
 +	result = acpi_evaluate_dsm_typed(handle, &MSHW0040_DSM_UUID,
 +					 MSHW0040_DSM_REVISION,
-+	                                 MSHW0040_DSM_GET_OMPR, NULL,
++					 MSHW0040_DSM_GET_OMPR, NULL,
 +					 ACPI_TYPE_INTEGER);
 +
 +	if (result) {
@@ -159,6 +162,15 @@ index 55cd6e0b409c..ad4d591cf179 100644
 +
 +	return 0;
 +}
++
++#else   /* CONFIG_ACPI */
++
++static int soc_device_check_MSHW0040(struct device *dev)
++{
++    return -ENODEV;
++}
++
++#endif  /* CONFIG_ACPI */
 +
 +/*
 + * Button infos for Microsoft Surface Book 2 and Surface Pro (2017).
@@ -253,5 +265,5 @@ index 1b491690ce07..eaec30380b11 100644
  	if (!button)
  		return -ENOMEM;
 -- 
-2.19.1
+2.22.0
 
