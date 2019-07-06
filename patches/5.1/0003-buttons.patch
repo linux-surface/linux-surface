@@ -1,15 +1,15 @@
-From 8b583fd83792f28f23461186b0c44d9c1554204e Mon Sep 17 00:00:00 2001
+From 72bd00dbd59591de9cbcb05ecabf2eaefaec6787 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 3 Jul 2019 00:25:27 +0200
 Subject: [PATCH 03/12] buttons
 
 ---
- drivers/input/misc/soc_button_array.c     | 145 ++++++++++++++++++++--
+ drivers/input/misc/soc_button_array.c     | 151 ++++++++++++++++++++--
  drivers/platform/x86/surfacepro3_button.c |  38 ++++++
- 2 files changed, 171 insertions(+), 12 deletions(-)
+ 2 files changed, 176 insertions(+), 13 deletions(-)
 
 diff --git a/drivers/input/misc/soc_button_array.c b/drivers/input/misc/soc_button_array.c
-index bb458beecb43..497fca2a9250 100644
+index bb458beecb43..0cd942781bac 100644
 --- a/drivers/input/misc/soc_button_array.c
 +++ b/drivers/input/misc/soc_button_array.c
 @@ -29,6 +29,17 @@ struct soc_button_info {
@@ -30,7 +30,21 @@ index bb458beecb43..497fca2a9250 100644
  /*
   * Some of the buttons like volume up/down are auto repeat, while others
   * are not. To support both, we register two platform devices, and put
-@@ -314,6 +325,7 @@ static int soc_button_probe(struct platform_device *pdev)
+@@ -91,8 +102,12 @@ soc_button_device_create(struct platform_device *pdev,
+ 			continue;
+ 
+ 		gpio = soc_button_lookup_gpio(&pdev->dev, info->acpi_index);
+-		if (!gpio_is_valid(gpio))
++		if (gpio == -EPROBE_DEFER) {
++			error = -EPROBE_DEFER;
++			goto err_free_mem;
++		} else if (!gpio_is_valid(gpio)) {
+ 			continue;
++		}
+ 
+ 		gpio_keys[n_buttons].type = info->event_type;
+ 		gpio_keys[n_buttons].code = info->event_code;
+@@ -314,6 +329,7 @@ static int soc_button_probe(struct platform_device *pdev)
  {
  	struct device *dev = &pdev->dev;
  	const struct acpi_device_id *id;
@@ -38,7 +52,7 @@ index bb458beecb43..497fca2a9250 100644
  	struct soc_button_info *button_info;
  	struct soc_button_data *priv;
  	struct platform_device *pd;
-@@ -324,18 +336,20 @@ static int soc_button_probe(struct platform_device *pdev)
+@@ -324,18 +340,20 @@ static int soc_button_probe(struct platform_device *pdev)
  	if (!id)
  		return -ENODEV;
  
@@ -68,7 +82,7 @@ index bb458beecb43..497fca2a9250 100644
  	}
  
  	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
-@@ -361,12 +375,32 @@ static int soc_button_probe(struct platform_device *pdev)
+@@ -361,12 +379,32 @@ static int soc_button_probe(struct platform_device *pdev)
  	if (!priv->children[0] && !priv->children[1])
  		return -ENODEV;
  
@@ -102,7 +116,7 @@ index bb458beecb43..497fca2a9250 100644
  /*
   * Definition of buttons on the tablet. The ACPI index of each button
   * is defined in section 2.8.7.2 of "Windows ACPI Design Guide for SoC
-@@ -381,9 +415,96 @@ static struct soc_button_info soc_button_PNP0C40[] = {
+@@ -381,9 +419,96 @@ static struct soc_button_info soc_button_PNP0C40[] = {
  	{ }
  };
  
@@ -158,7 +172,7 @@ index bb458beecb43..497fca2a9250 100644
 +	 */
 +	gpios = gpiod_count(dev, NULL);
 +	if (gpios < 0)
-+		return -EAGAIN;
++		return -EPROBE_DEFER;
 +
 +	return 0;
 +}
