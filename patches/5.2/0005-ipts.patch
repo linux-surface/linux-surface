@@ -1,6 +1,6 @@
-From ccfb3ab207379ed7efafbb0f58298620a875b3f8 Mon Sep 17 00:00:00 2001
+From 3d53d1dd3d6d79a795c58006eeda264bbba28140 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Fri, 26 Jul 2019 04:11:35 +0200
+Date: Fri, 26 Jul 2019 04:45:32 +0200
 Subject: [PATCH 05/12] ipts
 
 ---
@@ -15,7 +15,7 @@ Subject: [PATCH 05/12] ipts
  drivers/gpu/drm/i915/intel_guc.h            |    1 +
  drivers/gpu/drm/i915/intel_guc_submission.c |   89 +-
  drivers/gpu/drm/i915/intel_guc_submission.h |    4 +
- drivers/gpu/drm/i915/intel_ipts.c           |  657 ++++++++++++
+ drivers/gpu/drm/i915/intel_ipts.c           |  661 ++++++++++++
  drivers/gpu/drm/i915/intel_ipts.h           |   36 +
  drivers/gpu/drm/i915/intel_lrc.c            |   15 +-
  drivers/gpu/drm/i915/intel_lrc.h            |    6 +
@@ -27,7 +27,7 @@ Subject: [PATCH 05/12] ipts
  drivers/misc/ipts/Makefile                  |   13 +
  drivers/misc/ipts/ipts-binary-spec.h        |  118 +++
  drivers/misc/ipts/ipts-dbgfs.c              |  152 +++
- drivers/misc/ipts/ipts-gfx.c                |  184 ++++
+ drivers/misc/ipts/ipts-gfx.c                |  185 ++++
  drivers/misc/ipts/ipts-gfx.h                |   24 +
  drivers/misc/ipts/ipts-hid.c                |  456 ++++++++
  drivers/misc/ipts/ipts-hid.h                |   34 +
@@ -44,8 +44,8 @@ Subject: [PATCH 05/12] ipts
  drivers/misc/ipts/ipts.h                    |  200 ++++
  drivers/misc/mei/hw-me-regs.h               |    1 +
  drivers/misc/mei/pci-me.c                   |    1 +
- include/linux/intel_ipts_if.h               |   75 ++
- 41 files changed, 5578 insertions(+), 25 deletions(-)
+ include/linux/intel_ipts_if.h               |   76 ++
+ 41 files changed, 5584 insertions(+), 25 deletions(-)
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.c
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.h
  create mode 100644 drivers/misc/ipts/Kconfig
@@ -418,10 +418,10 @@ index aa5e6749c925..c9e5c14e7f67 100644
  #endif
 diff --git a/drivers/gpu/drm/i915/intel_ipts.c b/drivers/gpu/drm/i915/intel_ipts.c
 new file mode 100644
-index 000000000000..efc9607f6f73
+index 000000000000..5d9145ac221c
 --- /dev/null
 +++ b/drivers/gpu/drm/i915/intel_ipts.c
-@@ -0,0 +1,657 @@
+@@ -0,0 +1,661 @@
 +/*
 + * Copyright  2016 Intel Corporation
 + *
@@ -920,32 +920,36 @@ index 000000000000..efc9607f6f73
 +
 +int intel_ipts_connect(intel_ipts_connect_t *ipts_connect)
 +{
++	u32 flags = DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE_CONSUMER;
 +	struct drm_i915_private *dev_priv = to_i915(intel_ipts.dev);
-+	int ret = 0;
 +
 +	if (!intel_ipts.initialized)
 +		return -EIO;
 +
-+	if (ipts_connect && ipts_connect->if_version <=
-+					SUPPORTED_IPTS_INTERFACE_VERSION) {
++	if (!ipts_connect)
++		return -EINVAL;
 +
-+		/* return gpu operations for ipts */
-+		ipts_connect->ipts_ops.get_wq_info = intel_ipts_get_wq_info;
-+		ipts_connect->ipts_ops.map_buffer = intel_ipts_map_buffer;
-+		ipts_connect->ipts_ops.unmap_buffer = intel_ipts_unmap_buffer;
-+		ipts_connect->gfx_version = INTEL_INFO(dev_priv)->gen;
-+		ipts_connect->gfx_handle = (uint64_t)&intel_ipts;
++	if (ipts_connect->if_version > SUPPORTED_IPTS_INTERFACE_VERSION)
++		return -EINVAL;
 +
-+		/* save callback and data */
-+		intel_ipts.data = ipts_connect->data;
-+		intel_ipts.ipts_clbks = ipts_connect->ipts_cb;
++	/* set up device-link for PM */
++	if (!device_link_add(ipts_connect->client, intel_ipts.dev->dev, flags))
++		return -EFAULT;
 +
-+		intel_ipts.connected = true;
-+	} else {
-+		ret = -EINVAL;
-+	}
++	/* return gpu operations for ipts */
++	ipts_connect->ipts_ops.get_wq_info = intel_ipts_get_wq_info;
++	ipts_connect->ipts_ops.map_buffer = intel_ipts_map_buffer;
++	ipts_connect->ipts_ops.unmap_buffer = intel_ipts_unmap_buffer;
++	ipts_connect->gfx_version = INTEL_INFO(dev_priv)->gen;
++	ipts_connect->gfx_handle = (uint64_t)&intel_ipts;
 +
-+	return ret;
++	/* save callback and data */
++	intel_ipts.data = ipts_connect->data;
++	intel_ipts.ipts_clbks = ipts_connect->ipts_cb;
++
++	intel_ipts.connected = true;
++
++	return 0;
 +}
 +EXPORT_SYMBOL_GPL(intel_ipts_connect);
 +
@@ -1225,7 +1229,7 @@ index 4ab4ce6569e7..2d3c523ba5c7 100644
  
  static void pch_enable_backlight(const struct intel_crtc_state *crtc_state,
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 42bb635895cf..3a362f107188 100644
+index b603c14d043b..03448d3a29f2 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -169,6 +169,7 @@ struct mt_device {
@@ -1642,10 +1646,10 @@ index 000000000000..1c5c92f7d4ba
 +}
 diff --git a/drivers/misc/ipts/ipts-gfx.c b/drivers/misc/ipts/ipts-gfx.c
 new file mode 100644
-index 000000000000..51727770e75d
+index 000000000000..4989a22227d2
 --- /dev/null
 +++ b/drivers/misc/ipts/ipts-gfx.c
-@@ -0,0 +1,184 @@
+@@ -0,0 +1,185 @@
 +/*
 + *
 + * Intel Integrated Touch Gfx Interface Layer
@@ -1694,6 +1698,7 @@ index 000000000000..51727770e75d
 +	int ret = 0;
 +	intel_ipts_connect_t ipts_connect;
 +
++	ipts_connect.client = ipts->cldev->dev.parent;
 +	ipts_connect.if_version = IPTS_INTERFACE_V1;
 +	ipts_connect.ipts_cb.workload_complete = gfx_processing_complete;
 +	ipts_connect.ipts_cb.notify_gfx_status = notify_gfx_status;
@@ -6099,10 +6104,10 @@ index 7a2b3545a7f9..c3c684cbd17d 100644
  	{MEI_PCI_DEVICE(MEI_DEV_ID_LBG, MEI_ME_PCH12_CFG)},
 diff --git a/include/linux/intel_ipts_if.h b/include/linux/intel_ipts_if.h
 new file mode 100644
-index 000000000000..f329bbfb8079
+index 000000000000..bad44fb4f233
 --- /dev/null
 +++ b/include/linux/intel_ipts_if.h
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,76 @@
 +/*
 + *
 + * GFX interface to support Intel Precise Touch & Stylus
@@ -6165,6 +6170,7 @@ index 000000000000..f329bbfb8079
 +} intel_ipts_callback_t;
 +
 +typedef struct intel_ipts_connect {
++	struct device *client;		/* input : client device for PM setup */
 +        intel_ipts_callback_t ipts_cb;	/* input : callback addresses */
 +	void *data;			/* input : callback data */
 +        u32 if_version;			/* input : interface version */
