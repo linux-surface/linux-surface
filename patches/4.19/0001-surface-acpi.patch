@@ -1,6 +1,6 @@
-From d4ee8b0835a004e816e1aeb3a5d7c47bf9c9a77a Mon Sep 17 00:00:00 2001
+From c88960a183f465316b28486bf7a9031563547001 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Sat, 20 Jul 2019 23:55:58 +0200
+Date: Fri, 26 Jul 2019 03:40:41 +0200
 Subject: [PATCH 01/12] surface-acpi
 
 ---
@@ -8,9 +8,9 @@ Subject: [PATCH 01/12] surface-acpi
  drivers/acpi/acpica/exfield.c       |   26 +-
  drivers/platform/x86/Kconfig        |   97 +
  drivers/platform/x86/Makefile       |    1 +
- drivers/platform/x86/surface_acpi.c | 3761 +++++++++++++++++++++++++++
+ drivers/platform/x86/surface_acpi.c | 3908 +++++++++++++++++++++++++++
  drivers/tty/serdev/core.c           |   90 +-
- 6 files changed, 3958 insertions(+), 19 deletions(-)
+ 6 files changed, 4105 insertions(+), 19 deletions(-)
  create mode 100644 drivers/platform/x86/surface_acpi.c
 
 diff --git a/drivers/acpi/acpica/dsopcode.c b/drivers/acpi/acpica/dsopcode.c
@@ -201,10 +201,10 @@ index dc29af4d8e2f..2250a32a5527 100644
  obj-$(CONFIG_FUJITSU_TABLET)	+= fujitsu-tablet.o
 diff --git a/drivers/platform/x86/surface_acpi.c b/drivers/platform/x86/surface_acpi.c
 new file mode 100644
-index 000000000000..2874cc85213a
+index 000000000000..a17538905642
 --- /dev/null
 +++ b/drivers/platform/x86/surface_acpi.c
-@@ -0,0 +1,3761 @@
+@@ -0,0 +1,3908 @@
 +#include <asm/unaligned.h>
 +#include <linux/acpi.h>
 +#include <linux/completion.h>
@@ -2388,19 +2388,25 @@ index 000000000000..2874cc85213a
 +
 +	if (rqst.tc == 0x11 && rqst.cid == 0x0D && status == -EPERM) {
 +		/* Base state quirk:
-+		 * The base state may be queried from ACPI when the EC is
-+		 * still suspended. In this case it will return '-EPERM'.
-+		 * Returning 0xff (unknown base status) here will suppress
-+		 * error messages and cause an immediate re-query of the
-+		 * state. Delay return to avoid spinning.
++		 * The base state may be queried from ACPI when the EC is still
++		 * suspended. In this case it will return '-EPERM'. This query
++		 * will only be triggered from the ACPI lid GPE interrupt, thus
++		 * we are either in laptop or studio mode (base status 0x01 or
++		 * 0x02). Furthermore, we will only get here if the device (and
++		 * EC) have been suspended.
++		 *
++		 * We now assume that the device is in laptop mode (0x01). This
++		 * has the drawback that it will wake the device when unfolding
++		 * it in studio mode, but it also allows us to avoid actively
++		 * waiting for the EC to wake up, which may incur a notable
++		 * delay.
 +		 */
 +
 +		buffer->status          = 0x00;
 +		buffer->len             = 0x03;
 +		buffer->data.out.status = 0x00;
 +		buffer->data.out.len    = 0x01;
-+		buffer->data.out.pld[0] = 0xFF;
-+		msleep(SG5_QUIRK_BASE_STATE_DELAY);
++		buffer->data.out.pld[0] = 0x01;
 +
 +	} else if (!status) {		// success
 +		buffer->status          = 0x00;
@@ -3665,6 +3671,17 @@ index 000000000000..2874cc85213a
 +
 +#ifdef CONFIG_SURFACE_ACPI_SID
 +
++struct si_lid_device {
++	const char *acpi_path;
++	const u32 gpe_number;
++};
++
++struct si_device_info {
++	const bool has_perf_mode;
++	const struct si_lid_device *lid_device;
++};
++
++
 +enum sg5_perf_mode {
 +	SG5_PERF_MODE_NORMAL   = 1,
 +	SG5_PERF_MODE_BATTERY  = 2,
@@ -3821,9 +3838,12 @@ index 000000000000..2874cc85213a
 +const static DEVICE_ATTR_RW(perf_mode);
 +
 +
-+static int surfacegen5_acpi_sid_probe(struct platform_device *pdev)
++static int sid_perf_mode_setup(struct platform_device *pdev, const struct si_device_info *info)
 +{
 +	int status;
++
++	if (!info->has_perf_mode)
++		return 0;
 +
 +	// link to ec
 +	status = surfacegen5_ec_consumer_register(&pdev->dev);
@@ -3852,20 +3872,146 @@ index 000000000000..2874cc85213a
 +	return status;
 +}
 +
-+static int surfacegen5_acpi_sid_remove(struct platform_device *pdev)
++static void sid_perf_mode_remove(struct platform_device *pdev, const struct si_device_info *info)
 +{
++	if (!info->has_perf_mode)
++		return;
++
 +	// remove perf_mode attribute
 +	sysfs_remove_file(&pdev->dev.kobj, &dev_attr_perf_mode.attr);
 +
 +	// set exit perf_mode
 +	sg5_ec_perf_mode_set(param_perf_mode_exit);
++}
++
++
++static int sid_lid_enable_wakeup(const struct si_device_info *info, bool enable)
++{
++	int action = enable ? ACPI_GPE_ENABLE : ACPI_GPE_DISABLE;
++	int status;
++
++	if (!info->lid_device)
++		return 0;
++
++	status = acpi_set_gpe_wake_mask(NULL, info->lid_device->gpe_number, action);
++	if (status)
++		return -EFAULT;
++
++	return 0;
++}
++
++static int sid_lid_device_setup(struct platform_device *pdev, const struct si_device_info *info)
++{
++	acpi_handle lid_handle;
++	int status;
++
++	if (!info->lid_device)
++		return 0;
++
++	status = acpi_get_handle(NULL, (acpi_string)info->lid_device->acpi_path, &lid_handle);
++	if (status)
++		return -EFAULT;
++
++	status = acpi_setup_gpe_for_wake(lid_handle, NULL, info->lid_device->gpe_number);
++	if (status)
++		return -EFAULT;
++
++	status = acpi_enable_gpe(NULL, info->lid_device->gpe_number);
++	if (status)
++		return -EFAULT;
++
++	return sid_lid_enable_wakeup(info, true);
++}
++
++static void sid_lid_device_remove(struct platform_device *pdev, const struct si_device_info *info)
++{
++	sid_lid_enable_wakeup(info, false);
++}
++
++
++static int surfacegen5_acpi_sid_suspend(struct device *dev)
++{
++	const struct si_device_info *info = dev_get_drvdata(dev);
++	return sid_lid_enable_wakeup(info, true);
++}
++
++static int surfacegen5_acpi_sid_resume(struct device *dev)
++{
++	const struct si_device_info *info = dev_get_drvdata(dev);
++	return sid_lid_enable_wakeup(info, false);
++}
++
++static SIMPLE_DEV_PM_OPS(surfacegen5_acpi_sid_pm, surfacegen5_acpi_sid_suspend, surfacegen5_acpi_sid_resume);
++
++
++static int surfacegen5_acpi_sid_probe(struct platform_device *pdev)
++{
++	const struct si_device_info *info;
++	int status;
++
++	info = acpi_device_get_match_data(&pdev->dev);
++	if (!info)
++		return -ENODEV;
++	platform_set_drvdata(pdev, (void *)info);
++
++	status = sid_perf_mode_setup(pdev, info);
++	if (status)
++		goto err_perf_mode;
++
++	status = sid_lid_device_setup(pdev, info);
++	if (status)
++		goto err_lid;
++
++	return 0;
++
++err_lid:
++	sid_perf_mode_remove(pdev, info);
++err_perf_mode:
++	return status;
++}
++
++static int surfacegen5_acpi_sid_remove(struct platform_device *pdev)
++{
++	const struct si_device_info *info = platform_get_drvdata(pdev);
++
++	sid_perf_mode_remove(pdev, info);
++	sid_lid_device_remove(pdev, info);
 +
 +	return 0;
 +}
 +
 +
++static const struct si_lid_device lid_device_l17 = {
++	.acpi_path = "\\_SB.LID0",
++	.gpe_number = 0x17,
++};
++
++static const struct si_lid_device lid_device_l57 = {
++	.acpi_path = "\\_SB.LID0",
++	.gpe_number = 0x57,
++};
++
++static const struct si_device_info si_device_pro = {
++	.has_perf_mode = false,
++	.lid_device = &lid_device_l17,
++};
++
++static const struct si_device_info si_device_book = {
++	.has_perf_mode = true,
++	.lid_device = &lid_device_l17,
++};
++
++static const struct si_device_info si_device_laptop = {
++	.has_perf_mode = false,
++	.lid_device = &lid_device_l57,
++};
++
 +static const struct acpi_device_id surfacegen5_acpi_sid_match[] = {
-+	{ "MSHW0107", 0 },	/* Surface Book 2 */
++	{ "MSHW0081", (unsigned long)&si_device_pro },     /* Surface Pro 4 and 5 */
++	{ "MSHW0080", (unsigned long)&si_device_book },    /* Surface Book 1 */
++	{ "MSHW0107", (unsigned long)&si_device_book },    /* Surface Book 2 */
++	{ "MSHW0086", (unsigned long)&si_device_laptop },  /* Surface Laptop 1 */
++	{ "MSHW0112", (unsigned long)&si_device_laptop },  /* Surface Laptop 2 */
 +	{ },
 +};
 +MODULE_DEVICE_TABLE(acpi, surfacegen5_acpi_sid_match);
@@ -3876,6 +4022,7 @@ index 000000000000..2874cc85213a
 +	.driver = {
 +		.name = "surfacegen5_acpi_sid",
 +		.acpi_match_table = ACPI_PTR(surfacegen5_acpi_sid_match),
++		.pm = &surfacegen5_acpi_sid_pm,
 +	},
 +};
 +
