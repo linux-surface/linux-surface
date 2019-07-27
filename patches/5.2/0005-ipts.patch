@@ -1,11 +1,11 @@
-From 3d53d1dd3d6d79a795c58006eeda264bbba28140 Mon Sep 17 00:00:00 2001
+From 6672cb0c64759c645086877d95e801bdd0c228f1 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 26 Jul 2019 04:45:32 +0200
 Subject: [PATCH 05/12] ipts
 
 ---
  drivers/gpu/drm/i915/Makefile               |    3 +
- drivers/gpu/drm/i915/i915_drv.c             |   13 +
+ drivers/gpu/drm/i915/i915_drv.c             |    7 +
  drivers/gpu/drm/i915/i915_drv.h             |    3 +
  drivers/gpu/drm/i915/i915_gem_context.c     |   12 +
  drivers/gpu/drm/i915/i915_irq.c             |    7 +-
@@ -15,8 +15,8 @@ Subject: [PATCH 05/12] ipts
  drivers/gpu/drm/i915/intel_guc.h            |    1 +
  drivers/gpu/drm/i915/intel_guc_submission.c |   89 +-
  drivers/gpu/drm/i915/intel_guc_submission.h |    4 +
- drivers/gpu/drm/i915/intel_ipts.c           |  661 ++++++++++++
- drivers/gpu/drm/i915/intel_ipts.h           |   36 +
+ drivers/gpu/drm/i915/intel_ipts.c           |  651 ++++++++++++
+ drivers/gpu/drm/i915/intel_ipts.h           |   34 +
  drivers/gpu/drm/i915/intel_lrc.c            |   15 +-
  drivers/gpu/drm/i915/intel_lrc.h            |    6 +
  drivers/gpu/drm/i915/intel_panel.c          |    7 +
@@ -45,7 +45,7 @@ Subject: [PATCH 05/12] ipts
  drivers/misc/mei/hw-me-regs.h               |    1 +
  drivers/misc/mei/pci-me.c                   |    1 +
  include/linux/intel_ipts_if.h               |   76 ++
- 41 files changed, 5584 insertions(+), 25 deletions(-)
+ 41 files changed, 5566 insertions(+), 25 deletions(-)
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.c
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.h
  create mode 100644 drivers/misc/ipts/Kconfig
@@ -84,7 +84,7 @@ index fbcb0904f4a8..1a273956b41c 100644
  i915-$(CONFIG_DRM_I915_CAPTURE_ERROR) += i915_gpu_error.o
  i915-$(CONFIG_DRM_I915_SELFTEST) += \
 diff --git a/drivers/gpu/drm/i915/i915_drv.c b/drivers/gpu/drm/i915/i915_drv.c
-index 1ad88e6d7c04..f3a175bfe499 100644
+index 1ad88e6d7c04..b50823fd30fb 100644
 --- a/drivers/gpu/drm/i915/i915_drv.c
 +++ b/drivers/gpu/drm/i915/i915_drv.c
 @@ -63,6 +63,7 @@
@@ -115,26 +115,6 @@ index 1ad88e6d7c04..f3a175bfe499 100644
  	i915_driver_unregister(dev_priv);
  
  	/*
-@@ -2050,6 +2057,9 @@ static int i915_drm_suspend(struct drm_device *dev)
- 	struct pci_dev *pdev = dev_priv->drm.pdev;
- 	pci_power_t opregion_target_state;
- 
-+	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
-+		intel_ipts_suspend(dev);
-+
- 	disable_rpm_wakeref_asserts(dev_priv);
- 
- 	/* We do a lot of poking in a lot of registers, make sure they work
-@@ -2246,6 +2256,9 @@ static int i915_drm_resume(struct drm_device *dev)
- 
- 	enable_rpm_wakeref_asserts(dev_priv);
- 
-+	if (INTEL_GEN(dev_priv) >= 9 && i915_modparams.enable_guc && i915_modparams.enable_ipts)
-+		intel_ipts_resume(dev);
-+
- 	return 0;
- }
- 
 diff --git a/drivers/gpu/drm/i915/i915_drv.h b/drivers/gpu/drm/i915/i915_drv.h
 index 066fd2a12851..2a872d8725b5 100644
 --- a/drivers/gpu/drm/i915/i915_drv.h
@@ -418,10 +398,10 @@ index aa5e6749c925..c9e5c14e7f67 100644
  #endif
 diff --git a/drivers/gpu/drm/i915/intel_ipts.c b/drivers/gpu/drm/i915/intel_ipts.c
 new file mode 100644
-index 000000000000..5d9145ac221c
+index 000000000000..3d3c353986f7
 --- /dev/null
 +++ b/drivers/gpu/drm/i915/intel_ipts.c
-@@ -0,0 +1,661 @@
+@@ -0,0 +1,651 @@
 +/*
 + * Copyright  2016 Intel Corporation
 + *
@@ -1073,22 +1053,12 @@ index 000000000000..5d9145ac221c
 +		cancel_delayed_work(&intel_ipts.reacquire_db_work);
 +	}
 +}
-+
-+int intel_ipts_resume(struct drm_device *dev)
-+{
-+	return intel_ipts_init(dev);
-+}
-+
-+void intel_ipts_suspend(struct drm_device *dev)
-+{
-+	intel_ipts_cleanup(dev);
-+}
 diff --git a/drivers/gpu/drm/i915/intel_ipts.h b/drivers/gpu/drm/i915/intel_ipts.h
 new file mode 100644
-index 000000000000..45d7d1273adf
+index 000000000000..a6965d102417
 --- /dev/null
 +++ b/drivers/gpu/drm/i915/intel_ipts.h
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,34 @@
 +/*
 + * Copyright © 2016 Intel Corporation
 + *
@@ -1119,8 +1089,6 @@ index 000000000000..45d7d1273adf
 +
 +int intel_ipts_init(struct drm_device *dev);
 +void intel_ipts_cleanup(struct drm_device *dev);
-+int intel_ipts_resume(struct drm_device *dev);
-+void intel_ipts_suspend(struct drm_device *dev);
 +int intel_ipts_notify_backlight_status(bool backlight_on);
 +int intel_ipts_notify_complete(void);
 +
