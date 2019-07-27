@@ -1,10 +1,11 @@
-From e1567eb4f8e8f69efcf9730efa17b56c0781f4da Mon Sep 17 00:00:00 2001
+From 20a9d7520a725aebf3fb9fdedd91525041345378 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 26 Jul 2019 04:45:32 +0200
 Subject: [PATCH 05/12] ipts
 
 ---
  drivers/gpu/drm/i915/Makefile               |    3 +
+ drivers/gpu/drm/i915/i915_debugfs.c         |   63 +-
  drivers/gpu/drm/i915/i915_drv.c             |    7 +
  drivers/gpu/drm/i915/i915_drv.h             |    3 +
  drivers/gpu/drm/i915/i915_gem_context.c     |   12 +
@@ -26,7 +27,7 @@ Subject: [PATCH 05/12] ipts
  drivers/misc/ipts/Kconfig                   |    9 +
  drivers/misc/ipts/Makefile                  |   13 +
  drivers/misc/ipts/ipts-binary-spec.h        |  118 +++
- drivers/misc/ipts/ipts-dbgfs.c              |  152 +++
+ drivers/misc/ipts/ipts-dbgfs.c              |  364 +++++++
  drivers/misc/ipts/ipts-gfx.c                |  185 ++++
  drivers/misc/ipts/ipts-gfx.h                |   24 +
  drivers/misc/ipts/ipts-hid.c                |  456 ++++++++
@@ -36,7 +37,7 @@ Subject: [PATCH 05/12] ipts
  drivers/misc/ipts/ipts-mei-msgs.h           |  585 +++++++++++
  drivers/misc/ipts/ipts-mei.c                |  282 +++++
  drivers/misc/ipts/ipts-msg-handler.c        |  437 ++++++++
- drivers/misc/ipts/ipts-msg-handler.h        |   32 +
+ drivers/misc/ipts/ipts-msg-handler.h        |   33 +
  drivers/misc/ipts/ipts-resource.c           |  277 +++++
  drivers/misc/ipts/ipts-resource.h           |   30 +
  drivers/misc/ipts/ipts-sensor-regs.h        |  700 +++++++++++++
@@ -45,7 +46,7 @@ Subject: [PATCH 05/12] ipts
  drivers/misc/mei/hw-me-regs.h               |    1 +
  drivers/misc/mei/pci-me.c                   |    1 +
  include/linux/intel_ipts_if.h               |   76 ++
- 41 files changed, 5566 insertions(+), 25 deletions(-)
+ 42 files changed, 5841 insertions(+), 26 deletions(-)
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.c
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.h
  create mode 100644 drivers/misc/ipts/Kconfig
@@ -83,6 +84,94 @@ index fbcb0904f4a8..1a273956b41c 100644
  # Post-mortem debug and GPU hang state capture
  i915-$(CONFIG_DRM_I915_CAPTURE_ERROR) += i915_gpu_error.o
  i915-$(CONFIG_DRM_I915_SELFTEST) += \
+diff --git a/drivers/gpu/drm/i915/i915_debugfs.c b/drivers/gpu/drm/i915/i915_debugfs.c
+index 5823ffb17821..2ffad9712041 100644
+--- a/drivers/gpu/drm/i915/i915_debugfs.c
++++ b/drivers/gpu/drm/i915/i915_debugfs.c
+@@ -41,6 +41,7 @@
+ #include "intel_hdmi.h"
+ #include "intel_pm.h"
+ #include "intel_psr.h"
++#include "intel_ipts.h"
+ 
+ static inline struct drm_i915_private *node_to_i915(struct drm_info_node *node)
+ {
+@@ -4567,6 +4568,64 @@ static const struct file_operations i915_fifo_underrun_reset_ops = {
+ 	.llseek = default_llseek,
+ };
+ 
++static ssize_t
++i915_intel_ipts_cleanup_write(struct file *filp,
++			       const char __user *ubuf,
++			       size_t cnt, loff_t *ppos)
++{
++	struct drm_i915_private *dev_priv = filp->private_data;
++	struct drm_device *dev = &dev_priv->drm;
++	int ret;
++	bool flag;
++
++	ret = kstrtobool_from_user(ubuf, cnt, &flag);
++	if (ret)
++		return ret;
++
++	if (!flag)
++		return cnt;
++
++	intel_ipts_cleanup(dev);
++
++	return cnt;
++}
++
++static const struct file_operations i915_intel_ipts_cleanup_ops = {
++	.owner = THIS_MODULE,
++	.open = simple_open,
++	.write = i915_intel_ipts_cleanup_write,
++	.llseek = default_llseek,
++};
++
++static ssize_t
++i915_intel_ipts_init_write(struct file *filp,
++			       const char __user *ubuf,
++			       size_t cnt, loff_t *ppos)
++{
++	struct drm_i915_private *dev_priv = filp->private_data;
++	struct drm_device *dev = &dev_priv->drm;
++	int ret;
++	bool flag;
++
++	ret = kstrtobool_from_user(ubuf, cnt, &flag);
++	if (ret)
++		return ret;
++
++	if (!flag)
++		return cnt;
++
++	intel_ipts_init(dev);
++
++	return cnt;
++}
++
++static const struct file_operations i915_intel_ipts_init_ops = {
++	.owner = THIS_MODULE,
++	.open = simple_open,
++	.write = i915_intel_ipts_init_write,
++	.llseek = default_llseek,
++};
++
+ static const struct drm_info_list i915_debugfs_list[] = {
+ 	{"i915_capabilities", i915_capabilities, 0},
+ 	{"i915_gem_objects", i915_gem_object_info, 0},
+@@ -4642,7 +4701,9 @@ static const struct i915_debugfs_files {
+ 	{"i915_hpd_short_storm_ctl", &i915_hpd_short_storm_ctl_fops},
+ 	{"i915_ipc_status", &i915_ipc_status_fops},
+ 	{"i915_drrs_ctl", &i915_drrs_ctl_fops},
+-	{"i915_edp_psr_debug", &i915_edp_psr_debug_fops}
++	{"i915_edp_psr_debug", &i915_edp_psr_debug_fops},
++	{"i915_intel_ipts_cleanup", &i915_intel_ipts_cleanup_ops},
++	{"i915_intel_ipts_init", &i915_intel_ipts_init_ops},
+ };
+ 
+ int i915_debugfs_register(struct drm_i915_private *dev_priv)
 diff --git a/drivers/gpu/drm/i915/i915_drv.c b/drivers/gpu/drm/i915/i915_drv.c
 index 1ad88e6d7c04..b50823fd30fb 100644
 --- a/drivers/gpu/drm/i915/i915_drv.c
@@ -1456,10 +1545,10 @@ index 000000000000..87d4bc4133c4
 +#endif /* _IPTS_BINARY_SPEC_H */
 diff --git a/drivers/misc/ipts/ipts-dbgfs.c b/drivers/misc/ipts/ipts-dbgfs.c
 new file mode 100644
-index 000000000000..1c5c92f7d4ba
+index 000000000000..7581b21f81e0
 --- /dev/null
 +++ b/drivers/misc/ipts/ipts-dbgfs.c
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,364 @@
 +/*
 + * Intel Precise Touch & Stylus device driver
 + * Copyright (c) 2016, Intel Corporation.
@@ -1482,9 +1571,13 @@ index 000000000000..1c5c92f7d4ba
 +#include "ipts-sensor-regs.h"
 +#include "ipts-msg-handler.h"
 +#include "ipts-state.h"
++#include "../mei/mei_dev.h"
 +
 +const char sensor_mode_fmt[] = "sensor mode : %01d\n";
 +const char ipts_status_fmt[] = "sensor mode : %01d\nipts state : %01d\n";
++const char ipts_debug_fmt[] = ">> tdt : fw status : %s\n"
++							  ">> == DB s:%x, c:%x ==\n"
++							  ">> == WQ h:%u, t:%u ==\n";
 +
 +static ssize_t ipts_dbgfs_mode_read(struct file *fp, char __user *ubuf,
 +						size_t cnt, loff_t *ppos)
@@ -1574,6 +1667,172 @@ index 000000000000..1c5c92f7d4ba
 +        .llseek = generic_file_llseek,
 +};
 +
++static ssize_t ipts_dbgfs_quiesce_io_cmd_write(struct file *fp, const char __user *ubuf,
++						size_t cnt, loff_t *ppos)
++{
++	ipts_info_t *ipts = fp->private_data;
++	bool result;
++	int rc;
++
++	rc = kstrtobool_from_user(ubuf, cnt, &result);
++	if (rc)
++		return rc;
++
++	if (!result)
++		return -EINVAL;
++
++	ipts_send_sensor_quiesce_io_cmd(ipts);
++
++	return cnt;
++}
++
++static const struct file_operations ipts_quiesce_io_cmd_dbgfs_fops = {
++        .open = simple_open,
++        .write = ipts_dbgfs_quiesce_io_cmd_write,
++        .llseek = generic_file_llseek,
++};
++
++static ssize_t ipts_dbgfs_clear_mem_window_cmd_write(struct file *fp, const char __user *ubuf,
++						size_t cnt, loff_t *ppos)
++{
++	ipts_info_t *ipts = fp->private_data;
++	bool result;
++	int rc;
++
++	rc = kstrtobool_from_user(ubuf, cnt, &result);
++	if (rc)
++		return rc;
++
++	if (!result)
++		return -EINVAL;
++
++	ipts_send_sensor_clear_mem_window_cmd(ipts);
++
++	return cnt;
++}
++
++static const struct file_operations ipts_clear_mem_window_cmd_dbgfs_fops = {
++        .open = simple_open,
++        .write = ipts_dbgfs_clear_mem_window_cmd_write,
++        .llseek = generic_file_llseek,
++};
++
++static ssize_t ipts_dbgfs_debug_read(struct file *fp, char __user *ubuf,
++						size_t cnt, loff_t *ppos)
++{
++	ipts_info_t *ipts = fp->private_data;
++	char dbg_info[1024];
++	int len = 0;
++
++	char fw_sts_str[MEI_FW_STATUS_STR_SZ];
++	u32 *db, *head, *tail;
++	intel_ipts_wq_info_t* wq_info;
++
++	wq_info = &ipts->resource.wq_info;
++
++	mei_fw_status_str(ipts->cldev->bus, fw_sts_str, MEI_FW_STATUS_STR_SZ);
++	// pr_info(">> tdt : fw status : %s\n", fw_sts_str);
++
++	db = (u32*)wq_info->db_addr;
++	head = (u32*)wq_info->wq_head_addr;
++	tail = (u32*)wq_info->wq_tail_addr;
++	// pr_info(">> == DB s:%x, c:%x ==\n", *db, *(db+1));
++	// pr_info(">> == WQ h:%u, t:%u ==\n", *head, *tail);
++
++	if (cnt < sizeof(ipts_debug_fmt) - 3)
++		return -EINVAL;
++
++	len = scnprintf(dbg_info, 1024, ipts_debug_fmt,
++							fw_sts_str,
++							*db, *(db+1),
++							*head, *tail);
++	if (len < 0)
++		return -EIO;
++
++	return simple_read_from_buffer(ubuf, cnt, ppos, dbg_info, len);
++}
++
++static const struct file_operations ipts_debug_dbgfs_fops = {
++        .open = simple_open,
++        .read = ipts_dbgfs_debug_read,
++        .llseek = generic_file_llseek,
++};
++
++static ssize_t ipts_dbgfs_ipts_restart_write(struct file *fp, const char __user *ubuf,
++						size_t cnt, loff_t *ppos)
++{
++	ipts_info_t *ipts = fp->private_data;
++	bool result;
++	int rc;
++
++	rc = kstrtobool_from_user(ubuf, cnt, &result);
++	if (rc)
++		return rc;
++
++	if (!result)
++		return -EINVAL;
++
++	ipts_restart(ipts);
++
++	return cnt;
++}
++
++static const struct file_operations ipts_ipts_restart_dbgfs_fops = {
++        .open = simple_open,
++        .write = ipts_dbgfs_ipts_restart_write,
++        .llseek = generic_file_llseek,
++};
++
++static ssize_t ipts_dbgfs_ipts_stop_write(struct file *fp, const char __user *ubuf,
++						size_t cnt, loff_t *ppos)
++{
++	ipts_info_t *ipts = fp->private_data;
++	bool result;
++	int rc;
++
++	rc = kstrtobool_from_user(ubuf, cnt, &result);
++	if (rc)
++		return rc;
++
++	if (!result)
++		return -EINVAL;
++
++	ipts_stop(ipts);
++
++	return cnt;
++}
++
++static const struct file_operations ipts_ipts_stop_dbgfs_fops = {
++        .open = simple_open,
++        .write = ipts_dbgfs_ipts_stop_write,
++        .llseek = generic_file_llseek,
++};
++
++static ssize_t ipts_dbgfs_ipts_start_write(struct file *fp, const char __user *ubuf,
++						size_t cnt, loff_t *ppos)
++{
++	ipts_info_t *ipts = fp->private_data;
++	bool result;
++	int rc;
++
++	rc = kstrtobool_from_user(ubuf, cnt, &result);
++	if (rc)
++		return rc;
++
++	if (!result)
++		return -EINVAL;
++
++	ipts_start(ipts);
++
++	return cnt;
++}
++
++static const struct file_operations ipts_ipts_start_dbgfs_fops = {
++        .open = simple_open,
++        .write = ipts_dbgfs_ipts_start_write,
++        .llseek = generic_file_llseek,
++};
++
 +void ipts_dbgfs_deregister(ipts_info_t* ipts)
 +{
 +	if (!ipts->dbgfs_dir)
@@ -1602,6 +1861,48 @@ index 000000000000..1c5c92f7d4ba
 +                                ipts, &ipts_status_dbgfs_fops);
 +        if (!f) {
 +                ipts_err(ipts, "debugfs status creation failed\n");
++                goto err;
++        }
++
++        f = debugfs_create_file("quiesce_io_cmd", S_IWUSR, dir,
++                                ipts, &ipts_quiesce_io_cmd_dbgfs_fops);
++        if (!f) {
++                ipts_err(ipts, "debugfs quiesce_io_cmd creation failed\n");
++                goto err;
++        }
++
++        f = debugfs_create_file("clear_mem_window_cmd", S_IWUSR, dir,
++                                ipts, &ipts_clear_mem_window_cmd_dbgfs_fops);
++        if (!f) {
++                ipts_err(ipts, "debugfs clear_mem_window_cmd creation failed\n");
++                goto err;
++        }
++
++        f = debugfs_create_file("debug", S_IRUSR, dir,
++                                ipts, &ipts_debug_dbgfs_fops);
++        if (!f) {
++                ipts_err(ipts, "debugfs debug creation failed\n");
++                goto err;
++        }
++
++        f = debugfs_create_file("ipts_restart", S_IWUSR, dir,
++                                ipts, &ipts_ipts_restart_dbgfs_fops);
++        if (!f) {
++                ipts_err(ipts, "debugfs ipts_restart creation failed\n");
++                goto err;
++        }
++
++        f = debugfs_create_file("ipts_stop", S_IWUSR, dir,
++                                ipts, &ipts_ipts_stop_dbgfs_fops);
++        if (!f) {
++                ipts_err(ipts, "debugfs ipts_stop creation failed\n");
++                goto err;
++        }
++
++        f = debugfs_create_file("ipts_start", S_IWUSR, dir,
++                                ipts, &ipts_ipts_start_dbgfs_fops);
++        if (!f) {
++                ipts_err(ipts, "debugfs ipts_start creation failed\n");
 +                goto err;
 +        }
 +
@@ -4744,10 +5045,10 @@ index 000000000000..db5356a1c84e
 +}
 diff --git a/drivers/misc/ipts/ipts-msg-handler.h b/drivers/misc/ipts/ipts-msg-handler.h
 new file mode 100644
-index 000000000000..15038814dfec
+index 000000000000..f37d9ad9af8c
 --- /dev/null
 +++ b/drivers/misc/ipts/ipts-msg-handler.h
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,33 @@
 +/*
 + *
 + * Intel Precise Touch & Stylus ME message handler
@@ -4778,6 +5079,7 @@ index 000000000000..15038814dfec
 +int ipts_send_sensor_quiesce_io_cmd(ipts_info_t *ipts);
 +int ipts_send_sensor_hid_ready_for_data_cmd(ipts_info_t *ipts);
 +int ipts_send_sensor_clear_mem_window_cmd(ipts_info_t *ipts);
++int ipts_restart(ipts_info_t *ipts);
 +
 +#endif /* _IPTS_MSG_HANDLER_H */
 diff --git a/drivers/misc/ipts/ipts-resource.c b/drivers/misc/ipts/ipts-resource.c
