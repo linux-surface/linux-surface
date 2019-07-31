@@ -1,97 +1,269 @@
-From 37bc0c403af84fc5c6018c7ec1d974607b8040f2 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Fri, 26 Jul 2019 03:41:22 +0200
+From ae134bb7065d18be2c462e46e00b7fbbac22f98b Mon Sep 17 00:00:00 2001
+From: kitakar5525 <34676735+kitakar5525@users.noreply.github.com>
+Date: Wed, 31 Jul 2019 08:39:18 +0900
 Subject: [PATCH 02/12] suspend
 
----
- drivers/nvme/host/nvme.h |  5 +++++
- drivers/nvme/host/pci.c  | 10 +++++++++-
- drivers/pci/quirks.c     |  4 ++++
- include/linux/pci_ids.h  |  2 ++
- kernel/power/suspend.c   | 11 +++++++++++
- kernel/sysctl.c          |  9 +++++++++
- 6 files changed, 40 insertions(+), 1 deletion(-)
+Note:
+NVMe part will be merged into Linux 5.3. Remove the part in this
+patch when it arrives.
 
+---
+ drivers/nvme/host/core.c | 36 +++++++++++++--
+ drivers/nvme/host/nvme.h |  7 +++
+ drivers/nvme/host/pci.c  | 96 ++++++++++++++++++++++++++++++++++++++--
+ kernel/power/suspend.c   | 11 +++++
+ kernel/sysctl.c          |  9 ++++
+ 5 files changed, 153 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/nvme/host/core.c b/drivers/nvme/host/core.c
+index e26d1191c..6d7be7d34 100644
+--- a/drivers/nvme/host/core.c
++++ b/drivers/nvme/host/core.c
+@@ -1028,15 +1028,15 @@ static struct nvme_id_ns *nvme_identify_ns(struct nvme_ctrl *ctrl,
+ 	return id;
+ }
+ 
+-static int nvme_set_features(struct nvme_ctrl *dev, unsigned fid, unsigned dword11,
+-		      void *buffer, size_t buflen, u32 *result)
++static int nvme_features(struct nvme_ctrl *dev, u8 op, unsigned int fid,
++		unsigned int dword11, void *buffer, size_t buflen, u32 *result)
+ {
+ 	struct nvme_command c;
+ 	union nvme_result res;
+ 	int ret;
+ 
+ 	memset(&c, 0, sizeof(c));
+-	c.features.opcode = nvme_admin_set_features;
++	c.features.opcode = op;
+ 	c.features.fid = cpu_to_le32(fid);
+ 	c.features.dword11 = cpu_to_le32(dword11);
+ 
+@@ -1047,6 +1047,24 @@ static int nvme_set_features(struct nvme_ctrl *dev, unsigned fid, unsigned dword
+ 	return ret;
+ }
+ 
++int nvme_set_features(struct nvme_ctrl *dev, unsigned int fid,
++		      unsigned int dword11, void *buffer, size_t buflen,
++		      u32 *result)
++{
++	return nvme_features(dev, nvme_admin_set_features, fid, dword11, buffer,
++			     buflen, result);
++}
++EXPORT_SYMBOL_GPL(nvme_set_features);
++
++int nvme_get_features(struct nvme_ctrl *dev, unsigned int fid,
++		      unsigned int dword11, void *buffer, size_t buflen,
++		      u32 *result)
++{
++	return nvme_features(dev, nvme_admin_get_features, fid, dword11, buffer,
++			     buflen, result);
++}
++EXPORT_SYMBOL_GPL(nvme_get_features);
++
+ int nvme_set_queue_count(struct nvme_ctrl *ctrl, int *count)
+ {
+ 	u32 q_count = (*count - 1) | ((*count - 1) << 16);
+@@ -3556,6 +3574,18 @@ static void nvme_free_ctrl(struct device *dev)
+ 		nvme_put_subsystem(subsys);
+ }
+ 
++
++void nvme_sync_queues(struct nvme_ctrl *ctrl)
++{
++	struct nvme_ns *ns;
++
++	down_read(&ctrl->namespaces_rwsem);
++	list_for_each_entry(ns, &ctrl->namespaces, list)
++		blk_sync_queue(ns->queue);
++	up_read(&ctrl->namespaces_rwsem);
++}
++EXPORT_SYMBOL_GPL(nvme_sync_queues);
++
+ /*
+  * Initialize a NVMe controller structures.  This needs to be called during
+  * earliest initialization so that we have the initialized structured around
 diff --git a/drivers/nvme/host/nvme.h b/drivers/nvme/host/nvme.h
-index e82cdaec81c9..3b63eafb21d7 100644
+index e82cdaec8..400ce4c01 100644
 --- a/drivers/nvme/host/nvme.h
 +++ b/drivers/nvme/host/nvme.h
-@@ -90,6 +90,11 @@ enum nvme_quirks {
- 	 * Set MEDIUM priority on SQ creation
- 	 */
- 	NVME_QUIRK_MEDIUM_PRIO_SQ		= (1 << 7),
-+
-+	/*
-+	 * Do not disable nvme when suspending (s2idle)
-+	 */
-+	NVME_QUIRK_NO_DISABLE			= (1 << 8),
- };
- 
- /*
+@@ -433,6 +433,7 @@ void nvme_complete_async_event(struct nvme_ctrl *ctrl, __le16 status,
+ void nvme_stop_queues(struct nvme_ctrl *ctrl);
+ void nvme_start_queues(struct nvme_ctrl *ctrl);
+ void nvme_kill_queues(struct nvme_ctrl *ctrl);
++void nvme_sync_queues(struct nvme_ctrl *ctrl);
+ void nvme_unfreeze(struct nvme_ctrl *ctrl);
+ void nvme_wait_freeze(struct nvme_ctrl *ctrl);
+ void nvme_wait_freeze_timeout(struct nvme_ctrl *ctrl, long timeout);
+@@ -450,6 +451,12 @@ int __nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
+ 		union nvme_result *result, void *buffer, unsigned bufflen,
+ 		unsigned timeout, int qid, int at_head,
+ 		blk_mq_req_flags_t flags);
++int nvme_set_features(struct nvme_ctrl *dev, unsigned int fid,
++		      unsigned int dword11, void *buffer, size_t buflen,
++		      u32 *result);
++int nvme_get_features(struct nvme_ctrl *dev, unsigned int fid,
++		      unsigned int dword11, void *buffer, size_t buflen,
++		      u32 *result);
+ int nvme_set_queue_count(struct nvme_ctrl *ctrl, int *count);
+ void nvme_stop_keep_alive(struct nvme_ctrl *ctrl);
+ int nvme_reset_ctrl(struct nvme_ctrl *ctrl);
 diff --git a/drivers/nvme/host/pci.c b/drivers/nvme/host/pci.c
-index c8eeecc58115..2b578fc8f2a4 100644
+index 0a5d064f8..e99c2f168 100644
 --- a/drivers/nvme/host/pci.c
 +++ b/drivers/nvme/host/pci.c
-@@ -30,6 +30,7 @@
+@@ -26,6 +26,7 @@
+ #include <linux/mutex.h>
+ #include <linux/once.h>
+ #include <linux/pci.h>
++#include <linux/suspend.h>
+ #include <linux/t10-pi.h>
  #include <linux/types.h>
  #include <linux/io-64-nonatomic-lo-hi.h>
- #include <linux/sed-opal.h>
-+#include <linux/suspend.h>
+@@ -106,6 +107,7 @@ struct nvme_dev {
+ 	u32 cmbloc;
+ 	struct nvme_ctrl ctrl;
+ 	struct completion ioq_wait;
++	u32 last_ps;
  
- #include "nvme.h"
+ 	mempool_t *iod_mempool;
  
-@@ -2605,8 +2606,11 @@ static int nvme_suspend(struct device *dev)
+@@ -2267,6 +2269,7 @@ static void nvme_reset_work(struct work_struct *work)
+ 	 */
+ 	if (dev->ctrl.ctrl_config & NVME_CC_ENABLE)
+ 		nvme_dev_disable(dev, false);
++	nvme_sync_queues(&dev->ctrl);
+ 
+ 	mutex_lock(&dev->shutdown_lock);
+ 	result = nvme_pci_enable(dev);
+@@ -2605,16 +2608,94 @@ static void nvme_remove(struct pci_dev *pdev)
+ }
+ 
+ #ifdef CONFIG_PM_SLEEP
++static int nvme_get_power_state(struct nvme_ctrl *ctrl, u32 *ps)
++{
++	return nvme_get_features(ctrl, NVME_FEAT_POWER_MGMT, 0, NULL, 0, ps);
++}
++
++static int nvme_set_power_state(struct nvme_ctrl *ctrl, u32 ps)
++{
++	return nvme_set_features(ctrl, NVME_FEAT_POWER_MGMT, ps, NULL, 0, NULL);
++}
++
++static int nvme_resume(struct device *dev)
++{
++	struct nvme_dev *ndev = pci_get_drvdata(to_pci_dev(dev));
++	struct nvme_ctrl *ctrl = &ndev->ctrl;
++
++	if (pm_resume_via_firmware() || !ctrl->npss ||
++	    nvme_set_power_state(ctrl, ndev->last_ps) != 0)
++		nvme_reset_ctrl(ctrl);
++	return 0;
++}
++
+ static int nvme_suspend(struct device *dev)
  {
  	struct pci_dev *pdev = to_pci_dev(dev);
  	struct nvme_dev *ndev = pci_get_drvdata(pdev);
 +	struct nvme_ctrl *ctrl = &ndev->ctrl;
++	int ret = -EBUSY;
 +
-+	if (!(pm_suspend_via_s2idle() && (ctrl->quirks & NVME_QUIRK_NO_DISABLE)))
++	/*
++	 * The platform does not remove power for a kernel managed suspend so
++	 * use host managed nvme power settings for lowest idle power if
++	 * possible. This should have quicker resume latency than a full device
++	 * shutdown.  But if the firmware is involved after the suspend or the
++	 * device does not support any non-default power states, shut down the
++	 * device fully.
++	 */
++	if (pm_suspend_via_firmware() || !ctrl->npss) {
 +		nvme_dev_disable(ndev, true);
++		return 0;
++	}
++
++	nvme_start_freeze(ctrl);
++	nvme_wait_freeze(ctrl);
++	nvme_sync_queues(ctrl);
++
++	if (ctrl->state != NVME_CTRL_LIVE &&
++	    ctrl->state != NVME_CTRL_ADMIN_ONLY)
++		goto unfreeze;
++
++	ndev->last_ps = 0;
++	ret = nvme_get_power_state(ctrl, &ndev->last_ps);
++	if (ret < 0)
++		goto unfreeze;
++
++	ret = nvme_set_power_state(ctrl, ctrl->npss);
++	if (ret < 0)
++		goto unfreeze;
++
++	if (ret) {
++		/*
++		 * Clearing npss forces a controller reset on resume. The
++		 * correct value will be resdicovered then.
++		 */
++		nvme_dev_disable(ndev, true);
++		ctrl->npss = 0;
++		ret = 0;
++		goto unfreeze;
++	}
++	/*
++	 * A saved state prevents pci pm from generically controlling the
++	 * device's power. If we're using protocol specific settings, we don't
++	 * want pci interfering.
++	 */
++	pci_save_state(pdev);
++unfreeze:
++	nvme_unfreeze(ctrl);
++	return ret;
++}
++
++static int nvme_simple_suspend(struct device *dev)
++{
++	struct nvme_dev *ndev = pci_get_drvdata(to_pci_dev(dev));
  
--	nvme_dev_disable(ndev, true);
+ 	nvme_dev_disable(ndev, true);
  	return 0;
  }
  
-@@ -2710,6 +2714,10 @@ static const struct pci_device_id nvme_id_table[] = {
- 		.driver_data = NVME_QUIRK_LIGHTNVM, },
- 	{ PCI_DEVICE(0x1d1d, 0x2601),	/* CNEX Granby */
- 		.driver_data = NVME_QUIRK_LIGHTNVM, },
-+	{ PCI_VDEVICE(SK_HYNIX, 0x1527),   /* Sk Hynix */
-+		.driver_data = NVME_QUIRK_NO_DISABLE, },
-+	{ PCI_VDEVICE(TOSHIBA, 0x010f),   /* TOSHIBA NVMe found on Surface Book with Performance Base */
-+		.driver_data = NVME_QUIRK_NO_DISABLE, },
- 	{ PCI_DEVICE_CLASS(PCI_CLASS_STORAGE_EXPRESS, 0xffffff) },
- 	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x2001) },
- 	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x2003) },
-diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
-index 28c64f84bfe7..30c013926470 100644
---- a/drivers/pci/quirks.c
-+++ b/drivers/pci/quirks.c
-@@ -1332,6 +1332,10 @@ DECLARE_PCI_FIXUP_CLASS_EARLY(PCI_VENDOR_ID_AL, PCI_ANY_ID,
-    occur when mode detecting */
- DECLARE_PCI_FIXUP_CLASS_EARLY(PCI_VENDOR_ID_VIA, PCI_ANY_ID,
- 				PCI_CLASS_STORAGE_IDE, 8, quirk_no_ata_d3);
-+DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_SK_HYNIX, 0x1527, quirk_no_ata_d3);
-+/* TOSHIBA NVMe disk found on Surface Book with Performance Base
-+   cannot wakeup from D3 state after s2idle */
-+DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_TOSHIBA, 0x010f, quirk_no_ata_d3);
+-static int nvme_resume(struct device *dev)
++static int nvme_simple_resume(struct device *dev)
+ {
+ 	struct pci_dev *pdev = to_pci_dev(dev);
+ 	struct nvme_dev *ndev = pci_get_drvdata(pdev);
+@@ -2622,9 +2703,16 @@ static int nvme_resume(struct device *dev)
+ 	nvme_reset_ctrl(&ndev->ctrl);
+ 	return 0;
+ }
+-#endif
  
- /*
-  * This was originally an Alpha-specific thing, but it really fits here.
-diff --git a/include/linux/pci_ids.h b/include/linux/pci_ids.h
-index d157983b84cf..c9aaf755b649 100644
---- a/include/linux/pci_ids.h
-+++ b/include/linux/pci_ids.h
-@@ -3086,4 +3086,6 @@
+-static SIMPLE_DEV_PM_OPS(nvme_dev_pm_ops, nvme_suspend, nvme_resume);
++const struct dev_pm_ops nvme_dev_pm_ops = {
++	.suspend	= nvme_suspend,
++	.resume		= nvme_resume,
++	.freeze		= nvme_simple_suspend,
++	.thaw		= nvme_simple_resume,
++	.poweroff	= nvme_simple_suspend,
++	.restore	= nvme_simple_resume,
++};
++#endif /* CONFIG_PM_SLEEP */
  
- #define PCI_VENDOR_ID_NCUBE		0x10ff
- 
-+#define PCI_VENDOR_ID_SK_HYNIX		0x1c5c
-+
- #endif /* _LINUX_PCI_IDS_H */
+ static pci_ers_result_t nvme_error_detected(struct pci_dev *pdev,
+ 						pci_channel_state_t state)
+@@ -2727,9 +2815,11 @@ static struct pci_driver nvme_driver = {
+ 	.probe		= nvme_probe,
+ 	.remove		= nvme_remove,
+ 	.shutdown	= nvme_shutdown,
++#ifdef CONFIG_PM_SLEEP
+ 	.driver		= {
+ 		.pm	= &nvme_dev_pm_ops,
+ 	},
++#endif
+ 	.sriov_configure = pci_sriov_configure_simple,
+ 	.err_handler	= &nvme_err_handler,
+ };
 diff --git a/kernel/power/suspend.c b/kernel/power/suspend.c
-index 0bd595a0b610..a8385e8894a5 100644
+index 0bd595a0b..a8385e889 100644
 --- a/kernel/power/suspend.c
 +++ b/kernel/power/suspend.c
 @@ -526,6 +526,8 @@ int suspend_devices_and_enter(suspend_state_t state)
@@ -120,7 +292,7 @@ index 0bd595a0b610..a8385e8894a5 100644
  	pm_notifier_call_chain(PM_POST_SUSPEND);
  	pm_restore_console();
 diff --git a/kernel/sysctl.c b/kernel/sysctl.c
-index f8576509c7be..a5fa80e72aba 100644
+index f8576509c..a5fa80e72 100644
 --- a/kernel/sysctl.c
 +++ b/kernel/sysctl.c
 @@ -313,7 +313,16 @@ static int min_extfrag_threshold;
