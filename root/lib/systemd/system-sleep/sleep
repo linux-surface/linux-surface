@@ -1,27 +1,36 @@
 #!/bin/bash
 case $1 in
-  pre)
-    # unload the modules before going to sleep
+  pre)    # unload the modules before going to sleep
+    # handle wifi issues
     systemctl stop NetworkManager.service
-    modprobe -r intel_ipts
-    modprobe -r mei_me
-    modprobe -r mei
     modprobe -r mwifiex_pcie;
     modprobe -r mwifiex;
     modprobe -r cfg80211;
+
+    ## IPTS: see notes below
+    ## > Remove IPTS from ME side
+    #modprobe -r intel_ipts
+    #modprobe -r mei_hdcp
+    #modprobe -r mei_me
+    #modprobe -r mei
+    ## > Remove IPTS from i915 side
+    #for i in $(find /sys/kernel/debug/dri -name i915_intel_ipts_cleanup); do echo 1 > $i; done
     ;;
-  post)
-    # need to cycle the modules on a resume and after the reset is called, so unload...
-    modprobe -r intel_ipts
-    modprobe -r mei_me
-    modprobe -r mei
+  post)   # re-load modules after resume
+    ## IPTS: see notes below
+    ## > Load IPTS from i915 side
+    #for i in $(find /sys/kernel/debug/dri -name i915_intel_ipts_init); do echo 1 > $i; done
+    ## > Load IPTS from ME side
+    #modprobe mei
+    #modprobe mei_me
+    #modprobe mei_hdcp
+    #modprobe intel_ipts
+
+    # handle wifi issues: complete cycle
     modprobe -r mwifiex_pcie;
     modprobe -r mwifiex;
     modprobe -r cfg80211;
     # and reload
-    modprobe -i intel_ipts
-    modprobe -i mei_me
-    modprobe -i mei
     modprobe -i cfg80211;
     modprobe -i mwifiex;
     modprobe -i mwifiex_pcie;
@@ -29,3 +38,12 @@ case $1 in
     systemctl restart NetworkManager.service
     ;;
 esac
+
+# Notes:
+# - For IPTS, see
+#   >  https://github.com/jakeday/linux-surface/issues/544#issuecomment-519126757
+#   for an explanation/discussion. We do not unload/reload modules for now as
+#   the IPTS drivers should be able to resume/suspend without this. If you
+#   experience any issues on suspend/resume, please file an appropriate issue or
+#   join the discussion linked above so that we can fix it. As a temporary
+#   workaround, you may want to uncomment the IPTS-related lines above.
