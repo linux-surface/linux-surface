@@ -2,7 +2,6 @@
 case $1 in
   pre)    # unload the modules before going to sleep
     # handle wifi issues
-    systemctl stop NetworkManager.service
     modprobe -r mwifiex_pcie;
     modprobe -r mwifiex;
     modprobe -r cfg80211;
@@ -27,13 +26,9 @@ case $1 in
     #modprobe intel_ipts
 
     # handle wifi issues: complete cycle
-    modprobe -r mwifiex_pcie;
-    modprobe -r mwifiex;
-    modprobe -r cfg80211;
-    # and reload
-    modprobe -i cfg80211;
-    modprobe -i mwifiex;
-    modprobe -i mwifiex_pcie;
+    modprobe cfg80211;
+    modprobe mwifiex;
+    modprobe mwifiex_pcie;
     echo 1 > /sys/bus/pci/rescan
     systemctl restart NetworkManager.service
     ;;
