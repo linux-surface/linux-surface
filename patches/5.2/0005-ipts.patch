@@ -1,4 +1,4 @@
-From 20a9d7520a725aebf3fb9fdedd91525041345378 Mon Sep 17 00:00:00 2001
+From 22b395cfcf4f06dba6d65d2ff2682731a9b42191 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 26 Jul 2019 04:45:32 +0200
 Subject: [PATCH 05/12] ipts
@@ -16,7 +16,7 @@ Subject: [PATCH 05/12] ipts
  drivers/gpu/drm/i915/intel_guc.h            |    1 +
  drivers/gpu/drm/i915/intel_guc_submission.c |   89 +-
  drivers/gpu/drm/i915/intel_guc_submission.h |    4 +
- drivers/gpu/drm/i915/intel_ipts.c           |  651 ++++++++++++
+ drivers/gpu/drm/i915/intel_ipts.c           |  651 +++++++++++
  drivers/gpu/drm/i915/intel_ipts.h           |   34 +
  drivers/gpu/drm/i915/intel_lrc.c            |   15 +-
  drivers/gpu/drm/i915/intel_lrc.h            |    6 +
@@ -26,27 +26,27 @@ Subject: [PATCH 05/12] ipts
  drivers/misc/Makefile                       |    1 +
  drivers/misc/ipts/Kconfig                   |    9 +
  drivers/misc/ipts/Makefile                  |   13 +
- drivers/misc/ipts/ipts-binary-spec.h        |  118 +++
- drivers/misc/ipts/ipts-dbgfs.c              |  364 +++++++
- drivers/misc/ipts/ipts-gfx.c                |  185 ++++
+ drivers/misc/ipts/ipts-binary-spec.h        |  118 ++
+ drivers/misc/ipts/ipts-dbgfs.c              |  364 ++++++
+ drivers/misc/ipts/ipts-gfx.c                |  185 +++
  drivers/misc/ipts/ipts-gfx.h                |   24 +
  drivers/misc/ipts/ipts-hid.c                |  456 ++++++++
  drivers/misc/ipts/ipts-hid.h                |   34 +
- drivers/misc/ipts/ipts-kernel.c             | 1050 +++++++++++++++++++
+ drivers/misc/ipts/ipts-kernel.c             | 1118 +++++++++++++++++++
  drivers/misc/ipts/ipts-kernel.h             |   23 +
- drivers/misc/ipts/ipts-mei-msgs.h           |  585 +++++++++++
+ drivers/misc/ipts/ipts-mei-msgs.h           |  585 ++++++++++
  drivers/misc/ipts/ipts-mei.c                |  282 +++++
  drivers/misc/ipts/ipts-msg-handler.c        |  437 ++++++++
  drivers/misc/ipts/ipts-msg-handler.h        |   33 +
  drivers/misc/ipts/ipts-resource.c           |  277 +++++
  drivers/misc/ipts/ipts-resource.h           |   30 +
- drivers/misc/ipts/ipts-sensor-regs.h        |  700 +++++++++++++
+ drivers/misc/ipts/ipts-sensor-regs.h        |  700 ++++++++++++
  drivers/misc/ipts/ipts-state.h              |   29 +
- drivers/misc/ipts/ipts.h                    |  200 ++++
+ drivers/misc/ipts/ipts.h                    |  205 ++++
  drivers/misc/mei/hw-me-regs.h               |    1 +
  drivers/misc/mei/pci-me.c                   |    1 +
  include/linux/intel_ipts_if.h               |   76 ++
- 42 files changed, 5841 insertions(+), 26 deletions(-)
+ 42 files changed, 5914 insertions(+), 26 deletions(-)
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.c
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.h
  create mode 100644 drivers/misc/ipts/Kconfig
@@ -2136,7 +2136,7 @@ index 000000000000..03a5f3551ddf
 +#endif // _IPTS_GFX_H_
 diff --git a/drivers/misc/ipts/ipts-hid.c b/drivers/misc/ipts/ipts-hid.c
 new file mode 100644
-index 000000000000..e85844dc1158
+index 000000000000..7c853c1b078b
 --- /dev/null
 +++ b/drivers/misc/ipts/ipts-hid.c
 @@ -0,0 +1,456 @@
@@ -2167,10 +2167,8 @@ index 000000000000..e85844dc1158
 +
 +#define BUS_MEI				0x44
 +
-+#define	HID_DESC_INTEL	"intel/ipts/intel_desc.bin"
-+#define	HID_DESC_VENDOR	"intel/ipts/vendor_desc.bin"
-+MODULE_FIRMWARE(HID_DESC_INTEL);
-+MODULE_FIRMWARE(HID_DESC_VENDOR);
++#define	HID_DESC_INTEL	"intel_desc.bin"
++#define	HID_DESC_VENDOR	"vendor_desc.bin"
 +
 +typedef enum output_buffer_payload_type {
 +	OUTPUT_BUFFER_PAYLOAD_ERROR = 0,
@@ -2205,13 +2203,15 @@ index 000000000000..e85844dc1158
 +	const char *intel_desc_path = HID_DESC_INTEL;
 +	const char *vendor_desc_path = HID_DESC_VENDOR;
 +
-+	ret = request_firmware(&intel_desc, intel_desc_path, &ipts->cldev->dev);
++	ret = ipts_request_firmware(ipts, &intel_desc, intel_desc_path,
++		&ipts->cldev->dev);
 +	if (ret) {
 +		goto no_hid;
 +	}
 +	hid_size = intel_desc->size;
 +
-+	ret = request_firmware(&vendor_desc, vendor_desc_path, &ipts->cldev->dev);
++	ret = ipts_request_firmware(ipts, &vendor_desc, vendor_desc_path,
++		&ipts->cldev->dev);
 +	if (ret) {
 +		ipts_dbg(ipts, "error in reading HID Vendor Descriptor\n");
 +	} else {
@@ -2638,14 +2638,16 @@ index 000000000000..f1b22c912df7
 +#endif /* _IPTS_HID_H_ */
 diff --git a/drivers/misc/ipts/ipts-kernel.c b/drivers/misc/ipts/ipts-kernel.c
 new file mode 100644
-index 000000000000..86fd359d2eed
+index 000000000000..4bf68c271476
 --- /dev/null
 +++ b/drivers/misc/ipts/ipts-kernel.c
-@@ -0,0 +1,1050 @@
+@@ -0,0 +1,1118 @@
++#include <linux/dmi.h>
 +#include <linux/module.h>
 +#include <linux/firmware.h>
 +#include <linux/vmalloc.h>
 +#include <linux/intel_ipts_if.h>
++#include <linux/string.h>
 +
 +#include "ipts.h"
 +#include "ipts-resource.h"
@@ -2738,10 +2740,10 @@ index 000000000000..86fd359d2eed
 +#define SBA_OFFSET_BYTES			16384
 +#define LASTSUBMITID_DEFAULT_VALUE		-1
 +
-+#define IPTS_FW_PATH_FMT			"intel/ipts/%s"
-+#define IPTS_FW_CONFIG_FILE			"intel/ipts/ipts_fw_config.bin"
-+
-+MODULE_FIRMWARE(IPTS_FW_CONFIG_FILE);
++#define IPTS_FW_PATH_FMT          "intel/ipts/%s"
++#define IPTS_FW_PATH_FMT_NAME     "intel/ipts/%s/%s"
++#define IPTS_FW_PATH_FMT_NAME_SKU "intel/ipts/%s/%s/%s"
++#define IPTS_FW_CONFIG_FILE       "ipts_fw_config.bin"
 +
 +#define IPTS_INPUT_ON				((u32)1 << IPTS_INPUT)
 +#define IPTS_OUTPUT_ON				((u32)1 << IPTS_OUTPUT)
@@ -2752,17 +2754,84 @@ index 000000000000..86fd359d2eed
 +#define	DATA_FILE_FLAG_SHARE			0x00000001
 +#define	DATA_FILE_FLAG_ALLOC_CONTIGUOUS		0x00000002
 +
++static char *ipts_string_escape(const char *src, const char *esc)
++{
++	char *out;
++	int len;
++	int i;
++
++	len = strlen(src);
++	out = kmalloc(len + 1, GFP_KERNEL);
++
++	for (i = 0; i < len; i++) {
++		if (strchr(esc, src[i])) {
++			out[i] = '_';
++		} else {
++			out[i] = src[i];
++		}
++	}
++	out[len] = '\0';
++
++	return out;
++}
++
++int ipts_request_firmware(ipts_info_t *ipts, const struct firmware **fw,
++	const char *name, struct device *device)
++{
++	char fw_path[MAX_IOCL_FILE_PATH_LEN];
++	char *dmi_product_name;
++	char *dmi_product_sku;
++	int ret = 0;
++
++	/* Fetch DMI info */
++	dmi_product_name = ipts_string_escape(
++		dmi_get_system_info(DMI_PRODUCT_NAME), " ");
++	dmi_product_sku = ipts_string_escape(
++		dmi_get_system_info(DMI_PRODUCT_SKU), " ");
++
++	/* Try to find a firmware for DMI_PRODUCT_NAME + SKU */
++	snprintf(fw_path, MAX_IOCL_FILE_PATH_LEN, IPTS_FW_PATH_FMT_NAME_SKU,
++		dmi_product_name, dmi_product_sku, name);
++	ret = firmware_request_nowarn(fw, fw_path, device);
++	if (!ret) {
++		goto ipts_request_firmware_return;
++	}
++
++	ipts_dbg(ipts, "no firmware '%s' found, retrying with more generic path\n",
++		fw_path);
++
++	/* No firmware was found for DMI_PRODUCT_NAME + SKU, try only name now */
++	snprintf(fw_path, MAX_IOCL_FILE_PATH_LEN, IPTS_FW_PATH_FMT_NAME,
++		dmi_product_name, name);
++	ret = firmware_request_nowarn(fw, fw_path, device);
++	if (!ret) {
++		goto ipts_request_firmware_return;
++	}
++
++	ipts_dbg(ipts, "no firmware '%s' found, retrying with more generic path\n",
++		fw_path);
++
++	/* No firmware was found for DMI_PRODUCT_NAME, try without DMI parameters */
++	snprintf(fw_path, MAX_IOCL_FILE_PATH_LEN, IPTS_FW_PATH_FMT, name);
++	ret = request_firmware(fw, fw_path, device);
++
++ipts_request_firmware_return:
++
++	kfree(dmi_product_name);
++	kfree(dmi_product_sku);
++
++	return ret;
++}
++
 +static int bin_read_fw(ipts_info_t *ipts, const char *fw_name,
 +						u8* data, int size)
 +{
 +	const struct firmware *fw = NULL;
-+	char fw_path[MAX_IOCL_FILE_PATH_LEN];
 +	int ret = 0;
 +
-+	snprintf(fw_path, MAX_IOCL_FILE_PATH_LEN, IPTS_FW_PATH_FMT, fw_name);
-+	ret = request_firmware(&fw, fw_path, &ipts->cldev->dev);
++	ret = ipts_request_firmware(ipts, &fw, fw_name, &ipts->cldev->dev);
 +	if (ret) {
-+		ipts_err(ipts, "cannot read fw %s\n", fw_path);
++		ipts_err(ipts, "cannot read fw %s\n", fw_name);
 +		return ret;
 +	}
 +
@@ -3541,7 +3610,6 @@ index 000000000000..86fd359d2eed
 +	bin_parse_info_t parse_info;
 +	int ret = 0, kernel_idx = 0, num_of_kernels = 0;
 +	int vendor_output_idx, total_workload = 0;
-+	char fw_path[MAX_IOCL_FILE_PATH_LEN];
 +
 +	num_of_kernels = fw_list->num_of_fws;
 +	kernel_list = vmalloc(sizeof(*kernel) * num_of_kernels + sizeof(*kernel_list));
@@ -3557,10 +3625,9 @@ index 000000000000..86fd359d2eed
 +		fw_info = (bin_fw_info_t *)fw_data;
 +		fw_name = &fw_info->fw_name[0];
 +		vendor_output_idx = fw_info->vendor_output;
-+		snprintf(fw_path, MAX_IOCL_FILE_PATH_LEN, IPTS_FW_PATH_FMT, fw_name);
-+		ret = request_firmware(&fw, (const char *)fw_path, &ipts->cldev->dev);
++		ret = ipts_request_firmware(ipts, &fw, fw_name, &ipts->cldev->dev);
 +		if (ret) {
-+			ipts_err(ipts, "cannot read fw %s\n", fw_path);
++			ipts_err(ipts, "cannot read fw %s\n", fw_name);
 +			goto error_exit;
 +		}
 +
@@ -3661,7 +3728,8 @@ index 000000000000..86fd359d2eed
 +		return ret;
 +	}
 +
-+	ret = request_firmware(&config_fw, config_fw_path, &ipts->cldev->dev);
++	ret = ipts_request_firmware(ipts, &config_fw, config_fw_path,
++		&ipts->cldev->dev);
 +	if (ret) {
 +		ipts_err(ipts, "request firmware error : %d\n", ret);
 +		goto close_gpu;
@@ -6144,10 +6212,10 @@ index 000000000000..39a2eaf5f004
 +#endif // _IPTS_STATE_H_
 diff --git a/drivers/misc/ipts/ipts.h b/drivers/misc/ipts/ipts.h
 new file mode 100644
-index 000000000000..9c34b55ff036
+index 000000000000..29d4b7544edf
 --- /dev/null
 +++ b/drivers/misc/ipts/ipts.h
-@@ -0,0 +1,200 @@
+@@ -0,0 +1,205 @@
 +/*
 + *
 + * Intel Management Engine Interface (Intel MEI) Client Driver for IPTS
@@ -6167,6 +6235,7 @@ index 000000000000..9c34b55ff036
 +#ifndef _IPTS_H_
 +#define _IPTS_H_
 +
++#include <linux/firmware.h>
 +#include <linux/types.h>
 +#include <linux/mei_cl_bus.h>
 +#include <linux/hid.h>
@@ -6347,9 +6416,13 @@ index 000000000000..9c34b55ff036
 +	return ipts->num_of_parallel_data_buffers;
 +}
 +
++/* wrapper utility for requesting firmware */
++int ipts_request_firmware(ipts_info_t *ipts, const struct firmware **fw,
++	const char *name, struct device *device);
++
 +#endif // _IPTS_H_
 diff --git a/drivers/misc/mei/hw-me-regs.h b/drivers/misc/mei/hw-me-regs.h
-index d74b182e19f3..a4021bc7d6b3 100644
+index 6c0173772162..c7872571dd79 100644
 --- a/drivers/misc/mei/hw-me-regs.h
 +++ b/drivers/misc/mei/hw-me-regs.h
 @@ -59,6 +59,7 @@
@@ -6361,7 +6434,7 @@ index d74b182e19f3..a4021bc7d6b3 100644
  #define MEI_DEV_ID_SPT_H_2    0xA13B  /* Sunrise Point H 2 */
  
 diff --git a/drivers/misc/mei/pci-me.c b/drivers/misc/mei/pci-me.c
-index 7a2b3545a7f9..c3c684cbd17d 100644
+index 57cb68f5cc64..4044d79464b6 100644
 --- a/drivers/misc/mei/pci-me.c
 +++ b/drivers/misc/mei/pci-me.c
 @@ -77,6 +77,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
@@ -6455,5 +6528,5 @@ index 000000000000..bad44fb4f233
 +
 +#endif // INTEL_IPTS_IF_H
 -- 
-2.22.0
+2.21.0
 
