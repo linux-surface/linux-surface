@@ -1,4 +1,4 @@
-From c88960a183f465316b28486bf7a9031563547001 Mon Sep 17 00:00:00 2001
+From fa76ab4055175cad9c3ae34fed2257f2d7346fac Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 26 Jul 2019 03:40:41 +0200
 Subject: [PATCH 01/12] surface-acpi
@@ -8,9 +8,9 @@ Subject: [PATCH 01/12] surface-acpi
  drivers/acpi/acpica/exfield.c       |   26 +-
  drivers/platform/x86/Kconfig        |   97 +
  drivers/platform/x86/Makefile       |    1 +
- drivers/platform/x86/surface_acpi.c | 3908 +++++++++++++++++++++++++++
+ drivers/platform/x86/surface_acpi.c | 3913 +++++++++++++++++++++++++++
  drivers/tty/serdev/core.c           |   90 +-
- 6 files changed, 4105 insertions(+), 19 deletions(-)
+ 6 files changed, 4110 insertions(+), 19 deletions(-)
  create mode 100644 drivers/platform/x86/surface_acpi.c
 
 diff --git a/drivers/acpi/acpica/dsopcode.c b/drivers/acpi/acpica/dsopcode.c
@@ -201,10 +201,10 @@ index dc29af4d8e2f..2250a32a5527 100644
  obj-$(CONFIG_FUJITSU_TABLET)	+= fujitsu-tablet.o
 diff --git a/drivers/platform/x86/surface_acpi.c b/drivers/platform/x86/surface_acpi.c
 new file mode 100644
-index 000000000000..a17538905642
+index 000000000000..f62aecb0df69
 --- /dev/null
 +++ b/drivers/platform/x86/surface_acpi.c
-@@ -0,0 +1,3908 @@
+@@ -0,0 +1,3913 @@
 +#include <asm/unaligned.h>
 +#include <linux/acpi.h>
 +#include <linux/completion.h>
@@ -3996,7 +3996,12 @@ index 000000000000..a17538905642
 +	.lid_device = &lid_device_l17,
 +};
 +
-+static const struct si_device_info si_device_book = {
++static const struct si_device_info si_device_book_1 = {
++	.has_perf_mode = false,
++	.lid_device = &lid_device_l17,
++};
++
++static const struct si_device_info si_device_book_2 = {
 +	.has_perf_mode = true,
 +	.lid_device = &lid_device_l17,
 +};
@@ -4008,8 +4013,8 @@ index 000000000000..a17538905642
 +
 +static const struct acpi_device_id surfacegen5_acpi_sid_match[] = {
 +	{ "MSHW0081", (unsigned long)&si_device_pro },     /* Surface Pro 4 and 5 */
-+	{ "MSHW0080", (unsigned long)&si_device_book },    /* Surface Book 1 */
-+	{ "MSHW0107", (unsigned long)&si_device_book },    /* Surface Book 2 */
++	{ "MSHW0080", (unsigned long)&si_device_book_1 },  /* Surface Book 1 */
++	{ "MSHW0107", (unsigned long)&si_device_book_2 },  /* Surface Book 2 */
 +	{ "MSHW0086", (unsigned long)&si_device_laptop },  /* Surface Laptop 1 */
 +	{ "MSHW0112", (unsigned long)&si_device_laptop },  /* Surface Laptop 2 */
 +	{ },
@@ -4236,5 +4241,5 @@ index 9db93f500b4e..2290d4f86ca4 100644
  		return -ENODEV;
  
 -- 
-2.22.0
+2.23.0
 
