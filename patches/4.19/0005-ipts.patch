@@ -1,4 +1,4 @@
-From 22e6d68a0a5c874507cd7af75f6945b2f0b38cf9 Mon Sep 17 00:00:00 2001
+From 694cb53bc941b057ead3a4bbaee31f6c0ffb652e Mon Sep 17 00:00:00 2001
 From: kitakar5525 <34676735+kitakar5525@users.noreply.github.com>
 Date: Tue, 10 Sep 2019 21:52:46 +0900
 Subject: [PATCH 05/12] ipts
@@ -35,7 +35,7 @@ Subject: [PATCH 05/12] ipts
  drivers/misc/ipts/ipts-fw.h                 |   12 +
  drivers/misc/ipts/ipts-gfx.c                |  185 ++++
  drivers/misc/ipts/ipts-gfx.h                |   24 +
- drivers/misc/ipts/ipts-hid.c                |  503 +++++++++
+ drivers/misc/ipts/ipts-hid.c                |  497 +++++++++
  drivers/misc/ipts/ipts-hid.h                |   34 +
  drivers/misc/ipts/ipts-kernel.c             | 1042 +++++++++++++++++++
  drivers/misc/ipts/ipts-kernel.h             |   23 +
@@ -43,8 +43,8 @@ Subject: [PATCH 05/12] ipts
  drivers/misc/ipts/ipts-mei.c                |  290 ++++++
  drivers/misc/ipts/ipts-msg-handler.c        |  437 ++++++++
  drivers/misc/ipts/ipts-msg-handler.h        |   33 +
- drivers/misc/ipts/ipts-params.c             |   14 +
- drivers/misc/ipts/ipts-params.h             |   13 +
+ drivers/misc/ipts/ipts-params.c             |   21 +
+ drivers/misc/ipts/ipts-params.h             |   14 +
  drivers/misc/ipts/ipts-resource.c           |  277 +++++
  drivers/misc/ipts/ipts-resource.h           |   30 +
  drivers/misc/ipts/ipts-sensor-regs.h        |  700 +++++++++++++
@@ -54,7 +54,7 @@ Subject: [PATCH 05/12] ipts
  drivers/misc/mei/pci-me.c                   |    1 +
  include/linux/intel_ipts_fw.h               |   14 +
  include/linux/intel_ipts_if.h               |   76 ++
- 50 files changed, 6152 insertions(+), 26 deletions(-)
+ 50 files changed, 6154 insertions(+), 26 deletions(-)
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.c
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.h
  create mode 100644 drivers/misc/ipts/Kconfig
@@ -2403,10 +2403,10 @@ index 000000000000..03a5f3551ddf
 +#endif // _IPTS_GFX_H_
 diff --git a/drivers/misc/ipts/ipts-hid.c b/drivers/misc/ipts/ipts-hid.c
 new file mode 100644
-index 000000000000..41c6508f1235
+index 000000000000..32cf5927f949
 --- /dev/null
 +++ b/drivers/misc/ipts/ipts-hid.c
-@@ -0,0 +1,503 @@
+@@ -0,0 +1,497 @@
 +/*
 + * Intel Precise Touch & Stylus HID driver
 + *
@@ -2430,6 +2430,7 @@ index 000000000000..41c6508f1235
 +
 +#include "ipts.h"
 +#include "ipts-fw.h"
++#include "ipts-params.h"
 +#include "ipts-resource.h"
 +#include "ipts-sensor-regs.h"
 +#include "ipts-msg-handler.h"
@@ -2478,14 +2479,6 @@ index 000000000000..41c6508f1235
 +	},
 +	{ }
 +};
-+
-+int no_feedback = -1;
-+module_param(no_feedback, int, 0644);
-+MODULE_PARM_DESC(no_feedback,
-+				"Disable sending feedback in order to work around the issue that IPTS "
-+				"stops working after some amount of use. "
-+				"-1=auto (true if your model is SB1/SP4, false if another model), "
-+				"0=false, 1=true, (default: -1)");
 +
 +static int ipts_hid_get_hid_descriptor(ipts_info_t *ipts, u8 **desc, int *size)
 +{
@@ -2866,10 +2859,11 @@ index 000000000000..41c6508f1235
 +	 */
 +	if (fb_buf) {
 +		/* A negative value means "decide by dmi table" */
-+		if (no_feedback < 0)
-+			no_feedback = dmi_check_system(no_feedback_dmi_table) ? true : false;
++		if (ipts_modparams.no_feedback < 0)
++			ipts_modparams.no_feedback =
++				dmi_check_system(no_feedback_dmi_table) ? true : false;
 +
-+		if (no_feedback)
++		if (ipts_modparams.no_feedback)
 +			return 0;
 +
 +		ret = ipts_send_feedback(ipts, parallel_idx, transaction_id);
@@ -5398,10 +5392,10 @@ index 000000000000..f37d9ad9af8c
 +#endif /* _IPTS_MSG_HANDLER_H */
 diff --git a/drivers/misc/ipts/ipts-params.c b/drivers/misc/ipts/ipts-params.c
 new file mode 100644
-index 000000000000..17374039a161
+index 000000000000..b4faa1afc046
 --- /dev/null
 +++ b/drivers/misc/ipts/ipts-params.c
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,21 @@
 +#include <linux/moduleparam.h>
 +
 +#include "ipts-params.h"
@@ -5409,6 +5403,7 @@ index 000000000000..17374039a161
 +struct ipts_params ipts_modparams = {
 +	.ignore_fw_fallback = false,
 +	.ignore_companion = false,
++	.no_feedback = -1,
 +};
 +
 +module_param_named(ignore_fw_fallback, ipts_modparams.ignore_fw_fallback, bool, 0400);
@@ -5416,12 +5411,18 @@ index 000000000000..17374039a161
 +
 +module_param_named(ignore_companion, ipts_modparams.ignore_companion, bool, 0400);
 +MODULE_PARM_DESC(ignore_companion, "Don't use a companion driver to load firmware");
++
++module_param_named(no_feedback, ipts_modparams.no_feedback, int, 0644);
++MODULE_PARM_DESC(no_feedback, "Disable sending feedback in order to work around the issue that IPTS "
++	"stops working after some amount of use. "
++	"-1=auto (true if your model is SB1/SP4, false if another model), "
++	"0=false, 1=true, (default: -1)");
 diff --git a/drivers/misc/ipts/ipts-params.h b/drivers/misc/ipts/ipts-params.h
 new file mode 100644
-index 000000000000..d6f6faaef076
+index 000000000000..6fd62fb46d26
 --- /dev/null
 +++ b/drivers/misc/ipts/ipts-params.h
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,14 @@
 +#ifndef _IPTS_PARAMS_H_
 +#define _IPTS_PARAMS_H_
 +
@@ -5430,6 +5431,7 @@ index 000000000000..d6f6faaef076
 +struct ipts_params {
 +	bool ignore_fw_fallback;
 +	bool ignore_companion;
++	int no_feedback;
 +};
 +
 +extern struct ipts_params ipts_modparams;
