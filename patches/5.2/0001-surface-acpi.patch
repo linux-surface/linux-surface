@@ -1,4 +1,4 @@
-From 9b98d8261c388ab7b8b890f621f1987d6412d774 Mon Sep 17 00:00:00 2001
+From d4d386abdc4817e58e10db9971ee6af3e6da2e07 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 26 Jul 2019 04:44:14 +0200
 Subject: [PATCH 01/12] surface-acpi
@@ -9,8 +9,8 @@ Subject: [PATCH 01/12] surface-acpi
  drivers/platform/x86/Kconfig        |   97 +
  drivers/platform/x86/Makefile       |    1 +
  drivers/platform/x86/surface_acpi.c | 3913 +++++++++++++++++++++++++++
- drivers/tty/serdev/core.c           |   90 +-
- 6 files changed, 4109 insertions(+), 6 deletions(-)
+ drivers/tty/serdev/core.c           |   87 +
+ 6 files changed, 4108 insertions(+), 4 deletions(-)
  create mode 100644 drivers/platform/x86/surface_acpi.c
 
 diff --git a/drivers/acpi/acpica/dsopcode.c b/drivers/acpi/acpica/dsopcode.c
@@ -59,7 +59,7 @@ index d3d2dbfba680..0b7f617a6e9b 100644
  		buffer_desc = acpi_ut_create_buffer_object(buffer_length);
  		if (!buffer_desc) {
 diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
-index 5d5cc6111081..4fefae580dec 100644
+index 7c2fd1d72e18..c00cb830914a 100644
 --- a/drivers/platform/x86/Kconfig
 +++ b/drivers/platform/x86/Kconfig
 @@ -623,6 +623,103 @@ config THINKPAD_ACPI_HOTKEY_POLL
@@ -4098,20 +4098,10 @@ index 000000000000..f62aecb0df69
 +MODULE_DESCRIPTION("ACPI/Platform Drivers for Microsoft Surface Devices");
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/tty/serdev/core.c b/drivers/tty/serdev/core.c
-index a0ac16ee6575..0dd242ff24d1 100644
+index a0ac16ee6575..e455322a7765 100644
 --- a/drivers/tty/serdev/core.c
 +++ b/drivers/tty/serdev/core.c
-@@ -558,8 +558,7 @@ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
- 	struct serdev_device *serdev = NULL;
- 	int err;
- 
--	if (acpi_bus_get_status(adev) || !adev->status.present ||
--	    acpi_device_enumerated(adev))
-+	if (acpi_bus_get_status(adev) || !adev->status.present)
- 		return AE_OK;
- 
- 	serdev = serdev_device_alloc(ctrl);
-@@ -582,6 +581,81 @@ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
+@@ -582,6 +582,81 @@ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
  	return AE_OK;
  }
  
@@ -4193,7 +4183,7 @@ index a0ac16ee6575..0dd242ff24d1 100644
  static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
  				       void *data, void **return_value)
  {
-@@ -591,6 +665,9 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
+@@ -591,6 +666,9 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
  	if (acpi_bus_get_device(handle, &adev))
  		return AE_OK;
  
@@ -4203,7 +4193,7 @@ index a0ac16ee6575..0dd242ff24d1 100644
  	return acpi_serdev_register_device(ctrl, adev);
  }
  
-@@ -608,6 +685,15 @@ static int acpi_serdev_register_devices(struct serdev_controller *ctrl)
+@@ -608,6 +686,15 @@ static int acpi_serdev_register_devices(struct serdev_controller *ctrl)
  	if (ACPI_FAILURE(status))
  		dev_dbg(&ctrl->dev, "failed to enumerate serdev slaves\n");
  

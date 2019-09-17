@@ -1,4 +1,4 @@
-From 0aa6cc9a8970c8dae97563a1886dafc9ef79e011 Mon Sep 17 00:00:00 2001
+From 3902051025f388147dea5c8ccec0d6b0a8b87bd2 Mon Sep 17 00:00:00 2001
 From: kitakar5525 <34676735+kitakar5525@users.noreply.github.com>
 Date: Wed, 31 Jul 2019 08:41:30 +0900
 Subject: [PATCH 02/12] suspend
@@ -6,7 +6,6 @@ Subject: [PATCH 02/12] suspend
 Note:
 NVMe part will be merged into Linux 5.3. Remove the part in this
 patch when it arrives.
-
 ---
  drivers/nvme/host/core.c | 24 ++++++++--
  drivers/nvme/host/nvme.h |  6 +++
@@ -16,10 +15,10 @@ patch when it arrives.
  5 files changed, 139 insertions(+), 6 deletions(-)
 
 diff --git a/drivers/nvme/host/core.c b/drivers/nvme/host/core.c
-index 22c68e3b7..3b3960e0c 100644
+index 963b4c6309b9..4b8cf243c150 100644
 --- a/drivers/nvme/host/core.c
 +++ b/drivers/nvme/host/core.c
-@@ -1113,15 +1113,15 @@ static struct nvme_id_ns *nvme_identify_ns(struct nvme_ctrl *ctrl,
+@@ -1114,15 +1114,15 @@ static struct nvme_id_ns *nvme_identify_ns(struct nvme_ctrl *ctrl,
  	return id;
  }
  
@@ -38,7 +37,7 @@ index 22c68e3b7..3b3960e0c 100644
  	c.features.fid = cpu_to_le32(fid);
  	c.features.dword11 = cpu_to_le32(dword11);
  
-@@ -1132,6 +1132,24 @@ static int nvme_set_features(struct nvme_ctrl *dev, unsigned fid, unsigned dword
+@@ -1133,6 +1133,24 @@ static int nvme_set_features(struct nvme_ctrl *dev, unsigned fid, unsigned dword
  	return ret;
  }
  
@@ -64,7 +63,7 @@ index 22c68e3b7..3b3960e0c 100644
  {
  	u32 q_count = (*count - 1) | ((*count - 1) << 16);
 diff --git a/drivers/nvme/host/nvme.h b/drivers/nvme/host/nvme.h
-index 55553d293..038b8931d 100644
+index 81215ca32671..9285d5f6437b 100644
 --- a/drivers/nvme/host/nvme.h
 +++ b/drivers/nvme/host/nvme.h
 @@ -459,6 +459,12 @@ int __nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
@@ -81,7 +80,7 @@ index 55553d293..038b8931d 100644
  void nvme_stop_keep_alive(struct nvme_ctrl *ctrl);
  int nvme_reset_ctrl(struct nvme_ctrl *ctrl);
 diff --git a/drivers/nvme/host/pci.c b/drivers/nvme/host/pci.c
-index f5bc1c30c..aea3b42a5 100644
+index 09ffd21d1809..3e22d5f14e93 100644
 --- a/drivers/nvme/host/pci.c
 +++ b/drivers/nvme/host/pci.c
 @@ -18,6 +18,7 @@
@@ -100,7 +99,7 @@ index f5bc1c30c..aea3b42a5 100644
  
  	mempool_t *iod_mempool;
  
-@@ -2843,16 +2845,94 @@ static void nvme_remove(struct pci_dev *pdev)
+@@ -2849,16 +2851,94 @@ static void nvme_remove(struct pci_dev *pdev)
  }
  
  #ifdef CONFIG_PM_SLEEP
@@ -196,7 +195,7 @@ index f5bc1c30c..aea3b42a5 100644
  {
  	struct pci_dev *pdev = to_pci_dev(dev);
  	struct nvme_dev *ndev = pci_get_drvdata(pdev);
-@@ -2860,9 +2940,16 @@ static int nvme_resume(struct device *dev)
+@@ -2866,9 +2946,16 @@ static int nvme_resume(struct device *dev)
  	nvme_reset_ctrl(&ndev->ctrl);
  	return 0;
  }
@@ -215,7 +214,7 @@ index f5bc1c30c..aea3b42a5 100644
  
  static pci_ers_result_t nvme_error_detected(struct pci_dev *pdev,
  						pci_channel_state_t state)
-@@ -2967,9 +3054,11 @@ static struct pci_driver nvme_driver = {
+@@ -2975,9 +3062,11 @@ static struct pci_driver nvme_driver = {
  	.probe		= nvme_probe,
  	.remove		= nvme_remove,
  	.shutdown	= nvme_shutdown,
@@ -228,7 +227,7 @@ index f5bc1c30c..aea3b42a5 100644
  	.err_handler	= &nvme_err_handler,
  };
 diff --git a/kernel/power/suspend.c b/kernel/power/suspend.c
-index 096211299..0cb0fe170 100644
+index 096211299c07..0cb0fe170977 100644
 --- a/kernel/power/suspend.c
 +++ b/kernel/power/suspend.c
 @@ -533,6 +533,8 @@ int suspend_devices_and_enter(suspend_state_t state)
@@ -257,10 +256,10 @@ index 096211299..0cb0fe170 100644
  	pm_notifier_call_chain(PM_POST_SUSPEND);
  	pm_restore_console();
 diff --git a/kernel/sysctl.c b/kernel/sysctl.c
-index fb9633b8b..a203942f8 100644
+index 1beca96fb625..4b98db9bbc88 100644
 --- a/kernel/sysctl.c
 +++ b/kernel/sysctl.c
-@@ -321,7 +321,16 @@ static int min_extfrag_threshold;
+@@ -318,7 +318,16 @@ static int min_extfrag_threshold;
  static int max_extfrag_threshold = 1000;
  #endif
  
