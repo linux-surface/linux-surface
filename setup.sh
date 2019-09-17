@@ -34,6 +34,9 @@ echo "\nContinuing setup...\n"
 echo "Copying the config files under root to where they belong...\n"
 for dir in $(ls root/); do cp -Rb root/$dir/* /$dir/; done
 
+echo "Copying firmware files under root...\n"
+cp -r firmware/* /lib/firmware/
+
 echo "Making /lib/systemd/system-sleep/sleep executable...\n"
 chmod a+x /lib/systemd/system-sleep/sleep
 
