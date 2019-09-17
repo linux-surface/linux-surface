@@ -86,119 +86,11 @@ else
 fi
 
 if [ "$SUR_MODEL" = "Surface Pro 3" ]; then
-	echo "\nInstalling i915 firmware for Surface Pro 3...\n"
-	mkdir -p /lib/firmware/i915
-	unzip -o firmware/i915_firmware_bxt.zip -d /lib/firmware/i915/
-
 	echo "\nRemove unneeded udev rules for Surface Pro 3...\n"
 	rm /etc/udev/rules.d/98-keyboardscovers.rules
 fi
 
-if [ "$SUR_MODEL" = "Surface Pro" ]; then
-	echo "\nInstalling IPTS firmware for Surface Pro 2017...\n"
-	mkdir -p /lib/firmware/intel/ipts
-	unzip -o firmware/ipts_firmware_v102.zip -d /lib/firmware/intel/ipts/
-
-	echo "\nInstalling i915 firmware for Surface Pro 2017...\n"
-	mkdir -p /lib/firmware/i915
-	unzip -o firmware/i915_firmware_kbl.zip -d /lib/firmware/i915/
-fi
-
-if [ "$SUR_MODEL" = "Surface Pro 4" ]; then
-	echo "\nInstalling IPTS firmware for Surface Pro 4...\n"
-	mkdir -p /lib/firmware/intel/ipts
-	unzip -o firmware/ipts_firmware_v78.zip -d /lib/firmware/intel/ipts/
-
-	echo "\nInstalling i915 firmware for Surface Pro 4...\n"
-	mkdir -p /lib/firmware/i915
-	unzip -o firmware/i915_firmware_skl.zip -d /lib/firmware/i915/
-fi
-
-if [ "$SUR_MODEL" = "Surface Pro 2017" ]; then
-	echo "\nInstalling IPTS firmware for Surface Pro 2017...\n"
-	mkdir -p /lib/firmware/intel/ipts
-	unzip -o firmware/ipts_firmware_v102.zip -d /lib/firmware/intel/ipts/
-
-	echo "\nInstalling i915 firmware for Surface Pro 2017...\n"
-	mkdir -p /lib/firmware/i915
-	unzip -o firmware/i915_firmware_kbl.zip -d /lib/firmware/i915/
-fi
-
-if [ "$SUR_MODEL" = "Surface Pro 6" ]; then
-	echo "\nInstalling IPTS firmware for Surface Pro 6...\n"
-	mkdir -p /lib/firmware/intel/ipts
-	unzip -o firmware/ipts_firmware_v102.zip -d /lib/firmware/intel/ipts/
-
-	echo "\nInstalling i915 firmware for Surface Pro 6...\n"
-	mkdir -p /lib/firmware/i915
-	unzip -o firmware/i915_firmware_kbl.zip -d /lib/firmware/i915/
-fi
-
-if [ "$SUR_MODEL" = "Surface Studio" ]; then
-	echo "\nInstalling IPTS firmware for Surface Studio...\n"
-	mkdir -p /lib/firmware/intel/ipts
-	unzip -o firmware/ipts_firmware_v76.zip -d /lib/firmware/intel/ipts/
-
-	echo "\nInstalling i915 firmware for Surface Studio...\n"
-	mkdir -p /lib/firmware/i915
-	unzip -o firmware/i915_firmware_skl.zip -d /lib/firmware/i915/
-fi
-
-if [ "$SUR_MODEL" = "Surface Laptop" ]; then
-	echo "\nInstalling IPTS firmware for Surface Laptop...\n"
-	mkdir -p /lib/firmware/intel/ipts
-	unzip -o firmware/ipts_firmware_v79.zip -d /lib/firmware/intel/ipts/
-
-	echo "\nInstalling i915 firmware for Surface Laptop...\n"
-	mkdir -p /lib/firmware/i915
-	unzip -o firmware/i915_firmware_kbl.zip -d /lib/firmware/i915/
-fi
-
-if [ "$SUR_MODEL" = "Surface Laptop 2" ]; then
-	echo "\nInstalling IPTS firmware for Surface Laptop 2...\n"
-	mkdir -p /lib/firmware/intel/ipts
-	unzip -o firmware/ipts_firmware_v79.zip -d /lib/firmware/intel/ipts/
-
-	echo "\nInstalling i915 firmware for Surface Laptop 2...\n"
-	mkdir -p /lib/firmware/i915
-	unzip -o firmware/i915_firmware_kbl.zip -d /lib/firmware/i915/
-fi
-
-if [ "$SUR_MODEL" = "Surface Book" ]; then
-	echo "\nInstalling IPTS firmware for Surface Book...\n"
-	mkdir -p /lib/firmware/intel/ipts
-	unzip -o firmware/ipts_firmware_v76.zip -d /lib/firmware/intel/ipts/
-
-	echo "\nInstalling i915 firmware for Surface Book...\n"
-	mkdir -p /lib/firmware/i915
-	unzip -o firmware/i915_firmware_skl.zip -d /lib/firmware/i915/
-fi
-
-if [ "$SUR_MODEL" = "Surface Book 2" ]; then
-	echo "\nInstalling IPTS firmware for Surface Book 2...\n"
-	mkdir -p /lib/firmware/intel/ipts
-	if [ "$SUR_SKU" = "Surface_Book_1793" ]; then
-		unzip -o firmware/ipts_firmware_v101.zip -d /lib/firmware/intel/ipts/
-	else
-		unzip -o firmware/ipts_firmware_v137.zip -d /lib/firmware/intel/ipts/
-	fi
-
-	echo "\nInstalling i915 firmware for Surface Book 2...\n"
-	mkdir -p /lib/firmware/i915
-	unzip -o firmware/i915_firmware_kbl.zip -d /lib/firmware/i915/
-
-	echo "\nInstalling nvidia firmware for Surface Book 2...\n"
-	mkdir -p /lib/firmware/nvidia/gp108
-	unzip -o firmware/nvidia_firmware_gp108.zip -d /lib/firmware/nvidia/gp108/
-	mkdir -p /lib/firmware/nvidia/gv100
-	unzip -o firmware/nvidia_firmware_gv100.zip -d /lib/firmware/nvidia/gv100/
-fi
-
 if [ "$SUR_MODEL" = "Surface Go" ]; then
-	echo "\nInstalling ath10k firmware for Surface Go...\n"
-	mkdir -p /lib/firmware/ath10k
-	unzip -o firmware/ath10k_firmware.zip -d /lib/firmware/ath10k/
-
 	if [ ! -f "/etc/init.d/surfacego-touchscreen" ]; then
 		echo "\nPatching power control for Surface Go touchscreen...\n"
 		echo "echo \"on\" > /sys/devices/pci0000:00/0000:00:15.1/i2c_designware.1/power/control" > /etc/init.d/surfacego-touchscreen
@@ -206,14 +98,6 @@ if [ "$SUR_MODEL" = "Surface Go" ]; then
 		update-rc.d surfacego-touchscreen defaults
 	fi
 fi
-
-echo "Installing marvell firmware...\n"
-mkdir -p /lib/firmware/mrvl/
-unzip -o firmware/mrvl_firmware.zip -d /lib/firmware/mrvl/
-
-echo "Installing mwlwifi firmware...\n"
-mkdir -p /lib/firmware/mwlwifi/
-unzip -o firmware/mwlwifi_firmware.zip -d /lib/firmware/mwlwifi/
 
 read -rp "Do you want to set your clock to local time instead of UTC? This fixes issues when dual booting with Windows. (type yes or no) " uselocaltime;echo
 
