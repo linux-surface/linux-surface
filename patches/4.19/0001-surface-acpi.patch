@@ -1,4 +1,4 @@
-From fa76ab4055175cad9c3ae34fed2257f2d7346fac Mon Sep 17 00:00:00 2001
+From 8f120efa25f58bc8b842cdacb1358f7c7d9ecc18 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 26 Jul 2019 03:40:41 +0200
 Subject: [PATCH 01/12] surface-acpi
@@ -9,8 +9,8 @@ Subject: [PATCH 01/12] surface-acpi
  drivers/platform/x86/Kconfig        |   97 +
  drivers/platform/x86/Makefile       |    1 +
  drivers/platform/x86/surface_acpi.c | 3913 +++++++++++++++++++++++++++
- drivers/tty/serdev/core.c           |   90 +-
- 6 files changed, 4110 insertions(+), 19 deletions(-)
+ drivers/tty/serdev/core.c           |   87 +
+ 6 files changed, 4109 insertions(+), 17 deletions(-)
  create mode 100644 drivers/platform/x86/surface_acpi.c
 
 diff --git a/drivers/acpi/acpica/dsopcode.c b/drivers/acpi/acpica/dsopcode.c
@@ -4119,20 +4119,10 @@ index 000000000000..f62aecb0df69
 +MODULE_DESCRIPTION("ACPI/Platform Drivers for Microsoft Surface Devices");
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/tty/serdev/core.c b/drivers/tty/serdev/core.c
-index 9db93f500b4e..2290d4f86ca4 100644
+index 9db93f500b4e..9cfb5ffc034f 100644
 --- a/drivers/tty/serdev/core.c
 +++ b/drivers/tty/serdev/core.c
-@@ -502,8 +502,7 @@ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
- 	struct serdev_device *serdev = NULL;
- 	int err;
- 
--	if (acpi_bus_get_status(adev) || !adev->status.present ||
--	    acpi_device_enumerated(adev))
-+	if (acpi_bus_get_status(adev) || !adev->status.present)
- 		return AE_OK;
- 
- 	serdev = serdev_device_alloc(ctrl);
-@@ -526,6 +525,81 @@ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
+@@ -526,6 +526,81 @@ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
  	return AE_OK;
  }
  
@@ -4214,7 +4204,7 @@ index 9db93f500b4e..2290d4f86ca4 100644
  static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
  				       void *data, void **return_value)
  {
-@@ -535,6 +609,9 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
+@@ -535,6 +610,9 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
  	if (acpi_bus_get_device(handle, &adev))
  		return AE_OK;
  
@@ -4224,7 +4214,7 @@ index 9db93f500b4e..2290d4f86ca4 100644
  	return acpi_serdev_register_device(ctrl, adev);
  }
  
-@@ -552,6 +629,15 @@ static int acpi_serdev_register_devices(struct serdev_controller *ctrl)
+@@ -552,6 +630,15 @@ static int acpi_serdev_register_devices(struct serdev_controller *ctrl)
  	if (ACPI_FAILURE(status))
  		dev_dbg(&ctrl->dev, "failed to enumerate serdev slaves\n");
  
