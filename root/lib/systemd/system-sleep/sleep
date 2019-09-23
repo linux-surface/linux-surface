@@ -1,6 +1,12 @@
 #!/bin/bash
 case $1 in
   pre)    # unload the modules before going to sleep
+
+    # Disable bluetooth if no device is connected
+    if ! bluetoothctl info; then
+      bluetoothctl power off
+    fi
+
     # handle wifi issues
     modprobe -r mwifiex_pcie;
     modprobe -r mwifiex;
@@ -24,6 +30,9 @@ case $1 in
     #modprobe mei_me
     #modprobe mei_hdcp
     #modprobe intel_ipts
+
+    # Restart bluetooth
+    bluetoothctl power on
 
     # handle wifi issues: complete cycle
     modprobe cfg80211;
