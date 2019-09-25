@@ -1,6 +1,6 @@
-From 227d9d1cbb636b51b99b049a600668cc7653cbf0 Mon Sep 17 00:00:00 2001
-From: qzed <qzed@users.noreply.github.com>
-Date: Mon, 26 Aug 2019 01:11:08 +0200
+From efe766aec37ba46f23eb75c0ac3ed8579c7f05ec Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Thu, 26 Sep 2019 00:24:21 +0200
 Subject: [PATCH 1/9] surface-acpi
 
 ---
@@ -8,9 +8,9 @@ Subject: [PATCH 1/9] surface-acpi
  drivers/acpi/acpica/exfield.c       |   12 +-
  drivers/platform/x86/Kconfig        |   97 +
  drivers/platform/x86/Makefile       |    1 +
- drivers/platform/x86/surface_acpi.c | 3913 +++++++++++++++++++++++++++
- drivers/tty/serdev/core.c           |   87 +
- 6 files changed, 4108 insertions(+), 4 deletions(-)
+ drivers/platform/x86/surface_acpi.c | 4000 +++++++++++++++++++++++++++
+ drivers/tty/serdev/core.c           |  111 +-
+ 6 files changed, 4207 insertions(+), 16 deletions(-)
  create mode 100644 drivers/platform/x86/surface_acpi.c
 
 diff --git a/drivers/acpi/acpica/dsopcode.c b/drivers/acpi/acpica/dsopcode.c
@@ -180,10 +180,10 @@ index 415104033060..662e595ae13f 100644
  obj-$(CONFIG_FUJITSU_TABLET)	+= fujitsu-tablet.o
 diff --git a/drivers/platform/x86/surface_acpi.c b/drivers/platform/x86/surface_acpi.c
 new file mode 100644
-index 000000000000..ea417dbf4793
+index 000000000000..54cf6806daaf
 --- /dev/null
 +++ b/drivers/platform/x86/surface_acpi.c
-@@ -0,0 +1,3913 @@
+@@ -0,0 +1,4000 @@
 +#include <asm/unaligned.h>
 +#include <linux/acpi.h>
 +#include <linux/completion.h>
@@ -191,6 +191,7 @@ index 000000000000..ea417dbf4793
 +#include <linux/delay.h>
 +#include <linux/device.h>
 +#include <linux/dmaengine.h>
++#include <linux/dmi.h>
 +#include <linux/fs.h>
 +#include <linux/hid.h>
 +#include <linux/input.h>
@@ -1801,7 +1802,7 @@ index 000000000000..ea417dbf4793
 +{
 +	struct surfacegen5_ec *ec;
 +	unsigned long flags;
-+	//int status;
++	int status;
 +
 +	ec = surfacegen5_ec_acquire_init();
 +	if (!ec) {
@@ -1811,10 +1812,10 @@ index 000000000000..ea417dbf4793
 +	surfacegen5_ssh_sysfs_unregister(&serdev->dev);
 +
 +	// suspend EC and disable events
-+	//status = surfacegen5_ssh_ec_suspend(ec);
-+	//if (status) {
-+	//	dev_err(&serdev->dev, "failed to suspend EC: %d\n", status);
-+	//}
++	status = surfacegen5_ssh_ec_suspend(ec);
++	if (status) {
++		dev_err(&serdev->dev, "failed to suspend EC: %d\n", status);
++	}
 +
 +	// make sure all events (received up to now) have been properly handled
 +	flush_workqueue(ec->events.queue_ack);
@@ -3661,6 +3662,120 @@ index 000000000000..ea417dbf4793
 +};
 +
 +
++static const struct si_lid_device lid_device_l17 = {
++	.acpi_path = "\\_SB.LID0",
++	.gpe_number = 0x17,
++};
++
++static const struct si_lid_device lid_device_l57 = {
++	.acpi_path = "\\_SB.LID0",
++	.gpe_number = 0x57,
++};
++
++static const struct si_lid_device lid_device_l4F = {
++	.acpi_path = "\\_SB.LID0",
++	.gpe_number = 0x57,
++};
++
++
++static const struct si_device_info si_device_pro_4 = {
++	.has_perf_mode = false,
++	.lid_device = &lid_device_l17,
++};
++
++static const struct si_device_info si_device_pro_5 = {
++	.has_perf_mode = false,
++	.lid_device = &lid_device_l4F,
++};
++
++static const struct si_device_info si_device_pro_6 = {
++	.has_perf_mode = false,
++	.lid_device = &lid_device_l4F,
++};
++
++static const struct si_device_info si_device_book_1 = {
++	.has_perf_mode = false,
++	.lid_device = &lid_device_l17,
++};
++
++static const struct si_device_info si_device_book_2 = {
++	.has_perf_mode = true,
++	.lid_device = &lid_device_l17,
++};
++
++static const struct si_device_info si_device_laptop_1 = {
++	.has_perf_mode = false,
++	.lid_device = &lid_device_l57,
++};
++
++static const struct si_device_info si_device_laptop_2 = {
++	.has_perf_mode = false,
++	.lid_device = &lid_device_l57,
++};
++
++
++static const struct dmi_system_id dmi_lid_device_table[] = {
++	{
++		.ident = "Surface Pro 4",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 4"),
++		},
++		.driver_data = (void *)&si_device_pro_4,
++	},
++	{
++		.ident = "Surface Pro 5",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 2017"),
++		},
++		.driver_data = (void *)&si_device_pro_5,
++	},
++	{
++		.ident = "Surface Pro 6",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 6"),
++		},
++		.driver_data = (void *)&si_device_pro_6,
++	},
++	{
++		.ident = "Surface Book 1",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book"),
++		},
++		.driver_data = (void *)&si_device_book_1,
++	},
++	{
++		.ident = "Surface Book 2",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book 2"),
++		},
++		.driver_data = (void *)&si_device_book_2,
++	},
++	{
++		.ident = "Surface Laptop 1",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop"),
++		},
++		.driver_data = (void *)&si_device_laptop_1,
++	},
++	{
++		.ident = "Surface Laptop 2",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop 2"),
++		},
++		.driver_data = (void *)&si_device_laptop_2,
++	},
++	{ }
++};
++
++#define SG5_PARAM_PERM		(S_IRUGO | S_IWUSR)
++
 +enum sg5_perf_mode {
 +	SG5_PERF_MODE_NORMAL   = 1,
 +	SG5_PERF_MODE_BATTERY  = 2,
@@ -3768,7 +3883,6 @@ index 000000000000..ea417dbf4793
 +MODULE_PARM_DESC(perf_mode_init, "Performance-mode to be set on module initialization");
 +MODULE_PARM_DESC(perf_mode_exit, "Performance-mode to be set on module exit");
 +
-+
 +static ssize_t perf_mode_show(struct device *dev, struct device_attribute *attr, char *data)
 +{
 +	int perf_mode;
@@ -3815,7 +3929,6 @@ index 000000000000..ea417dbf4793
 +}
 +
 +const static DEVICE_ATTR_RW(perf_mode);
-+
 +
 +static int sid_perf_mode_setup(struct platform_device *pdev, const struct si_device_info *info)
 +{
@@ -3879,7 +3992,7 @@ index 000000000000..ea417dbf4793
 +	return 0;
 +}
 +
-+static int sid_lid_device_setup(struct platform_device *pdev, const struct si_device_info *info)
++static int sid_lid_device_setup(const struct si_device_info *info)
 +{
 +	acpi_handle lid_handle;
 +	int status;
@@ -3899,11 +4012,12 @@ index 000000000000..ea417dbf4793
 +	if (status)
 +		return -EFAULT;
 +
-+	return sid_lid_enable_wakeup(info, true);
++	return sid_lid_enable_wakeup(info, false);
 +}
 +
-+static void sid_lid_device_remove(struct platform_device *pdev, const struct si_device_info *info)
++static void sid_lid_device_remove(const struct si_device_info *info)
 +{
++	/* restore default behavior without this module */
 +	sid_lid_enable_wakeup(info, false);
 +}
 +
@@ -3925,19 +4039,23 @@ index 000000000000..ea417dbf4793
 +
 +static int surfacegen5_acpi_sid_probe(struct platform_device *pdev)
 +{
-+	const struct si_device_info *info;
++	const struct dmi_system_id *dmi_match;
++	struct si_device_info *info;
 +	int status;
 +
-+	info = acpi_device_get_match_data(&pdev->dev);
-+	if (!info)
++	dmi_match = dmi_first_match(dmi_lid_device_table);
++	if (!dmi_match)
 +		return -ENODEV;
-+	platform_set_drvdata(pdev, (void *)info);
++
++	info = dmi_match->driver_data;
++
++	platform_set_drvdata(pdev, info);
 +
 +	status = sid_perf_mode_setup(pdev, info);
 +	if (status)
 +		goto err_perf_mode;
 +
-+	status = sid_lid_device_setup(pdev, info);
++	status = sid_lid_device_setup(info);
 +	if (status)
 +		goto err_lid;
 +
@@ -3954,48 +4072,18 @@ index 000000000000..ea417dbf4793
 +	const struct si_device_info *info = platform_get_drvdata(pdev);
 +
 +	sid_perf_mode_remove(pdev, info);
-+	sid_lid_device_remove(pdev, info);
++	sid_lid_device_remove(info);
 +
++	platform_set_drvdata(pdev, NULL);
 +	return 0;
 +}
 +
-+
-+static const struct si_lid_device lid_device_l17 = {
-+	.acpi_path = "\\_SB.LID0",
-+	.gpe_number = 0x17,
-+};
-+
-+static const struct si_lid_device lid_device_l57 = {
-+	.acpi_path = "\\_SB.LID0",
-+	.gpe_number = 0x57,
-+};
-+
-+static const struct si_device_info si_device_pro = {
-+	.has_perf_mode = false,
-+	.lid_device = &lid_device_l17,
-+};
-+
-+static const struct si_device_info si_device_book_1 = {
-+	.has_perf_mode = false,
-+	.lid_device = &lid_device_l17,
-+};
-+
-+static const struct si_device_info si_device_book_2 = {
-+	.has_perf_mode = true,
-+	.lid_device = &lid_device_l17,
-+};
-+
-+static const struct si_device_info si_device_laptop = {
-+	.has_perf_mode = false,
-+	.lid_device = &lid_device_l57,
-+};
-+
 +static const struct acpi_device_id surfacegen5_acpi_sid_match[] = {
-+	{ "MSHW0081", (unsigned long)&si_device_pro },     /* Surface Pro 4 and 5 */
-+	{ "MSHW0080", (unsigned long)&si_device_book_1 },  /* Surface Book 1 */
-+	{ "MSHW0107", (unsigned long)&si_device_book_2 },  /* Surface Book 2 */
-+	{ "MSHW0086", (unsigned long)&si_device_laptop },  /* Surface Laptop 1 */
-+	{ "MSHW0112", (unsigned long)&si_device_laptop },  /* Surface Laptop 2 */
++	{ "MSHW0081", },	/* Surface Pro 4, 5, and 6 */
++	{ "MSHW0080", },	/* Surface Book 1 */
++	{ "MSHW0107", },	/* Surface Book 2 */
++	{ "MSHW0086", },	/* Surface Laptop 1 */
++	{ "MSHW0112", },	/* Surface Laptop 2 */
 +	{ },
 +};
 +MODULE_DEVICE_TABLE(acpi, surfacegen5_acpi_sid_match);
@@ -4009,7 +4097,6 @@ index 000000000000..ea417dbf4793
 +		.pm = &surfacegen5_acpi_sid_pm,
 +	},
 +};
-+
 +
 +inline int surfacegen5_acpi_sid_register(void)
 +{
@@ -4098,117 +4185,156 @@ index 000000000000..ea417dbf4793
 +MODULE_DESCRIPTION("ACPI/Platform Drivers for Microsoft Surface Devices");
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/tty/serdev/core.c b/drivers/tty/serdev/core.c
-index a0ac16ee6575..e455322a7765 100644
+index a0ac16ee6575..226adeec2aed 100644
 --- a/drivers/tty/serdev/core.c
 +++ b/drivers/tty/serdev/core.c
-@@ -582,6 +582,81 @@ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
- 	return AE_OK;
+@@ -552,16 +552,97 @@ static int of_serdev_register_devices(struct serdev_controller *ctrl)
  }
  
-+struct acpi_serdev_add_device_from_resource_ctx {
-+	acpi_handle ctrl_handle;
+ #ifdef CONFIG_ACPI
++
++#define SERDEV_ACPI_MAX_SCAN_DEPTH 32
++
++struct acpi_serdev_lookup {
 +	acpi_handle device_handle;
-+	struct serdev_controller *ctrl;
-+	struct acpi_device *device;
++	acpi_handle controller_handle;
++	int n;
++	int index;
 +};
 +
-+static acpi_status
-+acpi_serdev_add_device_from_resource(struct acpi_resource *resource, void *data)
++static int acpi_serdev_parse_resource(struct acpi_resource *ares, void *data)
 +{
-+	struct acpi_serdev_add_device_from_resource_ctx* ctx = data;
-+	struct acpi_resource_source *ctrl_name;
-+	acpi_handle ctrl_handle;
++	struct acpi_serdev_lookup *lookup = data;
++	struct acpi_resource_uart_serialbus *sb;
 +	acpi_status status;
 +
-+	if (resource->type != ACPI_RESOURCE_TYPE_SERIAL_BUS)
-+		return AE_OK;
++	if (ares->type != ACPI_RESOURCE_TYPE_SERIAL_BUS)
++		return 1;
 +
-+	if (resource->data.common_serial_bus.type != ACPI_RESOURCE_SERIAL_TYPE_UART)
-+		return AE_OK;
++	if (ares->data.common_serial_bus.type != ACPI_RESOURCE_SERIAL_TYPE_UART)
++		return 1;
 +
-+	ctrl_name = &resource->data.common_serial_bus.resource_source;
-+	if (ctrl_name->string_length == 0 || !ctrl_name->string_ptr) {
-+		return AE_OK;
-+	}
++	if (lookup->index != -1 && lookup->n++ != lookup->index)
++		return 1;
 +
-+	status = acpi_get_handle(ctx->device_handle, ctrl_name->string_ptr,
-+				 &ctrl_handle);
-+	if (ACPI_FAILURE(status)) {
-+		return AE_OK;
-+	}
++	sb = &ares->data.uart_serial_bus;
 +
-+	if (ctrl_handle == ctx->ctrl_handle) {
-+		return acpi_serdev_register_device(ctx->ctrl, ctx->device);
-+	}
++	status = acpi_get_handle(lookup->device_handle,
++				 sb->resource_source.string_ptr,
++				 &lookup->controller_handle);
++	if (ACPI_FAILURE(status))
++		return 1;
 +
-+	return AE_OK;
++	/*
++	 * NOTE: Ideally, we would also want to retreive other properties here,
++	 * once setting them before opening the device is supported by serdev.
++	 */
++
++	return 1;
 +}
 +
-+static acpi_status
-+acpi_serdev_add_devices_from_resources(acpi_handle handle, u32 level,
-+				       void *data, void **return_value)
++static int acpi_serdev_do_lookup(struct acpi_device *adev,
++                                 struct acpi_serdev_lookup *lookup)
 +{
-+	struct acpi_serdev_add_device_from_resource_ctx *ctx = data;
-+	acpi_status status;
++	struct list_head resource_list;
++	int ret;
 +
-+	ctx->device_handle = handle;
++	lookup->device_handle = acpi_device_handle(adev);
++	lookup->controller_handle = NULL;
++	lookup->n = 0;
 +
-+	status = acpi_bus_get_device(handle, &ctx->device);
-+	if (status) return AE_OK;
++	INIT_LIST_HEAD(&resource_list);
++	ret = acpi_dev_get_resources(adev, &resource_list,
++				     acpi_serdev_parse_resource, lookup);
++	acpi_dev_free_resource_list(&resource_list);
 +
-+	status = acpi_walk_resources(handle, METHOD_NAME__CRS,
-+	                             acpi_serdev_add_device_from_resource,
-+				     ctx);
++	if (ret < 0)
++		return -EINVAL;
 +
-+	if (status == AE_NOT_FOUND)
-+		return AE_OK;		// not finding _CRS is not an error
-+	else
-+		return status;
++	return 0;
 +}
 +
-+static int
-+acpi_serdev_register_devices_from_resources(acpi_handle handle,
-+					    struct serdev_controller *ctrl)
++static int acpi_serdev_check_resources(struct serdev_controller *ctrl,
++				       struct acpi_device *adev)
 +{
-+	struct acpi_serdev_add_device_from_resource_ctx ctx = {
-+		.ctrl = ctrl,
-+		.ctrl_handle = handle,
-+	};
++	struct acpi_serdev_lookup lookup;
++	int ret;
 +
-+	return acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT, 128,
-+				   acpi_serdev_add_devices_from_resources,
-+				   NULL, &ctx, NULL);
++	if (acpi_bus_get_status(adev) || !adev->status.present)
++		return -EINVAL;
++
++	/* Look for UARTSerialBusV2 resource */
++	lookup.index = -1;	// we only care for the last device
++
++	ret = acpi_serdev_do_lookup(adev, &lookup);
++	if (ret)
++		return ret;
++
++	/* Make sure controller and ResourceSource handle match */
++	if (ACPI_HANDLE(ctrl->dev.parent) != lookup.controller_handle)
++		return -ENODEV;
++
++	return 0;
 +}
 +
- static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
- 				       void *data, void **return_value)
+ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
+-					    struct acpi_device *adev)
++					       struct acpi_device *adev)
  {
-@@ -591,6 +666,9 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
+-	struct serdev_device *serdev = NULL;
++	struct serdev_device *serdev;
+ 	int err;
+ 
+-	if (acpi_bus_get_status(adev) || !adev->status.present ||
+-	    acpi_device_enumerated(adev))
+-		return AE_OK;
+-
+ 	serdev = serdev_device_alloc(ctrl);
+ 	if (!serdev) {
+ 		dev_err(&ctrl->dev, "failed to allocate serdev device for %s\n",
+@@ -583,7 +664,7 @@ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
+ }
+ 
+ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
+-				       void *data, void **return_value)
++					  void *data, void **return_value)
+ {
+ 	struct serdev_controller *ctrl = data;
+ 	struct acpi_device *adev;
+@@ -591,22 +672,28 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
  	if (acpi_bus_get_device(handle, &adev))
  		return AE_OK;
  
 +	if (acpi_device_enumerated(adev))
 +		return AE_OK;
 +
++	if (acpi_serdev_check_resources(ctrl, adev))
++		return AE_OK;
++
  	return acpi_serdev_register_device(ctrl, adev);
  }
  
-@@ -608,6 +686,15 @@ static int acpi_serdev_register_devices(struct serdev_controller *ctrl)
- 	if (ACPI_FAILURE(status))
- 		dev_dbg(&ctrl->dev, "failed to enumerate serdev slaves\n");
- 
-+	if (!ctrl->serdev) {
-+		status = acpi_serdev_register_devices_from_resources(handle, ctrl);
-+		if (ACPI_FAILURE(status)) {
-+			dev_dbg(&ctrl->dev,
-+			        "failed to register serdev slaves from resources: %x\n",
-+				status);
-+		}
-+	}
 +
- 	if (!ctrl->serdev)
+ static int acpi_serdev_register_devices(struct serdev_controller *ctrl)
+ {
+ 	acpi_status status;
+-	acpi_handle handle;
+ 
+-	handle = ACPI_HANDLE(ctrl->dev.parent);
+-	if (!handle)
++	if (!has_acpi_companion(ctrl->dev.parent))
  		return -ENODEV;
  
+-	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, handle, 1,
++	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
++				     SERDEV_ACPI_MAX_SCAN_DEPTH,
+ 				     acpi_serdev_add_device, NULL, ctrl, NULL);
+ 	if (ACPI_FAILURE(status))
+-		dev_dbg(&ctrl->dev, "failed to enumerate serdev slaves\n");
++		dev_warn(&ctrl->dev, "failed to enumerate serdev slaves\n");
+ 
+ 	if (!ctrl->serdev)
+ 		return -ENODEV;
 -- 
 2.23.0
 
