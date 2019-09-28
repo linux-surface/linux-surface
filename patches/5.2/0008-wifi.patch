@@ -1,0 +1,270 @@
+From fb22bff82caa7decb84e373acbbb436c7c1d1eb3 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 26 Jul 2019 04:46:16 +0200
+Subject: [PATCH 08/12] wifi
+
+---
+ drivers/net/wireless/marvell/mwifiex/11n_aggr.c |  3 +--
+ drivers/net/wireless/marvell/mwifiex/cfg80211.c |  5 ++++-
+ drivers/net/wireless/marvell/mwifiex/cmdevt.c   | 10 ++++++----
+ drivers/net/wireless/marvell/mwifiex/fw.h       |  1 +
+ drivers/net/wireless/marvell/mwifiex/main.c     | 17 +++++++++++++----
+ drivers/net/wireless/marvell/mwifiex/main.h     |  2 ++
+ drivers/net/wireless/marvell/mwifiex/pcie.c     |  9 +++++++++
+ drivers/net/wireless/marvell/mwifiex/sta_cmd.c  |  4 ++--
+ .../net/wireless/marvell/mwifiex/sta_cmdresp.c  | 11 ++++++++---
+ drivers/net/wireless/marvell/mwifiex/usb.c      |  2 ++
+ scripts/leaking_addresses.pl                    |  0
+ 11 files changed, 48 insertions(+), 16 deletions(-)
+ mode change 100755 => 100644 scripts/leaking_addresses.pl
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/11n_aggr.c b/drivers/net/wireless/marvell/mwifiex/11n_aggr.c
+index 042a1d07f686..fc9041f58e9f 100644
+--- a/drivers/net/wireless/marvell/mwifiex/11n_aggr.c
++++ b/drivers/net/wireless/marvell/mwifiex/11n_aggr.c
+@@ -200,8 +200,7 @@ mwifiex_11n_aggregate_pkt(struct mwifiex_private *priv,
+ 
+ 	do {
+ 		/* Check if AMSDU can accommodate this MSDU */
+-		if ((skb_aggr->len + skb_src->len + LLC_SNAP_LEN) >
+-		    adapter->tx_buf_size)
++		if (skb_tailroom(skb_aggr) < (skb_src->len + LLC_SNAP_LEN))
+ 			break;
+ 
+ 		skb_src = skb_dequeue(&pra_list->skb_head);
+diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+index e11a4bb67172..c3461a203deb 100644
+--- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
++++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+@@ -437,7 +437,10 @@ mwifiex_cfg80211_set_power_mgmt(struct wiphy *wiphy,
+ 		mwifiex_dbg(priv->adapter, INFO,
+ 			    "info: ignore timeout value for IEEE Power Save\n");
+ 
+-	ps_mode = enabled;
++	//ps_mode = enabled;
++
++	mwifiex_dbg(priv->adapter, INFO, "overriding ps_mode to false\n");
++	ps_mode = 0;
+ 
+ 	return mwifiex_drv_set_power(priv, &ps_mode);
+ }
+diff --git a/drivers/net/wireless/marvell/mwifiex/cmdevt.c b/drivers/net/wireless/marvell/mwifiex/cmdevt.c
+index 8c35441fd9b7..71872139931e 100644
+--- a/drivers/net/wireless/marvell/mwifiex/cmdevt.c
++++ b/drivers/net/wireless/marvell/mwifiex/cmdevt.c
+@@ -1006,6 +1006,7 @@ mwifiex_cmd_timeout_func(struct timer_list *t)
+ 		if (cmd_node->wait_q_enabled) {
+ 			adapter->cmd_wait_q.status = -ETIMEDOUT;
+ 			mwifiex_cancel_pending_ioctl(adapter);
++			adapter->cmd_sent = false;
+ 		}
+ 	}
+ 	if (adapter->hw_status == MWIFIEX_HW_STATUS_INITIALIZING) {
+@@ -1013,11 +1014,11 @@ mwifiex_cmd_timeout_func(struct timer_list *t)
+ 		return;
+ 	}
+ 
+-	if (adapter->if_ops.device_dump)
+-		adapter->if_ops.device_dump(adapter);
++	//if (adapter->if_ops.device_dump)
++	//	adapter->if_ops.device_dump(adapter);
+ 
+-	if (adapter->if_ops.card_reset)
+-		adapter->if_ops.card_reset(adapter);
++	//if (adapter->if_ops.card_reset)
++	//	adapter->if_ops.card_reset(adapter);
+ }
+ 
+ void
+@@ -1583,6 +1584,7 @@ int mwifiex_ret_get_hw_spec(struct mwifiex_private *priv,
+ 						    adapter->key_api_minor_ver);
+ 					break;
+ 				case FW_API_VER_ID:
++				case FW_KEY_API_VER_ID:
+ 					adapter->fw_api_ver =
+ 							api_rev->major_ver;
+ 					mwifiex_dbg(adapter, INFO,
+diff --git a/drivers/net/wireless/marvell/mwifiex/fw.h b/drivers/net/wireless/marvell/mwifiex/fw.h
+index 1fb76d2f5d3f..fb32379da99d 100644
+--- a/drivers/net/wireless/marvell/mwifiex/fw.h
++++ b/drivers/net/wireless/marvell/mwifiex/fw.h
+@@ -1052,6 +1052,7 @@ struct host_cmd_ds_802_11_ps_mode_enh {
+ enum API_VER_ID {
+ 	KEY_API_VER_ID = 1,
+ 	FW_API_VER_ID = 2,
++	FW_KEY_API_VER_ID = 4,
+ };
+ 
+ struct hw_spec_api_rev {
+diff --git a/drivers/net/wireless/marvell/mwifiex/main.c b/drivers/net/wireless/marvell/mwifiex/main.c
+index f6da8edab7f1..51a65f26206b 100644
+--- a/drivers/net/wireless/marvell/mwifiex/main.c
++++ b/drivers/net/wireless/marvell/mwifiex/main.c
+@@ -163,6 +163,7 @@ void mwifiex_queue_main_work(struct mwifiex_adapter *adapter)
+ 	spin_lock_irqsave(&adapter->main_proc_lock, flags);
+ 	if (adapter->mwifiex_processing) {
+ 		adapter->more_task_flag = true;
++		adapter->more_rx_task_flag = true;
+ 		spin_unlock_irqrestore(&adapter->main_proc_lock, flags);
+ 	} else {
+ 		spin_unlock_irqrestore(&adapter->main_proc_lock, flags);
+@@ -171,18 +172,20 @@ void mwifiex_queue_main_work(struct mwifiex_adapter *adapter)
+ }
+ EXPORT_SYMBOL_GPL(mwifiex_queue_main_work);
+ 
+-static void mwifiex_queue_rx_work(struct mwifiex_adapter *adapter)
++void mwifiex_queue_rx_work(struct mwifiex_adapter *adapter)
+ {
+ 	unsigned long flags;
+ 
+ 	spin_lock_irqsave(&adapter->rx_proc_lock, flags);
+ 	if (adapter->rx_processing) {
++		adapter->more_rx_task_flag = true;
+ 		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
+ 	} else {
+ 		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
+ 		queue_work(adapter->rx_workqueue, &adapter->rx_work);
+ 	}
+ }
++EXPORT_SYMBOL_GPL(mwifiex_queue_rx_work);
+ 
+ static int mwifiex_process_rx(struct mwifiex_adapter *adapter)
+ {
+@@ -192,6 +195,7 @@ static int mwifiex_process_rx(struct mwifiex_adapter *adapter)
+ 
+ 	spin_lock_irqsave(&adapter->rx_proc_lock, flags);
+ 	if (adapter->rx_processing || adapter->rx_locked) {
++		adapter->more_rx_task_flag = true;
+ 		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
+ 		goto exit_rx_proc;
+ 	} else {
+@@ -199,6 +203,7 @@ static int mwifiex_process_rx(struct mwifiex_adapter *adapter)
+ 		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
+ 	}
+ 
++rx_process_start:
+ 	/* Check for Rx data */
+ 	while ((skb = skb_dequeue(&adapter->rx_data_q))) {
+ 		atomic_dec(&adapter->rx_pending);
+@@ -220,6 +225,11 @@ static int mwifiex_process_rx(struct mwifiex_adapter *adapter)
+ 		}
+ 	}
+ 	spin_lock_irqsave(&adapter->rx_proc_lock, flags);
++	if (adapter->more_rx_task_flag) {
++		adapter->more_rx_task_flag = false;
++		spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
++		goto rx_process_start;
++	}
+ 	adapter->rx_processing = false;
+ 	spin_unlock_irqrestore(&adapter->rx_proc_lock, flags);
+ 
+@@ -283,11 +293,10 @@ int mwifiex_main_process(struct mwifiex_adapter *adapter)
+ 				mwifiex_process_hs_config(adapter);
+ 			if (adapter->if_ops.process_int_status)
+ 				adapter->if_ops.process_int_status(adapter);
++			if (adapter->rx_work_enabled && adapter->data_received)
++				mwifiex_queue_rx_work(adapter);
+ 		}
+ 
+-		if (adapter->rx_work_enabled && adapter->data_received)
+-			mwifiex_queue_rx_work(adapter);
+-
+ 		/* Need to wake up the card ? */
+ 		if ((adapter->ps_state == PS_STATE_SLEEP) &&
+ 		    (adapter->pm_wakeup_card_req &&
+diff --git a/drivers/net/wireless/marvell/mwifiex/main.h b/drivers/net/wireless/marvell/mwifiex/main.h
+index e39bb5c42c9a..8ec3275dad6d 100644
+--- a/drivers/net/wireless/marvell/mwifiex/main.h
++++ b/drivers/net/wireless/marvell/mwifiex/main.h
+@@ -909,6 +909,7 @@ struct mwifiex_adapter {
+ 	spinlock_t main_proc_lock;
+ 	u32 mwifiex_processing;
+ 	u8 more_task_flag;
++	u8 more_rx_task_flag;
+ 	u16 tx_buf_size;
+ 	u16 curr_tx_buf_size;
+ 	/* sdio single port rx aggregation capability */
+@@ -1695,6 +1696,7 @@ void mwifiex_upload_device_dump(struct mwifiex_adapter *adapter);
+ void *mwifiex_alloc_dma_align_buf(int rx_len, gfp_t flags);
+ void mwifiex_fw_dump_event(struct mwifiex_private *priv);
+ void mwifiex_queue_main_work(struct mwifiex_adapter *adapter);
++void mwifiex_queue_rx_work(struct mwifiex_adapter *adapter);
+ int mwifiex_get_wakeup_reason(struct mwifiex_private *priv, u16 action,
+ 			      int cmd_type,
+ 			      struct mwifiex_ds_wakeup_reason *wakeup_reason);
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
+index 3fe81b2a929a..6e734a83e6bf 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
+@@ -1743,6 +1743,15 @@ static int mwifiex_pcie_process_cmd_complete(struct mwifiex_adapter *adapter)
+ 	}
+ 
+ 	rx_len = get_unaligned_le16(skb->data);
++
++	if (rx_len == 0) {
++		mwifiex_dbg(adapter, ERROR,
++				    "0 byte cmdrsp\n");
++		mwifiex_map_pci_memory(adapter, skb, MWIFIEX_UPLD_SIZE,
++					   PCI_DMA_FROMDEVICE);
++		return 0;
++	}
++
+ 	skb_put(skb, MWIFIEX_UPLD_SIZE - skb->len);
+ 	skb_trim(skb, rx_len);
+ 
+diff --git a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
+index 4ed10cf82f9a..485360e8534b 100644
+--- a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
++++ b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
+@@ -30,8 +30,8 @@ static bool drcs;
+ module_param(drcs, bool, 0644);
+ MODULE_PARM_DESC(drcs, "multi-channel operation:1, single-channel operation:0");
+ 
+-static bool disable_auto_ds;
+-module_param(disable_auto_ds, bool, 0);
++static bool disable_auto_ds = 1;
++module_param(disable_auto_ds, bool, 0644);
+ MODULE_PARM_DESC(disable_auto_ds,
+ 		 "deepsleep enabled=0(default), deepsleep disabled=1");
+ /*
+diff --git a/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c b/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c
+index 24b33e20e7a9..51d0f34625e1 100644
+--- a/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c
++++ b/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c
+@@ -48,9 +48,14 @@ mwifiex_process_cmdresp_error(struct mwifiex_private *priv,
+ 	struct host_cmd_ds_802_11_ps_mode_enh *pm;
+ 	unsigned long flags;
+ 
+-	mwifiex_dbg(adapter, ERROR,
+-		    "CMD_RESP: cmd %#x error, result=%#x\n",
+-		    resp->command, resp->result);
++	if (resp->command == 271 && resp->result == 2){
++		// ignore this command as the firmware does not support it
++	}
++	else {
++		mwifiex_dbg(adapter, ERROR,
++				"CMD_RESP: cmd %#x error, result=%#x\n",
++				resp->command, resp->result);
++	}
+ 
+ 	if (adapter->curr_cmd->wait_q_enabled)
+ 		adapter->cmd_wait_q.status = -1;
+diff --git a/drivers/net/wireless/marvell/mwifiex/usb.c b/drivers/net/wireless/marvell/mwifiex/usb.c
+index d445acc4786b..ae8e60cc17cb 100644
+--- a/drivers/net/wireless/marvell/mwifiex/usb.c
++++ b/drivers/net/wireless/marvell/mwifiex/usb.c
+@@ -144,6 +144,8 @@ static int mwifiex_usb_recv(struct mwifiex_adapter *adapter,
+ 		skb_queue_tail(&adapter->rx_data_q, skb);
+ 		adapter->data_received = true;
+ 		atomic_inc(&adapter->rx_pending);
++		if (adapter->rx_work_enabled)
++			mwifiex_queue_rx_work(adapter);
+ 		break;
+ 	default:
+ 		mwifiex_dbg(adapter, ERROR,
+diff --git a/scripts/leaking_addresses.pl b/scripts/leaking_addresses.pl
+old mode 100755
+new mode 100644
+-- 
+2.23.0
+
