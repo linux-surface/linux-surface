@@ -39,7 +39,11 @@ case $1 in
     modprobe mwifiex;
     modprobe mwifiex_pcie;
     echo 1 > /sys/bus/pci/rescan
-    systemctl restart NetworkManager.service
+
+    if [ -x "$(command -v nmcli)" ]  && [ "$(nmcli net)" = "enabled" ]; then
+      nmcli net off
+      nmcli net on
+    fi
     ;;
 esac
 
