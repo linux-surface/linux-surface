@@ -19,6 +19,8 @@ $ cat intel_desc.bin vendor_desc.bin > hid_desc.bin
 ```
 
 ### Quirks
-At the moment, `MSHW0079` is using the HID descriptor from `MSHW0137`. It's own
-HID descriptor is bugged and needs kernel mitigations to have the kernel properly
-register touch input events. See: https://github.com/jakeday/linux-surface/issues/574
+The touchscreen contact count descriptor is incorrectly declared as being reported four times on the Surface Laptops (both 1 and 2, `vendor_desc.bin` in `MSHW0079`).
+It is actually reported one time followed by three padding bytes.
+The descriptor has been patched accordingly.
+
+For more details, see https://github.com/qzed/linux-surface-kernel/wiki/IPTS-Firmware#bogus-hid-descriptor-for-surface-laptops-mshw0079.
