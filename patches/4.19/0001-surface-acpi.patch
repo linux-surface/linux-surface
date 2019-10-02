@@ -1,6 +1,6 @@
-From 5f8ba221472e112b432fa9922f8ae572de5d3399 Mon Sep 17 00:00:00 2001
+From 3dba190fc78be008b532c0ccc26508d29df452a7 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Wed, 25 Sep 2019 23:20:42 +0200
+Date: Wed, 2 Oct 2019 22:28:37 +0200
 Subject: [PATCH 01/12] surface-acpi
 
 ---
@@ -8,9 +8,9 @@ Subject: [PATCH 01/12] surface-acpi
  drivers/acpi/acpica/exfield.c       |   26 +-
  drivers/platform/x86/Kconfig        |   97 +
  drivers/platform/x86/Makefile       |    1 +
- drivers/platform/x86/surface_acpi.c | 4000 +++++++++++++++++++++++++++
+ drivers/platform/x86/surface_acpi.c | 4010 +++++++++++++++++++++++++++
  drivers/tty/serdev/core.c           |  111 +-
- 6 files changed, 4208 insertions(+), 29 deletions(-)
+ 6 files changed, 4218 insertions(+), 29 deletions(-)
  create mode 100644 drivers/platform/x86/surface_acpi.c
 
 diff --git a/drivers/acpi/acpica/dsopcode.c b/drivers/acpi/acpica/dsopcode.c
@@ -201,10 +201,10 @@ index dc29af4d8e2f..2250a32a5527 100644
  obj-$(CONFIG_FUJITSU_TABLET)	+= fujitsu-tablet.o
 diff --git a/drivers/platform/x86/surface_acpi.c b/drivers/platform/x86/surface_acpi.c
 new file mode 100644
-index 000000000000..54cf6806daaf
+index 000000000000..5dbf48a3d9b3
 --- /dev/null
 +++ b/drivers/platform/x86/surface_acpi.c
-@@ -0,0 +1,4000 @@
+@@ -0,0 +1,4010 @@
 +#include <asm/unaligned.h>
 +#include <linux/acpi.h>
 +#include <linux/completion.h>
@@ -3688,12 +3688,12 @@ index 000000000000..54cf6806daaf
 +	.gpe_number = 0x17,
 +};
 +
-+static const struct si_lid_device lid_device_l57 = {
++static const struct si_lid_device lid_device_l4F = {
 +	.acpi_path = "\\_SB.LID0",
-+	.gpe_number = 0x57,
++	.gpe_number = 0x4F,
 +};
 +
-+static const struct si_lid_device lid_device_l4F = {
++static const struct si_lid_device lid_device_l57 = {
 +	.acpi_path = "\\_SB.LID0",
 +	.gpe_number = 0x57,
 +};
@@ -3747,8 +3747,18 @@ index 000000000000..54cf6806daaf
 +	{
 +		.ident = "Surface Pro 5",
 +		.matches = {
++			/* match for SKU here due to generic product name "Surface Pro" */
 +			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
-+			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 2017"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
++		},
++		.driver_data = (void *)&si_device_pro_5,
++	},
++	{
++		.ident = "Surface Pro 5 (LTE)",
++		.matches = {
++			/* match for SKU here due to generic product name "Surface Pro" */
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
 +		},
 +		.driver_data = (void *)&si_device_pro_5,
 +	},
