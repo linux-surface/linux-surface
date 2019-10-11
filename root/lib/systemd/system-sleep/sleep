@@ -3,7 +3,7 @@ case $1 in
   pre)    # unload the modules before going to sleep
 
     # Disable bluetooth if no device is connected
-    if ! bluetoothctl info; then
+    if ps cax | grep bluetoothd && ! bluetoothctl info; then
       bluetoothctl power off
     fi
 
@@ -32,7 +32,9 @@ case $1 in
     #modprobe intel_ipts
 
     # Restart bluetooth
-    bluetoothctl power on
+    if ps cax | grep bluetoothd; then
+      bluetoothctl power on
+    fi
 
     # handle wifi issues: complete cycle
     modprobe cfg80211;
