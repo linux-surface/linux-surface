@@ -1,4 +1,4 @@
-From d39dd89cae4f537eec84d5bd7c7b52837766fe3f Mon Sep 17 00:00:00 2001
+From 80e9c51a3d3b646698a40d761fd30a8cf6b45244 Mon Sep 17 00:00:00 2001
 From: kitakar5525 <34676735+kitakar5525@users.noreply.github.com>
 Date: Tue, 10 Sep 2019 21:54:42 +0900
 Subject: [PATCH 05/12] ipts
@@ -28,7 +28,7 @@ Subject: [PATCH 05/12] ipts
  drivers/misc/ipts/Makefile                  |   17 +
  drivers/misc/ipts/companion/Kconfig         |    9 +
  drivers/misc/ipts/companion/Makefile        |    1 +
- drivers/misc/ipts/companion/ipts-surface.c  |   82 ++
+ drivers/misc/ipts/companion/ipts-surface.c  |  100 ++
  drivers/misc/ipts/ipts-binary-spec.h        |  118 +++
  drivers/misc/ipts/ipts-dbgfs.c              |  364 +++++++
  drivers/misc/ipts/ipts-fw.c                 |  113 ++
@@ -54,7 +54,7 @@ Subject: [PATCH 05/12] ipts
  drivers/misc/mei/pci-me.c                   |    1 +
  include/linux/intel_ipts_fw.h               |   14 +
  include/linux/intel_ipts_if.h               |   76 ++
- 50 files changed, 6154 insertions(+), 26 deletions(-)
+ 50 files changed, 6172 insertions(+), 26 deletions(-)
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.c
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.h
  create mode 100644 drivers/misc/ipts/Kconfig
@@ -1403,14 +1403,14 @@ index b9affcdaa3d6..e681e345a9ed 100644
  obj-$(CONFIG_SRAM)		+= sram.o
 diff --git a/drivers/misc/ipts/Kconfig b/drivers/misc/ipts/Kconfig
 new file mode 100644
-index 000000000000..a24c4daaed42
+index 000000000000..992a51061b38
 --- /dev/null
 +++ b/drivers/misc/ipts/Kconfig
 @@ -0,0 +1,11 @@
 +config INTEL_IPTS
 +	tristate "Intel Precise Touch & Stylus"
 +	select INTEL_MEI
-+	depends on X86 && PCI && HID
++	depends on X86 && PCI && HID && DRM_I915
 +	help
 +	  Intel Precise Touch & Stylus support
 +	  Supported SoCs:
@@ -1465,10 +1465,10 @@ index 000000000000..fb4d58935f01
 +obj-$(CONFIG_INTEL_IPTS_SURFACE)+= ipts-surface.o
 diff --git a/drivers/misc/ipts/companion/ipts-surface.c b/drivers/misc/ipts/companion/ipts-surface.c
 new file mode 100644
-index 000000000000..4d6116dfa728
+index 000000000000..6f5aabb14e5a
 --- /dev/null
 +++ b/drivers/misc/ipts/companion/ipts-surface.c
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,100 @@
 +#include <linux/acpi.h>
 +#include <linux/firmware.h>
 +#include <linux/intel_ipts_fw.h>
@@ -1477,6 +1477,24 @@ index 000000000000..4d6116dfa728
 +#include <linux/platform_device.h>
 +
 +#define IPTS_SURFACE_FW_PATH_FMT "intel/ipts/%s/%s"
++
++#define __IPTS_SURFACE_FIRMWARE(X, Y)				\
++	MODULE_FIRMWARE("intel/ipts/" X "/" Y)
++
++#define IPTS_SURFACE_FIRMWARE(X)				\
++	__IPTS_SURFACE_FIRMWARE(X, "config.bin");		\
++	__IPTS_SURFACE_FIRMWARE(X, "intel_desc.bin");		\
++	__IPTS_SURFACE_FIRMWARE(X, "intel_fw_config.bin");	\
++	__IPTS_SURFACE_FIRMWARE(X, "vendor_desc.bin");		\
++	__IPTS_SURFACE_FIRMWARE(X, "vendor_kernel.bin")
++
++IPTS_SURFACE_FIRMWARE("MSHW0076");
++IPTS_SURFACE_FIRMWARE("MSHW0078");
++IPTS_SURFACE_FIRMWARE("MSHW0079");
++IPTS_SURFACE_FIRMWARE("MSHW0101");
++IPTS_SURFACE_FIRMWARE("MSHW0102");
++IPTS_SURFACE_FIRMWARE("MSHW0103");
++IPTS_SURFACE_FIRMWARE("MSHW0137");
 +
 +int ipts_surface_request_firmware(const struct firmware **fw, const char *name,
 +	struct device *device, void *data)
