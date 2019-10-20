@@ -1,12 +1,12 @@
-From 9545f8525aa758207c974215ee6b635516aeac82 Mon Sep 17 00:00:00 2001
+From 34bb8ff418427f44896891eab0d8739335491118 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Fri, 26 Jul 2019 03:43:45 +0200
+Date: Sat, 28 Sep 2019 18:01:27 +0200
 Subject: [PATCH 10/12] mwlwifi
 
 ---
  drivers/net/wireless/marvell/Kconfig          |    1 +
  drivers/net/wireless/marvell/Makefile         |    1 +
- drivers/net/wireless/marvell/mwlwifi/Kconfig  |   22 +
+ drivers/net/wireless/marvell/mwlwifi/Kconfig  |   23 +
  drivers/net/wireless/marvell/mwlwifi/Makefile |   19 +
  .../wireless/marvell/mwlwifi/Makefile.module  |   28 +
  .../net/wireless/marvell/mwlwifi/README.md    |  142 +
@@ -35,7 +35,7 @@ Subject: [PATCH 10/12] mwlwifi
  ...-workaround-for-80+80-and-160-MHz-channels |   32 +
  .../wireless/marvell/mwlwifi/hostapd/README   |   26 +
  .../net/wireless/marvell/mwlwifi/mac80211.c   |  933 ++++
- .../net/wireless/marvell/mwlwifi/mu_mimo.c    |   20 +
+ .../net/wireless/marvell/mwlwifi/mu_mimo.c    |   21 +
  .../net/wireless/marvell/mwlwifi/mu_mimo.h    |   23 +
  .../net/wireless/marvell/mwlwifi/sysadpt.h    |   86 +
  .../net/wireless/marvell/mwlwifi/thermal.c    |  182 +
@@ -44,7 +44,7 @@ Subject: [PATCH 10/12] mwlwifi
  drivers/net/wireless/marvell/mwlwifi/utils.h  |  158 +
  .../net/wireless/marvell/mwlwifi/vendor_cmd.c |  136 +
  .../net/wireless/marvell/mwlwifi/vendor_cmd.h |   60 +
- 40 files changed, 19415 insertions(+)
+ 40 files changed, 19417 insertions(+)
  create mode 100644 drivers/net/wireless/marvell/mwlwifi/Kconfig
  create mode 100644 drivers/net/wireless/marvell/mwlwifi/Makefile
  create mode 100644 drivers/net/wireless/marvell/mwlwifi/Makefile.module
@@ -109,10 +109,10 @@ index 1b0a7d2bc8e6..04dff3388a41 100644
  obj-$(CONFIG_MWL8K)	+= mwl8k.o
 diff --git a/drivers/net/wireless/marvell/mwlwifi/Kconfig b/drivers/net/wireless/marvell/mwlwifi/Kconfig
 new file mode 100644
-index 000000000000..8832217430f5
+index 000000000000..a9bcb9cd4100
 --- /dev/null
 +++ b/drivers/net/wireless/marvell/mwlwifi/Kconfig
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,23 @@
 +config MWLWIFI
 +	tristate "Marvell Avastar 88W8864/88W8897 PCIe driver (mac80211 compatible)"
 +	depends on PCI && MAC80211
@@ -135,6 +135,7 @@ index 000000000000..8832217430f5
 +		select either MWIFIEX or MWLWIFI, not both. MWIFIEX is fullmac,
 +		supporting more comprehensive client functions for laptops/embedded
 +		devices. MWLWIFI is mac80211-based for full AP/Wireless Bridge.
++
 diff --git a/drivers/net/wireless/marvell/mwlwifi/Makefile b/drivers/net/wireless/marvell/mwlwifi/Makefile
 new file mode 100644
 index 000000000000..061833703c7f
@@ -196,7 +197,7 @@ index 000000000000..d11a1b88cab6
 +	find . -name "*.o" -exec rm -f {} \;
 diff --git a/drivers/net/wireless/marvell/mwlwifi/README.md b/drivers/net/wireless/marvell/mwlwifi/README.md
 new file mode 100644
-index 000000000000..530dc33e7f41
+index 000000000000..788c5d4dc80d
 --- /dev/null
 +++ b/drivers/net/wireless/marvell/mwlwifi/README.md
 @@ -0,0 +1,142 @@
@@ -225,7 +226,7 @@ index 000000000000..530dc33e7f41
 +    commit 03a72eacda5d9a1837a74387081596a0d5466ec1
 +    Author: Jouni Malinen <jouni@qca.qualcomm.com>
 +    Date:   Thu Dec 17 18:39:19 2015 +0200
-+
++    
 +    VHT: Add an interoperability workaround for 80+80 and 160 MHz channels
 +
 +    Number of deployed 80 MHz capable VHT stations that do not support 80+80
@@ -256,10 +257,10 @@ index 000000000000..530dc33e7f41
 +
 +    #Disable 5g band
 +    marvell,5ghz = <0>;
-+
++    
 +    #Specify antenna number, default is 4x4. For WRT1200AC, you must set these values to 2x2.
 +    marvell,chainmask = <4 4>;
-+
++    
 +    #Specify external power table. If your device needs external power table, you must provide the power table via this parameter, otherwise the Tx power will be pretty low.
 +    marvell,powertable
 +    ```
@@ -268,7 +269,7 @@ index 000000000000..530dc33e7f41
 +    ```sh
 +    cat /sys/kernel/debug/ieee80211/phy0/mwlwifi/info
 +    ```
-+
++    
 +    You should see a line in the results which looks like the following:
 +    ```sh
 +    power table loaded from dts: no
@@ -292,7 +293,7 @@ index 000000000000..530dc33e7f41
 +    There are two ways to resolve this problem:
 +    * Please don't change country code and let mwlwifi set it for you.
 +    * Remove phy2. Under this case, even though you change country code, mwlwifi will reject it. Because phy2 is not existed, country code setting won't be conflicted. To do this, run the following commands (for OpenWrt/LEDE):
-+
++    
 +        ```sh
 +        opkg remove kmod-mwifiex-sdio
 +        opkg remove mwifiex-sdio-firmware
@@ -17404,7 +17405,7 @@ index 000000000000..2ad5f381b9ee
 +#endif /* _TX_NDP_H_ */
 diff --git a/drivers/net/wireless/marvell/mwlwifi/hostapd/700-interoperability-workaround-for-80+80-and-160-MHz-channels b/drivers/net/wireless/marvell/mwlwifi/hostapd/700-interoperability-workaround-for-80+80-and-160-MHz-channels
 new file mode 100644
-index 000000000000..c73d02e31977
+index 000000000000..adadd2e4d8d4
 --- /dev/null
 +++ b/drivers/net/wireless/marvell/mwlwifi/hostapd/700-interoperability-workaround-for-80+80-and-160-MHz-channels
 @@ -0,0 +1,32 @@
@@ -17413,9 +17414,9 @@ index 000000000000..c73d02e31977
 +--- a/src/ap/ieee802_11_vht.c
 ++++ b/src/ap/ieee802_11_vht.c
 +@@ -82,6 +82,27 @@ u8 * hostapd_eid_vht_operation(struct hostapd_data *hapd, u8 *eid)
-+
-+	oper->vht_op_info_chwidth = hapd->iconf->vht_oper_chwidth;
-+
++ 
++ 	oper->vht_op_info_chwidth = hapd->iconf->vht_oper_chwidth;
++ 
 ++	if (hapd->iconf->vht_oper_chwidth == 2) {
 ++		/*
 ++		 * Convert 160 MHz channel width to new style as interop
@@ -17437,16 +17438,16 @@ index 000000000000..c73d02e31977
 ++		oper->vht_op_info_chwidth = 1;
 ++	}
 ++
-+	/* VHT Basic MCS set comes from hw */
-+	/* Hard code 1 stream, MCS0-7 is a min Basic VHT MCS rates */
-+	oper->vht_basic_mcs_set = host_to_le16(0xfffc);
++ 	/* VHT Basic MCS set comes from hw */
++ 	/* Hard code 1 stream, MCS0-7 is a min Basic VHT MCS rates */
++ 	oper->vht_basic_mcs_set = host_to_le16(0xfffc);
 diff --git a/drivers/net/wireless/marvell/mwlwifi/hostapd/README b/drivers/net/wireless/marvell/mwlwifi/hostapd/README
 new file mode 100644
-index 000000000000..312586e8b5a1
+index 000000000000..a5fb2b68d3d3
 --- /dev/null
 +++ b/drivers/net/wireless/marvell/mwlwifi/hostapd/README
 @@ -0,0 +1,26 @@
-+700-interoperability-workaround-for-80+80-and-160-MHz-channels:
++700-interoperability-workaround-for-80+80-and-160-MHz-channels: 
 +
 +patch for OpenWrt hostapd package 2016-01-15 for following commit
 +(move it to package/network/services/hostapd/patches).
@@ -18413,10 +18414,10 @@ index 000000000000..725dec0f604b
 +};
 diff --git a/drivers/net/wireless/marvell/mwlwifi/mu_mimo.c b/drivers/net/wireless/marvell/mwlwifi/mu_mimo.c
 new file mode 100644
-index 000000000000..23c70df6caa8
+index 000000000000..74ab054f947e
 --- /dev/null
 +++ b/drivers/net/wireless/marvell/mwlwifi/mu_mimo.c
-@@ -0,0 +1,20 @@
+@@ -0,0 +1,21 @@
 +/*
 + * Copyright (C) 2006-2018, Marvell International Ltd.
 + *
@@ -18437,6 +18438,7 @@ index 000000000000..23c70df6caa8
 +#include "sysadpt.h"
 +#include "core.h"
 +#include "mu_mimo.h"
++
 diff --git a/drivers/net/wireless/marvell/mwlwifi/mu_mimo.h b/drivers/net/wireless/marvell/mwlwifi/mu_mimo.h
 new file mode 100644
 index 000000000000..24179f404774
