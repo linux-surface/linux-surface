@@ -140,8 +140,4 @@ Please consult the [SIGNING.md](SIGNING.md).
 
 If you have an issue with the kernel, please feel free to create on issue here to track it. If you have questions or need support, please use our [Gitter Community](https://gitter.im/linux-surface)!
 
-### Donations Appreciated!
-
-PayPal: https://www.paypal.me/jakeday42
-
-Bitcoin: 1AH7ByeJBjMoAwsgi9oeNvVLmZHvGoQg68
+  
