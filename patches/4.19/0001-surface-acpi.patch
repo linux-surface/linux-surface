@@ -1,4 +1,4 @@
-From 41b0cd789d6e3dac7250dcb6b8317f061b297b98 Mon Sep 17 00:00:00 2001
+From da4a8ab65458fa8ac20455d160cdd19a365ed771 Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:15:40 +0200
 Subject: [PATCH 01/13] surface-acpi
@@ -9,20 +9,24 @@ Subject: [PATCH 01/13] surface-acpi
  drivers/platform/x86/Kconfig                  |    2 +
  drivers/platform/x86/Makefile                 |    1 +
  drivers/platform/x86/surface_sam/Kconfig      |  104 +
- drivers/platform/x86/surface_sam/Makefile     |    5 +
- .../x86/surface_sam/surface_sam_dtx.c         |  620 ++++++
- .../x86/surface_sam/surface_sam_san.c         |  708 +++++++
- .../x86/surface_sam/surface_sam_sid.c         |  483 +++++
+ drivers/platform/x86/surface_sam/Makefile     |    7 +
+ .../x86/surface_sam/surface_sam_dtx.c         |  622 ++++++
+ .../x86/surface_sam/surface_sam_san.c         |  709 +++++++
+ .../x86/surface_sam/surface_sam_sid.c         |  103 +
+ .../x86/surface_sam/surface_sam_sid_gpelid.c  |  214 +++
+ .../surface_sam/surface_sam_sid_perfmode.c    |  219 +++
  .../x86/surface_sam/surface_sam_ssh.c         | 1691 +++++++++++++++++
- .../x86/surface_sam/surface_sam_ssh.h         |   91 +
- .../x86/surface_sam/surface_sam_vhf.c         |  286 +++
+ .../x86/surface_sam/surface_sam_ssh.h         |   97 +
+ .../x86/surface_sam/surface_sam_vhf.c         |  275 +++
  drivers/tty/serdev/core.c                     |  111 +-
- 13 files changed, 4101 insertions(+), 29 deletions(-)
+ 15 files changed, 4154 insertions(+), 29 deletions(-)
  create mode 100644 drivers/platform/x86/surface_sam/Kconfig
  create mode 100644 drivers/platform/x86/surface_sam/Makefile
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_dtx.c
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_san.c
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_sid.c
+ create mode 100644 drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c
+ create mode 100644 drivers/platform/x86/surface_sam/surface_sam_sid_perfmode.c
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_ssh.c
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_ssh.h
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_vhf.c
@@ -227,21 +231,23 @@ index 000000000000..3ef7d69a214f
 +	  If you are not sure, say Y here.
 diff --git a/drivers/platform/x86/surface_sam/Makefile b/drivers/platform/x86/surface_sam/Makefile
 new file mode 100644
-index 000000000000..5431174ea993
+index 000000000000..bb1c847a9031
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/Makefile
-@@ -0,0 +1,5 @@
+@@ -0,0 +1,7 @@
 +obj-$(CONFIG_SURFACE_SAM_SSH)	+= surface_sam_ssh.o
 +obj-$(CONFIG_SURFACE_SAM_SAN)	+= surface_sam_san.o
-+obj-$(CONFIG_SURFACE_SAM_SID)	+= surface_sam_sid.o
 +obj-$(CONFIG_SURFACE_SAM_DTX)	+= surface_sam_dtx.o
 +obj-$(CONFIG_SURFACE_SAM_VHF)	+= surface_sam_vhf.o
++obj-$(CONFIG_SURFACE_SAM_SID)	+= surface_sam_sid.o
++obj-$(CONFIG_SURFACE_SAM_SID)	+= surface_sam_sid_gpelid.o
++obj-$(CONFIG_SURFACE_SAM_SID)	+= surface_sam_sid_perfmode.o
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_dtx.c b/drivers/platform/x86/surface_sam/surface_sam_dtx.c
 new file mode 100644
-index 000000000000..9f2c873f1452
+index 000000000000..b5d902c90578
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_dtx.c
-@@ -0,0 +1,620 @@
+@@ -0,0 +1,622 @@
 +/*
 + * Detachment system (DTX) driver for Microsoft Surface Book 2.
 + */
@@ -346,8 +352,9 @@ index 000000000000..9f2c873f1452
 +
 +	struct surface_sam_ssh_rqst rqst = {
 +		.tc  = SAM_RQST_DTX_TC,
-+		.iid = 0,
 +		.cid = SAM_RQST_DTX_CID_GET_OPMODE,
++		.iid = 0,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
 +		.snc = 1,
 +		.cdl = 0,
 +		.pld = NULL,
@@ -376,8 +383,9 @@ index 000000000000..9f2c873f1452
 +{
 +	struct surface_sam_ssh_rqst rqst = {
 +		.tc  = SAM_RQST_DTX_TC,
-+		.iid = 0,
 +		.cid = cid,
++		.iid = 0,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
 +		.snc = 0,
 +		.cdl = 0,
 +		.pld = NULL,
@@ -864,10 +872,10 @@ index 000000000000..9f2c873f1452
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_san.c b/drivers/platform/x86/surface_sam/surface_sam_san.c
 new file mode 100644
-index 000000000000..9da7843167ad
+index 000000000000..d2a2d5e88b15
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_san.c
-@@ -0,0 +1,708 @@
+@@ -0,0 +1,709 @@
 +/*
 + * Surface ACPI Notify (SAN) and ACPI integration driver for SAM.
 + * Translates communication from ACPI to SSH and back.
@@ -1215,8 +1223,9 @@ index 000000000000..9da7843167ad
 +	}
 +
 +	rqst.tc  = gsb_rqst->tc;
-+	rqst.iid = gsb_rqst->iid;
 +	rqst.cid = gsb_rqst->cid;
++	rqst.iid = gsb_rqst->iid;
++	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
 +	rqst.snc = gsb_rqst->snc;
 +	rqst.cdl = gsb_rqst->cdl;
 +	rqst.pld = &gsb_rqst->pld[0];
@@ -1578,26 +1587,124 @@ index 000000000000..9da7843167ad
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid.c b/drivers/platform/x86/surface_sam/surface_sam_sid.c
 new file mode 100644
-index 000000000000..ff440619bcf2
+index 000000000000..35be7cf02d9d
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_sid.c
-@@ -0,0 +1,483 @@
-+/*
-+ * Surface/System Integration Device (SID) driver.
-+ * Intended for device-dependent configuration and minor functionality.
-+ * Handles performance-modes and wakeup via lid open.
-+ */
+@@ -0,0 +1,103 @@
++#include <linux/acpi.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++#include <linux/mfd/core.h>
 +
-+#include <asm/unaligned.h>
++
++static const struct mfd_cell sid_devs_sp4[] = {
++	{ .name = "surface_sam_sid_gpelid", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sp7[] = {
++	{ .name = "surface_sam_sid_gpelid", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sb1[] = {
++	{ .name = "surface_sam_sid_gpelid", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sb2[] = {
++	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
++	{ .name = "surface_sam_sid_perfmode", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sl1[] = {
++	{ .name = "surface_sam_sid_gpelid", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sl2[] = {
++	{ .name = "surface_sam_sid_gpelid", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sl3_13[] = {
++	{ .name = "surface_sam_sid_gpelid", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sl3_15[] = {
++	{ },
++};
++
++static const struct acpi_device_id surface_sam_sid_match[] = {
++	{ "MSHW0081", (unsigned long)sid_devs_sp4 },	/* Surface Pro 4, 5, and 6 */
++	{ "MSHW0116", (unsigned long)sid_devs_sp7 },	/* Surface Pro 7 */
++	{ "MSHW0080", (unsigned long)sid_devs_sb1 },	/* Surface Book 1 */
++	{ "MSHW0107", (unsigned long)sid_devs_sb2 },	/* Surface Book 2 */
++	{ "MSHW0086", (unsigned long)sid_devs_sl1 },	/* Surface Laptop 1 */
++	{ "MSHW0112", (unsigned long)sid_devs_sl2 },	/* Surface Laptop 2 */
++	{ "MSHW0114", (unsigned long)sid_devs_sl3_13 },	/* Surface Laptop 3 (13") */
++	{ "MSHW0110", (unsigned long)sid_devs_sl3_15 },	/* Surface Laptop 3 (15") */
++	{ },
++};
++MODULE_DEVICE_TABLE(acpi, surface_sam_sid_match);
++
++
++static int surface_sam_sid_probe(struct platform_device *pdev)
++{
++	const struct acpi_device_id *match;
++	const struct mfd_cell *cells, *p;
++
++	match = acpi_match_device(surface_sam_sid_match, &pdev->dev);
++	if (!match)
++		return -ENODEV;
++
++	cells = (struct mfd_cell *)match->driver_data;
++	if (!cells)
++		return -ENODEV;
++
++	for (p = cells; p->name; ++p) {
++		/* just count */
++	}
++
++	if (p == cells)
++		return -ENODEV;
++
++	return mfd_add_devices(&pdev->dev, 0, cells, p - cells, NULL, 0, NULL);
++}
++
++static int surface_sam_sid_remove(struct platform_device *pdev)
++{
++	mfd_remove_devices(&pdev->dev);
++	return 0;
++}
++
++struct platform_driver surface_sam_sid = {
++	.probe = surface_sam_sid_probe,
++	.remove = surface_sam_sid_remove,
++	.driver = {
++		.name = "surface_sam_sid",
++		.acpi_match_table = ACPI_PTR(surface_sam_sid_match),
++	},
++};
++module_platform_driver(surface_sam_sid);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Surface Integration Driver for 5th Generation Surface Devices");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c b/drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c
+new file mode 100644
+index 000000000000..f0c99820a742
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c
+@@ -0,0 +1,214 @@
 +#include <linux/acpi.h>
 +#include <linux/dmi.h>
 +#include <linux/kernel.h>
 +#include <linux/module.h>
-+#include <linux/moduleparam.h>
 +#include <linux/platform_device.h>
-+#include <linux/sysfs.h>
-+
-+#include "surface_sam_ssh.h"
 +
 +
 +struct sid_lid_device {
@@ -1605,15 +1712,15 @@ index 000000000000..ff440619bcf2
 +	const u32 gpe_number;
 +};
 +
-+struct sid_device_info {
-+	const bool has_perf_mode;
-+	const struct sid_lid_device *lid_device;
-+};
-+
 +
 +static const struct sid_lid_device lid_device_l17 = {
 +	.acpi_path = "\\_SB.LID0",
 +	.gpe_number = 0x17,
++};
++
++static const struct sid_lid_device lid_device_l4D = {
++	.acpi_path = "\\_SB.LID0",
++	.gpe_number = 0x4D,
 +};
 +
 +static const struct sid_lid_device lid_device_l4F = {
@@ -1627,42 +1734,6 @@ index 000000000000..ff440619bcf2
 +};
 +
 +
-+static const struct sid_device_info si_device_pro_4 = {
-+	.has_perf_mode = false,
-+	.lid_device = &lid_device_l17,
-+};
-+
-+static const struct sid_device_info si_device_pro_5 = {
-+	.has_perf_mode = false,
-+	.lid_device = &lid_device_l4F,
-+};
-+
-+static const struct sid_device_info si_device_pro_6 = {
-+	.has_perf_mode = false,
-+	.lid_device = &lid_device_l4F,
-+};
-+
-+static const struct sid_device_info si_device_book_1 = {
-+	.has_perf_mode = false,
-+	.lid_device = &lid_device_l17,
-+};
-+
-+static const struct sid_device_info si_device_book_2 = {
-+	.has_perf_mode = true,
-+	.lid_device = &lid_device_l17,
-+};
-+
-+static const struct sid_device_info si_device_laptop_1 = {
-+	.has_perf_mode = false,
-+	.lid_device = &lid_device_l57,
-+};
-+
-+static const struct sid_device_info si_device_laptop_2 = {
-+	.has_perf_mode = false,
-+	.lid_device = &lid_device_l57,
-+};
-+
-+
 +static const struct dmi_system_id dmi_lid_device_table[] = {
 +	{
 +		.ident = "Surface Pro 4",
@@ -1670,7 +1741,7 @@ index 000000000000..ff440619bcf2
 +			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 +			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 4"),
 +		},
-+		.driver_data = (void *)&si_device_pro_4,
++		.driver_data = (void *)&lid_device_l17,
 +	},
 +	{
 +		.ident = "Surface Pro 5",
@@ -1679,7 +1750,7 @@ index 000000000000..ff440619bcf2
 +			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 +			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
 +		},
-+		.driver_data = (void *)&si_device_pro_5,
++		.driver_data = (void *)&lid_device_l4F,
 +	},
 +	{
 +		.ident = "Surface Pro 5 (LTE)",
@@ -1688,7 +1759,7 @@ index 000000000000..ff440619bcf2
 +			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 +			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
 +		},
-+		.driver_data = (void *)&si_device_pro_5,
++		.driver_data = (void *)&lid_device_l4F,
 +	},
 +	{
 +		.ident = "Surface Pro 6",
@@ -1696,7 +1767,15 @@ index 000000000000..ff440619bcf2
 +			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 +			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 6"),
 +		},
-+		.driver_data = (void *)&si_device_pro_6,
++		.driver_data = (void *)&lid_device_l4F,
++	},
++	{
++		.ident = "Surface Pro 7",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 7"),
++		},
++		.driver_data = (void *)&lid_device_l4D,
 +	},
 +	{
 +		.ident = "Surface Book 1",
@@ -1704,7 +1783,7 @@ index 000000000000..ff440619bcf2
 +			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 +			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book"),
 +		},
-+		.driver_data = (void *)&si_device_book_1,
++		.driver_data = (void *)&lid_device_l17,
 +	},
 +	{
 +		.ident = "Surface Book 2",
@@ -1712,7 +1791,7 @@ index 000000000000..ff440619bcf2
 +			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 +			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book 2"),
 +		},
-+		.driver_data = (void *)&si_device_book_2,
++		.driver_data = (void *)&lid_device_l17,
 +	},
 +	{
 +		.ident = "Surface Laptop 1",
@@ -1720,7 +1799,7 @@ index 000000000000..ff440619bcf2
 +			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 +			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop"),
 +		},
-+		.driver_data = (void *)&si_device_laptop_1,
++		.driver_data = (void *)&lid_device_l57,
 +	},
 +	{
 +		.ident = "Surface Laptop 2",
@@ -1728,10 +1807,125 @@ index 000000000000..ff440619bcf2
 +			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 +			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop 2"),
 +		},
-+		.driver_data = (void *)&si_device_laptop_2,
++		.driver_data = (void *)&lid_device_l57,
++	},
++	{
++		.ident = "Surface Laptop 3 (13\")",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_3_1867:1868"),
++		},
++		.driver_data = (void *)&lid_device_l4D,
 +	},
 +	{ }
 +};
++
++
++static int sid_lid_enable_wakeup(const struct sid_lid_device *dev, bool enable)
++{
++	int action = enable ? ACPI_GPE_ENABLE : ACPI_GPE_DISABLE;
++	int status;
++
++	status = acpi_set_gpe_wake_mask(NULL, dev->gpe_number, action);
++	if (status)
++		return -EFAULT;
++
++	return 0;
++}
++
++
++static int surface_sam_sid_gpelid_suspend(struct device *dev)
++{
++	const struct sid_lid_device *ldev = dev_get_drvdata(dev);
++	return sid_lid_enable_wakeup(ldev, true);
++}
++
++static int surface_sam_sid_gpelid_resume(struct device *dev)
++{
++	const struct sid_lid_device *ldev = dev_get_drvdata(dev);
++	return sid_lid_enable_wakeup(ldev, false);
++}
++
++static SIMPLE_DEV_PM_OPS(surface_sam_sid_gpelid_pm,
++                         surface_sam_sid_gpelid_suspend,
++                         surface_sam_sid_gpelid_resume);
++
++
++static int surface_sam_sid_gpelid_probe(struct platform_device *pdev)
++{
++	const struct dmi_system_id *match;
++        struct sid_lid_device *dev;
++	acpi_handle lid_handle;
++	int status;
++
++	match = dmi_first_match(dmi_lid_device_table);
++	if (!match)
++		return -ENODEV;
++
++        dev = match->driver_data;
++        if (!dev)
++                return -ENODEV;
++
++	status = acpi_get_handle(NULL, (acpi_string)dev->acpi_path, &lid_handle);
++	if (status)
++		return -EFAULT;
++
++	status = acpi_setup_gpe_for_wake(lid_handle, NULL, dev->gpe_number);
++	if (status)
++		return -EFAULT;
++
++	status = acpi_enable_gpe(NULL, dev->gpe_number);
++	if (status)
++		return -EFAULT;
++
++	status = sid_lid_enable_wakeup(dev, false);
++	if (status) {
++		acpi_disable_gpe(NULL, dev->gpe_number);
++                return status;
++        }
++
++        platform_set_drvdata(pdev, dev);
++        return 0;
++}
++
++static int surface_sam_sid_gpelid_remove(struct platform_device *pdev)
++{
++	struct sid_lid_device *dev = platform_get_drvdata(pdev);
++
++	/* restore default behavior without this module */
++	sid_lid_enable_wakeup(dev, false);
++        acpi_disable_gpe(NULL, dev->gpe_number);
++
++        platform_set_drvdata(pdev, NULL);
++        return 0;
++}
++
++struct platform_driver surface_sam_sid_gpelid = {
++	.probe = surface_sam_sid_gpelid_probe,
++	.remove = surface_sam_sid_gpelid_remove,
++	.driver = {
++		.name = "surface_sam_sid_gpelid",
++		.pm = &surface_sam_sid_gpelid_pm,
++	},
++};
++module_platform_driver(surface_sam_sid_gpelid);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Surface Lid Driver for 5th Generation Surface Devices");
++MODULE_LICENSE("GPL v2");
++MODULE_ALIAS("platform:surface_sam_sid_gpelid");
+diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_perfmode.c b/drivers/platform/x86/surface_sam/surface_sam_sid_perfmode.c
+new file mode 100644
+index 000000000000..188f5819520c
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/surface_sam_sid_perfmode.c
+@@ -0,0 +1,219 @@
++#include <asm/unaligned.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++
++#include "surface_sam_ssh.h"
 +
 +
 +#define SID_PARAM_PERM		(S_IRUGO | S_IWUSR)
@@ -1765,8 +1959,9 @@ index 000000000000..ff440619bcf2
 +
 +	struct surface_sam_ssh_rqst rqst = {
 +		.tc  = 0x03,
-+		.iid = 0x00,
 +		.cid = 0x02,
++		.iid = 0x00,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
 +		.snc = 0x01,
 +		.cdl = 0x00,
 +		.pld = NULL,
@@ -1796,8 +1991,9 @@ index 000000000000..ff440619bcf2
 +
 +	struct surface_sam_ssh_rqst rqst = {
 +		.tc  = 0x03,
-+		.iid = 0x00,
 +		.cid = 0x03,
++		.iid = 0x00,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
 +		.snc = 0x00,
 +		.cdl = ARRAY_SIZE(payload),
 +		.pld = payload,
@@ -1880,7 +2076,7 @@ index 000000000000..ff440619bcf2
 +	//       which calls
 +	//           ODV3 = ToInteger (Arg3)
 +	//           Notify(IETM, 0x88)
-+	//       IETM is an INT3400 Intel Dynamic Power Performance Management
++ 	//       IETM is an INT3400 Intel Dynamic Power Performance Management
 +	//       device, part of the DPTF framework. From the corresponding
 +	//       kernel driver, it looks like event 0x88 is being ignored. Also
 +	//       it is currently unknown what the consequecnes of setting ODV3
@@ -1892,12 +2088,9 @@ index 000000000000..ff440619bcf2
 +const static DEVICE_ATTR_RW(perf_mode);
 +
 +
-+static int sid_perf_mode_setup(struct platform_device *pdev, const struct sid_device_info *info)
++static int surface_sam_sid_perfmode_probe(struct platform_device *pdev)
 +{
 +	int status;
-+
-+	if (!info->has_perf_mode)
-+		return 0;
 +
 +	// link to ec
 +	status = surface_sam_ssh_consumer_register(&pdev->dev);
@@ -1926,148 +2119,29 @@ index 000000000000..ff440619bcf2
 +	return status;
 +}
 +
-+static void sid_perf_mode_remove(struct platform_device *pdev, const struct sid_device_info *info)
++static int surface_sam_sid_perfmode_remove(struct platform_device *pdev)
 +{
-+	if (!info->has_perf_mode)
-+		return;
-+
-+	// remove perf_mode attribute
 +	sysfs_remove_file(&pdev->dev.kobj, &dev_attr_perf_mode.attr);
-+
-+	// set exit perf_mode
 +	surface_sam_perf_mode_set(param_perf_mode_exit);
-+}
-+
-+
-+static int sid_lid_enable_wakeup(const struct sid_device_info *info, bool enable)
-+{
-+	int action = enable ? ACPI_GPE_ENABLE : ACPI_GPE_DISABLE;
-+	int status;
-+
-+	if (!info->lid_device)
-+		return 0;
-+
-+	status = acpi_set_gpe_wake_mask(NULL, info->lid_device->gpe_number, action);
-+	if (status)
-+		return -EFAULT;
-+
 +	return 0;
 +}
 +
-+static int sid_lid_device_setup(const struct sid_device_info *info)
-+{
-+	acpi_handle lid_handle;
-+	int status;
-+
-+	if (!info->lid_device)
-+		return 0;
-+
-+	status = acpi_get_handle(NULL, (acpi_string)info->lid_device->acpi_path, &lid_handle);
-+	if (status)
-+		return -EFAULT;
-+
-+	status = acpi_setup_gpe_for_wake(lid_handle, NULL, info->lid_device->gpe_number);
-+	if (status)
-+		return -EFAULT;
-+
-+	status = acpi_enable_gpe(NULL, info->lid_device->gpe_number);
-+	if (status)
-+		return -EFAULT;
-+
-+	return sid_lid_enable_wakeup(info, false);
-+}
-+
-+static void sid_lid_device_remove(const struct sid_device_info *info)
-+{
-+	/* restore default behavior without this module */
-+	sid_lid_enable_wakeup(info, false);
-+}
-+
-+
-+static int surface_sam_sid_suspend(struct device *dev)
-+{
-+	const struct sid_device_info *info = dev_get_drvdata(dev);
-+	return sid_lid_enable_wakeup(info, true);
-+}
-+
-+static int surface_sam_sid_resume(struct device *dev)
-+{
-+	const struct sid_device_info *info = dev_get_drvdata(dev);
-+	return sid_lid_enable_wakeup(info, false);
-+}
-+
-+static SIMPLE_DEV_PM_OPS(surface_sam_sid_pm, surface_sam_sid_suspend, surface_sam_sid_resume);
-+
-+
-+static int surface_sam_sid_probe(struct platform_device *pdev)
-+{
-+	const struct dmi_system_id *dmi_match;
-+	struct sid_device_info *info;
-+	int status;
-+
-+	dmi_match = dmi_first_match(dmi_lid_device_table);
-+	if (!dmi_match)
-+		return -ENODEV;
-+
-+	info = dmi_match->driver_data;
-+
-+	platform_set_drvdata(pdev, info);
-+
-+	status = sid_perf_mode_setup(pdev, info);
-+	if (status)
-+		goto err_perf_mode;
-+
-+	status = sid_lid_device_setup(info);
-+	if (status)
-+		goto err_lid;
-+
-+	return 0;
-+
-+err_lid:
-+	sid_perf_mode_remove(pdev, info);
-+err_perf_mode:
-+	return status;
-+}
-+
-+static int surface_sam_sid_remove(struct platform_device *pdev)
-+{
-+	const struct sid_device_info *info = platform_get_drvdata(pdev);
-+
-+	sid_perf_mode_remove(pdev, info);
-+	sid_lid_device_remove(info);
-+
-+	platform_set_drvdata(pdev, NULL);
-+	return 0;
-+}
-+
-+
-+static const struct acpi_device_id surface_sam_sid_match[] = {
-+	{ "MSHW0081", },	/* Surface Pro 4, 5, and 6 */
-+	{ "MSHW0080", },	/* Surface Book 1 */
-+	{ "MSHW0107", },	/* Surface Book 2 */
-+	{ "MSHW0086", },	/* Surface Laptop 1 */
-+	{ "MSHW0112", },	/* Surface Laptop 2 */
-+	{ },
-+};
-+MODULE_DEVICE_TABLE(acpi, surface_sam_sid_match);
-+
-+struct platform_driver surface_sam_sid = {
-+	.probe = surface_sam_sid_probe,
-+	.remove = surface_sam_sid_remove,
++struct platform_driver surface_sam_sid_perfmode = {
++	.probe = surface_sam_sid_perfmode_probe,
++	.remove = surface_sam_sid_perfmode_remove,
 +	.driver = {
-+		.name = "surface_sam_sid",
-+		.acpi_match_table = ACPI_PTR(surface_sam_sid_match),
-+		.pm = &surface_sam_sid_pm,
++		.name = "surface_sam_sid_perfmode",
 +	},
 +};
-+module_platform_driver(surface_sam_sid);
++module_platform_driver(surface_sam_sid_perfmode);
 +
 +MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
-+MODULE_DESCRIPTION("Surface Integration Driver for 5th Generation Surface Devices");
++MODULE_DESCRIPTION("Surface Performance Mode Driver for 5th Generation Surface Devices");
 +MODULE_LICENSE("GPL v2");
++MODULE_ALIAS("platform:surface_sam_sid_perfmode");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_ssh.c b/drivers/platform/x86/surface_sam/surface_sam_ssh.c
 new file mode 100644
-index 000000000000..f190efcf8705
+index 000000000000..ef4130b7e727
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_ssh.c
 @@ -0,0 +1,1691 @@
@@ -2139,9 +2213,10 @@ index 000000000000..f190efcf8705
 +#define SSH_READ_BUF_LEN		512		// must be power of 2
 +#define SSH_EVAL_BUF_LEN		SSH_MAX_WRITE	// also works for reading
 +
-+#define SSH_FRAME_TYPE_CMD		0x80
-+#define SSH_FRAME_TYPE_ACK		0x40
-+#define SSH_FRAME_TYPE_RETRY		0x04
++#define SSH_FRAME_TYPE_CMD_NOACK	0x00	// request/event that does not to be ACKed
++#define SSH_FRAME_TYPE_CMD		0x80	// request/event
++#define SSH_FRAME_TYPE_ACK		0x40	// ACK for request/event
++#define SSH_FRAME_TYPE_RETRY		0x04	// error or retry indicator
 +
 +#define SSH_FRAME_OFFS_CTRL		SSH_BYTELEN_SYNC
 +#define SSH_FRAME_OFFS_CTRL_CRC		(SSH_FRAME_OFFS_CTRL + SSH_BYTELEN_CTRL)
@@ -2151,8 +2226,8 @@ index 000000000000..f190efcf8705
 +
 +/*
 + * A note on Request IDs (RQIDs):
-+ *	0x0000 is not a valid RQID
-+ *	0x0001 is valid, but reserved for Surface Laptop keyboard events
++ * 	0x0000 is not a valid RQID
++ * 	0x0001 is valid, but reserved for Surface Laptop keyboard events
 + */
 +#define SAM_NUM_EVENT_TYPES		((1 << SURFACE_SAM_SSH_RQID_EVENT_BITS) - 1)
 +
@@ -2182,8 +2257,8 @@ index 000000000000..f190efcf8705
 +struct ssh_frame_cmd {
 +	u8 type;
 +	u8 tc;
-+	u8 outgoing;		// assumed to be 0x01 for SSH to SAM messages, 0x00 otherwise
-+	u8 incoming;		// assumed to be 0x01 for SAM to SSH messages, 0x00 otherwise
++	u8 pri_out;
++	u8 pri_in;
 +	u8 iid;
 +	u8 rqid_lo;		// id for request/response matching (low byte)
 +	u8 rqid_hi;		// id for request/response matching (high byte)
@@ -2293,11 +2368,6 @@ index 000000000000..f190efcf8705
 +};
 +
 +
-+static int surface_sam_ssh_rqst_unlocked(struct sam_ssh_ec *ec,
-+					 const struct surface_sam_ssh_rqst *rqst,
-+					 struct surface_sam_ssh_buf *result);
-+
-+
 +inline static struct sam_ssh_ec *surface_sam_ssh_acquire(void)
 +{
 +	struct sam_ssh_ec *ec = &ssh_ec;
@@ -2356,15 +2426,14 @@ index 000000000000..f190efcf8705
 +
 +int surface_sam_ssh_enable_event_source(u8 tc, u8 unknown, u16 rqid)
 +{
-+	struct sam_ssh_ec *ec;
-+
 +	u8 pld[4] = { tc, unknown, rqid & 0xff, rqid >> 8 };
 +	u8 buf[1] = { 0x00 };
 +
 +	struct surface_sam_ssh_rqst rqst = {
 +		.tc  = 0x01,
-+		.iid = 0x00,
 +		.cid = 0x0b,
++		.iid = 0x00,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
 +		.snc = 0x01,
 +		.cdl = 0x04,
 +		.pld = pld,
@@ -2383,28 +2452,14 @@ index 000000000000..f190efcf8705
 +		return -EINVAL;
 +	}
 +
-+	ec = surface_sam_ssh_acquire_init();
-+	if (!ec) {
-+		printk(KERN_WARNING SSH_RQST_TAG_FULL "embedded controller is uninitialized\n");
-+		return -ENXIO;
-+	}
-+
-+	if (ec->state == SSH_EC_SUSPENDED) {
-+		dev_warn(&ec->serdev->dev, SSH_RQST_TAG "embedded controller is suspended\n");
-+
-+		surface_sam_ssh_release(ec);
-+		return -EPERM;
-+	}
-+
-+	status = surface_sam_ssh_rqst_unlocked(ec, &rqst, &result);
++	status = surface_sam_ssh_rqst(&rqst, &result);
 +
 +	if (buf[0] != 0x00) {
-+		dev_warn(&ec->serdev->dev,
-+		         "unexpected result while enabling event source: 0x%02x\n",
-+			 buf[0]);
++		printk(KERN_WARNING SSH_RQST_TAG_FULL
++		       "unexpected result while enabling event source: 0x%02x\n",
++		       buf[0]);
 +	}
 +
-+	surface_sam_ssh_release(ec);
 +	return status;
 +
 +}
@@ -2412,15 +2467,14 @@ index 000000000000..f190efcf8705
 +
 +int surface_sam_ssh_disable_event_source(u8 tc, u8 unknown, u16 rqid)
 +{
-+	struct sam_ssh_ec *ec;
-+
 +	u8 pld[4] = { tc, unknown, rqid & 0xff, rqid >> 8 };
 +	u8 buf[1] = { 0x00 };
 +
 +	struct surface_sam_ssh_rqst rqst = {
 +		.tc  = 0x01,
-+		.iid = 0x00,
 +		.cid = 0x0c,
++		.iid = 0x00,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
 +		.snc = 0x01,
 +		.cdl = 0x04,
 +		.pld = pld,
@@ -2439,31 +2493,22 @@ index 000000000000..f190efcf8705
 +		return -EINVAL;
 +	}
 +
-+	ec = surface_sam_ssh_acquire_init();
-+	if (!ec) {
-+		printk(KERN_WARNING SSH_RQST_TAG_FULL "embedded controller is uninitialized\n");
-+		return -ENXIO;
-+	}
-+
-+	if (ec->state == SSH_EC_SUSPENDED) {
-+		dev_warn(&ec->serdev->dev, SSH_RQST_TAG "embedded controller is suspended\n");
-+
-+		surface_sam_ssh_release(ec);
-+		return -EPERM;
-+	}
-+
-+	status = surface_sam_ssh_rqst_unlocked(ec, &rqst, &result);
++	status = surface_sam_ssh_rqst(&rqst, &result);
 +
 +	if (buf[0] != 0x00) {
-+		dev_warn(&ec->serdev->dev,
-+		         "unexpected result while disabling event source: 0x%02x\n",
-+			 buf[0]);
++		printk(KERN_WARNING SSH_RQST_TAG_FULL
++		       "unexpected result while disabling event source: 0x%02x\n",
++		       buf[0]);
 +	}
 +
-+	surface_sam_ssh_release(ec);
 +	return status;
 +}
 +EXPORT_SYMBOL_GPL(surface_sam_ssh_disable_event_source);
++
++static unsigned long sam_event_default_delay(struct surface_sam_ssh_event *event, void *data)
++{
++	return event->pri == SURFACE_SAM_PRIORITY_HIGH ? SURFACE_SAM_SSH_EVENT_IMMEDIATE : 0;
++}
 +
 +int surface_sam_ssh_set_delayed_event_handler(
 +		u16 rqid, surface_sam_ssh_event_handler_fn fn,
@@ -2480,6 +2525,10 @@ index 000000000000..f190efcf8705
 +	ec = surface_sam_ssh_acquire_init();
 +	if (!ec) {
 +		return -ENXIO;
++	}
++
++	if (!delay) {
++		delay = sam_event_default_delay;
 +	}
 +
 +	spin_lock_irqsave(&ec->events.lock, flags);
@@ -2604,8 +2653,8 @@ index 000000000000..f190efcf8705
 +
 +	cmd->type     = SSH_FRAME_TYPE_CMD;
 +	cmd->tc       = rqst->tc;
-+	cmd->outgoing = 0x01;
-+	cmd->incoming = 0x00;
++	cmd->pri_out  = rqst->pri;
++	cmd->pri_in   = 0x00;
 +	cmd->iid      = rqst->iid;
 +	cmd->rqid_lo  = rqid_lo;
 +	cmd->rqid_hi  = rqid_hi;
@@ -2765,10 +2814,12 @@ index 000000000000..f190efcf8705
 +		}
 +
 +		// send ACK
-+		ssh_write_msg_ack(ec, packet.seq);
-+		status = ssh_writer_flush(ec);
-+		if (status) {
-+			goto out;
++		if (packet.type == SSH_FRAME_TYPE_CMD) {
++			ssh_write_msg_ack(ec, packet.seq);
++			status = ssh_writer_flush(ec);
++			if (status) {
++				goto out;
++			}
 +		}
 +	}
 +
@@ -2809,8 +2860,9 @@ index 000000000000..f190efcf8705
 +
 +	struct surface_sam_ssh_rqst rqst = {
 +		.tc  = 0x01,
-+		.iid = 0x00,
 +		.cid = 0x16,
++		.iid = 0x00,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
 +		.snc = 0x01,
 +		.cdl = 0x00,
 +		.pld = NULL,
@@ -2842,8 +2894,9 @@ index 000000000000..f190efcf8705
 +
 +	struct surface_sam_ssh_rqst rqst = {
 +		.tc  = 0x01,
-+		.iid = 0x00,
 +		.cid = 0x15,
++		.iid = 0x00,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
 +		.snc = 0x01,
 +		.cdl = 0x00,
 +		.pld = NULL,
@@ -3012,27 +3065,30 @@ index 000000000000..f190efcf8705
 +		return;
 +	}
 +
-+	refcount_set(&work->refcount, 2);
++	refcount_set(&work->refcount, 1);
 +	work->ec         = ec;
 +	work->seq        = ctrl->seq;
 +	work->event.rqid = (cmd->rqid_hi << 8) | cmd->rqid_lo;
 +	work->event.tc   = cmd->tc;
-+	work->event.iid  = cmd->iid;
 +	work->event.cid  = cmd->cid;
++	work->event.iid  = cmd->iid;
++	work->event.pri  = cmd->pri_in;
 +	work->event.len  = pld_len;
 +	work->event.pld  = ((u8*) work) + sizeof(struct ssh_event_work);
 +
 +	memcpy(work->event.pld, buf + SSH_FRAME_OFFS_CMD_PLD, pld_len);
 +
-+	INIT_WORK(&work->work_ack, surface_sam_ssh_event_work_ack_handler);
-+	queue_work(ec->events.queue_ack, &work->work_ack);
++	// queue ACK for if required
++	if (ctrl->type == SSH_FRAME_TYPE_CMD) {
++		refcount_set(&work->refcount, 2);
++		INIT_WORK(&work->work_ack, surface_sam_ssh_event_work_ack_handler);
++		queue_work(ec->events.queue_ack, &work->work_ack);
++	}
 +
 +	spin_lock_irqsave(&ec->events.lock, flags);
 +	handler_data = ec->events.handler[work->event.rqid - 1].data;
-+	delay_fn     = ec->events.handler[work->event.rqid - 1].delay;
-+	if (delay_fn) {
-+		delay = delay_fn(&work->event, handler_data);
-+	}
++	delay_fn = ec->events.handler[work->event.rqid - 1].delay;
++	delay = delay_fn(&work->event, handler_data);
 +	spin_unlock_irqrestore(&ec->events.lock, flags);
 +
 +	// immediate execution for high priority events (e.g. keyboard)
@@ -3098,7 +3154,7 @@ index 000000000000..f190efcf8705
 +	} else {
 +		dev_warn(dev, SSH_RECV_TAG
 +			 "dropping frame: not enough space in fifo (type = %d)\n",
-+			 SSH_FRAME_TYPE_CMD);
++			 ctrl->type);
 +
 +		return SSH_MSG_LEN_CTRL;	// discard message
 +	}
@@ -3206,7 +3262,7 @@ index 000000000000..f190efcf8705
 +	} else {
 +		dev_warn(dev, SSH_RECV_TAG
 +			 "dropping frame: not enough space in fifo (type = %d)\n",
-+			 SSH_FRAME_TYPE_CMD);
++			 ctrl->type);
 +
 +		return SSH_MSG_LEN_CTRL;	// discard message
 +	}
@@ -3242,6 +3298,7 @@ index 000000000000..f190efcf8705
 +		return ssh_receive_msg_ctrl(ec, buf, size);
 +
 +	case SSH_FRAME_TYPE_CMD:
++	case SSH_FRAME_TYPE_CMD_NOACK:
 +		return ssh_receive_msg_cmd(ec, buf, size);
 +
 +	default:
@@ -3293,7 +3350,7 @@ index 000000000000..f190efcf8705
 +}
 +
 +
-+#ifdef CONFIG_SURFACE_ACPI_SSH_DEBUG_DEVICE
++#ifdef CONFIG_SURFACE_SAM_SSH_DEBUG_DEVICE
 +
 +#include <linux/sysfs.h>
 +
@@ -3301,6 +3358,15 @@ index 000000000000..f190efcf8705
 +static char sam_ssh_debug_rqst_buf_pld[SURFACE_SAM_SSH_MAX_RQST_PAYLOAD] = { 0 };
 +static char sam_ssh_debug_rqst_buf_res[SURFACE_SAM_SSH_MAX_RQST_RESPONSE] = { 0 };
 +
++struct sysfs_rqst {
++	u8 tc;
++	u8 cid;
++	u8 iid;
++	u8 pri;
++	u8 snc;
++	u8 cdl;
++	u8 pld[0];
++} __packed;
 +
 +static ssize_t rqst_read(struct file *f, struct kobject *kobj, struct bin_attribute *attr,
 +                         char *buf, loff_t offs, size_t count)
@@ -3316,27 +3382,35 @@ index 000000000000..f190efcf8705
 +static ssize_t rqst_write(struct file *f, struct kobject *kobj, struct bin_attribute *attr,
 +			  char *buf, loff_t offs, size_t count)
 +{
++	struct sysfs_rqst *input;
 +	struct surface_sam_ssh_rqst rqst = {};
 +	struct surface_sam_ssh_buf result = {};
 +	int status;
 +
 +	// check basic write constriants
-+	if (offs != 0 || count > SURFACE_SAM_SSH_MAX_RQST_PAYLOAD + 5) {
++	if (offs != 0 || count > SURFACE_SAM_SSH_MAX_RQST_PAYLOAD + sizeof(struct sysfs_rqst)) {
 +		return -EINVAL;
 +	}
++
++	if (count < sizeof(struct sysfs_rqst)) {
++		return -EINVAL;
++	}
++
++	input = (struct sysfs_rqst *)buf;
 +
 +	// payload length should be consistent with data provided
-+	if (buf[4] + 5 != count) {
++	if (input->cdl + sizeof(struct sysfs_rqst) != count) {
 +		return -EINVAL;
 +	}
 +
-+	rqst.tc  = buf[0];
-+	rqst.iid = buf[1];
-+	rqst.cid = buf[2];
-+	rqst.snc = buf[3];
-+	rqst.cdl = buf[4];
++	rqst.tc  = input->tc;
++	rqst.cid = input->cid;
++	rqst.iid = input->iid;
++	rqst.pri = input->pri;
++	rqst.snc = input->snc;
++	rqst.cdl = input->cdl;
 +	rqst.pld = sam_ssh_debug_rqst_buf_pld;
-+	memcpy(sam_ssh_debug_rqst_buf_pld, buf + 5, count - 5);
++	memcpy(sam_ssh_debug_rqst_buf_pld, &input->pld[0], input->cdl);
 +
 +	result.cap = SURFACE_SAM_SSH_MAX_RQST_RESPONSE;
 +	result.len = 0;
@@ -3379,7 +3453,7 @@ index 000000000000..f190efcf8705
 +{
 +}
 +
-+#endif	/* CONFIG_SURFACE_ACPI_SSH_DEBUG_DEVICE */
++#endif	/* CONFIG_SURFACE_SAM_SSH_DEBUG_DEVICE */
 +
 +
 +static acpi_status
@@ -3764,10 +3838,10 @@ index 000000000000..f190efcf8705
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_ssh.h b/drivers/platform/x86/surface_sam/surface_sam_ssh.h
 new file mode 100644
-index 000000000000..89407ec2d4a4
+index 000000000000..ca7d726e470c
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_ssh.h
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,97 @@
 +/*
 + * Interface for Surface Serial Hub (SSH).
 + *
@@ -3811,6 +3885,10 @@ index 000000000000..89407ec2d4a4
 +#define SURFACE_SAM_SSH_EVENT_IMMEDIATE		((unsigned long) -1)
 +
 +
++#define SURFACE_SAM_PRIORITY_NORMAL		1
++#define SURFACE_SAM_PRIORITY_HIGH		2
++
++
 +struct surface_sam_ssh_buf {
 +	u8 cap;
 +	u8 len;
@@ -3818,21 +3896,23 @@ index 000000000000..89407ec2d4a4
 +};
 +
 +struct surface_sam_ssh_rqst {
-+	u8 tc;
-+	u8 iid;
-+	u8 cid;
-+	u8 snc;
-+	u8 cdl;
-+	u8 *pld;
++	u8 tc;				// target category
++	u8 cid;				// command ID
++	u8 iid;				// instance ID
++	u8 pri;				// priority
++	u8 snc;				// expect response flag
++	u8 cdl;				// command data length (lenght of payload)
++	u8 *pld;			// pointer to payload of length cdl
 +};
 +
 +struct surface_sam_ssh_event {
-+	u16 rqid;
-+	u8  tc;
-+	u8  iid;
-+	u8  cid;
-+	u8  len;
-+	u8 *pld;
++	u16 rqid;			// event type/source ID 
++	u8  tc;				// target category
++	u8  cid;			// command ID
++	u8  iid;			// instance ID
++	u8  pri;			// priority
++	u8  len;			// length of payload
++	u8 *pld;			// payload of length len
 +};
 +
 +
@@ -3861,10 +3941,10 @@ index 000000000000..89407ec2d4a4
 +#endif /* _SURFACE_SAM_SSH_H */
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_vhf.c b/drivers/platform/x86/surface_sam/surface_sam_vhf.c
 new file mode 100644
-index 000000000000..38851a07ea80
+index 000000000000..1ecf84dbfd34
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_vhf.c
-@@ -0,0 +1,286 @@
+@@ -0,0 +1,275 @@
 +/*
 + * Virtual HID Framwork (VHF) driver for input events via SAM.
 + * Used for keyboard input events on the Surface Laptops.
@@ -4048,16 +4128,6 @@ index 000000000000..38851a07ea80
 +	return 0;
 +}
 +
-+static unsigned long vhf_event_delay(struct surface_sam_ssh_event *event, void *data)
-+{
-+	// high priority immediate execution for keyboard events
-+	if (event->tc == 0x08 && (event->cid == 0x03 || event->cid == 0x04)) {
-+		return SURFACE_SAM_SSH_EVENT_IMMEDIATE;
-+	}
-+
-+	return 0;
-+}
-+
 +static int surface_sam_vhf_probe(struct platform_device *pdev)
 +{
 +	struct vhf_drvdata *drvdata;
@@ -4091,10 +4161,9 @@ index 000000000000..38851a07ea80
 +
 +	platform_set_drvdata(pdev, drvdata);
 +
-+	status = surface_sam_ssh_set_delayed_event_handler(
++	status = surface_sam_ssh_set_event_handler(
 +			SAM_EVENT_VHF_RQID,
 +	                vhf_event_handler,
-+	                vhf_event_delay,
 +			&drvdata->event_ctx);
 +	if (status) {
 +		goto err_add_hid;
@@ -4303,5 +4372,5 @@ index 9db93f500b4e..42d1dae34b21 100644
  	if (!ctrl->serdev)
  		return -ENODEV;
 -- 
-2.23.0
+2.24.0
 
