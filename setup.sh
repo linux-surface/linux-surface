@@ -66,9 +66,20 @@ read -rp "Do you want to install the patched libwacom packages? (type yes or no)
     uselibwacom;echo
 
 if [ "$uselibwacom" = "yes" ]; then
-    echo "==> Installing patched libwacom packages..."
-    dpkg -i packages/libwacom/*.deb
-    apt-mark hold libwacom
+    echo "==> Downloading latest libwacom-surface..."
+
+    urls=$(curl --silent "https://api.github.com/repos/qzed/libwacom-surface-deb/releases/latest" \
+           | tr ',' '\n' \
+           | grep '"browser_download_url":' \
+           | sed -E 's/.*"([^"]+)".*/\1/' \
+           | grep '.deb$')
+
+    wget -P tmp $urls
+
+    echo "==> Installing latest libwacom-surface..."
+
+    dpkg -i tmp/*.deb
+    rm -rf tmp
 else
     echo "==> Not touching libwacom"
 fi
@@ -85,7 +96,7 @@ if [ "$removexorg" = "yes" ]; then
     rm -v /etc/X11/xorg.conf.d/20-intel_example.conf
 else
     echo "==> Not touching example intel xorg config" \
-         "    (/etc/X11/xorg.conf.d/20-intel_example.conf)"
+         "(/etc/X11/xorg.conf.d/20-intel_example.conf)"
 fi
 
 echo
