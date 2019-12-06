@@ -1,4 +1,4 @@
-From 72d79d0550297c99c692cfc15f761a8abfc3451a Mon Sep 17 00:00:00 2001
+From a0440209503a70ceba6353b40ab335528c7f7663 Mon Sep 17 00:00:00 2001
 From: kitakar5525 <34676735+kitakar5525@users.noreply.github.com>
 Date: Sat, 28 Sep 2019 17:48:21 +0200
 Subject: [PATCH 02/13] suspend
@@ -14,10 +14,10 @@ Subject: [PATCH 02/13] suspend
  7 files changed, 182 insertions(+), 6 deletions(-)
 
 diff --git a/drivers/nvme/host/core.c b/drivers/nvme/host/core.c
-index 5d0f99bcc987..e2440dcda5a7 100644
+index c4ff4f079448..4e050ae8a6d4 100644
 --- a/drivers/nvme/host/core.c
 +++ b/drivers/nvme/host/core.c
-@@ -1031,15 +1031,15 @@ static struct nvme_id_ns *nvme_identify_ns(struct nvme_ctrl *ctrl,
+@@ -1049,15 +1049,15 @@ static struct nvme_id_ns *nvme_identify_ns(struct nvme_ctrl *ctrl,
  	return id;
  }
  
@@ -36,7 +36,7 @@ index 5d0f99bcc987..e2440dcda5a7 100644
  	c.features.fid = cpu_to_le32(fid);
  	c.features.dword11 = cpu_to_le32(dword11);
  
-@@ -1050,6 +1050,24 @@ static int nvme_set_features(struct nvme_ctrl *dev, unsigned fid, unsigned dword
+@@ -1068,6 +1068,24 @@ static int nvme_set_features(struct nvme_ctrl *dev, unsigned fid, unsigned dword
  	return ret;
  }
  
@@ -61,7 +61,7 @@ index 5d0f99bcc987..e2440dcda5a7 100644
  int nvme_set_queue_count(struct nvme_ctrl *ctrl, int *count)
  {
  	u32 q_count = (*count - 1) | ((*count - 1) << 16);
-@@ -3565,6 +3583,18 @@ static void nvme_free_ctrl(struct device *dev)
+@@ -3584,6 +3602,18 @@ static void nvme_free_ctrl(struct device *dev)
  		nvme_put_subsystem(subsys);
  }
  
@@ -81,10 +81,10 @@ index 5d0f99bcc987..e2440dcda5a7 100644
   * Initialize a NVMe controller structures.  This needs to be called during
   * earliest initialization so that we have the initialized structured around
 diff --git a/drivers/nvme/host/nvme.h b/drivers/nvme/host/nvme.h
-index 2653e1f4196d..3bcd14a28e32 100644
+index cc4273f11989..40192b661798 100644
 --- a/drivers/nvme/host/nvme.h
 +++ b/drivers/nvme/host/nvme.h
-@@ -433,6 +433,7 @@ void nvme_complete_async_event(struct nvme_ctrl *ctrl, __le16 status,
+@@ -436,6 +436,7 @@ void nvme_complete_async_event(struct nvme_ctrl *ctrl, __le16 status,
  void nvme_stop_queues(struct nvme_ctrl *ctrl);
  void nvme_start_queues(struct nvme_ctrl *ctrl);
  void nvme_kill_queues(struct nvme_ctrl *ctrl);
@@ -92,7 +92,7 @@ index 2653e1f4196d..3bcd14a28e32 100644
  void nvme_unfreeze(struct nvme_ctrl *ctrl);
  void nvme_wait_freeze(struct nvme_ctrl *ctrl);
  void nvme_wait_freeze_timeout(struct nvme_ctrl *ctrl, long timeout);
-@@ -450,6 +451,12 @@ int __nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
+@@ -453,6 +454,12 @@ int __nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
  		union nvme_result *result, void *buffer, unsigned bufflen,
  		unsigned timeout, int qid, int at_head,
  		blk_mq_req_flags_t flags);
@@ -106,7 +106,7 @@ index 2653e1f4196d..3bcd14a28e32 100644
  void nvme_stop_keep_alive(struct nvme_ctrl *ctrl);
  int nvme_reset_ctrl(struct nvme_ctrl *ctrl);
 diff --git a/drivers/nvme/host/pci.c b/drivers/nvme/host/pci.c
-index a64a8bca0d5b..8ab9abfd68b0 100644
+index 124f41157173..288ae6bf6213 100644
 --- a/drivers/nvme/host/pci.c
 +++ b/drivers/nvme/host/pci.c
 @@ -26,6 +26,7 @@
@@ -125,7 +125,7 @@ index a64a8bca0d5b..8ab9abfd68b0 100644
  
  	mempool_t *iod_mempool;
  
-@@ -2267,6 +2269,7 @@ static void nvme_reset_work(struct work_struct *work)
+@@ -2269,6 +2271,7 @@ static void nvme_reset_work(struct work_struct *work)
  	 */
  	if (dev->ctrl.ctrl_config & NVME_CC_ENABLE)
  		nvme_dev_disable(dev, false);
@@ -133,7 +133,7 @@ index a64a8bca0d5b..8ab9abfd68b0 100644
  
  	mutex_lock(&dev->shutdown_lock);
  	result = nvme_pci_enable(dev);
-@@ -2606,16 +2609,101 @@ static void nvme_remove(struct pci_dev *pdev)
+@@ -2608,16 +2611,101 @@ static void nvme_remove(struct pci_dev *pdev)
  }
  
  #ifdef CONFIG_PM_SLEEP
@@ -236,7 +236,7 @@ index a64a8bca0d5b..8ab9abfd68b0 100644
  {
  	struct pci_dev *pdev = to_pci_dev(dev);
  	struct nvme_dev *ndev = pci_get_drvdata(pdev);
-@@ -2623,9 +2711,16 @@ static int nvme_resume(struct device *dev)
+@@ -2625,9 +2713,16 @@ static int nvme_resume(struct device *dev)
  	nvme_reset_ctrl(&ndev->ctrl);
  	return 0;
  }
@@ -255,7 +255,7 @@ index a64a8bca0d5b..8ab9abfd68b0 100644
  
  static pci_ers_result_t nvme_error_detected(struct pci_dev *pdev,
  						pci_channel_state_t state)
-@@ -2728,9 +2823,11 @@ static struct pci_driver nvme_driver = {
+@@ -2730,9 +2825,11 @@ static struct pci_driver nvme_driver = {
  	.probe		= nvme_probe,
  	.remove		= nvme_remove,
  	.shutdown	= nvme_shutdown,
