@@ -24,7 +24,7 @@ fi
 
 SUR_MODEL="$(dmidecode | grep "Product Name" -m 1 | xargs | sed -e 's/Product Name: //g')"
 
-echo "Running $LX_BASE version $LX_VERSION on a $LX_MODEL."
+echo "Running $LX_BASE version $LX_VERSION on a $SUR_MODEL."
 read -rp "Press enter if this is correct, or CTRL-C to cancel." tmp; echo
 echo "Continuing setup..."
 
