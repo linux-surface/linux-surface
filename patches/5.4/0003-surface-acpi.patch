@@ -1,0 +1,6318 @@
+From 125adf6ef31b988d71377e67f4e865dee518ab84 Mon Sep 17 00:00:00 2001
+From: qzed <qzed@users.noreply.github.com>
+Date: Mon, 26 Aug 2019 01:11:08 +0200
+Subject: [PATCH 3/7] surface-acpi
+
+---
+ drivers/acpi/acpica/dsopcode.c                |    2 +-
+ drivers/acpi/acpica/exfield.c                 |   12 +-
+ drivers/platform/x86/Kconfig                  |    1 +
+ drivers/platform/x86/Makefile                 |    1 +
+ drivers/platform/x86/surface_sam/Kconfig      |  155 ++
+ drivers/platform/x86/surface_sam/Makefile     |    9 +
+ .../x86/surface_sam/surface_sam_dtx.c         |  623 ++++++
+ .../x86/surface_sam/surface_sam_san.c         |  791 ++++++++
+ .../x86/surface_sam/surface_sam_sid.c         |  117 ++
+ .../x86/surface_sam/surface_sam_sid_gpelid.c  |  219 ++
+ .../surface_sam/surface_sam_sid_perfmode.c    |  225 +++
+ .../x86/surface_sam/surface_sam_sid_power.c   | 1258 ++++++++++++
+ .../x86/surface_sam/surface_sam_sid_vhf.c     |  440 ++++
+ .../x86/surface_sam/surface_sam_ssh.c         | 1779 +++++++++++++++++
+ .../x86/surface_sam/surface_sam_ssh.h         |   97 +
+ .../x86/surface_sam/surface_sam_vhf.c         |  276 +++
+ drivers/tty/serdev/core.c                     |  111 +-
+ 17 files changed, 6100 insertions(+), 16 deletions(-)
+ create mode 100644 drivers/platform/x86/surface_sam/Kconfig
+ create mode 100644 drivers/platform/x86/surface_sam/Makefile
+ create mode 100644 drivers/platform/x86/surface_sam/surface_sam_dtx.c
+ create mode 100644 drivers/platform/x86/surface_sam/surface_sam_san.c
+ create mode 100644 drivers/platform/x86/surface_sam/surface_sam_sid.c
+ create mode 100644 drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c
+ create mode 100644 drivers/platform/x86/surface_sam/surface_sam_sid_perfmode.c
+ create mode 100644 drivers/platform/x86/surface_sam/surface_sam_sid_power.c
+ create mode 100644 drivers/platform/x86/surface_sam/surface_sam_sid_vhf.c
+ create mode 100644 drivers/platform/x86/surface_sam/surface_sam_ssh.c
+ create mode 100644 drivers/platform/x86/surface_sam/surface_sam_ssh.h
+ create mode 100644 drivers/platform/x86/surface_sam/surface_sam_vhf.c
+
+diff --git a/drivers/acpi/acpica/dsopcode.c b/drivers/acpi/acpica/dsopcode.c
+index 10f32b62608e..7b2a4987f050 100644
+--- a/drivers/acpi/acpica/dsopcode.c
++++ b/drivers/acpi/acpica/dsopcode.c
+@@ -123,7 +123,7 @@ acpi_ds_init_buffer_field(u16 aml_opcode,
+ 
+ 		/* Offset is in bits, count is in bits */
+ 
+-		field_flags = AML_FIELD_ACCESS_BYTE;
++		field_flags = AML_FIELD_ACCESS_BUFFER;
+ 		bit_offset = offset;
+ 		bit_count = (u32) length_desc->integer.value;
+ 
+diff --git a/drivers/acpi/acpica/exfield.c b/drivers/acpi/acpica/exfield.c
+index d3d2dbfba680..0b7f617a6e9b 100644
+--- a/drivers/acpi/acpica/exfield.c
++++ b/drivers/acpi/acpica/exfield.c
+@@ -109,6 +109,7 @@ acpi_ex_read_data_from_field(struct acpi_walk_state *walk_state,
+ 	union acpi_operand_object *buffer_desc;
+ 	void *buffer;
+ 	u32 buffer_length;
++	u8 field_flags;
+ 
+ 	ACPI_FUNCTION_TRACE_PTR(ex_read_data_from_field, obj_desc);
+ 
+@@ -157,11 +158,16 @@ acpi_ex_read_data_from_field(struct acpi_walk_state *walk_state,
+ 	 * Note: Field.length is in bits.
+ 	 */
+ 	buffer_length =
+-	    (acpi_size)ACPI_ROUND_BITS_UP_TO_BYTES(obj_desc->field.bit_length);
++	    (acpi_size)ACPI_ROUND_BITS_UP_TO_BYTES(obj_desc->common_field.bit_length);
++	field_flags = obj_desc->common_field.field_flags;
+ 
+-	if (buffer_length > acpi_gbl_integer_byte_width) {
++	if (buffer_length > acpi_gbl_integer_byte_width ||
++	    (field_flags & AML_FIELD_ACCESS_TYPE_MASK) == AML_FIELD_ACCESS_BUFFER) {
+ 
+-		/* Field is too large for an Integer, create a Buffer instead */
++		/*
++		 * Field is either too large for an Integer, or a actually of type
++		 * buffer, so create a Buffer.
++		 */
+ 
+ 		buffer_desc = acpi_ut_create_buffer_object(buffer_length);
+ 		if (!buffer_desc) {
+diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
+index ae21d08c65e8..675ec12cbc0e 100644
+--- a/drivers/platform/x86/Kconfig
++++ b/drivers/platform/x86/Kconfig
+@@ -1336,6 +1336,7 @@ config PCENGINES_APU2
+ 	  will be called pcengines-apuv2.
+ 
+ source "drivers/platform/x86/intel_speed_select_if/Kconfig"
++source "drivers/platform/x86/surface_sam/Kconfig"
+ 
+ endif # X86_PLATFORM_DEVICES
+ 
+diff --git a/drivers/platform/x86/Makefile b/drivers/platform/x86/Makefile
+index 415104033060..18f5a4ba7244 100644
+--- a/drivers/platform/x86/Makefile
++++ b/drivers/platform/x86/Makefile
+@@ -100,3 +100,4 @@ obj-$(CONFIG_I2C_MULTI_INSTANTIATE)	+= i2c-multi-instantiate.o
+ obj-$(CONFIG_INTEL_ATOMISP2_PM)	+= intel_atomisp2_pm.o
+ obj-$(CONFIG_PCENGINES_APU2)	+= pcengines-apuv2.o
+ obj-$(CONFIG_INTEL_SPEED_SELECT_INTERFACE) += intel_speed_select_if/
++obj-$(CONFIG_SURFACE_SAM)	+= surface_sam/
+diff --git a/drivers/platform/x86/surface_sam/Kconfig b/drivers/platform/x86/surface_sam/Kconfig
+new file mode 100644
+index 000000000000..256a7c3f1fa3
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/Kconfig
+@@ -0,0 +1,155 @@
++menuconfig SURFACE_SAM
++    depends on ACPI
++    tristate "Microsoft Surface/System Aggregator Module and Platform Drivers"
++    ---help---
++      Drivers for the Surface/System Aggregator Module (SAM) of Microsoft
++      Surface devices.
++
++      SAM is an embedded controller that provides access to various
++      functionalities on these devices, including battery status, keyboard
++      events (on the Laptops) and many more.
++
++      Say M/Y here if you have a Microsoft Surface device with a SAM device
++      (i.e. 5th generation or later).
++
++config SURFACE_SAM_SSH
++	tristate "Surface Serial Hub Driver"
++	depends on SURFACE_SAM
++	depends on X86_INTEL_LPSS
++	depends on SERIAL_8250_DW
++	depends on SERIAL_8250_DMA
++	depends on SERIAL_DEV_CTRL_TTYPORT
++	select CRC_CCITT
++	default m
++	---help---
++	  Surface Serial Hub driver for 5th generation (or later) Microsoft
++	  Surface devices.
++
++	  This is the base driver for the embedded serial controller found on
++	  5th generation (and later) Microsoft Surface devices (e.g. Book 2,
++	  Laptop, Laptop 2, Pro 2017, Pro 6, ...). This driver itself only
++	  provides access to the embedded controller (SAM) and subsequent
++	  drivers are required for the respective functionalities.
++
++	  If you have a 5th generation (or later) Microsoft Surface device, say
++	  Y or M here.
++
++config SURFACE_SAM_SSH_DEBUG_DEVICE
++	bool "Surface Serial Hub Debug Device"
++	depends on SURFACE_SAM_SSH
++	depends on SYSFS
++	default n
++	---help---
++	  Debug device for direct communication with the embedded controller
++	  found on 5th generation (and later) Microsoft Surface devices (e.g.
++	  Book 2, Laptop, Laptop 2, Pro 2017, Pro 6, ...) via sysfs.
++
++	  If you are not sure, say N here.
++
++config SURFACE_SAM_SAN
++	tristate "Surface ACPI Notify Driver"
++	depends on SURFACE_SAM_SSH
++	default m
++	---help---
++	  Surface ACPI Notify driver for 5th generation (or later) Microsoft
++	  Surface devices.
++
++	  This driver enables basic ACPI events and requests, such as battery
++	  status requests/events, thermal events, lid status, and possibly more,
++	  which would otherwise not work on these devices.
++
++	  If you are not sure, say M here.
++
++config SURFACE_SAM_VHF
++	tristate "Surface Virtual HID Framework Driver"
++	depends on SURFACE_SAM_SSH
++	depends on HID
++	default m
++	---help---
++	  Surface Virtual HID Framework driver for 5th generation (or later)
++	  Microsoft Surface devices.
++
++	  This driver provides support for the Microsoft Virtual HID framework,
++	  which is required for keyboard support on the Surface Laptop 1 and 2.
++
++	  If you are not sure, say M here.
++
++config SURFACE_SAM_DTX
++	tristate "Surface Detachment System (DTX) Driver"
++	depends on SURFACE_SAM_SSH
++	depends on INPUT
++	default m
++	---help---
++	  Surface Detachment System (DTX) driver for the Microsoft Surface Book
++	  2. This driver provides support for proper detachment handling in
++	  user-space, status-events relating to the base and support for
++	  the safe-guard keeping the base attached when the discrete GPU
++	  contained in it is running via the special /dev/surface-dtx device.
++
++	  Also provides a standard input device to provide SW_TABLET_MODE events
++	  upon device mode change.
++
++	  If you are not sure, say M here.
++
++config SURFACE_SAM_SID
++	tristate "Surface Platform Integration Driver"
++	depends on SURFACE_SAM_SSH
++	default m
++	---help---
++	  Surface Platform Integration Driver for the Microsoft Surface Devices.
++	  This driver loads various model-specific sub-drivers, including
++	  battery and keyboard support on 7th generation Surface devices, proper
++	  lid setup to enable device wakeup when the lid is opened on multiple
++	  models, as well as performance mode setting support on the Surface
++	  Book 2.
++
++	  If you are not sure, say M here.
++
++config SURFACE_SAM_SID_GPELID
++	tristate "Surface Lid Wakeup Driver"
++	depends on SURFACE_SAM_SID
++	default m
++	---help---
++	  Driver to set up device wake-up via lid on Intel-based Microsoft
++	  Surface devices. These devices do not wake up from sleep as their GPE
++	  interrupt is not configured automatically. This driver solves that
++	  problem.
++
++	  If you are not sure, say M here.
++
++config SURFACE_SAM_SID_PERFMODE
++	tristate "Surface Performance Mode Driver"
++	depends on SURFACE_SAM_SID
++	depends on SYSFS
++	default m
++	---help---
++	  This driver provides suport for setting performance-modes on Surface
++	  devices via the perf_mode sysfs attribute. Currently only supports the
++	  Surface Book 2. Performance-modes directly influence the fan-profile
++	  of the device, allowing to choose between higher performance or
++	  quieter operation.
++
++	  If you are not sure, say M here.
++
++config SURFACE_SAM_SID_VHF
++	tristate "Surface SAM HID Driver"
++	depends on SURFACE_SAM_SID
++	depends on HID
++	default m
++	---help---
++	  This driver provides support for HID devices connected via the Surface
++	  SAM embedded controller. It provides support for keyboard and touchpad
++	  on the Surface Laptop 3 models.
++
++	  If you are not sure, say M here.
++
++config SURFACE_SAM_SID_POWER
++	tristate "Surface SAM Battery/AC Driver"
++	depends on SURFACE_SAM_SID
++	select POWER_SUPPLY
++	default m
++	---help---
++	  This driver provides support for the battery and AC on 7th generation
++	  Surface devices.
++
++	  If you are not sure, say M here.
+diff --git a/drivers/platform/x86/surface_sam/Makefile b/drivers/platform/x86/surface_sam/Makefile
+new file mode 100644
+index 000000000000..97ef66ff273d
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/Makefile
+@@ -0,0 +1,9 @@
++obj-$(CONFIG_SURFACE_SAM_SSH)		+= surface_sam_ssh.o
++obj-$(CONFIG_SURFACE_SAM_SAN)		+= surface_sam_san.o
++obj-$(CONFIG_SURFACE_SAM_DTX)		+= surface_sam_dtx.o
++obj-$(CONFIG_SURFACE_SAM_VHF)		+= surface_sam_vhf.o
++obj-$(CONFIG_SURFACE_SAM_SID)		+= surface_sam_sid.o
++obj-$(CONFIG_SURFACE_SAM_SID_GPELID)	+= surface_sam_sid_gpelid.o
++obj-$(CONFIG_SURFACE_SAM_SID_PERFMODE)	+= surface_sam_sid_perfmode.o
++obj-$(CONFIG_SURFACE_SAM_SID_POWER)	+= surface_sam_sid_power.o
++obj-$(CONFIG_SURFACE_SAM_SID_VHF)	+= surface_sam_sid_vhf.o
+diff --git a/drivers/platform/x86/surface_sam/surface_sam_dtx.c b/drivers/platform/x86/surface_sam/surface_sam_dtx.c
+new file mode 100644
+index 000000000000..4b924de6ab09
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/surface_sam_dtx.c
+@@ -0,0 +1,623 @@
++/*
++ * Detachment system (DTX) driver for Microsoft Surface Book 2.
++ */
++
++#include <linux/acpi.h>
++#include <linux/delay.h>
++#include <linux/fs.h>
++#include <linux/input.h>
++#include <linux/ioctl.h>
++#include <linux/kernel.h>
++#include <linux/miscdevice.h>
++#include <linux/module.h>
++#include <linux/poll.h>
++#include <linux/rculist.h>
++#include <linux/slab.h>
++#include <linux/spinlock.h>
++#include <linux/platform_device.h>
++
++#include "surface_sam_ssh.h"
++
++
++#define USB_VENDOR_ID_MICROSOFT				0x045e
++#define USB_DEVICE_ID_MS_SURFACE_BASE_2_INTEGRATION	0x0922
++
++// name copied from MS device manager
++#define DTX_INPUT_NAME	"Microsoft Surface Base 2 Integration Device"
++
++
++#define DTX_CMD_LATCH_LOCK				_IO(0x11, 0x01)
++#define DTX_CMD_LATCH_UNLOCK				_IO(0x11, 0x02)
++#define DTX_CMD_LATCH_REQUEST				_IO(0x11, 0x03)
++#define DTX_CMD_LATCH_OPEN				_IO(0x11, 0x04)
++#define DTX_CMD_GET_OPMODE				_IOR(0x11, 0x05, int)
++
++#define SAM_RQST_DTX_TC					0x11
++#define SAM_RQST_DTX_CID_LATCH_LOCK			0x06
++#define SAM_RQST_DTX_CID_LATCH_UNLOCK			0x07
++#define SAM_RQST_DTX_CID_LATCH_REQUEST			0x08
++#define SAM_RQST_DTX_CID_LATCH_OPEN			0x09
++#define SAM_RQST_DTX_CID_GET_OPMODE			0x0D
++
++#define SAM_EVENT_DTX_TC				0x11
++#define SAM_EVENT_DTX_RQID				0x0011
++#define SAM_EVENT_DTX_CID_CONNECTION			0x0c
++#define SAM_EVENT_DTX_CID_BUTTON			0x0e
++#define SAM_EVENT_DTX_CID_ERROR				0x0f
++#define SAM_EVENT_DTX_CID_LATCH_STATUS			0x11
++
++#define DTX_OPMODE_TABLET				0x00
++#define DTX_OPMODE_LAPTOP				0x01
++#define DTX_OPMODE_STUDIO				0x02
++
++#define DTX_LATCH_CLOSED				0x00
++#define DTX_LATCH_OPENED				0x01
++
++
++// Warning: This must always be a power of 2!
++#define DTX_CLIENT_BUF_SIZE				16
++
++#define DTX_CONNECT_OPMODE_DELAY			1000
++
++#define DTX_ERR		KERN_ERR "surface_sam_dtx: "
++#define DTX_WARN	KERN_WARNING "surface_sam_dtx: "
++
++
++struct surface_dtx_event {
++	u8 type;
++	u8 code;
++	u8 arg0;
++	u8 arg1;
++} __packed;
++
++struct surface_dtx_dev {
++	wait_queue_head_t waitq;
++	struct miscdevice mdev;
++	spinlock_t client_lock;
++	struct list_head client_list;
++	struct mutex mutex;
++	bool active;
++	spinlock_t input_lock;
++	struct input_dev *input_dev;
++};
++
++struct surface_dtx_client {
++	struct list_head node;
++	struct surface_dtx_dev *ddev;
++	struct fasync_struct *fasync;
++	spinlock_t buffer_lock;
++	unsigned int buffer_head;
++	unsigned int buffer_tail;
++	struct surface_dtx_event buffer[DTX_CLIENT_BUF_SIZE];
++};
++
++
++static struct surface_dtx_dev surface_dtx_dev;
++
++
++static int surface_sam_query_opmpde(void)
++{
++	u8 result_buf[1];
++	int status;
++
++	struct surface_sam_ssh_rqst rqst = {
++		.tc  = SAM_RQST_DTX_TC,
++		.cid = SAM_RQST_DTX_CID_GET_OPMODE,
++		.iid = 0,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
++		.snc = 1,
++		.cdl = 0,
++		.pld = NULL,
++	};
++
++	struct surface_sam_ssh_buf result = {
++		.cap = 1,
++		.len = 0,
++		.data = result_buf,
++	};
++
++	status = surface_sam_ssh_rqst(&rqst, &result);
++	if (status) {
++		return status;
++	}
++
++	if (result.len != 1) {
++		return -EFAULT;
++	}
++
++	return result.data[0];
++}
++
++
++static int dtx_cmd_simple(u8 cid)
++{
++	struct surface_sam_ssh_rqst rqst = {
++		.tc  = SAM_RQST_DTX_TC,
++		.cid = cid,
++		.iid = 0,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
++		.snc = 0,
++		.cdl = 0,
++		.pld = NULL,
++	};
++
++	return surface_sam_ssh_rqst(&rqst, NULL);
++}
++
++static int dtx_cmd_get_opmode(int __user *buf)
++{
++	int opmode = surface_sam_query_opmpde();
++	if (opmode < 0) {
++		return opmode;
++	}
++
++	if (put_user(opmode, buf)) {
++		return -EACCES;
++	}
++
++	return 0;
++}
++
++
++static int surface_dtx_open(struct inode *inode, struct file *file)
++{
++	struct surface_dtx_dev *ddev = container_of(file->private_data, struct surface_dtx_dev, mdev);
++	struct surface_dtx_client *client;
++
++	// initialize client
++	client = kzalloc(sizeof(struct surface_dtx_client), GFP_KERNEL);
++	if (!client) {
++		return -ENOMEM;
++	}
++
++	spin_lock_init(&client->buffer_lock);
++	client->buffer_head = 0;
++	client->buffer_tail = 0;
++	client->ddev = ddev;
++
++	// attach client
++	spin_lock(&ddev->client_lock);
++	list_add_tail_rcu(&client->node, &ddev->client_list);
++	spin_unlock(&ddev->client_lock);
++
++	file->private_data = client;
++	nonseekable_open(inode, file);
++
++	return 0;
++}
++
++static int surface_dtx_release(struct inode *inode, struct file *file)
++{
++	struct surface_dtx_client *client = file->private_data;
++
++	// detach client
++	spin_lock(&client->ddev->client_lock);
++	list_del_rcu(&client->node);
++	spin_unlock(&client->ddev->client_lock);
++	synchronize_rcu();
++
++	kfree(client);
++	file->private_data = NULL;
++
++	return 0;
++}
++
++static ssize_t surface_dtx_read(struct file *file, char __user *buf, size_t count, loff_t *offs)
++{
++	struct surface_dtx_client *client = file->private_data;
++	struct surface_dtx_dev *ddev = client->ddev;
++	struct surface_dtx_event event;
++	size_t read = 0;
++	int status = 0;
++
++	if (count != 0 && count < sizeof(struct surface_dtx_event)) {
++		return -EINVAL;
++	}
++
++	if (!ddev->active) {
++		return -ENODEV;
++	}
++
++	// check availability
++	if (client->buffer_head == client->buffer_tail){
++		if (file->f_flags & O_NONBLOCK) {
++			return -EAGAIN;
++		}
++
++		status = wait_event_interruptible(ddev->waitq,
++				client->buffer_head != client->buffer_tail ||
++				!ddev->active);
++		if (status) {
++			return status;
++		}
++
++		if (!ddev->active) {
++			return -ENODEV;
++		}
++	}
++
++	// copy events one by one
++	while (read + sizeof(struct surface_dtx_event) <= count) {
++		spin_lock_irq(&client->buffer_lock);
++
++		if(client->buffer_head == client->buffer_tail) {
++			spin_unlock_irq(&client->buffer_lock);
++			break;
++		}
++
++		// get one event
++		event = client->buffer[client->buffer_tail];
++		client->buffer_tail = (client->buffer_tail + 1) & (DTX_CLIENT_BUF_SIZE - 1);
++		spin_unlock_irq(&client->buffer_lock);
++
++		// copy to userspace
++		if(copy_to_user(buf, &event, sizeof(struct surface_dtx_event))) {
++			return -EFAULT;
++		}
++
++		read += sizeof(struct surface_dtx_event);
++	}
++
++	return read;
++}
++
++static __poll_t surface_dtx_poll(struct file *file, struct poll_table_struct *pt)
++{
++	struct surface_dtx_client *client = file->private_data;
++	int mask;
++
++	poll_wait(file, &client->ddev->waitq, pt);
++
++	if (client->ddev->active) {
++		mask = EPOLLOUT | EPOLLWRNORM;
++	} else {
++		mask = EPOLLHUP | EPOLLERR;
++	}
++
++	if (client->buffer_head != client->buffer_tail) {
++		mask |= EPOLLIN | EPOLLRDNORM;
++	}
++
++	return mask;
++}
++
++static int surface_dtx_fasync(int fd, struct file *file, int on)
++{
++	struct surface_dtx_client *client = file->private_data;
++
++	return fasync_helper(fd, file, on, &client->fasync);
++}
++
++static long surface_dtx_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
++{
++	struct surface_dtx_client *client = file->private_data;
++	struct surface_dtx_dev *ddev = client->ddev;
++	int status;
++
++	status = mutex_lock_interruptible(&ddev->mutex);
++	if (status) {
++		return status;
++	}
++
++	if (!ddev->active) {
++		mutex_unlock(&ddev->mutex);
++		return -ENODEV;
++	}
++
++	switch (cmd) {
++	case DTX_CMD_LATCH_LOCK:
++		status = dtx_cmd_simple(SAM_RQST_DTX_CID_LATCH_LOCK);
++		break;
++
++	case DTX_CMD_LATCH_UNLOCK:
++		status = dtx_cmd_simple(SAM_RQST_DTX_CID_LATCH_UNLOCK);
++		break;
++
++	case DTX_CMD_LATCH_REQUEST:
++		status = dtx_cmd_simple(SAM_RQST_DTX_CID_LATCH_REQUEST);
++		break;
++
++	case DTX_CMD_LATCH_OPEN:
++		status = dtx_cmd_simple(SAM_RQST_DTX_CID_LATCH_OPEN);
++		break;
++
++	case DTX_CMD_GET_OPMODE:
++		status = dtx_cmd_get_opmode((int __user *)arg);
++		break;
++
++	default:
++		status = -EINVAL;
++		break;
++	}
++
++	mutex_unlock(&ddev->mutex);
++	return status;
++}
++
++static const struct file_operations surface_dtx_fops = {
++	.owner          = THIS_MODULE,
++	.open           = surface_dtx_open,
++	.release        = surface_dtx_release,
++	.read           = surface_dtx_read,
++	.poll           = surface_dtx_poll,
++	.fasync         = surface_dtx_fasync,
++	.unlocked_ioctl = surface_dtx_ioctl,
++	.llseek         = no_llseek,
++};
++
++static struct surface_dtx_dev surface_dtx_dev = {
++	.mdev = {
++		.minor = MISC_DYNAMIC_MINOR,
++		.name = "surface_dtx",
++		.fops = &surface_dtx_fops,
++	},
++	.client_lock = __SPIN_LOCK_UNLOCKED(),
++	.input_lock = __SPIN_LOCK_UNLOCKED(),
++	.mutex  = __MUTEX_INITIALIZER(surface_dtx_dev.mutex),
++	.active = false,
++};
++
++
++static void surface_dtx_push_event(struct surface_dtx_dev *ddev, struct surface_dtx_event *event)
++{
++	struct surface_dtx_client *client;
++
++	rcu_read_lock();
++	list_for_each_entry_rcu(client, &ddev->client_list, node) {
++		spin_lock(&client->buffer_lock);
++
++		client->buffer[client->buffer_head++] = *event;
++		client->buffer_head &= DTX_CLIENT_BUF_SIZE - 1;
++
++		if (unlikely(client->buffer_head == client->buffer_tail)) {
++			printk(DTX_WARN "event buffer overrun\n");
++			client->buffer_tail = (client->buffer_tail + 1) & (DTX_CLIENT_BUF_SIZE - 1);
++		}
++
++		spin_unlock(&client->buffer_lock);
++
++		kill_fasync(&client->fasync, SIGIO, POLL_IN);
++	}
++	rcu_read_unlock();
++
++	wake_up_interruptible(&ddev->waitq);
++}
++
++
++static void surface_dtx_update_opmpde(struct surface_dtx_dev *ddev)
++{
++	struct surface_dtx_event event;
++	int opmode;
++
++	// get operation mode
++	opmode = surface_sam_query_opmpde();
++	if (opmode < 0) {
++		printk(DTX_ERR "EC request failed with error %d\n", opmode);
++	}
++
++	// send DTX event
++	event.type = 0x11;
++	event.code = 0x0D;
++	event.arg0 = opmode;
++	event.arg1 = 0x00;
++
++	surface_dtx_push_event(ddev, &event);
++
++	// send SW_TABLET_MODE event
++	spin_lock(&ddev->input_lock);
++	input_report_switch(ddev->input_dev, SW_TABLET_MODE, opmode == 0x00);
++	input_sync(ddev->input_dev);
++	spin_unlock(&ddev->input_lock);
++}
++
++static int surface_dtx_evt_dtx(struct surface_sam_ssh_event *in_event, void *data)
++{
++	struct surface_dtx_dev *ddev = data;
++	struct surface_dtx_event event;
++
++	switch (in_event->cid) {
++	case SAM_EVENT_DTX_CID_CONNECTION:
++	case SAM_EVENT_DTX_CID_BUTTON:
++	case SAM_EVENT_DTX_CID_ERROR:
++	case SAM_EVENT_DTX_CID_LATCH_STATUS:
++		if (in_event->len > 2) {
++			printk(DTX_ERR "unexpected payload size (cid: %x, len: %u)\n",
++			       in_event->cid, in_event->len);
++			return 0;
++		}
++
++		event.type = in_event->tc;
++		event.code = in_event->cid;
++		event.arg0 = in_event->len >= 1 ? in_event->pld[0] : 0x00;
++		event.arg1 = in_event->len >= 2 ? in_event->pld[1] : 0x00;
++		surface_dtx_push_event(ddev, &event);
++		break;
++
++	default:
++		printk(DTX_WARN "unhandled dtx event (cid: %x)\n", in_event->cid);
++	}
++
++	// update device mode
++	if (in_event->cid == SAM_EVENT_DTX_CID_CONNECTION) {
++		if (in_event->pld[0]) {
++			// Note: we're already in a workqueue task
++			msleep(DTX_CONNECT_OPMODE_DELAY);
++		}
++
++		surface_dtx_update_opmpde(ddev);
++	}
++
++	return 0;
++}
++
++static int surface_dtx_events_setup(struct surface_dtx_dev *ddev)
++{
++	int status;
++
++	status = surface_sam_ssh_set_event_handler(SAM_EVENT_DTX_RQID, surface_dtx_evt_dtx, ddev);
++	if (status) {
++		goto err_handler;
++	}
++
++	status = surface_sam_ssh_enable_event_source(SAM_EVENT_DTX_TC, 0x01, SAM_EVENT_DTX_RQID);
++	if (status) {
++		goto err_source;
++	}
++
++	return 0;
++
++err_source:
++	surface_sam_ssh_remove_event_handler(SAM_EVENT_DTX_RQID);
++err_handler:
++	return status;
++}
++
++static void surface_dtx_events_disable(void)
++{
++	surface_sam_ssh_disable_event_source(SAM_EVENT_DTX_TC, 0x01, SAM_EVENT_DTX_RQID);
++	surface_sam_ssh_remove_event_handler(SAM_EVENT_DTX_RQID);
++}
++
++
++static struct input_dev *surface_dtx_register_inputdev(struct platform_device *pdev)
++{
++	struct input_dev *input_dev;
++	int status;
++
++	input_dev = input_allocate_device();
++	if (!input_dev) {
++		return ERR_PTR(-ENOMEM);
++	}
++
++	input_dev->name = DTX_INPUT_NAME;
++	input_dev->dev.parent = &pdev->dev;
++	input_dev->id.bustype = BUS_VIRTUAL;
++	input_dev->id.vendor  = USB_VENDOR_ID_MICROSOFT;
++	input_dev->id.product = USB_DEVICE_ID_MS_SURFACE_BASE_2_INTEGRATION;
++
++	input_set_capability(input_dev, EV_SW, SW_TABLET_MODE);
++
++	status = surface_sam_query_opmpde();
++	if (status < 0) {
++		input_free_device(input_dev);
++		return ERR_PTR(status);
++	}
++
++	input_report_switch(input_dev, SW_TABLET_MODE, status == 0x00);
++
++	status = input_register_device(input_dev);
++	if (status) {
++		input_unregister_device(input_dev);
++		return ERR_PTR(status);
++	}
++
++	return input_dev;
++}
++
++
++static int surface_sam_dtx_probe(struct platform_device *pdev)
++{
++	struct surface_dtx_dev *ddev = &surface_dtx_dev;
++	struct input_dev *input_dev;
++	int status;
++
++	// link to ec
++	status = surface_sam_ssh_consumer_register(&pdev->dev);
++	if (status) {
++		return status == -ENXIO ? -EPROBE_DEFER : status;
++	}
++
++	input_dev = surface_dtx_register_inputdev(pdev);
++	if (IS_ERR(input_dev)) {
++		return PTR_ERR(input_dev);
++	}
++
++	// initialize device
++	mutex_lock(&ddev->mutex);
++	if (ddev->active) {
++		mutex_unlock(&ddev->mutex);
++		status = -ENODEV;
++		goto err_register;
++	}
++
++	INIT_LIST_HEAD(&ddev->client_list);
++	init_waitqueue_head(&ddev->waitq);
++	ddev->active = true;
++	ddev->input_dev = input_dev;
++	mutex_unlock(&ddev->mutex);
++
++	status = misc_register(&ddev->mdev);
++	if (status) {
++		goto err_register;
++	}
++
++	// enable events
++	status = surface_dtx_events_setup(ddev);
++	if (status) {
++		goto err_events_setup;
++	}
++
++	return 0;
++
++err_events_setup:
++	misc_deregister(&ddev->mdev);
++err_register:
++	input_unregister_device(ddev->input_dev);
++	return status;
++}
++
++static int surface_sam_dtx_remove(struct platform_device *pdev)
++{
++	struct surface_dtx_dev *ddev = &surface_dtx_dev;
++	struct surface_dtx_client *client;
++
++	mutex_lock(&ddev->mutex);
++	if (!ddev->active) {
++		mutex_unlock(&ddev->mutex);
++		return 0;
++	}
++
++	// mark as inactive
++	ddev->active = false;
++	mutex_unlock(&ddev->mutex);
++
++	// After this call we're guaranteed that no more input events will arive
++	surface_dtx_events_disable();
++
++	// wake up clients
++	spin_lock(&ddev->client_lock);
++	list_for_each_entry(client, &ddev->client_list, node) {
++		kill_fasync(&client->fasync, SIGIO, POLL_HUP);
++	}
++	spin_unlock(&ddev->client_lock);
++
++	wake_up_interruptible(&ddev->waitq);
++
++	// unregister user-space devices
++	input_unregister_device(ddev->input_dev);
++	misc_deregister(&ddev->mdev);
++
++	return 0;
++}
++
++
++static const struct acpi_device_id surface_sam_dtx_match[] = {
++	{ "MSHW0133", 0 },
++	{ },
++};
++MODULE_DEVICE_TABLE(acpi, surface_sam_dtx_match);
++
++static struct platform_driver surface_sam_dtx = {
++	.probe = surface_sam_dtx_probe,
++	.remove = surface_sam_dtx_remove,
++	.driver = {
++		.name = "surface_sam_dtx",
++		.acpi_match_table = ACPI_PTR(surface_sam_dtx_match),
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++	},
++};
++module_platform_driver(surface_sam_dtx);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Surface Detachment System (DTX) Driver for 5th Generation Surface Devices");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/platform/x86/surface_sam/surface_sam_san.c b/drivers/platform/x86/surface_sam/surface_sam_san.c
+new file mode 100644
+index 000000000000..810165083e0e
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/surface_sam_san.c
+@@ -0,0 +1,791 @@
++/*
++ * Surface ACPI Notify (SAN) and ACPI integration driver for SAM.
++ * Translates communication from ACPI to SSH and back.
++ */
++
++#include <linux/acpi.h>
++#include <linux/delay.h>
++#include <linux/jiffies.h>
++#include <linux/kernel.h>
++#include <linux/platform_device.h>
++
++#include "surface_sam_ssh.h"
++
++
++#define SAN_RQST_RETRY				5
++
++#define SAN_DSM_REVISION			0
++#define SAN_DSM_FN_NOTIFY_SENSOR_TRIP_POINT	0x09
++
++static const guid_t SAN_DSM_UUID =
++	GUID_INIT(0x93b666c5, 0x70c6, 0x469f, 0xa2, 0x15, 0x3d,
++	          0x48, 0x7c, 0x91, 0xab, 0x3c);
++
++#define SAM_EVENT_DELAY_PWR_ADAPTER	msecs_to_jiffies(5000)
++#define SAM_EVENT_DELAY_PWR_BST		msecs_to_jiffies(2500)
++
++#define SAM_EVENT_PWR_TC		0x02
++#define SAM_EVENT_PWR_RQID		0x0002
++#define SAM_EVENT_PWR_CID_BIX		0x15
++#define SAM_EVENT_PWR_CID_BST		0x16
++#define SAM_EVENT_PWR_CID_ADAPTER	0x17
++#define SAM_EVENT_PWR_CID_DPTF		0x4f
++
++#define SAM_EVENT_TEMP_TC		0x03
++#define SAM_EVENT_TEMP_RQID		0x0003
++#define SAM_EVENT_TEMP_CID_NOTIFY_SENSOR_TRIP_POINT	0x0b
++
++#define SAN_RQST_TAG			"surface_sam_san_rqst: "
++
++#define SAN_QUIRK_BASE_STATE_DELAY	1000
++
++
++struct san_acpi_consumer {
++	char *path;
++	bool  required;
++	u32   flags;
++};
++
++struct san_opreg_context {
++	struct acpi_connection_info connection;
++	struct device *dev;
++};
++
++struct san_consumer_link {
++	const struct san_acpi_consumer *properties;
++	struct device_link                         *link;
++};
++
++struct san_consumers {
++	u32                                   num;
++	struct san_consumer_link *links;
++};
++
++struct san_drvdata {
++	struct san_opreg_context opreg_ctx;
++	struct san_consumers     consumers;
++	bool has_power_events;
++};
++
++struct gsb_data_in {
++	u8 cv;
++} __packed;
++
++struct gsb_data_rqsx {
++	u8 cv;				// command value (should be 0x01 or 0x03)
++	u8 tc;				// target controller
++	u8 tid;				// expected to be 0x01, could be revision
++	u8 iid;				// target sub-controller (e.g. primary vs. secondary battery)
++	u8 snc;				// expect-response-flag
++	u8 cid;				// command ID
++	u8 cdl;				// payload length
++	u8 _pad;			// padding
++	u8 pld[0];			// payload
++} __packed;
++
++struct gsb_data_etwl {
++	u8 cv;				// command value (should be 0x02)
++	u8 etw3;			// ?
++	u8 etw4;			// ?
++	u8 msg[0];			// error message (ASCIIZ)
++} __packed;
++
++struct gsb_data_out {
++	u8 status;			// _SSH communication status
++	u8 len;				// _SSH payload length
++	u8 pld[0];			// _SSH payload
++} __packed;
++
++union gsb_buffer_data {
++	struct gsb_data_in   in;	// common input
++	struct gsb_data_rqsx rqsx;	// RQSX input
++	struct gsb_data_etwl etwl;	// ETWL input
++	struct gsb_data_out  out;	// output
++};
++
++struct gsb_buffer {
++	u8 status;			// GSB AttribRawProcess status
++	u8 len;				// GSB AttribRawProcess length
++	union gsb_buffer_data data;
++} __packed;
++
++
++enum san_pwr_event {
++	SAN_PWR_EVENT_BAT1_STAT	= 0x03,
++	SAN_PWR_EVENT_BAT1_INFO	= 0x04,
++	SAN_PWR_EVENT_ADP1_STAT	= 0x05,
++	SAN_PWR_EVENT_ADP1_INFO	= 0x06,
++	SAN_PWR_EVENT_BAT2_STAT	= 0x07,
++	SAN_PWR_EVENT_BAT2_INFO	= 0x08,
++};
++
++
++static int san_acpi_notify_power_event(struct device *dev, enum san_pwr_event event)
++{
++	acpi_handle san = ACPI_HANDLE(dev);
++	union acpi_object *obj;
++
++	dev_dbg(dev, "notify power event 0x%02x\n", event);
++	obj = acpi_evaluate_dsm_typed(san, &SAN_DSM_UUID, SAN_DSM_REVISION,
++	                              (u8) event, NULL, ACPI_TYPE_BUFFER);
++
++	if (IS_ERR_OR_NULL(obj)) {
++		return obj ? PTR_ERR(obj) : -ENXIO;
++	}
++
++	if (obj->buffer.length != 1 || obj->buffer.pointer[0] != 0) {
++		dev_err(dev, "got unexpected result from _DSM\n");
++		return -EFAULT;
++	}
++
++	ACPI_FREE(obj);
++	return 0;
++}
++
++static int san_acpi_notify_sensor_trip_point(struct device *dev, u8 iid)
++{
++	acpi_handle san = ACPI_HANDLE(dev);
++	union acpi_object *obj;
++	union acpi_object param;
++
++	param.type = ACPI_TYPE_INTEGER;
++	param.integer.value = iid;
++
++	obj = acpi_evaluate_dsm_typed(san, &SAN_DSM_UUID, SAN_DSM_REVISION,
++	                              SAN_DSM_FN_NOTIFY_SENSOR_TRIP_POINT,
++				      &param, ACPI_TYPE_BUFFER);
++
++	if (IS_ERR_OR_NULL(obj)) {
++		return obj ? PTR_ERR(obj) : -ENXIO;
++	}
++
++	if (obj->buffer.length != 1 || obj->buffer.pointer[0] != 0) {
++		dev_err(dev, "got unexpected result from _DSM\n");
++		return -EFAULT;
++	}
++
++	ACPI_FREE(obj);
++	return 0;
++}
++
++
++inline static int san_evt_power_adapter(struct device *dev, struct surface_sam_ssh_event *event)
++{
++	int status;
++
++	status = san_acpi_notify_power_event(dev, SAN_PWR_EVENT_ADP1_STAT);
++	if (status) {
++		dev_err(dev, "error handling power event (cid = %x)\n", event->cid);
++		return status;
++	}
++
++	/*
++	 * Enusre that the battery states get updated correctly.
++	 * When the battery is fully charged and an adapter is plugged in, it
++	 * sometimes is not updated correctly, instead showing it as charging.
++	 * Explicitly trigger battery updates to fix this.
++	 */
++
++	status = san_acpi_notify_power_event(dev, SAN_PWR_EVENT_BAT1_STAT);
++	if (status) {
++		dev_err(dev, "error handling power event (cid = %x)\n", event->cid);
++		return status;
++	}
++
++	status = san_acpi_notify_power_event(dev, SAN_PWR_EVENT_BAT2_STAT);
++	if (status) {
++		dev_err(dev, "error handling power event (cid = %x)\n", event->cid);
++		return status;
++	}
++
++	return 0;
++}
++
++inline static int san_evt_power_bix(struct device *dev, struct surface_sam_ssh_event *event)
++{
++	enum san_pwr_event evcode;
++	int status;
++
++	if (event->iid == 0x02) {
++		evcode = SAN_PWR_EVENT_BAT2_INFO;
++	} else {
++		evcode = SAN_PWR_EVENT_BAT1_INFO;
++	}
++
++	status = san_acpi_notify_power_event(dev, evcode);
++	if (status) {
++		dev_err(dev, "error handling power event (cid = %x)\n", event->cid);
++		return status;
++	}
++
++	return 0;
++}
++
++inline static int san_evt_power_bst(struct device *dev, struct surface_sam_ssh_event *event)
++{
++	enum san_pwr_event evcode;
++	int status;
++
++	if (event->iid == 0x02) {
++		evcode = SAN_PWR_EVENT_BAT2_STAT;
++	} else {
++		evcode = SAN_PWR_EVENT_BAT1_STAT;
++	}
++
++	status = san_acpi_notify_power_event(dev, evcode);
++	if (status) {
++		dev_err(dev, "error handling power event (cid = %x)\n", event->cid);
++		return status;
++	}
++
++	return 0;
++}
++
++static unsigned long san_evt_power_delay(struct surface_sam_ssh_event *event, void *data)
++{
++	switch (event->cid) {
++	case SAM_EVENT_PWR_CID_ADAPTER:
++		/*
++		 * Wait for battery state to update before signalling adapter change.
++		 */
++		return SAM_EVENT_DELAY_PWR_ADAPTER;
++
++	case SAM_EVENT_PWR_CID_BST:
++		/*
++		 * Ensure we do not miss anything important due to caching.
++		 */
++		return SAM_EVENT_DELAY_PWR_BST;
++
++	case SAM_EVENT_PWR_CID_BIX:
++	case SAM_EVENT_PWR_CID_DPTF:
++	default:
++		return 0;
++	}
++}
++
++static int san_evt_power(struct surface_sam_ssh_event *event, void *data)
++{
++	struct device *dev = (struct device *)data;
++
++	switch (event->cid) {
++	case SAM_EVENT_PWR_CID_BIX:
++		return san_evt_power_bix(dev, event);
++
++	case SAM_EVENT_PWR_CID_BST:
++		return san_evt_power_bst(dev, event);
++
++	case SAM_EVENT_PWR_CID_ADAPTER:
++		return san_evt_power_adapter(dev, event);
++
++	case SAM_EVENT_PWR_CID_DPTF:
++		/*
++		 * Ignored for now.
++		 * This signals a change in Intel DPTF PMAX, and possibly other
++		 * fields. Ignore for now as there is no corresponding _DSM call and
++		 * DPTF is implemented via a separate INT3407 device.
++		 *
++		 * The payload of this event is: [u32 PMAX, unknown...].
++		 */
++		return 0;
++
++	default:
++		dev_warn(dev, "unhandled power event (cid = %x)\n", event->cid);
++	}
++
++	return 0;
++}
++
++
++inline static int san_evt_thermal_notify(struct device *dev, struct surface_sam_ssh_event *event)
++{
++	int status;
++
++	status = san_acpi_notify_sensor_trip_point(dev, event->iid);
++	if (status) {
++		dev_err(dev, "error handling thermal event (cid = %x)\n", event->cid);
++		return status;
++	}
++
++	return 0;
++}
++
++static int san_evt_thermal(struct surface_sam_ssh_event *event, void *data)
++{
++	struct device *dev = (struct device *)data;
++
++	switch (event->cid) {
++	case SAM_EVENT_TEMP_CID_NOTIFY_SENSOR_TRIP_POINT:
++		return san_evt_thermal_notify(dev, event);
++
++	default:
++		dev_warn(dev, "unhandled thermal event (cid = %x)\n", event->cid);
++	}
++
++	return 0;
++}
++
++
++static struct gsb_data_rqsx
++*san_validate_rqsx(struct device *dev, const char *type, struct gsb_buffer *buffer)
++{
++	struct gsb_data_rqsx *rqsx = &buffer->data.rqsx;
++
++	if (buffer->len < 8) {
++		dev_err(dev, "invalid %s package (len = %d)\n",
++			type, buffer->len);
++		return NULL;
++	}
++
++	if (rqsx->cdl != buffer->len - 8) {
++		dev_err(dev, "bogus %s package (len = %d, cdl = %d)\n",
++			type, buffer->len, rqsx->cdl);
++		return NULL;
++	}
++
++	if (rqsx->tid != 0x01) {
++		dev_warn(dev, "unsupported %s package (tid = 0x%02x)\n",
++			 type, rqsx->tid);
++		return NULL;
++	}
++
++	return rqsx;
++}
++
++static acpi_status
++san_etwl(struct san_opreg_context *ctx, struct gsb_buffer *buffer)
++{
++	struct gsb_data_etwl *etwl = &buffer->data.etwl;
++
++	if (buffer->len < 3) {
++		dev_err(ctx->dev, "invalid ETWL package (len = %d)\n", buffer->len);
++		return AE_OK;
++	}
++
++	dev_err(ctx->dev, "ETWL(0x%02x, 0x%02x): %.*s\n",
++		etwl->etw3, etwl->etw4,
++		buffer->len - 3, (char *)etwl->msg);
++
++	// indicate success
++	buffer->status = 0x00;
++	buffer->len = 0x00;
++
++	return AE_OK;
++}
++
++static acpi_status
++san_rqst(struct san_opreg_context *ctx, struct gsb_buffer *buffer)
++{
++	struct gsb_data_rqsx *gsb_rqst = san_validate_rqsx(ctx->dev, "RQST", buffer);
++	struct surface_sam_ssh_rqst rqst = {};
++	struct surface_sam_ssh_buf result = {};
++	int status = 0;
++	int try;
++
++	if (!gsb_rqst) {
++		return AE_OK;
++	}
++
++	rqst.tc  = gsb_rqst->tc;
++	rqst.cid = gsb_rqst->cid;
++	rqst.iid = gsb_rqst->iid;
++	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
++	rqst.snc = gsb_rqst->snc;
++	rqst.cdl = gsb_rqst->cdl;
++	rqst.pld = &gsb_rqst->pld[0];
++
++	result.cap  = SURFACE_SAM_SSH_MAX_RQST_RESPONSE;
++	result.len  = 0;
++	result.data = kzalloc(result.cap, GFP_KERNEL);
++
++	if (!result.data) {
++		return AE_NO_MEMORY;
++	}
++
++	for (try = 0; try < SAN_RQST_RETRY; try++) {
++		if (try) {
++			dev_warn(ctx->dev, SAN_RQST_TAG "IO error occured, trying again\n");
++		}
++
++		status = surface_sam_ssh_rqst(&rqst, &result);
++		if (status != -EIO) break;
++	}
++
++	if (rqst.tc == 0x11 && rqst.cid == 0x0D && status == -EPERM) {
++		/* Base state quirk:
++		 * The base state may be queried from ACPI when the EC is still
++		 * suspended. In this case it will return '-EPERM'. This query
++		 * will only be triggered from the ACPI lid GPE interrupt, thus
++		 * we are either in laptop or studio mode (base status 0x01 or
++		 * 0x02). Furthermore, we will only get here if the device (and
++		 * EC) have been suspended.
++		 *
++		 * We now assume that the device is in laptop mode (0x01). This
++		 * has the drawback that it will wake the device when unfolding
++		 * it in studio mode, but it also allows us to avoid actively
++		 * waiting for the EC to wake up, which may incur a notable
++		 * delay.
++		 */
++
++		buffer->status          = 0x00;
++		buffer->len             = 0x03;
++		buffer->data.out.status = 0x00;
++		buffer->data.out.len    = 0x01;
++		buffer->data.out.pld[0] = 0x01;
++
++	} else if (!status) {		// success
++		buffer->status          = 0x00;
++		buffer->len             = result.len + 2;
++		buffer->data.out.status = 0x00;
++		buffer->data.out.len    = result.len;
++		memcpy(&buffer->data.out.pld[0], result.data, result.len);
++
++	} else {			// failure
++		dev_err(ctx->dev, SAN_RQST_TAG "failed with error %d\n", status);
++		buffer->status          = 0x00;
++		buffer->len             = 0x02;
++		buffer->data.out.status = 0x01;		// indicate _SSH error
++		buffer->data.out.len    = 0x00;
++	}
++
++	kfree(result.data);
++
++	return AE_OK;
++}
++
++static acpi_status
++san_rqsg(struct san_opreg_context *ctx, struct gsb_buffer *buffer)
++{
++	struct gsb_data_rqsx *rqsg = san_validate_rqsx(ctx->dev, "RQSG", buffer);
++
++	if (!rqsg) {
++		return AE_OK;
++	}
++
++	// TODO: RQSG handler
++
++	dev_warn(ctx->dev, "unsupported request: RQSG(0x%02x, 0x%02x, 0x%02x)\n",
++		 rqsg->tc, rqsg->cid, rqsg->iid);
++
++	return AE_OK;
++}
++
++
++static acpi_status
++san_opreg_handler(u32 function, acpi_physical_address command,
++		  u32 bits, u64 *value64,
++		  void *opreg_context, void *region_context)
++{
++	struct san_opreg_context *context = opreg_context;
++	struct gsb_buffer *buffer = (struct gsb_buffer *)value64;
++	int accessor_type = (0xFFFF0000 & function) >> 16;
++
++	if (command != 0) {
++		dev_warn(context->dev, "unsupported command: 0x%02llx\n", command);
++		return AE_OK;
++	}
++
++	if (accessor_type != ACPI_GSB_ACCESS_ATTRIB_RAW_PROCESS) {
++		dev_err(context->dev, "invalid access type: 0x%02x\n", accessor_type);
++		return AE_OK;
++	}
++
++	// buffer must have at least contain the command-value
++	if (buffer->len == 0) {
++		dev_err(context->dev, "request-package too small\n");
++		return AE_OK;
++	}
++
++	switch (buffer->data.in.cv) {
++	case 0x01:  return san_rqst(context, buffer);
++	case 0x02:  return san_etwl(context, buffer);
++	case 0x03:  return san_rqsg(context, buffer);
++	}
++
++	dev_warn(context->dev, "unsupported SAN0 request (cv: 0x%02x)\n", buffer->data.in.cv);
++	return AE_OK;
++}
++
++static int san_enable_power_events(struct platform_device *pdev)
++{
++	int status;
++
++	status = surface_sam_ssh_set_delayed_event_handler(
++			SAM_EVENT_PWR_RQID, san_evt_power,
++			san_evt_power_delay, &pdev->dev);
++	if (status)
++		return status;
++
++	status = surface_sam_ssh_enable_event_source(SAM_EVENT_PWR_TC, 0x01, SAM_EVENT_PWR_RQID);
++	if (status) {
++		surface_sam_ssh_remove_event_handler(SAM_EVENT_PWR_RQID);
++		return status;
++	}
++
++	return 0;
++}
++
++static int san_enable_thermal_events(struct platform_device *pdev)
++{
++	int status;
++
++	status = surface_sam_ssh_set_event_handler(
++			SAM_EVENT_TEMP_RQID, san_evt_thermal,
++			&pdev->dev);
++	if (status)
++		return status;
++
++	status = surface_sam_ssh_enable_event_source(SAM_EVENT_TEMP_TC, 0x01, SAM_EVENT_TEMP_RQID);
++	if (status) {
++		surface_sam_ssh_remove_event_handler(SAM_EVENT_TEMP_RQID);
++		return status;
++	}
++
++	return 0;
++}
++
++static void san_disable_power_events(void)
++{
++	surface_sam_ssh_disable_event_source(SAM_EVENT_PWR_TC, 0x01, SAM_EVENT_PWR_RQID);
++	surface_sam_ssh_remove_event_handler(SAM_EVENT_PWR_RQID);
++}
++
++static void san_disable_thermal_events(void)
++{
++	surface_sam_ssh_disable_event_source(SAM_EVENT_TEMP_TC, 0x01, SAM_EVENT_TEMP_RQID);
++	surface_sam_ssh_remove_event_handler(SAM_EVENT_TEMP_RQID);
++}
++
++
++static int san_enable_events(struct platform_device *pdev)
++{
++	struct san_drvdata *drvdata = platform_get_drvdata(pdev);
++	int status;
++
++	status = san_enable_thermal_events(pdev);
++	if (status)
++		return status;
++
++	/*
++	 * We have to figure out if this device uses SAN or requires a separate
++	 * driver for the battery. If it uses the separate driver, that driver
++	 * will enable and handle power events.
++	 */
++	drvdata->has_power_events = acpi_has_method(NULL, "\\_SB.BAT1._BST");
++	if (drvdata->has_power_events) {
++		status = san_enable_power_events(pdev);
++		if (status)
++			goto err;
++	}
++
++	return 0;
++
++err:
++	san_disable_thermal_events();
++	return status;
++}
++
++static void san_disable_events(struct platform_device *pdev)
++{
++	struct san_drvdata *drvdata = platform_get_drvdata(pdev);
++
++	san_disable_thermal_events();
++	if (drvdata->has_power_events)
++		san_disable_power_events();
++}
++
++
++static int san_consumers_link(struct platform_device *pdev,
++			      const struct san_acpi_consumer *cons,
++			      struct san_consumers *out)
++{
++	const struct san_acpi_consumer *con;
++	struct san_consumer_link *links, *link;
++	struct acpi_device *adev;
++	acpi_handle handle;
++	u32 max_links = 0;
++	int status;
++
++	if (!cons) {
++		return 0;
++	}
++
++	// count links
++	for (con = cons; con->path; ++con) {
++		max_links += 1;
++	}
++
++	// allocate
++	links = kzalloc(max_links * sizeof(struct san_consumer_link), GFP_KERNEL);
++	link = &links[0];
++
++	if (!links) {
++		return -ENOMEM;
++	}
++
++	// create links
++	for (con = cons; con->path; ++con) {
++		status = acpi_get_handle(NULL, con->path, &handle);
++		if (status) {
++			if (con->required || status != AE_NOT_FOUND) {
++				status = -ENXIO;
++				goto cleanup;
++			} else {
++				continue;
++			}
++		}
++
++		status = acpi_bus_get_device(handle, &adev);
++		if (status) {
++			goto cleanup;
++		}
++
++		link->link = device_link_add(&adev->dev, &pdev->dev, con->flags);
++		if (!(link->link)) {
++			status = -EFAULT;
++			goto cleanup;
++		}
++		link->properties = con;
++
++		link += 1;
++	}
++
++	out->num = link - links;
++	out->links = links;
++
++	return 0;
++
++cleanup:
++	for (link = link - 1; link >= links; --link) {
++		if (link->properties->flags & DL_FLAG_STATELESS) {
++			device_link_del(link->link);
++		}
++	}
++
++	return status;
++}
++
++static void san_consumers_unlink(struct san_consumers *consumers) {
++	u32 i;
++
++	if (!consumers) {
++		return;
++	}
++
++	for (i = 0; i < consumers->num; ++i) {
++		if (consumers->links[i].properties->flags & DL_FLAG_STATELESS) {
++			device_link_del(consumers->links[i].link);
++		}
++	}
++
++	kfree(consumers->links);
++
++	consumers->num = 0;
++	consumers->links = NULL;
++}
++
++static int surface_sam_san_probe(struct platform_device *pdev)
++{
++	const struct san_acpi_consumer *cons;
++	struct san_drvdata *drvdata;
++	acpi_handle san = ACPI_HANDLE(&pdev->dev);	// _SAN device node
++	int status;
++
++	/*
++	 * Defer probe if the _SSH driver has not set up the controller yet. This
++	 * makes sure we do not fail any initial requests (e.g. _STA request without
++	 * which the battery does not get set up correctly). Otherwise register as
++	 * consumer to set up a device_link.
++	 */
++	status = surface_sam_ssh_consumer_register(&pdev->dev);
++	if (status) {
++		return status == -ENXIO ? -EPROBE_DEFER : status;
++	}
++
++	drvdata = kzalloc(sizeof(struct san_drvdata), GFP_KERNEL);
++	if (!drvdata) {
++		return -ENOMEM;
++	}
++
++	drvdata->opreg_ctx.dev = &pdev->dev;
++
++	cons = acpi_device_get_match_data(&pdev->dev);
++	status = san_consumers_link(pdev, cons, &drvdata->consumers);
++	if (status) {
++		goto err_consumers;
++	}
++
++	platform_set_drvdata(pdev, drvdata);
++
++	status = acpi_install_address_space_handler(san,
++			ACPI_ADR_SPACE_GSBUS,
++			&san_opreg_handler,
++			NULL, &drvdata->opreg_ctx);
++
++	if (ACPI_FAILURE(status)) {
++		status = -ENODEV;
++		goto err_install_handler;
++	}
++
++	status = san_enable_events(pdev);
++	if (status) {
++		goto err_enable_events;
++	}
++
++	acpi_walk_dep_device_list(san);
++	return 0;
++
++err_enable_events:
++	acpi_remove_address_space_handler(san, ACPI_ADR_SPACE_GSBUS, &san_opreg_handler);
++err_install_handler:
++	platform_set_drvdata(san, NULL);
++	san_consumers_unlink(&drvdata->consumers);
++err_consumers:
++	kfree(drvdata);
++	return status;
++}
++
++static int surface_sam_san_remove(struct platform_device *pdev)
++{
++	struct san_drvdata *drvdata = platform_get_drvdata(pdev);
++	acpi_handle san = ACPI_HANDLE(&pdev->dev);	// _SAN device node
++	acpi_status status = AE_OK;
++
++	acpi_remove_address_space_handler(san, ACPI_ADR_SPACE_GSBUS, &san_opreg_handler);
++	san_disable_events(pdev);
++
++	san_consumers_unlink(&drvdata->consumers);
++	kfree(drvdata);
++
++	platform_set_drvdata(pdev, NULL);
++	return status;
++}
++
++
++static const struct san_acpi_consumer san_mshw0091_consumers[] = {
++	{ "\\_SB.SRTC", true,  DL_FLAG_PM_RUNTIME | DL_FLAG_STATELESS },
++	{ "\\ADP1",     true,  DL_FLAG_PM_RUNTIME | DL_FLAG_STATELESS },
++	{ "\\_SB.BAT1", true,  DL_FLAG_PM_RUNTIME | DL_FLAG_STATELESS },
++	{ "\\_SB.BAT2", false, DL_FLAG_PM_RUNTIME | DL_FLAG_STATELESS },
++	{ },
++};
++
++static const struct acpi_device_id surface_sam_san_match[] = {
++	{ "MSHW0091", (long unsigned int) san_mshw0091_consumers },
++	{ },
++};
++MODULE_DEVICE_TABLE(acpi, surface_sam_san_match);
++
++static struct platform_driver surface_sam_san = {
++	.probe = surface_sam_san_probe,
++	.remove = surface_sam_san_remove,
++	.driver = {
++		.name = "surface_sam_san",
++		.acpi_match_table = ACPI_PTR(surface_sam_san_match),
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++	},
++};
++module_platform_driver(surface_sam_san);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Surface ACPI Notify Driver for 5th Generation Surface Devices");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid.c b/drivers/platform/x86/surface_sam/surface_sam_sid.c
+new file mode 100644
+index 000000000000..f64dcd590494
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/surface_sam_sid.c
+@@ -0,0 +1,117 @@
++/*
++ * Surface Integration Driver.
++ * MFD driver to provide device/model dependent functionality.
++ */
++
++#include <linux/acpi.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++#include <linux/mfd/core.h>
++
++
++static const struct mfd_cell sid_devs_sp4[] = {
++	{ .name = "surface_sam_sid_gpelid", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sp7[] = {
++	{ .name = "surface_sam_sid_gpelid",  .id = -1 },
++	{ .name = "surface_sam_sid_ac",      .id = -1 },
++	{ .name = "surface_sam_sid_battery", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sb1[] = {
++	{ .name = "surface_sam_sid_gpelid", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sb2[] = {
++	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
++	{ .name = "surface_sam_sid_perfmode", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sl1[] = {
++	{ .name = "surface_sam_sid_gpelid", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sl2[] = {
++	{ .name = "surface_sam_sid_gpelid", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sl3_13[] = {
++	{ .name = "surface_sam_sid_gpelid",  .id = -1 },
++	{ .name = "surface_sam_sid_vhf",     .id = -1 },
++	{ .name = "surface_sam_sid_ac",      .id = -1 },
++	{ .name = "surface_sam_sid_battery", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sl3_15[] = {
++	{ .name = "surface_sam_sid_vhf",     .id = -1 },
++	{ .name = "surface_sam_sid_ac",      .id = -1 },
++	{ .name = "surface_sam_sid_battery", .id = -1 },
++	{ },
++};
++
++static const struct acpi_device_id surface_sam_sid_match[] = {
++	{ "MSHW0081", (unsigned long)sid_devs_sp4 },	/* Surface Pro 4, 5, and 6 */
++	{ "MSHW0116", (unsigned long)sid_devs_sp7 },	/* Surface Pro 7 */
++	{ "MSHW0080", (unsigned long)sid_devs_sb1 },	/* Surface Book 1 */
++	{ "MSHW0107", (unsigned long)sid_devs_sb2 },	/* Surface Book 2 */
++	{ "MSHW0086", (unsigned long)sid_devs_sl1 },	/* Surface Laptop 1 */
++	{ "MSHW0112", (unsigned long)sid_devs_sl2 },	/* Surface Laptop 2 */
++	{ "MSHW0114", (unsigned long)sid_devs_sl3_13 },	/* Surface Laptop 3 (13") */
++	{ "MSHW0110", (unsigned long)sid_devs_sl3_15 },	/* Surface Laptop 3 (15") */
++	{ },
++};
++MODULE_DEVICE_TABLE(acpi, surface_sam_sid_match);
++
++
++static int surface_sam_sid_probe(struct platform_device *pdev)
++{
++	const struct acpi_device_id *match;
++	const struct mfd_cell *cells, *p;
++
++	match = acpi_match_device(surface_sam_sid_match, &pdev->dev);
++	if (!match)
++		return -ENODEV;
++
++	cells = (struct mfd_cell *)match->driver_data;
++	if (!cells)
++		return -ENODEV;
++
++	for (p = cells; p->name; ++p) {
++		/* just count */
++	}
++
++	if (p == cells)
++		return -ENODEV;
++
++	return mfd_add_devices(&pdev->dev, 0, cells, p - cells, NULL, 0, NULL);
++}
++
++static int surface_sam_sid_remove(struct platform_device *pdev)
++{
++	mfd_remove_devices(&pdev->dev);
++	return 0;
++}
++
++static struct platform_driver surface_sam_sid = {
++	.probe = surface_sam_sid_probe,
++	.remove = surface_sam_sid_remove,
++	.driver = {
++		.name = "surface_sam_sid",
++		.acpi_match_table = ACPI_PTR(surface_sam_sid_match),
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++	},
++};
++module_platform_driver(surface_sam_sid);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Surface Integration Driver for 5th Generation Surface Devices");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c b/drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c
+new file mode 100644
+index 000000000000..ce32ebf4d94d
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c
+@@ -0,0 +1,219 @@
++/*
++ * Surface Lid driver to enable wakeup from suspend via the lid.
++ */
++
++#include <linux/acpi.h>
++#include <linux/dmi.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++
++
++struct sid_lid_device {
++	const char *acpi_path;
++	const u32 gpe_number;
++};
++
++
++static const struct sid_lid_device lid_device_l17 = {
++	.acpi_path = "\\_SB.LID0",
++	.gpe_number = 0x17,
++};
++
++static const struct sid_lid_device lid_device_l4D = {
++	.acpi_path = "\\_SB.LID0",
++	.gpe_number = 0x4D,
++};
++
++static const struct sid_lid_device lid_device_l4F = {
++	.acpi_path = "\\_SB.LID0",
++	.gpe_number = 0x4F,
++};
++
++static const struct sid_lid_device lid_device_l57 = {
++	.acpi_path = "\\_SB.LID0",
++	.gpe_number = 0x57,
++};
++
++
++static const struct dmi_system_id dmi_lid_device_table[] = {
++	{
++		.ident = "Surface Pro 4",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 4"),
++		},
++		.driver_data = (void *)&lid_device_l17,
++	},
++	{
++		.ident = "Surface Pro 5",
++		.matches = {
++			/* match for SKU here due to generic product name "Surface Pro" */
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
++		},
++		.driver_data = (void *)&lid_device_l4F,
++	},
++	{
++		.ident = "Surface Pro 5 (LTE)",
++		.matches = {
++			/* match for SKU here due to generic product name "Surface Pro" */
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
++		},
++		.driver_data = (void *)&lid_device_l4F,
++	},
++	{
++		.ident = "Surface Pro 6",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 6"),
++		},
++		.driver_data = (void *)&lid_device_l4F,
++	},
++	{
++		.ident = "Surface Pro 7",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 7"),
++		},
++		.driver_data = (void *)&lid_device_l4D,
++	},
++	{
++		.ident = "Surface Book 1",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book"),
++		},
++		.driver_data = (void *)&lid_device_l17,
++	},
++	{
++		.ident = "Surface Book 2",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book 2"),
++		},
++		.driver_data = (void *)&lid_device_l17,
++	},
++	{
++		.ident = "Surface Laptop 1",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop"),
++		},
++		.driver_data = (void *)&lid_device_l57,
++	},
++	{
++		.ident = "Surface Laptop 2",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop 2"),
++		},
++		.driver_data = (void *)&lid_device_l57,
++	},
++	{
++		.ident = "Surface Laptop 3 (13\")",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_3_1867:1868"),
++		},
++		.driver_data = (void *)&lid_device_l4D,
++	},
++	{ }
++};
++
++
++static int sid_lid_enable_wakeup(const struct sid_lid_device *dev, bool enable)
++{
++	int action = enable ? ACPI_GPE_ENABLE : ACPI_GPE_DISABLE;
++	int status;
++
++	status = acpi_set_gpe_wake_mask(NULL, dev->gpe_number, action);
++	if (status)
++		return -EFAULT;
++
++	return 0;
++}
++
++
++static int surface_sam_sid_gpelid_suspend(struct device *dev)
++{
++	const struct sid_lid_device *ldev = dev_get_drvdata(dev);
++	return sid_lid_enable_wakeup(ldev, true);
++}
++
++static int surface_sam_sid_gpelid_resume(struct device *dev)
++{
++	const struct sid_lid_device *ldev = dev_get_drvdata(dev);
++	return sid_lid_enable_wakeup(ldev, false);
++}
++
++static SIMPLE_DEV_PM_OPS(surface_sam_sid_gpelid_pm,
++                         surface_sam_sid_gpelid_suspend,
++                         surface_sam_sid_gpelid_resume);
++
++
++static int surface_sam_sid_gpelid_probe(struct platform_device *pdev)
++{
++	const struct dmi_system_id *match;
++        struct sid_lid_device *dev;
++	acpi_handle lid_handle;
++	int status;
++
++	match = dmi_first_match(dmi_lid_device_table);
++	if (!match)
++		return -ENODEV;
++
++        dev = match->driver_data;
++        if (!dev)
++                return -ENODEV;
++
++	status = acpi_get_handle(NULL, (acpi_string)dev->acpi_path, &lid_handle);
++	if (status)
++		return -EFAULT;
++
++	status = acpi_setup_gpe_for_wake(lid_handle, NULL, dev->gpe_number);
++	if (status)
++		return -EFAULT;
++
++	status = acpi_enable_gpe(NULL, dev->gpe_number);
++	if (status)
++		return -EFAULT;
++
++	status = sid_lid_enable_wakeup(dev, false);
++	if (status) {
++		acpi_disable_gpe(NULL, dev->gpe_number);
++                return status;
++        }
++
++        platform_set_drvdata(pdev, dev);
++        return 0;
++}
++
++static int surface_sam_sid_gpelid_remove(struct platform_device *pdev)
++{
++	struct sid_lid_device *dev = platform_get_drvdata(pdev);
++
++	/* restore default behavior without this module */
++	sid_lid_enable_wakeup(dev, false);
++        acpi_disable_gpe(NULL, dev->gpe_number);
++
++        platform_set_drvdata(pdev, NULL);
++        return 0;
++}
++
++static struct platform_driver surface_sam_sid_gpelid = {
++	.probe = surface_sam_sid_gpelid_probe,
++	.remove = surface_sam_sid_gpelid_remove,
++	.driver = {
++		.name = "surface_sam_sid_gpelid",
++		.pm = &surface_sam_sid_gpelid_pm,
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++	},
++};
++module_platform_driver(surface_sam_sid_gpelid);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Surface Lid Driver for 5th Generation Surface Devices");
++MODULE_LICENSE("GPL v2");
++MODULE_ALIAS("platform:surface_sam_sid_gpelid");
+diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_perfmode.c b/drivers/platform/x86/surface_sam/surface_sam_sid_perfmode.c
+new file mode 100644
+index 000000000000..880a2567cf1b
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/surface_sam_sid_perfmode.c
+@@ -0,0 +1,225 @@
++/*
++ * Surface Performance Mode Driver.
++ * Allows to change cooling capabilities based on user preference.
++ */
++
++#include <asm/unaligned.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++
++#include "surface_sam_ssh.h"
++
++
++#define SID_PARAM_PERM		(S_IRUGO | S_IWUSR)
++
++enum sam_perf_mode {
++	SAM_PERF_MODE_NORMAL   = 1,
++	SAM_PERF_MODE_BATTERY  = 2,
++	SAM_PERF_MODE_PERF1    = 3,
++	SAM_PERF_MODE_PERF2    = 4,
++
++	__SAM_PERF_MODE__START = 1,
++	__SAM_PERF_MODE__END   = 4,
++};
++
++enum sid_param_perf_mode {
++	SID_PARAM_PERF_MODE_AS_IS    = 0,
++	SID_PARAM_PERF_MODE_NORMAL   = SAM_PERF_MODE_NORMAL,
++	SID_PARAM_PERF_MODE_BATTERY  = SAM_PERF_MODE_BATTERY,
++	SID_PARAM_PERF_MODE_PERF1    = SAM_PERF_MODE_PERF1,
++	SID_PARAM_PERF_MODE_PERF2    = SAM_PERF_MODE_PERF2,
++
++	__SID_PARAM_PERF_MODE__START = 0,
++	__SID_PARAM_PERF_MODE__END   = 4,
++};
++
++
++static int surface_sam_perf_mode_get(void)
++{
++	u8 result_buf[8] = { 0 };
++	int status;
++
++	struct surface_sam_ssh_rqst rqst = {
++		.tc  = 0x03,
++		.cid = 0x02,
++		.iid = 0x00,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
++		.snc = 0x01,
++		.cdl = 0x00,
++		.pld = NULL,
++	};
++
++	struct surface_sam_ssh_buf result = {
++		.cap = ARRAY_SIZE(result_buf),
++		.len = 0,
++		.data = result_buf,
++	};
++
++	status = surface_sam_ssh_rqst(&rqst, &result);
++	if (status) {
++		return status;
++	}
++
++	if (result.len != 8) {
++		return -EFAULT;
++	}
++
++	return get_unaligned_le32(&result.data[0]);
++}
++
++static int surface_sam_perf_mode_set(int perf_mode)
++{
++	u8 payload[4] = { 0 };
++
++	struct surface_sam_ssh_rqst rqst = {
++		.tc  = 0x03,
++		.cid = 0x03,
++		.iid = 0x00,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
++		.snc = 0x00,
++		.cdl = ARRAY_SIZE(payload),
++		.pld = payload,
++	};
++
++	if (perf_mode < __SAM_PERF_MODE__START || perf_mode > __SAM_PERF_MODE__END) {
++		return -EINVAL;
++	}
++
++	put_unaligned_le32(perf_mode, &rqst.pld[0]);
++	return surface_sam_ssh_rqst(&rqst, NULL);
++}
++
++
++static int param_perf_mode_set(const char *val, const struct kernel_param *kp)
++{
++	int perf_mode;
++	int status;
++
++	status = kstrtoint(val, 0, &perf_mode);
++	if (status) {
++		return status;
++	}
++
++	if (perf_mode < __SID_PARAM_PERF_MODE__START || perf_mode > __SID_PARAM_PERF_MODE__END) {
++		return -EINVAL;
++	}
++
++	return param_set_int(val, kp);
++}
++
++static const struct kernel_param_ops param_perf_mode_ops = {
++	.set = param_perf_mode_set,
++	.get = param_get_int,
++};
++
++static int param_perf_mode_init = SID_PARAM_PERF_MODE_AS_IS;
++static int param_perf_mode_exit = SID_PARAM_PERF_MODE_AS_IS;
++
++module_param_cb(perf_mode_init, &param_perf_mode_ops, &param_perf_mode_init, SID_PARAM_PERM);
++module_param_cb(perf_mode_exit, &param_perf_mode_ops, &param_perf_mode_exit, SID_PARAM_PERM);
++
++MODULE_PARM_DESC(perf_mode_init, "Performance-mode to be set on module initialization");
++MODULE_PARM_DESC(perf_mode_exit, "Performance-mode to be set on module exit");
++
++
++static ssize_t perf_mode_show(struct device *dev, struct device_attribute *attr, char *data)
++{
++	int perf_mode;
++
++	perf_mode = surface_sam_perf_mode_get();
++	if (perf_mode < 0) {
++		dev_err(dev, "failed to get current performance mode: %d", perf_mode);
++		return -EIO;
++	}
++
++	return sprintf(data, "%d\n", perf_mode);
++}
++
++static ssize_t perf_mode_store(struct device *dev, struct device_attribute *attr,
++                               const char *data, size_t count)
++{
++	int perf_mode;
++	int status;
++
++	status = kstrtoint(data, 0, &perf_mode);
++	if (status) {
++		return status;
++	}
++
++	status = surface_sam_perf_mode_set(perf_mode);
++	if (status) {
++		return status;
++	}
++
++	// TODO: Should we notify ACPI here?
++	//
++	//       There is a _DSM call described as
++	//           WSID._DSM: Notify DPTF on Slider State change
++	//       which calls
++	//           ODV3 = ToInteger (Arg3)
++	//           Notify(IETM, 0x88)
++	//       IETM is an INT3400 Intel Dynamic Power Performance Management
++	//       device, part of the DPTF framework. From the corresponding
++	//       kernel driver, it looks like event 0x88 is being ignored. Also
++	//       it is currently unknown what the consequecnes of setting ODV3
++	//       are.
++
++	return count;
++}
++
++const static DEVICE_ATTR_RW(perf_mode);
++
++
++static int surface_sam_sid_perfmode_probe(struct platform_device *pdev)
++{
++	int status;
++
++	// link to ec
++	status = surface_sam_ssh_consumer_register(&pdev->dev);
++	if (status) {
++		return status == -ENXIO ? -EPROBE_DEFER : status;
++	}
++
++	// set initial perf_mode
++	if (param_perf_mode_init != SID_PARAM_PERF_MODE_AS_IS) {
++		status = surface_sam_perf_mode_set(param_perf_mode_init);
++		if (status) {
++			return status;
++		}
++	}
++
++	// register perf_mode attribute
++	status = sysfs_create_file(&pdev->dev.kobj, &dev_attr_perf_mode.attr);
++	if (status) {
++		goto err_sysfs;
++	}
++
++	return 0;
++
++err_sysfs:
++	surface_sam_perf_mode_set(param_perf_mode_exit);
++	return status;
++}
++
++static int surface_sam_sid_perfmode_remove(struct platform_device *pdev)
++{
++	sysfs_remove_file(&pdev->dev.kobj, &dev_attr_perf_mode.attr);
++	surface_sam_perf_mode_set(param_perf_mode_exit);
++	return 0;
++}
++
++static struct platform_driver surface_sam_sid_perfmode = {
++	.probe = surface_sam_sid_perfmode_probe,
++	.remove = surface_sam_sid_perfmode_remove,
++	.driver = {
++		.name = "surface_sam_sid_perfmode",
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++	},
++};
++module_platform_driver(surface_sam_sid_perfmode);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Surface Performance Mode Driver for 5th Generation Surface Devices");
++MODULE_LICENSE("GPL v2");
++MODULE_ALIAS("platform:surface_sam_sid_perfmode");
+diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_power.c b/drivers/platform/x86/surface_sam/surface_sam_sid_power.c
+new file mode 100644
+index 000000000000..ce4274709d68
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/surface_sam_sid_power.c
+@@ -0,0 +1,1258 @@
++/*
++ * Surface SID Battery/AC Driver.
++ * Provides support for the battery and AC on 7th generation Surface devices.
++ */
++
++#include <linux/kernel.h>
++#include <linux/delay.h>
++#include <linux/jiffies.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++#include <linux/power_supply.h>
++#include <linux/workqueue.h>
++
++#include "surface_sam_ssh.h"
++
++#define SPWR_WARN	KERN_WARNING KBUILD_MODNAME ": "
++#define SPWR_DEBUG	KERN_DEBUG KBUILD_MODNAME ": "
++
++
++// TODO: check BIX/BST for unknown/unsupported 0xffffffff entries
++// TODO: DPTF (/SAN notifications)?
++// TODO: other properties?
++
++
++static unsigned int cache_time = 1000;
++module_param(cache_time, uint, 0644);
++MODULE_PARM_DESC(cache_time, "battery state chaching time in milliseconds [default: 1000]");
++
++#define SPWR_AC_BAT_UPDATE_DELAY	msecs_to_jiffies(5000)
++
++
++/*
++ * SAM Interface.
++ */
++
++#define SAM_PWR_TC			0x02
++#define SAM_PWR_RQID			0x0002
++
++#define SAM_RQST_PWR_CID_STA		0x01
++#define SAM_RQST_PWR_CID_BIX		0x02
++#define SAM_RQST_PWR_CID_BST		0x03
++#define SAM_RQST_PWR_CID_BTP		0x04
++
++#define SAM_RQST_PWR_CID_PMAX		0x0b
++#define SAM_RQST_PWR_CID_PSOC		0x0c
++#define SAM_RQST_PWR_CID_PSRC		0x0d
++#define SAM_RQST_PWR_CID_CHGI		0x0e
++#define SAM_RQST_PWR_CID_ARTG		0x0f
++
++#define SAM_EVENT_PWR_CID_BIX		0x15
++#define SAM_EVENT_PWR_CID_BST		0x16
++#define SAM_EVENT_PWR_CID_ADAPTER	0x17
++#define SAM_EVENT_PWR_CID_DPTF		0x4f
++
++#define SAM_BATTERY_STA_OK		0x0f
++#define SAM_BATTERY_STA_PRESENT		0x10
++
++#define SAM_BATTERY_STATE_DISCHARGING	0x01
++#define SAM_BATTERY_STATE_CHARGING	0x02
++#define SAM_BATTERY_STATE_CRITICAL	0x04
++
++#define SAM_BATTERY_POWER_UNIT_MA	1
++
++
++/* Equivalent to data returned in ACPI _BIX method */
++struct spwr_bix {
++	u8  revision;
++	u32 power_unit;
++	u32 design_cap;
++	u32 last_full_charge_cap;
++	u32 technology;
++	u32 design_voltage;
++	u32 design_cap_warn;
++	u32 design_cap_low;
++	u32 cycle_count;
++	u32 measurement_accuracy;
++	u32 max_sampling_time;
++	u32 min_sampling_time;
++	u32 max_avg_interval;
++	u32 min_avg_interval;
++	u32 bat_cap_granularity_1;
++	u32 bat_cap_granularity_2;
++	u8  model[21];
++	u8  serial[11];
++	u8  type[5];
++	u8  oem_info[21];
++} __packed;
++
++/* Equivalent to data returned in ACPI _BST method */
++struct spwr_bst {
++	u32 state;
++	u32 present_rate;
++	u32 remaining_cap;
++	u32 present_voltage;
++} __packed;
++
++/* DPTF event payload */
++struct spwr_event_dptf {
++	u32 pmax;
++	u32 _1;		/* currently unknown */
++	u32 _2;		/* currently unknown */
++} __packed;
++
++
++/* Get battery status (_STA) */
++static int sam_psy_get_sta(u8 iid, u32 *sta)
++{
++	struct surface_sam_ssh_rqst rqst;
++	struct surface_sam_ssh_buf result;
++
++	rqst.tc  = SAM_PWR_TC;
++	rqst.cid = SAM_RQST_PWR_CID_STA;
++	rqst.iid = iid;
++	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
++	rqst.snc = 0x01;
++	rqst.cdl = 0x00;
++	rqst.pld = NULL;
++
++	result.cap = sizeof(u32);
++	result.len = 0;
++	result.data = (u8 *)sta;
++
++	return surface_sam_ssh_rqst(&rqst, &result);
++}
++
++/* Get battery static information (_BIX) */
++static int sam_psy_get_bix(u8 iid, struct spwr_bix *bix)
++{
++	struct surface_sam_ssh_rqst rqst;
++	struct surface_sam_ssh_buf result;
++
++	rqst.tc  = SAM_PWR_TC;
++	rqst.cid = SAM_RQST_PWR_CID_BIX;
++	rqst.iid = iid;
++	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
++	rqst.snc = 0x01;
++	rqst.cdl = 0x00;
++	rqst.pld = NULL;
++
++	result.cap = sizeof(struct spwr_bix);
++	result.len = 0;
++	result.data = (u8 *)bix;
++
++	return surface_sam_ssh_rqst(&rqst, &result);
++}
++
++/* Get battery dynamic information (_BST) */
++static int sam_psy_get_bst(u8 iid, struct spwr_bst *bst)
++{
++	struct surface_sam_ssh_rqst rqst;
++	struct surface_sam_ssh_buf result;
++
++	rqst.tc  = SAM_PWR_TC;
++	rqst.cid = SAM_RQST_PWR_CID_BST;
++	rqst.iid = iid;
++	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
++	rqst.snc = 0x01;
++	rqst.cdl = 0x00;
++	rqst.pld = NULL;
++
++	result.cap = sizeof(struct spwr_bst);
++	result.len = 0;
++	result.data = (u8 *)bst;
++
++	return surface_sam_ssh_rqst(&rqst, &result);
++}
++
++/* Set battery trip point (_BTP) */
++static int sam_psy_set_btp(u8 iid, u32 btp)
++{
++	struct surface_sam_ssh_rqst rqst;
++
++	rqst.tc  = SAM_PWR_TC;
++	rqst.cid = SAM_RQST_PWR_CID_BTP;
++	rqst.iid = iid;
++	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
++	rqst.snc = 0x00;
++	rqst.cdl = sizeof(u32);
++	rqst.pld = (u8 *)&btp;
++
++	return surface_sam_ssh_rqst(&rqst, NULL);
++}
++
++/* Get platform power soruce for battery (DPTF PSRC) */
++static int sam_psy_get_psrc(u8 iid, u32 *psrc)
++{
++	struct surface_sam_ssh_rqst rqst;
++	struct surface_sam_ssh_buf result;
++
++	rqst.tc  = SAM_PWR_TC;
++	rqst.cid = SAM_RQST_PWR_CID_PSRC;
++	rqst.iid = iid;
++	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
++	rqst.snc = 0x01;
++	rqst.cdl = 0x00;
++	rqst.pld = NULL;
++
++	result.cap = sizeof(u32);
++	result.len = 0;
++	result.data = (u8 *)psrc;
++
++	return surface_sam_ssh_rqst(&rqst, &result);
++}
++
++/* Get maximum platform power for battery (DPTF PMAX) */
++__always_unused
++static int sam_psy_get_pmax(u8 iid, u32 *pmax)
++{
++	struct surface_sam_ssh_rqst rqst;
++	struct surface_sam_ssh_buf result;
++
++	rqst.tc  = SAM_PWR_TC;
++	rqst.cid = SAM_RQST_PWR_CID_PMAX;
++	rqst.iid = iid;
++	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
++	rqst.snc = 0x01;
++	rqst.cdl = 0x00;
++	rqst.pld = NULL;
++
++	result.cap = sizeof(u32);
++	result.len = 0;
++	result.data = (u8 *)pmax;
++
++	return surface_sam_ssh_rqst(&rqst, &result);
++}
++
++/* Get adapter rating (DPTF ARTG) */
++__always_unused
++static int sam_psy_get_artg(u8 iid, u32 *artg)
++{
++	struct surface_sam_ssh_rqst rqst;
++	struct surface_sam_ssh_buf result;
++
++	rqst.tc  = SAM_PWR_TC;
++	rqst.cid = SAM_RQST_PWR_CID_ARTG;
++	rqst.iid = iid;
++	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
++	rqst.snc = 0x01;
++	rqst.cdl = 0x00;
++	rqst.pld = NULL;
++
++	result.cap = sizeof(u32);
++	result.len = 0;
++	result.data = (u8 *)artg;
++
++	return surface_sam_ssh_rqst(&rqst, &result);
++}
++
++/* Unknown (DPTF PSOC) */
++__always_unused
++static int sam_psy_get_psoc(u8 iid, u32 *psoc)
++{
++	struct surface_sam_ssh_rqst rqst;
++	struct surface_sam_ssh_buf result;
++
++	rqst.tc  = SAM_PWR_TC;
++	rqst.cid = SAM_RQST_PWR_CID_PSOC;
++	rqst.iid = iid;
++	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
++	rqst.snc = 0x01;
++	rqst.cdl = 0x00;
++	rqst.pld = NULL;
++
++	result.cap = sizeof(u32);
++	result.len = 0;
++	result.data = (u8 *)psoc;
++
++	return surface_sam_ssh_rqst(&rqst, &result);
++}
++
++/* Unknown (DPTF CHGI/ INT3403 SPPC) */
++__always_unused
++static int sam_psy_set_chgi(u8 iid, u32 chgi)
++{
++	struct surface_sam_ssh_rqst rqst;
++
++	rqst.tc  = SAM_PWR_TC;
++	rqst.cid = SAM_RQST_PWR_CID_CHGI;
++	rqst.iid = iid;
++	rqst.pri = SURFACE_SAM_PRIORITY_NORMAL;
++	rqst.snc = 0x00;
++	rqst.cdl = sizeof(u32);
++	rqst.pld = (u8 *)&chgi;
++
++	return surface_sam_ssh_rqst(&rqst, NULL);
++}
++
++
++/*
++ * Common Power-Subsystem Interface.
++ */
++
++enum spwr_battery_id {
++	SPWR_BAT1,
++	SPWR_BAT2,
++	__SPWR_NUM_BAT,
++};
++#define SPWR_BAT_SINGLE		PLATFORM_DEVID_NONE
++
++struct spwr_battery_device {
++	struct platform_device *pdev;
++	enum spwr_battery_id id;
++
++	char name[32];
++	struct power_supply *psy;
++	struct power_supply_desc psy_desc;
++
++	struct delayed_work update_work;
++
++	struct mutex lock;
++	unsigned long timestamp;
++
++	u32 sta;
++	struct spwr_bix bix;
++	struct spwr_bst bst;
++	u32 alarm;
++};
++
++struct spwr_ac_device {
++	struct platform_device *pdev;
++
++	char name[32];
++	struct power_supply *psy;
++	struct power_supply_desc psy_desc;
++
++	struct mutex lock;
++
++	u32 state;
++};
++
++struct spwr_subsystem {
++	struct mutex lock;
++
++	unsigned refcount;
++	struct spwr_ac_device *ac;
++	struct spwr_battery_device *battery[__SPWR_NUM_BAT];
++};
++
++static struct spwr_subsystem spwr_subsystem = {
++	.lock = __MUTEX_INITIALIZER(spwr_subsystem.lock),
++};
++
++static enum power_supply_property spwr_ac_props[] = {
++	POWER_SUPPLY_PROP_ONLINE,
++};
++
++static enum power_supply_property spwr_battery_props_chg[] = {
++	POWER_SUPPLY_PROP_STATUS,
++	POWER_SUPPLY_PROP_PRESENT,
++	POWER_SUPPLY_PROP_TECHNOLOGY,
++	POWER_SUPPLY_PROP_CYCLE_COUNT,
++	POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
++	POWER_SUPPLY_PROP_VOLTAGE_NOW,
++	POWER_SUPPLY_PROP_CURRENT_NOW,
++	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
++	POWER_SUPPLY_PROP_CHARGE_FULL,
++	POWER_SUPPLY_PROP_CHARGE_NOW,
++	POWER_SUPPLY_PROP_CAPACITY,
++	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
++	POWER_SUPPLY_PROP_MODEL_NAME,
++	POWER_SUPPLY_PROP_MANUFACTURER,
++	POWER_SUPPLY_PROP_SERIAL_NUMBER,
++};
++
++static enum power_supply_property spwr_battery_props_eng[] = {
++	POWER_SUPPLY_PROP_STATUS,
++	POWER_SUPPLY_PROP_PRESENT,
++	POWER_SUPPLY_PROP_TECHNOLOGY,
++	POWER_SUPPLY_PROP_CYCLE_COUNT,
++	POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
++	POWER_SUPPLY_PROP_VOLTAGE_NOW,
++	POWER_SUPPLY_PROP_POWER_NOW,
++	POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN,
++	POWER_SUPPLY_PROP_ENERGY_FULL,
++	POWER_SUPPLY_PROP_ENERGY_NOW,
++	POWER_SUPPLY_PROP_CAPACITY,
++	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
++	POWER_SUPPLY_PROP_MODEL_NAME,
++	POWER_SUPPLY_PROP_MANUFACTURER,
++	POWER_SUPPLY_PROP_SERIAL_NUMBER,
++};
++
++
++static int spwr_battery_register(struct spwr_battery_device *bat, struct platform_device *pdev,
++				 enum spwr_battery_id id);
++
++static int spwr_battery_unregister(struct spwr_battery_device *bat);
++
++
++inline static bool spwr_battery_present(struct spwr_battery_device *bat)
++{
++	return bat->sta & SAM_BATTERY_STA_PRESENT;
++}
++
++
++inline static int spwr_battery_load_sta(struct spwr_battery_device *bat)
++{
++	return sam_psy_get_sta(bat->id + 1, &bat->sta);
++}
++
++inline static int spwr_battery_load_bix(struct spwr_battery_device *bat)
++{
++	if (!spwr_battery_present(bat))
++		return 0;
++
++	return sam_psy_get_bix(bat->id + 1, &bat->bix);
++}
++
++inline static int spwr_battery_load_bst(struct spwr_battery_device *bat)
++{
++	if (!spwr_battery_present(bat))
++		return 0;
++
++	return sam_psy_get_bst(bat->id + 1, &bat->bst);
++}
++
++
++inline static int spwr_battery_set_alarm_unlocked(struct spwr_battery_device *bat, u32 value)
++{
++	bat->alarm = value;
++	return sam_psy_set_btp(bat->id + 1, bat->alarm);
++}
++
++inline static int spwr_battery_set_alarm(struct spwr_battery_device *bat, u32 value)
++{
++	int status;
++
++	mutex_lock(&bat->lock);
++	status = spwr_battery_set_alarm_unlocked(bat, value);
++	mutex_unlock(&bat->lock);
++
++	return status;
++}
++
++inline static int spwr_battery_update_bst_unlocked(struct spwr_battery_device *bat, bool cached)
++{
++	unsigned long cache_deadline = bat->timestamp + msecs_to_jiffies(cache_time);
++	int status;
++
++	if (cached && bat->timestamp && time_is_after_jiffies(cache_deadline))
++		return 0;
++
++	status = spwr_battery_load_sta(bat);
++	if (status)
++		return status;
++
++	status = spwr_battery_load_bst(bat);
++	if (status)
++		return status;
++
++	bat->timestamp = jiffies;
++	return 0;
++}
++
++static int spwr_battery_update_bst(struct spwr_battery_device *bat, bool cached)
++{
++	int status;
++
++	mutex_lock(&bat->lock);
++	status = spwr_battery_update_bst_unlocked(bat, cached);
++	mutex_unlock(&bat->lock);
++
++	return status;
++}
++
++inline static int spwr_battery_update_bix_unlocked(struct spwr_battery_device *bat)
++{
++	int status;
++
++	status = spwr_battery_load_sta(bat);
++	if (status)
++		return status;
++
++	status = spwr_battery_load_bix(bat);
++	if (status)
++		return status;
++
++	status = spwr_battery_load_bst(bat);
++	if (status)
++		return status;
++
++	bat->timestamp = jiffies;
++	return 0;
++}
++
++static int spwr_battery_update_bix(struct spwr_battery_device *bat)
++{
++	int status;
++
++	mutex_lock(&bat->lock);
++	status = spwr_battery_update_bix_unlocked(bat);
++	mutex_unlock(&bat->lock);
++
++	return status;
++}
++
++inline static int spwr_ac_update_unlocked(struct spwr_ac_device *ac)
++{
++	return sam_psy_get_psrc(0x00, &ac->state);
++}
++
++static int spwr_ac_update(struct spwr_ac_device *ac)
++{
++	int status;
++
++	mutex_lock(&ac->lock);
++	status = spwr_ac_update_unlocked(ac);
++	mutex_unlock(&ac->lock);
++
++	return status;
++}
++
++
++static int spwr_battery_recheck(struct spwr_battery_device *bat)
++{
++	bool present = spwr_battery_present(bat);
++	u32 unit = bat->bix.power_unit;
++	int status;
++
++	status = spwr_battery_update_bix(bat);
++	if (status)
++		return status;
++
++	// if battery has been attached, (re-)initialize alarm
++	if (!present && spwr_battery_present(bat)) {
++		status = spwr_battery_set_alarm(bat, bat->bix.design_cap_warn);
++		if (status)
++			return status;
++	}
++
++	// if the unit has changed, re-add the battery
++	if (unit != bat->bix.power_unit) {
++		mutex_unlock(&spwr_subsystem.lock);
++
++		status = spwr_battery_unregister(bat);
++		if (status)
++			return status;
++
++		status = spwr_battery_register(bat, bat->pdev, bat->id);
++	}
++
++	return status;
++}
++
++
++static int spwr_handle_event_bix(struct surface_sam_ssh_event *event)
++{
++	struct spwr_battery_device *bat;
++	enum spwr_battery_id bat_id = event->iid - 1;
++	int status = 0;
++
++	if (bat_id < 0 || bat_id >= __SPWR_NUM_BAT) {
++		printk(SPWR_WARN "invalid BIX event iid 0x%02x\n", event->iid);
++		bat_id = SPWR_BAT1;
++	}
++
++	mutex_lock(&spwr_subsystem.lock);
++	bat = spwr_subsystem.battery[bat_id];
++	if (bat) {
++		status = spwr_battery_recheck(bat);
++		if (!status)
++			power_supply_changed(bat->psy);
++	}
++
++	mutex_unlock(&spwr_subsystem.lock);
++	return status;
++}
++
++static int spwr_handle_event_bst(struct surface_sam_ssh_event *event)
++{
++	struct spwr_battery_device *bat;
++	enum spwr_battery_id bat_id = event->iid - 1;
++	int status = 0;
++
++	if (bat_id < 0 || bat_id >= __SPWR_NUM_BAT) {
++		printk(SPWR_WARN "invalid BST event iid 0x%02x\n", event->iid);
++		bat_id = SPWR_BAT1;
++	}
++
++	mutex_lock(&spwr_subsystem.lock);
++
++	bat = spwr_subsystem.battery[bat_id];
++	if (bat) {
++		status = spwr_battery_update_bst(bat, false);
++		if (!status)
++			power_supply_changed(bat->psy);
++	}
++
++	mutex_unlock(&spwr_subsystem.lock);
++	return status;
++}
++
++static int spwr_handle_event_adapter(struct surface_sam_ssh_event *event)
++{
++	struct spwr_battery_device *bat1 = NULL;
++	struct spwr_battery_device *bat2 = NULL;
++	struct spwr_ac_device *ac;
++	int status = 0;
++
++	mutex_lock(&spwr_subsystem.lock);
++
++	ac = spwr_subsystem.ac;
++	if (ac) {
++		status = spwr_ac_update(ac);
++		if (status)
++			goto out;
++
++		power_supply_changed(ac->psy);
++	}
++
++	/*
++	 * Handle battery update quirk:
++	 * When the battery is fully charged and the adapter is plugged in or
++	 * removed, the EC does not send a separate event for the state
++	 * (charging/discharging) change. Furthermore it may take some time until
++	 * the state is updated on the battery. Schedule an update to solve this.
++	 */
++
++	bat1 = spwr_subsystem.battery[SPWR_BAT1];
++	if (bat1 && bat1->bst.remaining_cap >= bat1->bix.last_full_charge_cap)
++		schedule_delayed_work(&bat1->update_work, SPWR_AC_BAT_UPDATE_DELAY);
++
++	bat2 = spwr_subsystem.battery[SPWR_BAT2];
++	if (bat2 && bat2->bst.remaining_cap >= bat2->bix.last_full_charge_cap)
++		schedule_delayed_work(&bat2->update_work, SPWR_AC_BAT_UPDATE_DELAY);
++
++out:
++	mutex_unlock(&spwr_subsystem.lock);
++	return status;
++}
++
++static int spwr_handle_event_dptf(struct surface_sam_ssh_event *event)
++{
++	return 0;	// TODO: spwr_handle_event_dptf
++}
++
++static int spwr_handle_event(struct surface_sam_ssh_event *event, void *data)
++{
++	printk(SPWR_DEBUG "power event (cid = 0x%02x)\n", event->cid);
++
++	switch (event->cid) {
++	case SAM_EVENT_PWR_CID_BIX:
++		return spwr_handle_event_bix(event);
++
++	case SAM_EVENT_PWR_CID_BST:
++		return spwr_handle_event_bst(event);
++
++	case SAM_EVENT_PWR_CID_ADAPTER:
++		return spwr_handle_event_adapter(event);
++
++	case SAM_EVENT_PWR_CID_DPTF:
++		return spwr_handle_event_dptf(event);
++
++	default:
++		printk(SPWR_WARN "unhandled power event (cid = 0x%02x)\n", event->cid);
++		return 0;
++	}
++}
++
++static void spwr_battery_update_bst_workfn(struct work_struct *work)
++{
++	struct delayed_work *dwork = to_delayed_work(work);
++	struct spwr_battery_device *bat = container_of(dwork, struct spwr_battery_device, update_work);
++	int status;
++
++	status = spwr_battery_update_bst(bat, false);
++	if (!status)
++		power_supply_changed(bat->psy);
++
++	if (status)
++		dev_err(&bat->pdev->dev, "failed to update battery state: %d\n", status);
++}
++
++
++inline static int spwr_battery_prop_status(struct spwr_battery_device *bat)
++{
++	if (bat->bst.state & SAM_BATTERY_STATE_DISCHARGING)
++		return POWER_SUPPLY_STATUS_DISCHARGING;
++
++	if (bat->bst.state & SAM_BATTERY_STATE_CHARGING)
++		return POWER_SUPPLY_STATUS_CHARGING;
++
++	if (bat->bix.last_full_charge_cap == bat->bst.remaining_cap)
++		return POWER_SUPPLY_STATUS_FULL;
++
++	if (bat->bst.present_rate == 0)
++		return POWER_SUPPLY_STATUS_NOT_CHARGING;
++
++	return POWER_SUPPLY_STATUS_UNKNOWN;
++}
++
++inline static int spwr_battery_prop_technology(struct spwr_battery_device *bat)
++{
++	if (!strcasecmp("NiCd", bat->bix.type))
++		return POWER_SUPPLY_TECHNOLOGY_NiCd;
++
++	if (!strcasecmp("NiMH", bat->bix.type))
++		return POWER_SUPPLY_TECHNOLOGY_NiMH;
++
++	if (!strcasecmp("LION", bat->bix.type))
++		return POWER_SUPPLY_TECHNOLOGY_LION;
++
++	if (!strncasecmp("LI-ION", bat->bix.type, 6))
++		return POWER_SUPPLY_TECHNOLOGY_LION;
++
++	if (!strcasecmp("LiP", bat->bix.type))
++		return POWER_SUPPLY_TECHNOLOGY_LIPO;
++
++	return POWER_SUPPLY_TECHNOLOGY_UNKNOWN;
++}
++
++inline static int spwr_battery_prop_capacity(struct spwr_battery_device *bat)
++{
++	if (bat->bst.remaining_cap && bat->bix.last_full_charge_cap)
++		return bat->bst.remaining_cap * 100 / bat->bix.last_full_charge_cap;
++	else
++		return 0;
++}
++
++inline static int spwr_battery_prop_capacity_level(struct spwr_battery_device *bat)
++{
++	if (bat->bst.state & SAM_BATTERY_STATE_CRITICAL)
++		return POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL;
++
++	if (bat->bst.remaining_cap >= bat->bix.last_full_charge_cap)
++		return POWER_SUPPLY_CAPACITY_LEVEL_FULL;
++
++	if (bat->bst.remaining_cap <= bat->alarm)
++		return POWER_SUPPLY_CAPACITY_LEVEL_LOW;
++
++	return POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
++}
++
++static int spwr_ac_get_property(struct power_supply *psy,
++				enum power_supply_property psp,
++				union power_supply_propval *val)
++{
++	struct spwr_ac_device *ac = power_supply_get_drvdata(psy);
++	int status;
++
++	mutex_lock(&ac->lock);
++
++	status = spwr_ac_update_unlocked(ac);
++	if (status)
++		goto out;
++
++	switch (psp) {
++	case POWER_SUPPLY_PROP_ONLINE:
++		val->intval = ac->state == 1;
++		break;
++
++	default:
++		status = -EINVAL;
++		goto out;
++	}
++
++out:
++	mutex_unlock(&ac->lock);
++	return status;
++}
++
++static int spwr_battery_get_property(struct power_supply *psy,
++				     enum power_supply_property psp,
++				     union power_supply_propval *val)
++{
++	struct spwr_battery_device *bat = power_supply_get_drvdata(psy);
++	int status;
++
++	mutex_lock(&bat->lock);
++
++	status = spwr_battery_update_bst_unlocked(bat, true);
++	if (status)
++		goto out;
++
++	// abort if battery is not present
++	if (!spwr_battery_present(bat) && psp != POWER_SUPPLY_PROP_PRESENT) {
++		status = -ENODEV;
++		goto out;
++	}
++
++	switch (psp) {
++	case POWER_SUPPLY_PROP_STATUS:
++		val->intval = spwr_battery_prop_status(bat);
++		break;
++
++	case POWER_SUPPLY_PROP_PRESENT:
++		val->intval = spwr_battery_present(bat);
++		break;
++
++	case POWER_SUPPLY_PROP_TECHNOLOGY:
++		val->intval = spwr_battery_prop_technology(bat);
++		break;
++
++	case POWER_SUPPLY_PROP_CYCLE_COUNT:
++		val->intval = bat->bix.cycle_count;
++		break;
++
++	case POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN:
++		val->intval = bat->bix.design_voltage * 1000;
++		break;
++
++	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
++		val->intval = bat->bst.present_voltage * 1000;
++		break;
++
++	case POWER_SUPPLY_PROP_CURRENT_NOW:
++	case POWER_SUPPLY_PROP_POWER_NOW:
++		val->intval = bat->bst.present_rate * 1000;
++		break;
++
++	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
++	case POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN:
++		val->intval = bat->bix.design_cap * 1000;
++		break;
++
++	case POWER_SUPPLY_PROP_CHARGE_FULL:
++	case POWER_SUPPLY_PROP_ENERGY_FULL:
++		val->intval = bat->bix.last_full_charge_cap * 1000;
++		break;
++
++	case POWER_SUPPLY_PROP_CHARGE_NOW:
++	case POWER_SUPPLY_PROP_ENERGY_NOW:
++		val->intval = bat->bst.remaining_cap * 1000;
++		break;
++
++	case POWER_SUPPLY_PROP_CAPACITY:
++		val->intval = spwr_battery_prop_capacity(bat);
++		break;
++
++	case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
++		val->intval = spwr_battery_prop_capacity_level(bat);
++		break;
++
++	case POWER_SUPPLY_PROP_MODEL_NAME:
++		val->strval = bat->bix.model;
++		break;
++
++	case POWER_SUPPLY_PROP_MANUFACTURER:
++		val->strval = bat->bix.oem_info;
++		break;
++
++	case POWER_SUPPLY_PROP_SERIAL_NUMBER:
++		val->strval = bat->bix.serial;
++		break;
++
++	default:
++		status = -EINVAL;
++		goto out;
++	}
++
++out:
++	mutex_unlock(&bat->lock);
++	return status;
++}
++
++
++static ssize_t spwr_battery_alarm_show(struct device *dev,
++				       struct device_attribute *attr,
++				       char *buf)
++{
++	struct power_supply *psy = dev_get_drvdata(dev);
++	struct spwr_battery_device *bat = power_supply_get_drvdata(psy);
++
++	return sprintf(buf, "%d\n", bat->alarm * 1000);
++}
++
++static ssize_t spwr_battery_alarm_store(struct device *dev,
++					struct device_attribute *attr,
++					const char *buf, size_t count)
++{
++	struct power_supply *psy = dev_get_drvdata(dev);
++	struct spwr_battery_device *bat = power_supply_get_drvdata(psy);
++	unsigned long value;
++	int status;
++
++	status = kstrtoul(buf, 0, &value);
++	if (status)
++		return status;
++
++	if (!spwr_battery_present(bat))
++		return -ENODEV;
++
++	status = spwr_battery_set_alarm(bat, value / 1000);
++	if (status)
++		return status;
++
++	return count;
++}
++
++static const struct device_attribute alarm_attr = {
++	.attr = {.name = "alarm", .mode = 0644},
++	.show = spwr_battery_alarm_show,
++	.store = spwr_battery_alarm_store,
++};
++
++
++static int spwr_subsys_init_unlocked(void)
++{
++	int status;
++
++	status = surface_sam_ssh_set_event_handler(SAM_PWR_RQID, spwr_handle_event, NULL);
++	if (status) {
++		goto err_handler;
++	}
++
++	status = surface_sam_ssh_enable_event_source(SAM_PWR_TC, 0x01, SAM_PWR_RQID);
++	if (status) {
++		goto err_source;
++	}
++
++	return 0;
++
++err_source:
++	surface_sam_ssh_remove_event_handler(SAM_PWR_RQID);
++err_handler:
++	return status;
++}
++
++static int spwr_subsys_deinit_unlocked(void)
++{
++	surface_sam_ssh_disable_event_source(SAM_PWR_TC, 0x01, SAM_PWR_RQID);
++	surface_sam_ssh_remove_event_handler(SAM_PWR_RQID);
++	return 0;
++}
++
++static inline int spwr_subsys_ref_unlocked(void)
++{
++	int status = 0;
++
++	if (!spwr_subsystem.refcount)
++		status = spwr_subsys_init_unlocked();
++
++	spwr_subsystem.refcount += 1;
++	return status;
++}
++
++static inline int spwr_subsys_unref_unlocked(void)
++{
++	int status = 0;
++
++	if (spwr_subsystem.refcount)
++		spwr_subsystem.refcount -= 1;
++
++	if (!spwr_subsystem.refcount)
++		status = spwr_subsys_deinit_unlocked();
++
++	return status;
++}
++
++
++static int spwr_ac_register(struct spwr_ac_device *ac, struct platform_device *pdev)
++{
++	struct power_supply_config psy_cfg = {};
++	u32 sta;
++	int status;
++
++	// make sure the device is there and functioning properly
++	status = sam_psy_get_sta(0x00, &sta);
++	if (status)
++		return status;
++
++	if ((sta & SAM_BATTERY_STA_OK) != SAM_BATTERY_STA_OK)
++		return -ENODEV;
++
++	psy_cfg.drv_data = ac;
++
++	ac->pdev = pdev;
++	mutex_init(&ac->lock);
++
++	snprintf(ac->name, ARRAY_SIZE(ac->name), "ADP0");
++
++	ac->psy_desc.name = ac->name;
++	ac->psy_desc.type = POWER_SUPPLY_TYPE_MAINS;
++	ac->psy_desc.properties = spwr_ac_props;
++	ac->psy_desc.num_properties = ARRAY_SIZE(spwr_ac_props);
++	ac->psy_desc.get_property = spwr_ac_get_property;
++
++	mutex_lock(&spwr_subsystem.lock);
++	if (spwr_subsystem.ac) {
++		status = -EEXIST;
++		goto err;
++	}
++
++	status = spwr_subsys_ref_unlocked();
++	if (status)
++		goto err;
++
++	ac->psy = power_supply_register(&ac->pdev->dev, &ac->psy_desc, &psy_cfg);
++	if (IS_ERR(ac->psy)) {
++		status = PTR_ERR(ac->psy);
++		goto err_unref;
++	}
++
++	spwr_subsystem.ac = ac;
++	mutex_unlock(&spwr_subsystem.lock);
++	return 0;
++
++err_unref:
++	spwr_subsys_unref_unlocked();
++err:
++	mutex_unlock(&spwr_subsystem.lock);
++	mutex_destroy(&ac->lock);
++	return status;
++}
++
++static int spwr_ac_unregister(struct spwr_ac_device *ac)
++{
++	int status;
++
++	mutex_lock(&spwr_subsystem.lock);
++	if (spwr_subsystem.ac != ac) {
++		mutex_unlock(&spwr_subsystem.lock);
++		return -EINVAL;
++	}
++
++	spwr_subsystem.ac = NULL;
++	power_supply_unregister(ac->psy);
++
++	status = spwr_subsys_unref_unlocked();
++	mutex_unlock(&spwr_subsystem.lock);
++
++	mutex_destroy(&ac->lock);
++	return status;
++}
++
++static int spwr_battery_register(struct spwr_battery_device *bat, struct platform_device *pdev,
++				 enum spwr_battery_id id)
++{
++	struct power_supply_config psy_cfg = {};
++	u32 sta;
++	int status;
++
++	if ((id < 0 || id >= __SPWR_NUM_BAT) && id != SPWR_BAT_SINGLE)
++		return -EINVAL;
++
++	bat->pdev = pdev;
++	bat->id = id != SPWR_BAT_SINGLE ? id : SPWR_BAT1;
++
++	// make sure the device is there and functioning properly
++	status = sam_psy_get_sta(bat->id + 1, &sta);
++	if (status)
++		return status;
++
++	if ((sta & SAM_BATTERY_STA_OK) != SAM_BATTERY_STA_OK)
++		return -ENODEV;
++
++	status = spwr_battery_update_bix_unlocked(bat);
++	if (status)
++		return status;
++
++	if (spwr_battery_present(bat)) {
++		status = spwr_battery_set_alarm_unlocked(bat, bat->bix.design_cap_warn);
++		if (status)
++			return status;
++	}
++
++	snprintf(bat->name, ARRAY_SIZE(bat->name), "BAT%d", bat->id);
++	bat->psy_desc.name = bat->name;
++	bat->psy_desc.type = POWER_SUPPLY_TYPE_BATTERY;
++
++	if (bat->bix.power_unit == SAM_BATTERY_POWER_UNIT_MA) {
++		bat->psy_desc.properties = spwr_battery_props_chg;
++		bat->psy_desc.num_properties = ARRAY_SIZE(spwr_battery_props_chg);
++	} else {
++		bat->psy_desc.properties = spwr_battery_props_eng;
++		bat->psy_desc.num_properties = ARRAY_SIZE(spwr_battery_props_eng);
++	}
++
++	bat->psy_desc.get_property = spwr_battery_get_property;
++
++	mutex_init(&bat->lock);
++	psy_cfg.drv_data = bat;
++
++	INIT_DELAYED_WORK(&bat->update_work, spwr_battery_update_bst_workfn);
++
++	mutex_lock(&spwr_subsystem.lock);
++	if (spwr_subsystem.battery[bat->id]) {
++		status = -EEXIST;
++		goto err;
++	}
++
++	status = spwr_subsys_ref_unlocked();
++	if (status)
++		goto err;
++
++	bat->psy = power_supply_register(&bat->pdev->dev, &bat->psy_desc, &psy_cfg);
++	if (IS_ERR(bat->psy)) {
++		status = PTR_ERR(bat->psy);
++		goto err_unref;
++	}
++
++	status = device_create_file(&bat->psy->dev, &alarm_attr);
++	if (status)
++		goto err_dereg;
++
++	spwr_subsystem.battery[bat->id] = bat;
++	mutex_unlock(&spwr_subsystem.lock);
++	return 0;
++
++err_dereg:
++	power_supply_unregister(bat->psy);
++err_unref:
++	spwr_subsys_unref_unlocked();
++err:
++	mutex_unlock(&spwr_subsystem.lock);
++	return status;
++}
++
++static int spwr_battery_unregister(struct spwr_battery_device *bat)
++{
++	int status;
++
++	if (bat->id < 0 || bat->id >= __SPWR_NUM_BAT)
++		return -EINVAL ;
++
++	mutex_lock(&spwr_subsystem.lock);
++	if (spwr_subsystem.battery[bat->id] != bat) {
++		mutex_unlock(&spwr_subsystem.lock);
++		return -EINVAL;
++	}
++
++	spwr_subsystem.battery[bat->id] = NULL;
++
++	status = spwr_subsys_unref_unlocked();
++	mutex_unlock(&spwr_subsystem.lock);
++
++	cancel_delayed_work_sync(&bat->update_work);
++	device_remove_file(&bat->psy->dev, &alarm_attr);
++	power_supply_unregister(bat->psy);
++
++	mutex_destroy(&bat->lock);
++	return status;
++}
++
++
++/*
++ * Battery Driver.
++ */
++
++#ifdef CONFIG_PM_SLEEP
++static int surface_sam_sid_battery_resume(struct device *dev)
++{
++	struct spwr_battery_device *bat = dev_get_drvdata(dev);
++	return spwr_battery_recheck(bat);
++}
++#else
++#define surface_sam_sid_battery_resume NULL
++#endif
++
++SIMPLE_DEV_PM_OPS(surface_sam_sid_battery_pm, NULL, surface_sam_sid_battery_resume);
++
++static int surface_sam_sid_battery_probe(struct platform_device *pdev)
++{
++	int status;
++	struct spwr_battery_device *bat;
++
++	// link to ec
++	status = surface_sam_ssh_consumer_register(&pdev->dev);
++	if (status)
++		return status == -ENXIO ? -EPROBE_DEFER : status;
++
++	bat = devm_kzalloc(&pdev->dev, sizeof(struct spwr_battery_device), GFP_KERNEL);
++	if (!bat)
++		return -ENOMEM;
++
++	platform_set_drvdata(pdev, bat);
++	return spwr_battery_register(bat, pdev, pdev->id);
++}
++
++static int surface_sam_sid_battery_remove(struct platform_device *pdev)
++{
++	struct spwr_battery_device *bat = platform_get_drvdata(pdev);
++	return spwr_battery_unregister(bat);
++}
++
++static struct platform_driver surface_sam_sid_battery = {
++	.probe = surface_sam_sid_battery_probe,
++	.remove = surface_sam_sid_battery_remove,
++	.driver = {
++		.name = "surface_sam_sid_battery",
++		.pm = &surface_sam_sid_battery_pm,
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++	},
++};
++
++
++/*
++ * AC Driver.
++ */
++
++static int surface_sam_sid_ac_probe(struct platform_device *pdev)
++{
++	int status;
++	struct spwr_ac_device *ac;
++
++	// link to ec
++	status = surface_sam_ssh_consumer_register(&pdev->dev);
++	if (status)
++		return status == -ENXIO ? -EPROBE_DEFER : status;
++
++	ac = devm_kzalloc(&pdev->dev, sizeof(struct spwr_ac_device), GFP_KERNEL);
++	if (!ac)
++		return -ENOMEM;
++
++	status = spwr_ac_register(ac, pdev);
++	if (status)
++		return status;
++
++	platform_set_drvdata(pdev, ac);
++	return 0;
++}
++
++static int surface_sam_sid_ac_remove(struct platform_device *pdev)
++{
++	struct spwr_ac_device *ac = platform_get_drvdata(pdev);
++	return spwr_ac_unregister(ac);
++}
++
++static struct platform_driver surface_sam_sid_ac = {
++	.probe = surface_sam_sid_ac_probe,
++	.remove = surface_sam_sid_ac_remove,
++	.driver = {
++		.name = "surface_sam_sid_ac",
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++	},
++};
++
++
++static int __init surface_sam_sid_power_init(void)
++{
++	int status;
++
++	status = platform_driver_register(&surface_sam_sid_battery);
++	if (status)
++		return status;
++
++	status = platform_driver_register(&surface_sam_sid_ac);
++	if (status) {
++		platform_driver_unregister(&surface_sam_sid_battery);
++		return status;
++	}
++
++	return 0;
++}
++
++static void __exit surface_sam_sid_power_exit(void)
++{
++	platform_driver_unregister(&surface_sam_sid_battery);
++	platform_driver_unregister(&surface_sam_sid_ac);
++}
++
++module_init(surface_sam_sid_power_init);
++module_exit(surface_sam_sid_power_exit);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Surface Battery/AC Driver for 7th Generation Surface Devices");
++MODULE_LICENSE("GPL v2");
++MODULE_ALIAS("platform:surface_sam_sid_power");
+diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_vhf.c b/drivers/platform/x86/surface_sam/surface_sam_sid_vhf.c
+new file mode 100644
+index 000000000000..dc5be3a14a8c
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/surface_sam_sid_vhf.c
+@@ -0,0 +1,440 @@
++/*
++ * Microsofs Surface HID (VHF) driver for HID input events via SAM.
++ * Used for keyboard input events on the 7th generation Surface Laptops.
++ */
++
++#include <linux/acpi.h>
++#include <linux/hid.h>
++#include <linux/input.h>
++#include <linux/platform_device.h>
++#include <linux/types.h>
++
++#include "surface_sam_ssh.h"
++
++#define SID_VHF_INPUT_NAME	"Microsoft Surface HID"
++
++/*
++ * Request ID for VHF events. This value is based on the output of the Surface
++ * EC and should not be changed.
++ */
++#define SAM_EVENT_SID_VHF_RQID	0x0015
++#define SAM_EVENT_SID_VHF_TC	0x15
++
++#define VHF_HID_STARTED		0
++
++struct sid_vhf_evtctx {
++	struct device     *dev;
++	struct hid_device *hid;
++	unsigned long flags;
++};
++
++struct sid_vhf_drvdata {
++	struct sid_vhf_evtctx event_ctx;
++};
++
++
++static int sid_vhf_hid_start(struct hid_device *hid)
++{
++	hid_dbg(hid, "%s\n", __func__);
++	return 0;
++}
++
++static void sid_vhf_hid_stop(struct hid_device *hid)
++{
++	hid_dbg(hid, "%s\n", __func__);
++}
++
++static int sid_vhf_hid_open(struct hid_device *hid)
++{
++	struct sid_vhf_drvdata *drvdata = platform_get_drvdata(to_platform_device(hid->dev.parent));
++
++	hid_dbg(hid, "%s\n", __func__);
++
++	set_bit(VHF_HID_STARTED, &drvdata->event_ctx.flags);
++	return 0;
++}
++
++static void sid_vhf_hid_close(struct hid_device *hid)
++{
++
++	struct sid_vhf_drvdata *drvdata = platform_get_drvdata(to_platform_device(hid->dev.parent));
++
++	hid_dbg(hid, "%s\n", __func__);
++
++	clear_bit(VHF_HID_STARTED, &drvdata->event_ctx.flags);
++}
++
++struct surface_sam_sid_vhf_meta_rqst {
++	u8 id;
++	u32 offset;
++	u32 length; // buffer limit on send, length of data received on receive
++	u8 end; // 0x01 if end was reached
++} __packed;
++
++struct vhf_device_metadata_info {
++	u8 len;
++	u8 _2;
++	u8 _3;
++	u8 _4;
++	u8 _5;
++	u8 _6;
++	u8 _7;
++	u16 hid_len; // hid descriptor length
++} __packed;
++
++struct vhf_device_metadata {
++	u32 len;
++	u16 vendor_id;
++	u16 product_id;
++	u8  _1[24];
++} __packed;
++
++union vhf_buffer_data {
++	struct vhf_device_metadata_info info;
++	u8 pld[0x76];
++	struct vhf_device_metadata meta;
++};
++
++struct surface_sam_sid_vhf_meta_resp {
++	struct surface_sam_sid_vhf_meta_rqst rqst;
++	union vhf_buffer_data data;
++} __packed;
++
++
++static int vhf_get_metadata(u8 iid, struct vhf_device_metadata *meta)
++{
++	int status;
++
++	struct surface_sam_sid_vhf_meta_resp resp = {
++		.rqst = {
++			.id = 2,
++			.offset = 0,
++			.length = 0x76,
++			.end = 0
++		}
++	};
++
++	struct surface_sam_ssh_rqst rqst = {
++		.tc = 0x15,
++		.cid = 0x04,
++		.iid = iid,
++		.pri = 0x02,
++		.snc = 0x01,
++		.cdl = sizeof(struct surface_sam_sid_vhf_meta_rqst),
++		.pld = (u8*)&resp.rqst,
++	};
++
++	struct surface_sam_ssh_buf result = {
++		.cap  = sizeof(struct surface_sam_sid_vhf_meta_resp),
++		.len  = 0,
++		.data = (u8*)&resp,
++	};
++
++	status = surface_sam_ssh_rqst(&rqst, &result);
++	if (status) {
++		return status;
++	}
++
++	*meta = resp.data.meta;
++
++	return 0;
++}
++
++static int vhf_get_hid_descriptor(struct hid_device *hid, u8 iid, u8 **desc, int *size)
++{
++	int status, len;
++	u8 *buf;
++
++	struct surface_sam_sid_vhf_meta_resp resp = {
++		.rqst = {
++			.id = 0,
++			.offset = 0,
++			.length = 0x76,
++			.end = 0,
++		}
++	};
++
++	struct surface_sam_ssh_rqst rqst = {
++		.tc = 0x15,
++		.cid = 0x04,
++		.iid = iid,
++		.pri = 0x02,
++		.snc = 0x01,
++		.cdl = sizeof(struct surface_sam_sid_vhf_meta_rqst),
++		.pld = (u8*)&resp.rqst,
++	};
++
++	struct surface_sam_ssh_buf result = {
++		.cap  = sizeof(struct surface_sam_sid_vhf_meta_resp),
++		.len  = 0,
++		.data = (u8*)&resp,
++	};
++
++	// first fetch 00 to get the total length
++	status = surface_sam_ssh_rqst(&rqst, &result);
++	if (status) {
++		return status;
++	}
++
++	len = resp.data.info.hid_len;
++
++	// allocate a buffer for the descriptor
++	buf = kzalloc(len, GFP_KERNEL);
++
++	// then, iterate and write into buffer, copying out bytes
++	resp.rqst.id = 1;
++	resp.rqst.offset = 0;
++	resp.rqst.length = 0x76;
++	resp.rqst.end = 0;
++
++	while (!resp.rqst.end && resp.rqst.offset < len) {
++		status = surface_sam_ssh_rqst(&rqst, &result);
++		if (status) {
++			kfree(buf);
++			return status;
++		}
++		memcpy(buf + resp.rqst.offset, resp.data.pld, resp.rqst.length);
++
++		resp.rqst.offset += resp.rqst.length;
++	}
++
++	*desc = buf;
++	*size = len;
++
++	return 0;
++}
++
++static int sid_vhf_hid_parse(struct hid_device *hid)
++{
++	int ret = 0, size;
++	u8 *buf;
++
++	ret = vhf_get_hid_descriptor(hid, 0x00, &buf, &size);
++	if (ret != 0) {
++		hid_err(hid, "Failed to read HID descriptor from device: %d\n", ret);
++		return -EIO;
++	}
++	hid_dbg(hid, "HID descriptor of device:");
++	print_hex_dump_debug("descriptor:", DUMP_PREFIX_OFFSET, 16, 1, buf, size, false);
++
++	ret = hid_parse_report(hid, buf, size);
++	kfree(buf);
++	return ret;
++
++}
++
++static int sid_vhf_hid_raw_request(struct hid_device *hid, unsigned char
++		reportnum, u8 *buf, size_t len, unsigned char rtype, int
++		reqtype)
++{
++	int status;
++	u8 cid;
++	struct surface_sam_ssh_rqst rqst = {};
++	struct surface_sam_ssh_buf result = {};
++
++	hid_dbg(hid, "%s: reportnum=%#04x rtype=%i reqtype=%i\n", __func__, reportnum, rtype, reqtype);
++	print_hex_dump_debug("report:", DUMP_PREFIX_OFFSET, 16, 1, buf, len, false);
++
++	// Byte 0 is the report number. Report data starts at byte 1.
++	buf[0] = reportnum;
++
++	switch (rtype) {
++	case HID_OUTPUT_REPORT:
++		cid = 0x01;
++		break;
++	case HID_FEATURE_REPORT:
++		switch (reqtype) {
++		case HID_REQ_GET_REPORT:
++			// The EC doesn't respond to GET FEATURE for these touchpad reports
++			// we immediately discard to avoid waiting for a timeout.
++			if (reportnum == 6 || reportnum == 7 || reportnum == 8 || reportnum == 9 || reportnum == 0x0b) {
++				hid_dbg(hid, "%s: skipping get feature report for 0x%02x\n", __func__, reportnum);
++				return 0;
++			}
++
++			cid = 0x02;
++			break;
++		case HID_REQ_SET_REPORT:
++			cid = 0x03;
++			break;
++		default:
++			hid_err(hid, "%s: unknown req type 0x%02x\n", __func__, rtype);
++			return -EIO;
++		}
++		break;
++	default:
++		hid_err(hid, "%s: unknown report type 0x%02x\n", __func__, reportnum);
++		return -EIO;
++	}
++
++	rqst.tc  = SAM_EVENT_SID_VHF_TC;
++	rqst.pri = SURFACE_SAM_PRIORITY_HIGH;
++	rqst.iid = 0x00; // windows tends to distinguish iids, but EC will take it
++	rqst.cid = cid;
++	rqst.snc = HID_REQ_GET_REPORT == reqtype ? 0x01 : 0x00;
++	rqst.cdl = HID_REQ_GET_REPORT == reqtype ? 0x01 : len;
++	rqst.pld = buf;
++
++	result.cap = len;
++	result.len = 0;
++	result.data = buf;
++
++	hid_dbg(hid, "%s: sending to cid=%#04x snc=%#04x\n", __func__, cid, HID_REQ_GET_REPORT == reqtype);
++
++	status = surface_sam_ssh_rqst(&rqst, &result);
++	hid_dbg(hid, "%s: status %i\n", __func__, status);
++
++	if (status) {
++		return status;
++	}
++
++	if (result.len > 0) {
++		print_hex_dump_debug("response:", DUMP_PREFIX_OFFSET, 16, 1, result.data, result.len, false);
++	}
++
++	return result.len;
++}
++
++static struct hid_ll_driver sid_vhf_hid_ll_driver = {
++	.start         = sid_vhf_hid_start,
++	.stop          = sid_vhf_hid_stop,
++	.open          = sid_vhf_hid_open,
++	.close         = sid_vhf_hid_close,
++	.parse         = sid_vhf_hid_parse,
++	.raw_request   = sid_vhf_hid_raw_request,
++};
++
++
++static struct hid_device *sid_vhf_create_hid_device(struct platform_device *pdev, struct vhf_device_metadata *meta)
++{
++	struct hid_device *hid;
++
++	hid = hid_allocate_device();
++	if (IS_ERR(hid)) {
++		return hid;
++	}
++
++	hid->dev.parent = &pdev->dev;
++
++	hid->bus     = BUS_VIRTUAL;
++	hid->vendor  = meta->vendor_id;
++	hid->product = meta->product_id;
++
++	hid->ll_driver = &sid_vhf_hid_ll_driver;
++
++	sprintf(hid->name, "%s", SID_VHF_INPUT_NAME);
++
++	return hid;
++}
++
++static int sid_vhf_event_handler(struct surface_sam_ssh_event *event, void *data)
++{
++	struct sid_vhf_evtctx *ctx = (struct sid_vhf_evtctx *)data;
++
++	// skip if HID hasn't started yet
++	if (!test_bit(VHF_HID_STARTED, &ctx->flags)) {
++		return 0;
++	}
++
++	if (event->tc == SAM_EVENT_SID_VHF_TC && (event->cid == 0x00 || event->cid == 0x03 || event->cid == 0x04)) {
++		return hid_input_report(ctx->hid, HID_INPUT_REPORT, event->pld, event->len, 1);
++	}
++
++	dev_warn(ctx->dev, "unsupported event (tc = %d, cid = %d)\n", event->tc, event->cid);
++	return 0;
++}
++
++static int surface_sam_sid_vhf_probe(struct platform_device *pdev)
++{
++	struct sid_vhf_drvdata *drvdata;
++	struct vhf_device_metadata meta = {};
++	struct hid_device *hid;
++	int status;
++
++	// add device link to EC
++	status = surface_sam_ssh_consumer_register(&pdev->dev);
++	if (status) {
++		return status == -ENXIO ? -EPROBE_DEFER : status;
++	}
++
++	drvdata = kzalloc(sizeof(struct sid_vhf_drvdata), GFP_KERNEL);
++	if (!drvdata) {
++		return -ENOMEM;
++	}
++
++	status = vhf_get_metadata(0x00, &meta);
++	if (status) {
++		goto err_create_hid;
++	}
++
++	hid = sid_vhf_create_hid_device(pdev, &meta);
++	if (IS_ERR(hid)) {
++		status = PTR_ERR(hid);
++		goto err_create_hid;
++	}
++
++	drvdata->event_ctx.dev = &pdev->dev;
++	drvdata->event_ctx.hid = hid;
++
++	platform_set_drvdata(pdev, drvdata);
++
++	status = surface_sam_ssh_set_event_handler(
++			SAM_EVENT_SID_VHF_RQID,
++			sid_vhf_event_handler,
++			&drvdata->event_ctx);
++	if (status) {
++		goto err_event_handler;
++	}
++
++	status = surface_sam_ssh_enable_event_source(SAM_EVENT_SID_VHF_TC, 0x01, SAM_EVENT_SID_VHF_RQID);
++	if (status) {
++		goto err_event_source;
++	}
++
++	status = hid_add_device(hid);
++	if (status) {
++		goto err_add_hid;
++	}
++
++	return 0;
++
++err_add_hid:
++	surface_sam_ssh_disable_event_source(SAM_EVENT_SID_VHF_TC, 0x01, SAM_EVENT_SID_VHF_RQID);
++err_event_source:
++	surface_sam_ssh_remove_event_handler(SAM_EVENT_SID_VHF_RQID);
++err_event_handler:
++	hid_destroy_device(hid);
++	platform_set_drvdata(pdev, NULL);
++err_create_hid:
++	kfree(drvdata);
++	return status;
++}
++
++static int surface_sam_sid_vhf_remove(struct platform_device *pdev)
++{
++	struct sid_vhf_drvdata *drvdata = platform_get_drvdata(pdev);
++
++	surface_sam_ssh_disable_event_source(SAM_EVENT_SID_VHF_TC, 0x01, SAM_EVENT_SID_VHF_RQID);
++	surface_sam_ssh_remove_event_handler(SAM_EVENT_SID_VHF_RQID);
++
++	hid_destroy_device(drvdata->event_ctx.hid);
++	kfree(drvdata);
++
++	platform_set_drvdata(pdev, NULL);
++	return 0;
++}
++
++static struct platform_driver surface_sam_sid_vhf = {
++	.probe = surface_sam_sid_vhf_probe,
++	.remove = surface_sam_sid_vhf_remove,
++	.driver = {
++		.name = "surface_sam_sid_vhf",
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++	},
++};
++module_platform_driver(surface_sam_sid_vhf);
++
++MODULE_AUTHOR("Blaž Hrastnik <blaz@mxxn.io>");
++MODULE_DESCRIPTION("Driver for HID devices connected via Surface SAM");
++MODULE_LICENSE("GPL v2");
++MODULE_ALIAS("platform:surface_sam_sid_vhf");
+diff --git a/drivers/platform/x86/surface_sam/surface_sam_ssh.c b/drivers/platform/x86/surface_sam/surface_sam_ssh.c
+new file mode 100644
+index 000000000000..665d956eec01
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/surface_sam_ssh.c
+@@ -0,0 +1,1779 @@
++/*
++ * Surface Serial Hub (SSH) driver for communication with the Surface/System
++ * Aggregator Module.
++ */
++
++#include <asm/unaligned.h>
++#include <linux/acpi.h>
++#include <linux/completion.h>
++#include <linux/crc-ccitt.h>
++#include <linux/dmaengine.h>
++#include <linux/gpio/consumer.h>
++#include <linux/interrupt.h>
++#include <linux/jiffies.h>
++#include <linux/kernel.h>
++#include <linux/kfifo.h>
++#include <linux/mutex.h>
++#include <linux/pm.h>
++#include <linux/refcount.h>
++#include <linux/serdev.h>
++#include <linux/spinlock.h>
++#include <linux/workqueue.h>
++
++#include "surface_sam_ssh.h"
++
++
++#define SSH_RQST_TAG_FULL			"surface_sam_ssh_rqst: "
++#define SSH_RQST_TAG				"rqst: "
++#define SSH_EVENT_TAG				"event: "
++#define SSH_RECV_TAG				"recv: "
++
++#define SSH_SUPPORTED_FLOW_CONTROL_MASK		(~((u8) ACPI_UART_FLOW_CONTROL_HW))
++
++#define SSH_BYTELEN_SYNC			2
++#define SSH_BYTELEN_TERM			2
++#define SSH_BYTELEN_CRC				2
++#define SSH_BYTELEN_CTRL			4	// command-header, ACK, or RETRY
++#define SSH_BYTELEN_CMDFRAME			8	// without payload
++
++#define SSH_MAX_WRITE (				\
++	  SSH_BYTELEN_SYNC			\
++	+ SSH_BYTELEN_CTRL			\
++	+ SSH_BYTELEN_CRC			\
++	+ SSH_BYTELEN_CMDFRAME			\
++	+ SURFACE_SAM_SSH_MAX_RQST_PAYLOAD	\
++	+ SSH_BYTELEN_CRC			\
++)
++
++#define SSH_MSG_LEN_CTRL (			\
++	  SSH_BYTELEN_SYNC			\
++	+ SSH_BYTELEN_CTRL			\
++	+ SSH_BYTELEN_CRC			\
++	+ SSH_BYTELEN_TERM			\
++)
++
++#define SSH_MSG_LEN_CMD_BASE (			\
++	  SSH_BYTELEN_SYNC			\
++	+ SSH_BYTELEN_CTRL			\
++	+ SSH_BYTELEN_CRC			\
++	+ SSH_BYTELEN_CRC			\
++)	// without payload and command-frame
++
++#define SSH_WRITE_TIMEOUT		msecs_to_jiffies(1000)
++#define SSH_READ_TIMEOUT		msecs_to_jiffies(1000)
++#define SSH_NUM_RETRY			3
++
++#define SSH_WRITE_BUF_LEN		SSH_MAX_WRITE
++#define SSH_READ_BUF_LEN		512		// must be power of 2
++#define SSH_EVAL_BUF_LEN		SSH_MAX_WRITE	// also works for reading
++
++#define SSH_FRAME_TYPE_CMD_NOACK	0x00	// request/event that does not to be ACKed
++#define SSH_FRAME_TYPE_CMD		0x80	// request/event
++#define SSH_FRAME_TYPE_ACK		0x40	// ACK for request/event
++#define SSH_FRAME_TYPE_RETRY		0x04	// error or retry indicator
++
++#define SSH_FRAME_OFFS_CTRL		SSH_BYTELEN_SYNC
++#define SSH_FRAME_OFFS_CTRL_CRC		(SSH_FRAME_OFFS_CTRL + SSH_BYTELEN_CTRL)
++#define SSH_FRAME_OFFS_TERM		(SSH_FRAME_OFFS_CTRL_CRC + SSH_BYTELEN_CRC)
++#define SSH_FRAME_OFFS_CMD		SSH_FRAME_OFFS_TERM	// either TERM or CMD
++#define SSH_FRAME_OFFS_CMD_PLD		(SSH_FRAME_OFFS_CMD + SSH_BYTELEN_CMDFRAME)
++
++/*
++ * A note on Request IDs (RQIDs):
++ * 	0x0000 is not a valid RQID
++ * 	0x0001 is valid, but reserved for Surface Laptop keyboard events
++ */
++#define SAM_NUM_EVENT_TYPES		((1 << SURFACE_SAM_SSH_RQID_EVENT_BITS) - 1)
++
++/*
++ * Sync:			aa 55
++ * Terminate:			ff ff
++ *
++ * Request Message:		sync cmd-hdr crc(cmd-hdr) cmd-rqst-frame crc(cmd-rqst-frame)
++ * Ack Message:			sync ack crc(ack) terminate
++ * Retry Message:		sync retry crc(retry) terminate
++ * Response Message:		sync cmd-hdr crc(cmd-hdr) cmd-resp-frame crc(cmd-resp-frame)
++ *
++ * Command Header:		80 LEN 00 SEQ
++ * Ack:				40 00 00 SEQ
++ * Retry:			04 00 00 00
++ * Command Request Frame:	80 RTC 01 00 RIID RQID RCID PLD
++ * Command Response Frame:	80 RTC 00 01 RIID RQID RCID PLD
++ */
++
++struct ssh_frame_ctrl {
++	u8 type;
++	u8 len;			// without crc
++	u8 pad;
++	u8 seq;
++} __packed;
++
++struct ssh_frame_cmd {
++	u8 type;
++	u8 tc;
++	u8 pri_out;
++	u8 pri_in;
++	u8 iid;
++	u8 rqid_lo;		// id for request/response matching (low byte)
++	u8 rqid_hi;		// id for request/response matching (high byte)
++	u8 cid;
++} __packed;
++
++
++enum ssh_ec_state {
++	SSH_EC_UNINITIALIZED,
++	SSH_EC_INITIALIZED,
++	SSH_EC_SUSPENDED,
++};
++
++struct ssh_counters {
++	u8  seq;		// control sequence id
++	u16 rqid;		// id for request/response matching
++};
++
++struct ssh_writer {
++	u8 *data;
++	u8 *ptr;
++} __packed;
++
++enum ssh_receiver_state {
++	SSH_RCV_DISCARD,
++	SSH_RCV_CONTROL,
++	SSH_RCV_COMMAND,
++};
++
++struct ssh_receiver {
++	spinlock_t lock;
++	enum ssh_receiver_state state;
++	struct completion signal;
++	struct kfifo fifo;
++	struct {
++		bool pld;
++		u8 seq;
++		u16 rqid;
++	} expect;
++	struct {
++		u16 cap;
++		u16 len;
++		u8 *ptr;
++	} eval_buf;
++};
++
++struct ssh_event_handler {
++	surface_sam_ssh_event_handler_fn handler;
++	surface_sam_ssh_event_handler_delay delay;
++	void *data;
++};
++
++struct ssh_events {
++	spinlock_t lock;
++	struct workqueue_struct *queue_ack;
++	struct workqueue_struct *queue_evt;
++	struct ssh_event_handler handler[SAM_NUM_EVENT_TYPES];
++};
++
++struct sam_ssh_ec {
++	struct mutex lock;
++	enum ssh_ec_state state;
++	struct serdev_device *serdev;
++	struct ssh_counters counter;
++	struct ssh_writer writer;
++	struct ssh_receiver receiver;
++	struct ssh_events events;
++	int irq;
++	bool irq_wakeup_enabled;
++};
++
++struct ssh_fifo_packet {
++	u8 type;	// packet type (ACK/RETRY/CMD)
++	u8 seq;
++	u8 len;
++};
++
++struct ssh_event_work {
++	refcount_t refcount;
++	struct sam_ssh_ec *ec;
++	struct work_struct work_ack;
++	struct delayed_work work_evt;
++	struct surface_sam_ssh_event event;
++	u8 seq;
++};
++
++
++static struct sam_ssh_ec ssh_ec = {
++	.lock   = __MUTEX_INITIALIZER(ssh_ec.lock),
++	.state  = SSH_EC_UNINITIALIZED,
++	.serdev = NULL,
++	.counter = {
++		.seq  = 0,
++		.rqid = 0,
++	},
++	.writer = {
++		.data = NULL,
++		.ptr  = NULL,
++	},
++	.receiver = {
++		.lock = __SPIN_LOCK_UNLOCKED(),
++		.state = SSH_RCV_DISCARD,
++		.expect = {},
++	},
++	.events = {
++		.lock = __SPIN_LOCK_UNLOCKED(),
++		.handler = {},
++	},
++	.irq = -1,
++};
++
++
++inline static struct sam_ssh_ec *surface_sam_ssh_acquire(void)
++{
++	struct sam_ssh_ec *ec = &ssh_ec;
++
++	mutex_lock(&ec->lock);
++	return ec;
++}
++
++inline static void surface_sam_ssh_release(struct sam_ssh_ec *ec)
++{
++	mutex_unlock(&ec->lock);
++}
++
++inline static struct sam_ssh_ec *surface_sam_ssh_acquire_init(void)
++{
++	struct sam_ssh_ec *ec = surface_sam_ssh_acquire();
++
++	if (ec->state == SSH_EC_UNINITIALIZED) {
++		surface_sam_ssh_release(ec);
++		return NULL;
++	}
++
++	return ec;
++}
++
++int surface_sam_ssh_consumer_register(struct device *consumer)
++{
++	u32 flags = DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE_CONSUMER;
++	struct sam_ssh_ec *ec;
++	struct device_link *link;
++
++	ec = surface_sam_ssh_acquire_init();
++	if (!ec) {
++		return -ENXIO;
++	}
++
++	link = device_link_add(consumer, &ec->serdev->dev, flags);
++	if (!link) {
++		return -EFAULT;
++	}
++
++	surface_sam_ssh_release(ec);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(surface_sam_ssh_consumer_register);
++
++
++inline static u16 sam_rqid_to_rqst(u16 rqid) {
++	return rqid << SURFACE_SAM_SSH_RQID_EVENT_BITS;
++}
++
++inline static bool sam_rqid_is_event(u16 rqid) {
++	const u16 mask = (1 << SURFACE_SAM_SSH_RQID_EVENT_BITS) - 1;
++	return rqid != 0 && (rqid | mask) == mask;
++}
++
++int surface_sam_ssh_enable_event_source(u8 tc, u8 unknown, u16 rqid)
++{
++	u8 pld[4] = { tc, unknown, rqid & 0xff, rqid >> 8 };
++	u8 buf[1] = { 0x00 };
++
++	struct surface_sam_ssh_rqst rqst = {
++		.tc  = 0x01,
++		.cid = 0x0b,
++		.iid = 0x00,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
++		.snc = 0x01,
++		.cdl = 0x04,
++		.pld = pld,
++	};
++
++	struct surface_sam_ssh_buf result = {
++		result.cap = ARRAY_SIZE(buf),
++		result.len = 0,
++		result.data = buf,
++	};
++
++	int status;
++
++	// only allow RQIDs that lie within event spectrum
++	if (!sam_rqid_is_event(rqid)) {
++		return -EINVAL;
++	}
++
++	status = surface_sam_ssh_rqst(&rqst, &result);
++
++	if (buf[0] != 0x00) {
++		printk(KERN_WARNING SSH_RQST_TAG_FULL
++		       "unexpected result while enabling event source: 0x%02x\n",
++		       buf[0]);
++	}
++
++	return status;
++
++}
++EXPORT_SYMBOL_GPL(surface_sam_ssh_enable_event_source);
++
++int surface_sam_ssh_disable_event_source(u8 tc, u8 unknown, u16 rqid)
++{
++	u8 pld[4] = { tc, unknown, rqid & 0xff, rqid >> 8 };
++	u8 buf[1] = { 0x00 };
++
++	struct surface_sam_ssh_rqst rqst = {
++		.tc  = 0x01,
++		.cid = 0x0c,
++		.iid = 0x00,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
++		.snc = 0x01,
++		.cdl = 0x04,
++		.pld = pld,
++	};
++
++	struct surface_sam_ssh_buf result = {
++		result.cap = ARRAY_SIZE(buf),
++		result.len = 0,
++		result.data = buf,
++	};
++
++	int status;
++
++	// only allow RQIDs that lie within event spectrum
++	if (!sam_rqid_is_event(rqid)) {
++		return -EINVAL;
++	}
++
++	status = surface_sam_ssh_rqst(&rqst, &result);
++
++	if (buf[0] != 0x00) {
++		printk(KERN_WARNING SSH_RQST_TAG_FULL
++		       "unexpected result while disabling event source: 0x%02x\n",
++		       buf[0]);
++	}
++
++	return status;
++}
++EXPORT_SYMBOL_GPL(surface_sam_ssh_disable_event_source);
++
++static unsigned long sam_event_default_delay(struct surface_sam_ssh_event *event, void *data)
++{
++	return event->pri == SURFACE_SAM_PRIORITY_HIGH ? SURFACE_SAM_SSH_EVENT_IMMEDIATE : 0;
++}
++
++int surface_sam_ssh_set_delayed_event_handler(
++		u16 rqid, surface_sam_ssh_event_handler_fn fn,
++		surface_sam_ssh_event_handler_delay delay,
++		void *data)
++{
++	struct sam_ssh_ec *ec;
++	unsigned long flags;
++
++	if (!sam_rqid_is_event(rqid)) {
++		return -EINVAL;
++	}
++
++	ec = surface_sam_ssh_acquire_init();
++	if (!ec) {
++		return -ENXIO;
++	}
++
++	if (!delay) {
++		delay = sam_event_default_delay;
++	}
++
++	spin_lock_irqsave(&ec->events.lock, flags);
++	// check if we already have a handler
++	if (ec->events.handler[rqid - 1].handler) {
++		spin_unlock_irqrestore(&ec->events.lock, flags);
++		return -EINVAL;
++	}
++
++	// 0 is not a valid event RQID
++	ec->events.handler[rqid - 1].handler = fn;
++	ec->events.handler[rqid - 1].delay = delay;
++	ec->events.handler[rqid - 1].data = data;
++
++	spin_unlock_irqrestore(&ec->events.lock, flags);
++	surface_sam_ssh_release(ec);
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(surface_sam_ssh_set_delayed_event_handler);
++
++int surface_sam_ssh_remove_event_handler(u16 rqid)
++{
++	struct sam_ssh_ec *ec;
++	unsigned long flags;
++
++	if (!sam_rqid_is_event(rqid)) {
++		return -EINVAL;
++	}
++
++	ec = surface_sam_ssh_acquire_init();
++	if (!ec) {
++		return -ENXIO;
++	}
++
++	spin_lock_irqsave(&ec->events.lock, flags);
++
++	// 0 is not a valid event RQID
++	ec->events.handler[rqid - 1].handler = NULL;
++	ec->events.handler[rqid - 1].delay = NULL;
++	ec->events.handler[rqid - 1].data = NULL;
++
++	spin_unlock_irqrestore(&ec->events.lock, flags);
++	surface_sam_ssh_release(ec);
++
++	/*
++	 * Make sure that the handler is not in use any more after we've
++	 * removed it.
++	 */
++	flush_workqueue(ec->events.queue_evt);
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(surface_sam_ssh_remove_event_handler);
++
++
++inline static u16 ssh_crc(const u8 *buf, size_t size)
++{
++	return crc_ccitt_false(0xffff, buf, size);
++}
++
++inline static void ssh_write_u16(struct ssh_writer *writer, u16 in)
++{
++	put_unaligned_le16(in, writer->ptr);
++	writer->ptr += 2;
++}
++
++inline static void ssh_write_crc(struct ssh_writer *writer,
++				 const u8 *buf, size_t size)
++{
++	ssh_write_u16(writer, ssh_crc(buf, size));
++}
++
++inline static void ssh_write_syn(struct ssh_writer *writer)
++{
++	u8 *w = writer->ptr;
++
++	*w++ = 0xaa;
++	*w++ = 0x55;
++
++	writer->ptr = w;
++}
++
++inline static void ssh_write_ter(struct ssh_writer *writer)
++{
++	u8 *w = writer->ptr;
++
++	*w++ = 0xff;
++	*w++ = 0xff;
++
++	writer->ptr = w;
++}
++
++inline static void ssh_write_buf(struct ssh_writer *writer,
++				 u8 *in, size_t len)
++{
++	writer->ptr = memcpy(writer->ptr, in, len) + len;
++}
++
++inline static void ssh_write_hdr(struct ssh_writer *writer,
++				 const struct surface_sam_ssh_rqst *rqst,
++				 struct sam_ssh_ec *ec)
++{
++	struct ssh_frame_ctrl *hdr = (struct ssh_frame_ctrl *)writer->ptr;
++	u8 *begin = writer->ptr;
++
++	hdr->type = SSH_FRAME_TYPE_CMD;
++	hdr->len  = SSH_BYTELEN_CMDFRAME + rqst->cdl;	// without CRC
++	hdr->pad  = 0x00;
++	hdr->seq  = ec->counter.seq;
++
++	writer->ptr += sizeof(*hdr);
++
++	ssh_write_crc(writer, begin, writer->ptr - begin);
++}
++
++inline static void ssh_write_cmd(struct ssh_writer *writer,
++				 const struct surface_sam_ssh_rqst *rqst,
++				 struct sam_ssh_ec *ec)
++{
++	struct ssh_frame_cmd *cmd = (struct ssh_frame_cmd *)writer->ptr;
++	u8 *begin = writer->ptr;
++
++	u16 rqid = sam_rqid_to_rqst(ec->counter.rqid);
++	u8 rqid_lo = rqid & 0xFF;
++	u8 rqid_hi = rqid >> 8;
++
++	cmd->type     = SSH_FRAME_TYPE_CMD;
++	cmd->tc       = rqst->tc;
++	cmd->pri_out  = rqst->pri;
++	cmd->pri_in   = 0x00;
++	cmd->iid      = rqst->iid;
++	cmd->rqid_lo  = rqid_lo;
++	cmd->rqid_hi  = rqid_hi;
++	cmd->cid      = rqst->cid;
++
++	writer->ptr += sizeof(*cmd);
++
++	ssh_write_buf(writer, rqst->pld, rqst->cdl);
++	ssh_write_crc(writer, begin, writer->ptr - begin);
++}
++
++inline static void ssh_write_ack(struct ssh_writer *writer, u8 seq)
++{
++	struct ssh_frame_ctrl *ack = (struct ssh_frame_ctrl *)writer->ptr;
++	u8 *begin = writer->ptr;
++
++	ack->type = SSH_FRAME_TYPE_ACK;
++	ack->len  = 0x00;
++	ack->pad  = 0x00;
++	ack->seq  = seq;
++
++	writer->ptr += sizeof(*ack);
++
++	ssh_write_crc(writer, begin, writer->ptr - begin);
++}
++
++inline static void ssh_writer_reset(struct ssh_writer *writer)
++{
++	writer->ptr = writer->data;
++}
++
++inline static int ssh_writer_flush(struct sam_ssh_ec *ec)
++{
++	struct ssh_writer *writer = &ec->writer;
++	struct serdev_device *serdev = ec->serdev;
++	int status;
++
++	size_t len = writer->ptr - writer->data;
++
++	dev_dbg(&ec->serdev->dev, "sending message\n");
++	print_hex_dump_debug("send: ", DUMP_PREFIX_OFFSET, 16, 1,
++	                     writer->data, writer->ptr - writer->data, false);
++
++	status = serdev_device_write(serdev, writer->data, len, SSH_WRITE_TIMEOUT);
++	return status >= 0 ? 0 : status;
++}
++
++inline static void ssh_write_msg_cmd(struct sam_ssh_ec *ec,
++				     const struct surface_sam_ssh_rqst *rqst)
++{
++	ssh_writer_reset(&ec->writer);
++	ssh_write_syn(&ec->writer);
++	ssh_write_hdr(&ec->writer, rqst, ec);
++	ssh_write_cmd(&ec->writer, rqst, ec);
++}
++
++inline static void ssh_write_msg_ack(struct sam_ssh_ec *ec, u8 seq)
++{
++	ssh_writer_reset(&ec->writer);
++	ssh_write_syn(&ec->writer);
++	ssh_write_ack(&ec->writer, seq);
++	ssh_write_ter(&ec->writer);
++}
++
++inline static void ssh_receiver_restart(struct sam_ssh_ec *ec,
++					const struct surface_sam_ssh_rqst *rqst)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&ec->receiver.lock, flags);
++	reinit_completion(&ec->receiver.signal);
++	ec->receiver.state = SSH_RCV_CONTROL;
++	ec->receiver.expect.pld = rqst->snc;
++	ec->receiver.expect.seq = ec->counter.seq;
++	ec->receiver.expect.rqid = sam_rqid_to_rqst(ec->counter.rqid);
++	ec->receiver.eval_buf.len = 0;
++	spin_unlock_irqrestore(&ec->receiver.lock, flags);
++}
++
++inline static void ssh_receiver_discard(struct sam_ssh_ec *ec)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&ec->receiver.lock, flags);
++	ec->receiver.state = SSH_RCV_DISCARD;
++	ec->receiver.eval_buf.len = 0;
++	kfifo_reset(&ec->receiver.fifo);
++	spin_unlock_irqrestore(&ec->receiver.lock, flags);
++}
++
++static int surface_sam_ssh_rqst_unlocked(struct sam_ssh_ec *ec,
++					 const struct surface_sam_ssh_rqst *rqst,
++					 struct surface_sam_ssh_buf *result)
++{
++	struct device *dev = &ec->serdev->dev;
++	struct ssh_fifo_packet packet = {};
++	int status;
++	int try;
++	unsigned int rem;
++
++	if (rqst->cdl > SURFACE_SAM_SSH_MAX_RQST_PAYLOAD) {
++		dev_err(dev, SSH_RQST_TAG "request payload too large\n");
++		return -EINVAL;
++	}
++
++	// write command in buffer, we may need it multiple times
++	ssh_write_msg_cmd(ec, rqst);
++	ssh_receiver_restart(ec, rqst);
++
++	// send command, try to get an ack response
++	for (try = 0; try < SSH_NUM_RETRY; try++) {
++		status = ssh_writer_flush(ec);
++		if (status) {
++			goto out;
++		}
++
++		rem = wait_for_completion_timeout(&ec->receiver.signal, SSH_READ_TIMEOUT);
++		if (rem) {
++			// completion assures valid packet, thus ignore returned length
++			(void) !kfifo_out(&ec->receiver.fifo, &packet, sizeof(packet));
++
++			if (packet.type == SSH_FRAME_TYPE_ACK) {
++				break;
++			}
++		}
++	}
++
++	// check if we ran out of tries?
++	if (try >= SSH_NUM_RETRY) {
++		dev_err(dev, SSH_RQST_TAG "communication failed %d times, giving up\n", try);
++		status = -EIO;
++		goto out;
++	}
++
++	ec->counter.seq  += 1;
++	ec->counter.rqid += 1;
++
++	// get command response/payload
++	if (rqst->snc && result) {
++		rem = wait_for_completion_timeout(&ec->receiver.signal, SSH_READ_TIMEOUT);
++		if (rem) {
++			// completion assures valid packet, thus ignore returned length
++			(void) !kfifo_out(&ec->receiver.fifo, &packet, sizeof(packet));
++
++			if (result->cap < packet.len) {
++				status = -EINVAL;
++				goto out;
++			}
++
++			// completion assures valid packet, thus ignore returned length
++			(void) !kfifo_out(&ec->receiver.fifo, result->data, packet.len);
++			result->len = packet.len;
++		} else {
++			dev_err(dev, SSH_RQST_TAG "communication timed out\n");
++			status = -EIO;
++			goto out;
++		}
++
++		// send ACK
++		if (packet.type == SSH_FRAME_TYPE_CMD) {
++			ssh_write_msg_ack(ec, packet.seq);
++			status = ssh_writer_flush(ec);
++			if (status) {
++				goto out;
++			}
++		}
++	}
++
++out:
++	ssh_receiver_discard(ec);
++	return status;
++}
++
++int surface_sam_ssh_rqst(const struct surface_sam_ssh_rqst *rqst, struct surface_sam_ssh_buf *result)
++{
++	struct sam_ssh_ec *ec;
++	int status;
++
++	ec = surface_sam_ssh_acquire_init();
++	if (!ec) {
++		printk(KERN_WARNING SSH_RQST_TAG_FULL "embedded controller is uninitialized\n");
++		return -ENXIO;
++	}
++
++	if (ec->state == SSH_EC_SUSPENDED) {
++		dev_warn(&ec->serdev->dev, SSH_RQST_TAG "embedded controller is suspended\n");
++
++		surface_sam_ssh_release(ec);
++		return -EPERM;
++	}
++
++	status = surface_sam_ssh_rqst_unlocked(ec, rqst, result);
++
++	surface_sam_ssh_release(ec);
++	return status;
++}
++EXPORT_SYMBOL_GPL(surface_sam_ssh_rqst);
++
++
++static int surface_sam_ssh_ec_resume(struct sam_ssh_ec *ec)
++{
++	u8 buf[1] = { 0x00 };
++
++	struct surface_sam_ssh_rqst rqst = {
++		.tc  = 0x01,
++		.cid = 0x16,
++		.iid = 0x00,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
++		.snc = 0x01,
++		.cdl = 0x00,
++		.pld = NULL,
++	};
++
++	struct surface_sam_ssh_buf result = {
++		result.cap = ARRAY_SIZE(buf),
++		result.len = 0,
++		result.data = buf,
++	};
++
++	int status = surface_sam_ssh_rqst_unlocked(ec, &rqst, &result);
++	if (status) {
++		return status;
++	}
++
++	if (buf[0] != 0x00) {
++		dev_warn(&ec->serdev->dev,
++		         "unexpected result while trying to resume EC: 0x%02x\n",
++			 buf[0]);
++	}
++
++	return 0;
++}
++
++static int surface_sam_ssh_ec_suspend(struct sam_ssh_ec *ec)
++{
++	u8 buf[1] = { 0x00 };
++
++	struct surface_sam_ssh_rqst rqst = {
++		.tc  = 0x01,
++		.cid = 0x15,
++		.iid = 0x00,
++		.pri = SURFACE_SAM_PRIORITY_NORMAL,
++		.snc = 0x01,
++		.cdl = 0x00,
++		.pld = NULL,
++	};
++
++	struct surface_sam_ssh_buf result = {
++		result.cap = ARRAY_SIZE(buf),
++		result.len = 0,
++		result.data = buf,
++	};
++
++	int status = surface_sam_ssh_rqst_unlocked(ec, &rqst, &result);
++	if (status) {
++		return status;
++	}
++
++	if (buf[0] != 0x00) {
++		dev_warn(&ec->serdev->dev,
++		         "unexpected result while trying to suspend EC: 0x%02x\n",
++			 buf[0]);
++	}
++
++	return 0;
++}
++
++
++inline static bool ssh_is_valid_syn(const u8 *ptr)
++{
++	return ptr[0] == 0xaa && ptr[1] == 0x55;
++}
++
++inline static bool ssh_is_valid_ter(const u8 *ptr)
++{
++	return ptr[0] == 0xff && ptr[1] == 0xff;
++}
++
++inline static bool ssh_is_valid_crc(const u8 *begin, const u8 *end)
++{
++	u16 crc = ssh_crc(begin, end - begin);
++	return (end[0] == (crc & 0xff)) && (end[1] == (crc >> 8));
++}
++
++
++static int surface_sam_ssh_send_ack(struct sam_ssh_ec *ec, u8 seq)
++{
++	int status;
++	u8 buf[SSH_MSG_LEN_CTRL];
++	u16 crc;
++
++	buf[0] = 0xaa;
++	buf[1] = 0x55;
++	buf[2] = 0x40;
++	buf[3] = 0x00;
++	buf[4] = 0x00;
++	buf[5] = seq;
++
++	crc = ssh_crc(buf + SSH_FRAME_OFFS_CTRL, SSH_BYTELEN_CTRL);
++	buf[6] = crc & 0xff;
++	buf[7] = crc >> 8;
++
++	buf[8] = 0xff;
++	buf[9] = 0xff;
++
++	dev_dbg(&ec->serdev->dev, "sending message\n");
++	print_hex_dump_debug("send: ", DUMP_PREFIX_OFFSET, 16, 1,
++	                     buf, SSH_MSG_LEN_CTRL, false);
++
++	status = serdev_device_write(ec->serdev, buf, SSH_MSG_LEN_CTRL, SSH_WRITE_TIMEOUT);
++	return status >= 0 ? 0 : status;
++}
++
++static void surface_sam_ssh_event_work_ack_handler(struct work_struct *_work)
++{
++	struct surface_sam_ssh_event *event;
++	struct ssh_event_work *work;
++	struct sam_ssh_ec *ec;
++	struct device *dev;
++	int status;
++
++	work = container_of(_work, struct ssh_event_work, work_ack);
++	event = &work->event;
++	ec = work->ec;
++	dev = &ec->serdev->dev;
++
++	// make sure we load a fresh ec state
++	smp_mb();
++
++	if (ec->state == SSH_EC_INITIALIZED) {
++		status = surface_sam_ssh_send_ack(ec, work->seq);
++		if (status) {
++			dev_err(dev, SSH_EVENT_TAG "failed to send ACK: %d\n", status);
++		}
++	}
++
++	if (refcount_dec_and_test(&work->refcount)) {
++		kfree(work);
++	}
++}
++
++static void surface_sam_ssh_event_work_evt_handler(struct work_struct *_work)
++{
++	struct delayed_work *dwork = (struct delayed_work *)_work;
++	struct ssh_event_work *work;
++	struct surface_sam_ssh_event *event;
++	struct sam_ssh_ec *ec;
++	struct device *dev;
++	unsigned long flags;
++
++	surface_sam_ssh_event_handler_fn handler;
++	void *handler_data;
++
++	int status = 0;
++
++	work = container_of(dwork, struct ssh_event_work, work_evt);
++	event = &work->event;
++	ec = work->ec;
++	dev = &ec->serdev->dev;
++
++	spin_lock_irqsave(&ec->events.lock, flags);
++	handler       = ec->events.handler[event->rqid - 1].handler;
++	handler_data  = ec->events.handler[event->rqid - 1].data;
++	spin_unlock_irqrestore(&ec->events.lock, flags);
++
++	/*
++	 * During handler removal or driver release, we ensure every event gets
++	 * handled before return of that function. Thus a handler obtained here is
++	 * guaranteed to be valid at least until this function returns.
++	 */
++
++	if (handler) {
++		status = handler(event, handler_data);
++	} else {
++		dev_warn(dev, SSH_EVENT_TAG "unhandled event (rqid: %04x)\n", event->rqid);
++	}
++
++	if (status) {
++		dev_err(dev, SSH_EVENT_TAG "error handling event: %d\n", status);
++	}
++
++	if (refcount_dec_and_test(&work->refcount)) {
++		kfree(work);
++	}
++}
++
++static void ssh_handle_event(struct sam_ssh_ec *ec, const u8 *buf)
++{
++	struct device *dev = &ec->serdev->dev;
++	const struct ssh_frame_ctrl *ctrl;
++	const struct ssh_frame_cmd *cmd;
++	struct ssh_event_work *work;
++	unsigned long flags;
++	u16 pld_len;
++
++	surface_sam_ssh_event_handler_delay delay_fn;
++	void *handler_data;
++	unsigned long delay;
++
++	ctrl = (const struct ssh_frame_ctrl *)(buf + SSH_FRAME_OFFS_CTRL);
++	cmd  = (const struct ssh_frame_cmd  *)(buf + SSH_FRAME_OFFS_CMD);
++
++	pld_len = ctrl->len - SSH_BYTELEN_CMDFRAME;
++
++	work = kzalloc(sizeof(struct ssh_event_work) + pld_len, GFP_ATOMIC);
++	if (!work) {
++		dev_warn(dev, SSH_EVENT_TAG "failed to allocate memory, dropping event\n");
++		return;
++	}
++
++	refcount_set(&work->refcount, 1);
++	work->ec         = ec;
++	work->seq        = ctrl->seq;
++	work->event.rqid = (cmd->rqid_hi << 8) | cmd->rqid_lo;
++	work->event.tc   = cmd->tc;
++	work->event.cid  = cmd->cid;
++	work->event.iid  = cmd->iid;
++	work->event.pri  = cmd->pri_in;
++	work->event.len  = pld_len;
++	work->event.pld  = ((u8*) work) + sizeof(struct ssh_event_work);
++
++	memcpy(work->event.pld, buf + SSH_FRAME_OFFS_CMD_PLD, pld_len);
++
++	// queue ACK for if required
++	if (ctrl->type == SSH_FRAME_TYPE_CMD) {
++		refcount_set(&work->refcount, 2);
++		INIT_WORK(&work->work_ack, surface_sam_ssh_event_work_ack_handler);
++		queue_work(ec->events.queue_ack, &work->work_ack);
++	}
++
++	spin_lock_irqsave(&ec->events.lock, flags);
++	handler_data = ec->events.handler[work->event.rqid - 1].data;
++	delay_fn = ec->events.handler[work->event.rqid - 1].delay;
++
++	/* Note:
++	 * We need to check delay_fn here: This may have never been set as we
++	 * can't guarantee that events only occur when they have been enabled.
++	 */
++	delay = delay_fn ? delay_fn(&work->event, handler_data) : 0;
++	spin_unlock_irqrestore(&ec->events.lock, flags);
++
++	// immediate execution for high priority events (e.g. keyboard)
++	if (delay == SURFACE_SAM_SSH_EVENT_IMMEDIATE) {
++		surface_sam_ssh_event_work_evt_handler(&work->work_evt.work);
++	} else {
++		INIT_DELAYED_WORK(&work->work_evt, surface_sam_ssh_event_work_evt_handler);
++		queue_delayed_work(ec->events.queue_evt, &work->work_evt, delay);
++	}
++}
++
++static int ssh_receive_msg_ctrl(struct sam_ssh_ec *ec, const u8 *buf, size_t size)
++{
++	struct device *dev = &ec->serdev->dev;
++	struct ssh_receiver *rcv = &ec->receiver;
++	const struct ssh_frame_ctrl *ctrl;
++	struct ssh_fifo_packet packet;
++
++	const u8 *ctrl_begin = buf + SSH_FRAME_OFFS_CTRL;
++	const u8 *ctrl_end   = buf + SSH_FRAME_OFFS_CTRL_CRC;
++
++	ctrl = (const struct ssh_frame_ctrl *)(ctrl_begin);
++
++	// actual length check
++	if (size < SSH_MSG_LEN_CTRL) {
++		return 0;			// need more bytes
++	}
++
++	// validate TERM
++	if (!ssh_is_valid_ter(buf + SSH_FRAME_OFFS_TERM)) {
++		dev_err(dev, SSH_RECV_TAG "invalid end of message\n");
++		return size;			// discard everything
++	}
++
++	// validate CRC
++	if (!ssh_is_valid_crc(ctrl_begin, ctrl_end)) {
++		dev_err(dev, SSH_RECV_TAG "invalid checksum (ctrl)\n");
++		return SSH_MSG_LEN_CTRL;	// only discard message
++	}
++
++	// check if we expect the message
++	if (rcv->state != SSH_RCV_CONTROL) {
++		dev_err(dev, SSH_RECV_TAG "discarding message: ctrl not expected\n");
++		return SSH_MSG_LEN_CTRL;	// discard message
++	}
++
++	// check if it is for our request
++	if (ctrl->type == SSH_FRAME_TYPE_ACK && ctrl->seq != rcv->expect.seq) {
++		dev_err(dev, SSH_RECV_TAG "discarding message: ack does not match\n");
++		return SSH_MSG_LEN_CTRL;	// discard message
++	}
++
++	// we now have a valid & expected ACK/RETRY message
++	dev_dbg(dev, SSH_RECV_TAG "valid control message received (type: 0x%02x)\n", ctrl->type);
++
++	packet.type = ctrl->type;
++	packet.seq  = ctrl->seq;
++	packet.len  = 0;
++
++	if (kfifo_avail(&rcv->fifo) >= sizeof(packet)) {
++		kfifo_in(&rcv->fifo, (u8 *) &packet, sizeof(packet));
++
++	} else {
++		dev_warn(dev, SSH_RECV_TAG
++			 "dropping frame: not enough space in fifo (type = %d)\n",
++			 ctrl->type);
++
++		return SSH_MSG_LEN_CTRL;	// discard message
++	}
++
++	// update decoder state
++	if (ctrl->type == SSH_FRAME_TYPE_ACK) {
++		rcv->state = rcv->expect.pld
++			? SSH_RCV_COMMAND
++			: SSH_RCV_DISCARD;
++	}
++
++	complete(&rcv->signal);
++	return SSH_MSG_LEN_CTRL;		// handled message
++}
++
++static int ssh_receive_msg_cmd(struct sam_ssh_ec *ec, const u8 *buf, size_t size)
++{
++	struct device *dev = &ec->serdev->dev;
++	struct ssh_receiver *rcv = &ec->receiver;
++	const struct ssh_frame_ctrl *ctrl;
++	const struct ssh_frame_cmd *cmd;
++	struct ssh_fifo_packet packet;
++
++	const u8 *ctrl_begin     = buf + SSH_FRAME_OFFS_CTRL;
++	const u8 *ctrl_end       = buf + SSH_FRAME_OFFS_CTRL_CRC;
++	const u8 *cmd_begin      = buf + SSH_FRAME_OFFS_CMD;
++	const u8 *cmd_begin_pld  = buf + SSH_FRAME_OFFS_CMD_PLD;
++	const u8 *cmd_end;
++
++	size_t msg_len;
++
++	ctrl = (const struct ssh_frame_ctrl *)(ctrl_begin);
++	cmd  = (const struct ssh_frame_cmd  *)(cmd_begin);
++
++	// we need at least a full control frame
++	if (size < (SSH_BYTELEN_SYNC + SSH_BYTELEN_CTRL + SSH_BYTELEN_CRC)) {
++		return 0;		// need more bytes
++	}
++
++	// validate control-frame CRC
++	if (!ssh_is_valid_crc(ctrl_begin, ctrl_end)) {
++		dev_err(dev, SSH_RECV_TAG "invalid checksum (cmd-ctrl)\n");
++		/*
++		 * We can't be sure here if length is valid, thus
++		 * discard everything.
++		 */
++		return size;
++	}
++
++	// actual length check (ctrl->len contains command-frame but not crc)
++	msg_len = SSH_MSG_LEN_CMD_BASE + ctrl->len;
++	if (size < msg_len) {
++		return 0;			// need more bytes
++	}
++
++	cmd_end = cmd_begin + ctrl->len;
++
++	// validate command-frame type
++	if (cmd->type != SSH_FRAME_TYPE_CMD) {
++		dev_err(dev, SSH_RECV_TAG "expected command frame type but got 0x%02x\n", cmd->type);
++		return size;			// discard everything
++	}
++
++	// validate command-frame CRC
++	if (!ssh_is_valid_crc(cmd_begin, cmd_end)) {
++		dev_err(dev, SSH_RECV_TAG "invalid checksum (cmd-pld)\n");
++
++		/*
++		 * The message length is provided in the control frame. As we
++		 * already validated that, we can be sure here that it's
++		 * correct, so we only need to discard the message.
++		 */
++		return msg_len;
++	}
++
++	// check if we received an event notification
++	if (sam_rqid_is_event((cmd->rqid_hi << 8) | cmd->rqid_lo)) {
++		ssh_handle_event(ec, buf);
++		return msg_len;			// handled message
++	}
++
++	// check if we expect the message
++	if (rcv->state != SSH_RCV_COMMAND) {
++		dev_dbg(dev, SSH_RECV_TAG "discarding message: command not expected\n");
++		return msg_len;			// discard message
++	}
++
++	// check if response is for our request
++	if (rcv->expect.rqid != (cmd->rqid_lo | (cmd->rqid_hi << 8))) {
++		dev_dbg(dev, SSH_RECV_TAG "discarding message: command not a match\n");
++		return msg_len;			// discard message
++	}
++
++	// we now have a valid & expected command message
++	dev_dbg(dev, SSH_RECV_TAG "valid command message received\n");
++
++	packet.type = ctrl->type;
++	packet.seq = ctrl->seq;
++	packet.len = cmd_end - cmd_begin_pld;
++
++	if (kfifo_avail(&rcv->fifo) >= sizeof(packet) + packet.len) {
++		kfifo_in(&rcv->fifo, &packet, sizeof(packet));
++		kfifo_in(&rcv->fifo, cmd_begin_pld, packet.len);
++
++	} else {
++		dev_warn(dev, SSH_RECV_TAG
++			 "dropping frame: not enough space in fifo (type = %d)\n",
++			 ctrl->type);
++
++		return SSH_MSG_LEN_CTRL;	// discard message
++	}
++
++	rcv->state = SSH_RCV_DISCARD;
++
++	complete(&rcv->signal);
++	return msg_len;				// handled message
++}
++
++static int ssh_eval_buf(struct sam_ssh_ec *ec, const u8 *buf, size_t size)
++{
++	struct device *dev = &ec->serdev->dev;
++	struct ssh_frame_ctrl *ctrl;
++
++	// we need at least a control frame to check what to do
++	if (size < (SSH_BYTELEN_SYNC + SSH_BYTELEN_CTRL)) {
++		return 0;		// need more bytes
++	}
++
++	// make sure we're actually at the start of a new message
++	if (!ssh_is_valid_syn(buf)) {
++		dev_err(dev, SSH_RECV_TAG "invalid start of message\n");
++		return size;		// discard everything
++	}
++
++	// handle individual message types seperately
++	ctrl = (struct ssh_frame_ctrl *)(buf + SSH_FRAME_OFFS_CTRL);
++
++	switch (ctrl->type) {
++	case SSH_FRAME_TYPE_ACK:
++	case SSH_FRAME_TYPE_RETRY:
++		return ssh_receive_msg_ctrl(ec, buf, size);
++
++	case SSH_FRAME_TYPE_CMD:
++	case SSH_FRAME_TYPE_CMD_NOACK:
++		return ssh_receive_msg_cmd(ec, buf, size);
++
++	default:
++		dev_err(dev, SSH_RECV_TAG "unknown frame type 0x%02x\n", ctrl->type);
++		return size;		// discard everything
++	}
++}
++
++static int ssh_receive_buf(struct serdev_device *serdev,
++			   const unsigned char *buf, size_t size)
++{
++	struct sam_ssh_ec *ec = serdev_device_get_drvdata(serdev);
++	struct ssh_receiver *rcv = &ec->receiver;
++	unsigned long flags;
++	int offs = 0;
++	int used, n;
++
++	dev_dbg(&serdev->dev, SSH_RECV_TAG "received buffer (size: %zu)\n", size);
++	print_hex_dump_debug(SSH_RECV_TAG, DUMP_PREFIX_OFFSET, 16, 1, buf, size, false);
++
++	/*
++	 * The battery _BIX message gets a bit long, thus we have to add some
++	 * additional buffering here.
++	 */
++
++	spin_lock_irqsave(&rcv->lock, flags);
++
++	// copy to eval-buffer
++	used = min(size, (size_t)(rcv->eval_buf.cap - rcv->eval_buf.len));
++	memcpy(rcv->eval_buf.ptr + rcv->eval_buf.len, buf, used);
++	rcv->eval_buf.len += used;
++
++	// evaluate buffer until we need more bytes or eval-buf is empty
++	while (offs < rcv->eval_buf.len) {
++		n = rcv->eval_buf.len - offs;
++		n = ssh_eval_buf(ec, rcv->eval_buf.ptr + offs, n);
++		if (n <= 0) break;	// need more bytes
++
++		offs += n;
++	}
++
++	// throw away the evaluated parts
++	rcv->eval_buf.len -= offs;
++	memmove(rcv->eval_buf.ptr, rcv->eval_buf.ptr + offs, rcv->eval_buf.len);
++
++	spin_unlock_irqrestore(&rcv->lock, flags);
++
++	return used;
++}
++
++
++#ifdef CONFIG_SURFACE_SAM_SSH_DEBUG_DEVICE
++
++#include <linux/sysfs.h>
++
++static char sam_ssh_debug_rqst_buf_sysfs[SURFACE_SAM_SSH_MAX_RQST_RESPONSE + 1] = { 0 };
++static char sam_ssh_debug_rqst_buf_pld[SURFACE_SAM_SSH_MAX_RQST_PAYLOAD] = { 0 };
++static char sam_ssh_debug_rqst_buf_res[SURFACE_SAM_SSH_MAX_RQST_RESPONSE] = { 0 };
++
++struct sysfs_rqst {
++	u8 tc;
++	u8 cid;
++	u8 iid;
++	u8 pri;
++	u8 snc;
++	u8 cdl;
++	u8 pld[0];
++} __packed;
++
++static ssize_t rqst_read(struct file *f, struct kobject *kobj, struct bin_attribute *attr,
++                         char *buf, loff_t offs, size_t count)
++{
++	if (offs < 0 || count + offs > SURFACE_SAM_SSH_MAX_RQST_RESPONSE) {
++		return -EINVAL;
++	}
++
++	memcpy(buf, sam_ssh_debug_rqst_buf_sysfs + offs, count);
++	return count;
++}
++
++static ssize_t rqst_write(struct file *f, struct kobject *kobj, struct bin_attribute *attr,
++			  char *buf, loff_t offs, size_t count)
++{
++	struct sysfs_rqst *input;
++	struct surface_sam_ssh_rqst rqst = {};
++	struct surface_sam_ssh_buf result = {};
++	int status;
++
++	// check basic write constriants
++	if (offs != 0 || count > SURFACE_SAM_SSH_MAX_RQST_PAYLOAD + sizeof(struct sysfs_rqst)) {
++		return -EINVAL;
++	}
++
++	if (count < sizeof(struct sysfs_rqst)) {
++		return -EINVAL;
++	}
++
++	input = (struct sysfs_rqst *)buf;
++
++	// payload length should be consistent with data provided
++	if (input->cdl + sizeof(struct sysfs_rqst) != count) {
++		return -EINVAL;
++	}
++
++	rqst.tc  = input->tc;
++	rqst.cid = input->cid;
++	rqst.iid = input->iid;
++	rqst.pri = input->pri;
++	rqst.snc = input->snc;
++	rqst.cdl = input->cdl;
++	rqst.pld = sam_ssh_debug_rqst_buf_pld;
++	memcpy(sam_ssh_debug_rqst_buf_pld, &input->pld[0], input->cdl);
++
++	result.cap = SURFACE_SAM_SSH_MAX_RQST_RESPONSE;
++	result.len = 0;
++	result.data = sam_ssh_debug_rqst_buf_res;
++
++	status = surface_sam_ssh_rqst(&rqst, &result);
++	if (status) {
++		return status;
++	}
++
++	sam_ssh_debug_rqst_buf_sysfs[0] = result.len;
++	memcpy(sam_ssh_debug_rqst_buf_sysfs + 1, result.data, result.len);
++	memset(sam_ssh_debug_rqst_buf_sysfs + result.len + 1, 0,
++	       SURFACE_SAM_SSH_MAX_RQST_RESPONSE + 1 - result.len);
++
++	return count;
++}
++
++static const BIN_ATTR_RW(rqst, SURFACE_SAM_SSH_MAX_RQST_RESPONSE + 1);
++
++
++int surface_sam_ssh_sysfs_register(struct device *dev)
++{
++	return sysfs_create_bin_file(&dev->kobj, &bin_attr_rqst);
++}
++
++void surface_sam_ssh_sysfs_unregister(struct device *dev)
++{
++	sysfs_remove_bin_file(&dev->kobj, &bin_attr_rqst);
++}
++
++#else	/* CONFIG_SURFACE_ACPI_SSH_DEBUG_DEVICE */
++
++int surface_sam_ssh_sysfs_register(struct device *dev)
++{
++	return 0;
++}
++
++void surface_sam_ssh_sysfs_unregister(struct device *dev)
++{
++}
++
++#endif	/* CONFIG_SURFACE_SAM_SSH_DEBUG_DEVICE */
++
++
++static const struct acpi_gpio_params gpio_sam_wakeup_int = { 0, 0, false };
++static const struct acpi_gpio_params gpio_sam_wakeup     = { 1, 0, false };
++
++static const struct acpi_gpio_mapping surface_sam_acpi_gpios[] = {
++	{ "sam_wakeup-int-gpio", &gpio_sam_wakeup_int, 1 },
++	{ "sam_wakeup-gpio",     &gpio_sam_wakeup,     1 },
++	{ },
++};
++
++static irqreturn_t surface_sam_irq_handler(int irq, void *dev_id)
++{
++	return IRQ_WAKE_THREAD;
++}
++
++static irqreturn_t surface_sam_irq_handler_th(int irq, void *dev_id)
++{
++	struct serdev_device *serdev = dev_id;
++
++	dev_info(&serdev->dev, "wake irq triggered\n");
++	return IRQ_HANDLED;
++}
++
++static int surface_sam_setup_irq(struct serdev_device *serdev)
++{
++	const int irqf = IRQF_SHARED | IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING;
++	struct gpio_desc *gpiod;
++	int irq;
++	int status;
++
++	gpiod = gpiod_get(&serdev->dev, "sam_wakeup-int", GPIOD_ASIS);
++	if (IS_ERR(gpiod))
++		return PTR_ERR(gpiod);
++
++	irq = gpiod_to_irq(gpiod);
++	gpiod_put(gpiod);
++
++	if (irq < 0)
++		return irq;
++
++	status = request_threaded_irq(irq, surface_sam_irq_handler,
++				      surface_sam_irq_handler_th,
++				      irqf, "surface_sam_wakeup", serdev);
++	if (status)
++		return status;
++
++	return irq;
++}
++
++
++static acpi_status
++ssh_setup_from_resource(struct acpi_resource *resource, void *context)
++{
++	struct serdev_device *serdev = context;
++	struct acpi_resource_common_serialbus *serial;
++	struct acpi_resource_uart_serialbus *uart;
++	int status = 0;
++
++	if (resource->type != ACPI_RESOURCE_TYPE_SERIAL_BUS) {
++		return AE_OK;
++	}
++
++	serial = &resource->data.common_serial_bus;
++	if (serial->type != ACPI_RESOURCE_SERIAL_TYPE_UART) {
++		return AE_OK;
++	}
++
++	uart = &resource->data.uart_serial_bus;
++
++	// set up serdev device
++	serdev_device_set_baudrate(serdev, uart->default_baud_rate);
++
++	// serdev currently only supports RTSCTS flow control
++	if (uart->flow_control & SSH_SUPPORTED_FLOW_CONTROL_MASK) {
++		dev_warn(&serdev->dev, "unsupported flow control (value: 0x%02x)\n", uart->flow_control);
++	}
++
++	// set RTSCTS flow control
++	serdev_device_set_flow_control(serdev, uart->flow_control & ACPI_UART_FLOW_CONTROL_HW);
++
++	// serdev currently only supports EVEN/ODD parity
++	switch (uart->parity) {
++	case ACPI_UART_PARITY_NONE:
++		status = serdev_device_set_parity(serdev, SERDEV_PARITY_NONE);
++		break;
++	case ACPI_UART_PARITY_EVEN:
++		status = serdev_device_set_parity(serdev, SERDEV_PARITY_EVEN);
++		break;
++	case ACPI_UART_PARITY_ODD:
++		status = serdev_device_set_parity(serdev, SERDEV_PARITY_ODD);
++		break;
++	default:
++		dev_warn(&serdev->dev, "unsupported parity (value: 0x%02x)\n", uart->parity);
++		break;
++	}
++
++	if (status) {
++		dev_err(&serdev->dev, "failed to set parity (value: 0x%02x)\n", uart->parity);
++		return status;
++	}
++
++	return AE_CTRL_TERMINATE;       // we've found the resource and are done
++}
++
++
++static int surface_sam_ssh_suspend(struct device *dev)
++{
++	struct sam_ssh_ec *ec;
++	int status;
++
++	dev_dbg(dev, "suspending\n");
++
++	ec = surface_sam_ssh_acquire_init();
++	if (ec) {
++		status = surface_sam_ssh_ec_suspend(ec);
++		if (status) {
++			surface_sam_ssh_release(ec);
++			return status;
++		}
++
++		if (device_may_wakeup(dev)) {
++			status = enable_irq_wake(ec->irq);
++			if (status) {
++				surface_sam_ssh_release(ec);
++				return status;
++			}
++
++			ec->irq_wakeup_enabled = true;
++		} else {
++			ec->irq_wakeup_enabled = false;
++		}
++
++		ec->state = SSH_EC_SUSPENDED;
++		surface_sam_ssh_release(ec);
++	}
++
++	return 0;
++}
++
++static int surface_sam_ssh_resume(struct device *dev)
++{
++	struct sam_ssh_ec *ec;
++	int status;
++
++	dev_dbg(dev, "resuming\n");
++
++	ec = surface_sam_ssh_acquire_init();
++	if (ec) {
++		ec->state = SSH_EC_INITIALIZED;
++
++		if (ec->irq_wakeup_enabled) {
++			status = disable_irq_wake(ec->irq);
++			if (status) {
++				surface_sam_ssh_release(ec);
++				return status;
++			}
++
++			ec->irq_wakeup_enabled = false;
++		}
++
++		status = surface_sam_ssh_ec_resume(ec);
++		if (status) {
++			surface_sam_ssh_release(ec);
++			return status;
++		}
++
++		surface_sam_ssh_release(ec);
++	}
++
++	return 0;
++}
++
++static SIMPLE_DEV_PM_OPS(surface_sam_ssh_pm_ops, surface_sam_ssh_suspend, surface_sam_ssh_resume);
++
++
++static const struct serdev_device_ops ssh_device_ops = {
++	.receive_buf  = ssh_receive_buf,
++	.write_wakeup = serdev_device_write_wakeup,
++};
++
++
++int surface_sam_ssh_sysfs_register(struct device *dev);
++void surface_sam_ssh_sysfs_unregister(struct device *dev);
++
++static int surface_sam_ssh_probe(struct serdev_device *serdev)
++{
++	struct sam_ssh_ec *ec;
++	struct workqueue_struct *event_queue_ack;
++	struct workqueue_struct *event_queue_evt;
++	u8 *write_buf;
++	u8 *read_buf;
++	u8 *eval_buf;
++	acpi_handle *ssh = ACPI_HANDLE(&serdev->dev);
++	acpi_status status;
++	int irq;
++
++	dev_dbg(&serdev->dev, "probing\n");
++
++	if (gpiod_count(&serdev->dev, NULL) < 0)
++		return -ENODEV;
++
++	status = devm_acpi_dev_add_driver_gpios(&serdev->dev, surface_sam_acpi_gpios);
++	if (status)
++		return status;
++
++	// allocate buffers
++	write_buf = kzalloc(SSH_WRITE_BUF_LEN, GFP_KERNEL);
++	if (!write_buf) {
++		status = -ENOMEM;
++		goto err_write_buf;
++	}
++
++	read_buf = kzalloc(SSH_READ_BUF_LEN, GFP_KERNEL);
++	if (!read_buf) {
++		status = -ENOMEM;
++		goto err_read_buf;
++	}
++
++	eval_buf = kzalloc(SSH_EVAL_BUF_LEN, GFP_KERNEL);
++	if (!eval_buf) {
++		status = -ENOMEM;
++		goto err_eval_buf;
++	}
++
++	event_queue_ack = create_singlethread_workqueue("surface_sh_ackq");
++	if (!event_queue_ack) {
++		status = -ENOMEM;
++		goto err_ackq;
++	}
++
++	event_queue_evt = create_workqueue("surface_sh_evtq");
++	if (!event_queue_evt) {
++		status = -ENOMEM;
++		goto err_evtq;
++	}
++
++	irq = surface_sam_setup_irq(serdev);
++	if (irq < 0) {
++		status = irq;
++		goto err_irq;
++	}
++
++	// set up EC
++	ec = surface_sam_ssh_acquire();
++	if (ec->state != SSH_EC_UNINITIALIZED) {
++		dev_err(&serdev->dev, "embedded controller already initialized\n");
++		surface_sam_ssh_release(ec);
++
++		status = -EBUSY;
++		goto err_busy;
++	}
++
++	ec->serdev      = serdev;
++	ec->irq         = irq;
++	ec->writer.data = write_buf;
++	ec->writer.ptr  = write_buf;
++
++	// initialize receiver
++	init_completion(&ec->receiver.signal);
++	kfifo_init(&ec->receiver.fifo, read_buf, SSH_READ_BUF_LEN);
++	ec->receiver.eval_buf.ptr = eval_buf;
++	ec->receiver.eval_buf.cap = SSH_EVAL_BUF_LEN;
++	ec->receiver.eval_buf.len = 0;
++
++	// initialize event handling
++	ec->events.queue_ack = event_queue_ack;
++	ec->events.queue_evt = event_queue_evt;
++
++	ec->state = SSH_EC_INITIALIZED;
++
++	serdev_device_set_drvdata(serdev, ec);
++
++	// ensure everything is properly set-up before we open the device
++	smp_mb();
++
++	serdev_device_set_client_ops(serdev, &ssh_device_ops);
++	status = serdev_device_open(serdev);
++	if (status) {
++		goto err_open;
++	}
++
++	status = acpi_walk_resources(ssh, METHOD_NAME__CRS,
++	                             ssh_setup_from_resource, serdev);
++	if (ACPI_FAILURE(status)) {
++		goto err_devinit;
++	}
++
++	status = surface_sam_ssh_ec_resume(ec);
++	if (status) {
++		goto err_devinit;
++	}
++
++	status = surface_sam_ssh_sysfs_register(&serdev->dev);
++	if (status) {
++		goto err_devinit;
++	}
++
++	surface_sam_ssh_release(ec);
++
++	// TODO: The EC can wake up the system via the associated GPIO interrupt in
++	// multiple situations. One of which is the remaining battery capacity
++	// falling below a certain threshold. Normally, we should use the
++	// device_init_wakeup function, however, the EC also seems to have other
++	// reasons for waking up the system and it seems that Windows has
++	// additional checks whether the system should be resumed. In short, this
++	// causes some spourious unwanted wake-ups. For now let's thus default
++	// power/wakeup to false.
++	device_set_wakeup_capable(&serdev->dev, true);
++	acpi_walk_dep_device_list(ssh);
++
++	return 0;
++
++err_devinit:
++	serdev_device_close(serdev);
++err_open:
++	ec->state = SSH_EC_UNINITIALIZED;
++	serdev_device_set_drvdata(serdev, NULL);
++	surface_sam_ssh_release(ec);
++err_busy:
++	free_irq(irq, serdev);
++err_irq:
++	destroy_workqueue(event_queue_evt);
++err_evtq:
++	destroy_workqueue(event_queue_ack);
++err_ackq:
++	kfree(eval_buf);
++err_eval_buf:
++	kfree(read_buf);
++err_read_buf:
++	kfree(write_buf);
++err_write_buf:
++	return status;
++}
++
++static void surface_sam_ssh_remove(struct serdev_device *serdev)
++{
++	struct sam_ssh_ec *ec;
++	unsigned long flags;
++	int status;
++
++	ec = surface_sam_ssh_acquire_init();
++	if (!ec) {
++		return;
++	}
++
++	free_irq(ec->irq, serdev);
++	surface_sam_ssh_sysfs_unregister(&serdev->dev);
++
++	// suspend EC and disable events
++	status = surface_sam_ssh_ec_suspend(ec);
++	if (status) {
++		dev_err(&serdev->dev, "failed to suspend EC: %d\n", status);
++	}
++
++	// make sure all events (received up to now) have been properly handled
++	flush_workqueue(ec->events.queue_ack);
++	flush_workqueue(ec->events.queue_evt);
++
++	// remove event handlers
++	spin_lock_irqsave(&ec->events.lock, flags);
++	memset(ec->events.handler, 0,
++	       sizeof(struct ssh_event_handler)
++	        * SAM_NUM_EVENT_TYPES);
++	spin_unlock_irqrestore(&ec->events.lock, flags);
++
++	// set device to deinitialized state
++	ec->state  = SSH_EC_UNINITIALIZED;
++	ec->serdev = NULL;
++
++	// ensure state and serdev get set before continuing
++	smp_mb();
++
++	/*
++	 * Flush any event that has not been processed yet to ensure we're not going to
++	 * use the serial device any more (e.g. for ACKing).
++	 */
++	flush_workqueue(ec->events.queue_ack);
++	flush_workqueue(ec->events.queue_evt);
++
++	serdev_device_close(serdev);
++
++	/*
++         * Only at this point, no new events can be received. Destroying the
++         * workqueue here flushes all remaining events. Those events will be
++         * silently ignored and neither ACKed nor any handler gets called.
++	 */
++	destroy_workqueue(ec->events.queue_ack);
++	destroy_workqueue(ec->events.queue_evt);
++
++	// free writer
++	kfree(ec->writer.data);
++	ec->writer.data = NULL;
++	ec->writer.ptr  = NULL;
++
++	// free receiver
++	spin_lock_irqsave(&ec->receiver.lock, flags);
++	ec->receiver.state = SSH_RCV_DISCARD;
++	kfifo_free(&ec->receiver.fifo);
++
++	kfree(ec->receiver.eval_buf.ptr);
++	ec->receiver.eval_buf.ptr = NULL;
++	ec->receiver.eval_buf.cap = 0;
++	ec->receiver.eval_buf.len = 0;
++	spin_unlock_irqrestore(&ec->receiver.lock, flags);
++
++	device_set_wakeup_capable(&serdev->dev, false);
++	serdev_device_set_drvdata(serdev, NULL);
++	surface_sam_ssh_release(ec);
++}
++
++
++static const struct acpi_device_id surface_sam_ssh_match[] = {
++	{ "MSHW0084", 0 },
++	{ },
++};
++MODULE_DEVICE_TABLE(acpi, surface_sam_ssh_match);
++
++static struct serdev_device_driver surface_sam_ssh = {
++	.probe = surface_sam_ssh_probe,
++	.remove = surface_sam_ssh_remove,
++	.driver = {
++		.name = "surface_sam_ssh",
++		.acpi_match_table = ACPI_PTR(surface_sam_ssh_match),
++		.pm = &surface_sam_ssh_pm_ops,
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++	},
++};
++
++
++static int __init surface_sam_ssh_init(void)
++{
++	return serdev_device_driver_register(&surface_sam_ssh);
++}
++
++static void __exit surface_sam_ssh_exit(void)
++{
++	serdev_device_driver_unregister(&surface_sam_ssh);
++}
++
++/*
++ * Ensure that the driver is loaded late due to some issues with the UART
++ * communication. Specifically, we want to ensure that DMA is ready and being
++ * used. Not using DMA can result in spurious communication failures,
++ * especially during boot, which among other things will result in wrong
++ * battery information (via ACPI _BIX) being displayed. Using a late init_call
++ * instead of the normal module_init gives the DMA subsystem time to
++ * initialize and via that results in a more stable communication, avoiding
++ * such failures.
++ */
++late_initcall(surface_sam_ssh_init);
++module_exit(surface_sam_ssh_exit);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Surface Serial Hub Driver for 5th Generation Surface Devices");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/platform/x86/surface_sam/surface_sam_ssh.h b/drivers/platform/x86/surface_sam/surface_sam_ssh.h
+new file mode 100644
+index 000000000000..714bba6a9457
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/surface_sam_ssh.h
+@@ -0,0 +1,97 @@
++/*
++ * Interface for Surface Serial Hub (SSH).
++ *
++ * The SSH is the main communication hub for communication between host and
++ * the Surface/System Aggregator Module (SAM) on newer Microsoft Surface
++ * devices (Book 2, Pro 5, Laptops, ...). Also referred to as SAM-over-SSH.
++ * Older devices (Book 1, Pro 4) use SAM-over-I2C.
++ */
++
++#ifndef _SURFACE_SAM_SSH_H
++#define _SURFACE_SAM_SSH_H
++
++#include <linux/types.h>
++#include <linux/device.h>
++
++
++/*
++ * Maximum request payload size in bytes.
++ * Value based on ACPI (255 bytes minus header/status bytes).
++ */
++#define SURFACE_SAM_SSH_MAX_RQST_PAYLOAD	(255 - 10)
++
++/*
++ * Maximum response payload size in bytes.
++ * Value based on ACPI (255 bytes minus header/status bytes).
++ */
++#define SURFACE_SAM_SSH_MAX_RQST_RESPONSE	(255 - 4)
++
++/*
++ * The number of (lower) bits of the request ID (RQID) reserved for events.
++ * These bits may only be used exclusively for events sent from the EC to the
++ * host.
++ */
++#define SURFACE_SAM_SSH_RQID_EVENT_BITS		5
++
++/*
++ * Special event-handler delay value indicating that the corresponding event
++ * should be handled immediately in the interrupt and not be relayed through
++ * the workqueue. Intended for low-latency events, such as keyboard events.
++ */
++#define SURFACE_SAM_SSH_EVENT_IMMEDIATE		((unsigned long) -1)
++
++
++#define SURFACE_SAM_PRIORITY_NORMAL		1
++#define SURFACE_SAM_PRIORITY_HIGH		2
++
++
++struct surface_sam_ssh_buf {
++	u8 cap;
++	u8 len;
++	u8 *data;
++};
++
++struct surface_sam_ssh_rqst {
++	u8 tc;				// target category
++	u8 cid;				// command ID
++	u8 iid;				// instance ID
++	u8 pri;				// priority
++	u8 snc;				// expect response flag
++	u8 cdl;				// command data length (lenght of payload)
++	u8 *pld;			// pointer to payload of length cdl
++};
++
++struct surface_sam_ssh_event {
++	u16 rqid;			// event type/source ID
++	u8  tc;				// target category
++	u8  cid;			// command ID
++	u8  iid;			// instance ID
++	u8  pri;			// priority
++	u8  len;			// length of payload
++	u8 *pld;			// payload of length len
++};
++
++
++typedef int (*surface_sam_ssh_event_handler_fn)(struct surface_sam_ssh_event *event, void *data);
++typedef unsigned long (*surface_sam_ssh_event_handler_delay)(struct surface_sam_ssh_event *event, void *data);
++
++int surface_sam_ssh_consumer_register(struct device *consumer);
++
++int surface_sam_ssh_rqst(const struct surface_sam_ssh_rqst *rqst, struct surface_sam_ssh_buf *result);
++
++int surface_sam_ssh_enable_event_source(u8 tc, u8 unknown, u16 rqid);
++int surface_sam_ssh_disable_event_source(u8 tc, u8 unknown, u16 rqid);
++int surface_sam_ssh_remove_event_handler(u16 rqid);
++
++int surface_sam_ssh_set_delayed_event_handler(u16 rqid,
++		surface_sam_ssh_event_handler_fn fn,
++		surface_sam_ssh_event_handler_delay delay,
++		void *data);
++
++static inline int surface_sam_ssh_set_event_handler(u16 rqid, surface_sam_ssh_event_handler_fn fn, void *data)
++{
++	return surface_sam_ssh_set_delayed_event_handler(rqid, fn, NULL, data);
++}
++
++
++#endif /* _SURFACE_SAM_SSH_H */
+diff --git a/drivers/platform/x86/surface_sam/surface_sam_vhf.c b/drivers/platform/x86/surface_sam/surface_sam_vhf.c
+new file mode 100644
+index 000000000000..0ed0ebbdb3cb
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/surface_sam_vhf.c
+@@ -0,0 +1,276 @@
++/*
++ * Virtual HID Framwork (VHF) driver for input events via SAM.
++ * Used for keyboard input events on the Surface Laptops.
++ */
++
++#include <linux/acpi.h>
++#include <linux/hid.h>
++#include <linux/input.h>
++#include <linux/platform_device.h>
++#include <linux/types.h>
++
++#include "surface_sam_ssh.h"
++
++
++#define USB_VENDOR_ID_MICROSOFT		0x045e
++#define USB_DEVICE_ID_MS_VHF		0xf001
++
++#define VHF_INPUT_NAME			"Microsoft Virtual HID Framework Device"
++
++/*
++ * Request ID for VHF events. This value is based on the output of the Surface
++ * EC and should not be changed.
++ */
++#define SAM_EVENT_VHF_RQID		0x0001
++#define SAM_EVENT_VHF_TC		0x08
++
++
++struct vhf_evtctx {
++	struct device     *dev;
++	struct hid_device *hid;
++};
++
++struct vhf_drvdata {
++	struct vhf_evtctx event_ctx;
++};
++
++
++/*
++ * These report descriptors have been extracted from a Surface Book 2.
++ * They seems to be similar enough to be usable on the Surface Laptop.
++ */
++static const u8 vhf_hid_desc[] = {
++	// keyboard descriptor (event command ID 0x03)
++	0x05, 0x01,             /*  Usage Page (Desktop),                   */
++	0x09, 0x06,             /*  Usage (Keyboard),                       */
++	0xA1, 0x01,             /*  Collection (Application),               */
++	0x85, 0x01,             /*      Report ID (1),                      */
++	0x15, 0x00,             /*      Logical Minimum (0),                */
++	0x25, 0x01,             /*      Logical Maximum (1),                */
++	0x75, 0x01,             /*      Report Size (1),                    */
++	0x95, 0x08,             /*      Report Count (8),                   */
++	0x05, 0x07,             /*      Usage Page (Keyboard),              */
++	0x19, 0xE0,             /*      Usage Minimum (KB Leftcontrol),     */
++	0x29, 0xE7,             /*      Usage Maximum (KB Right GUI),       */
++	0x81, 0x02,             /*      Input (Variable),                   */
++	0x75, 0x08,             /*      Report Size (8),                    */
++	0x95, 0x0A,             /*      Report Count (10),                  */
++	0x19, 0x00,             /*      Usage Minimum (None),               */
++	0x29, 0x91,             /*      Usage Maximum (KB LANG2),           */
++	0x26, 0xFF, 0x00,       /*      Logical Maximum (255),              */
++	0x81, 0x00,             /*      Input,                              */
++	0x05, 0x0C,             /*      Usage Page (Consumer),              */
++	0x0A, 0xC0, 0x02,       /*      Usage (02C0h),                      */
++	0xA1, 0x02,             /*      Collection (Logical),               */
++	0x1A, 0xC1, 0x02,       /*          Usage Minimum (02C1h),          */
++	0x2A, 0xC6, 0x02,       /*          Usage Maximum (02C6h),          */
++	0x95, 0x06,             /*          Report Count (6),               */
++	0xB1, 0x03,             /*          Feature (Constant, Variable),   */
++	0xC0,                   /*      End Collection,                     */
++	0x05, 0x08,             /*      Usage Page (LED),                   */
++	0x19, 0x01,             /*      Usage Minimum (01h),                */
++	0x29, 0x03,             /*      Usage Maximum (03h),                */
++	0x75, 0x01,             /*      Report Size (1),                    */
++	0x95, 0x03,             /*      Report Count (3),                   */
++	0x25, 0x01,             /*      Logical Maximum (1),                */
++	0x91, 0x02,             /*      Output (Variable),                  */
++	0x95, 0x05,             /*      Report Count (5),                   */
++	0x91, 0x01,             /*      Output (Constant),                  */
++	0xC0,                   /*  End Collection,                         */
++
++	// media key descriptor (event command ID 0x04)
++	0x05, 0x0C,             /*  Usage Page (Consumer),                  */
++	0x09, 0x01,             /*  Usage (Consumer Control),               */
++	0xA1, 0x01,             /*  Collection (Application),               */
++	0x85, 0x03,             /*      Report ID (3),                      */
++	0x75, 0x10,             /*      Report Size (16),                   */
++	0x15, 0x00,             /*      Logical Minimum (0),                */
++	0x26, 0xFF, 0x03,       /*      Logical Maximum (1023),             */
++	0x19, 0x00,             /*      Usage Minimum (00h),                */
++	0x2A, 0xFF, 0x03,       /*      Usage Maximum (03FFh),              */
++	0x81, 0x00,             /*      Input,                              */
++	0xC0,                   /*  End Collection,                         */
++};
++
++
++static int vhf_hid_start(struct hid_device *hid)
++{
++	hid_dbg(hid, "%s\n", __func__);
++	return 0;
++}
++
++static void vhf_hid_stop(struct hid_device *hid)
++{
++	hid_dbg(hid, "%s\n", __func__);
++}
++
++static int vhf_hid_open(struct hid_device *hid)
++{
++	hid_dbg(hid, "%s\n", __func__);
++	return 0;
++}
++
++static void vhf_hid_close(struct hid_device *hid)
++{
++	hid_dbg(hid, "%s\n", __func__);
++}
++
++static int vhf_hid_parse(struct hid_device *hid)
++{
++	return hid_parse_report(hid, (u8 *)vhf_hid_desc, ARRAY_SIZE(vhf_hid_desc));
++}
++
++static int vhf_hid_raw_request(struct hid_device *hid, unsigned char reportnum,
++			       u8 *buf, size_t len, unsigned char rtype,
++			       int reqtype)
++{
++	hid_dbg(hid, "%s\n", __func__);
++	return 0;
++}
++
++static int vhf_hid_output_report(struct hid_device *hid, u8 *buf, size_t len)
++{
++	hid_dbg(hid, "%s\n", __func__);
++	print_hex_dump_debug("report:", DUMP_PREFIX_OFFSET, 16, 1, buf, len, false);
++
++	return len;
++}
++
++static struct hid_ll_driver vhf_hid_ll_driver = {
++	.start         = vhf_hid_start,
++	.stop          = vhf_hid_stop,
++	.open          = vhf_hid_open,
++	.close         = vhf_hid_close,
++	.parse         = vhf_hid_parse,
++	.raw_request   = vhf_hid_raw_request,
++	.output_report = vhf_hid_output_report,
++};
++
++
++static struct hid_device *vhf_create_hid_device(struct platform_device *pdev)
++{
++	struct hid_device *hid;
++
++	hid = hid_allocate_device();
++	if (IS_ERR(hid)) {
++		return hid;
++	}
++
++	hid->dev.parent = &pdev->dev;
++
++	hid->bus     = BUS_VIRTUAL;
++	hid->vendor  = USB_VENDOR_ID_MICROSOFT;
++	hid->product = USB_DEVICE_ID_MS_VHF;
++
++	hid->ll_driver = &vhf_hid_ll_driver;
++
++	sprintf(hid->name, "%s", VHF_INPUT_NAME);
++
++	return hid;
++}
++
++static int vhf_event_handler(struct surface_sam_ssh_event *event, void *data)
++{
++	struct vhf_evtctx *ctx = (struct vhf_evtctx *)data;
++
++	if (event->tc == 0x08 && (event->cid == 0x03 || event->cid == 0x04)) {
++		return hid_input_report(ctx->hid, HID_INPUT_REPORT, event->pld, event->len, 1);
++	}
++
++	dev_warn(ctx->dev, "unsupported event (tc = %d, cid = %d)\n", event->tc, event->cid);
++	return 0;
++}
++
++static int surface_sam_vhf_probe(struct platform_device *pdev)
++{
++	struct vhf_drvdata *drvdata;
++	struct hid_device *hid;
++	int status;
++
++	// add device link to EC
++	status = surface_sam_ssh_consumer_register(&pdev->dev);
++	if (status) {
++		return status == -ENXIO ? -EPROBE_DEFER : status;
++	}
++
++	drvdata = kzalloc(sizeof(struct vhf_drvdata), GFP_KERNEL);
++	if (!drvdata) {
++		return -ENOMEM;
++	}
++
++	hid = vhf_create_hid_device(pdev);
++	if (IS_ERR(hid)) {
++		status = PTR_ERR(hid);
++		goto err_probe_hid;
++	}
++
++	status = hid_add_device(hid);
++	if (status) {
++		goto err_add_hid;
++	}
++
++	drvdata->event_ctx.dev = &pdev->dev;
++	drvdata->event_ctx.hid = hid;
++
++	platform_set_drvdata(pdev, drvdata);
++
++	status = surface_sam_ssh_set_event_handler(
++			SAM_EVENT_VHF_RQID,
++	                vhf_event_handler,
++			&drvdata->event_ctx);
++	if (status) {
++		goto err_add_hid;
++	}
++
++	status = surface_sam_ssh_enable_event_source(SAM_EVENT_VHF_TC, 0x01, SAM_EVENT_VHF_RQID);
++	if (status) {
++		goto err_event_source;
++	}
++
++	return 0;
++
++err_event_source:
++	surface_sam_ssh_remove_event_handler(SAM_EVENT_VHF_RQID);
++err_add_hid:
++	hid_destroy_device(hid);
++	platform_set_drvdata(pdev, NULL);
++err_probe_hid:
++	kfree(drvdata);
++	return status;
++}
++
++static int surface_sam_vhf_remove(struct platform_device *pdev)
++{
++	struct vhf_drvdata *drvdata = platform_get_drvdata(pdev);
++
++	surface_sam_ssh_disable_event_source(SAM_EVENT_VHF_TC, 0x01, SAM_EVENT_VHF_RQID);
++	surface_sam_ssh_remove_event_handler(SAM_EVENT_VHF_RQID);
++
++	hid_destroy_device(drvdata->event_ctx.hid);
++	kfree(drvdata);
++
++	platform_set_drvdata(pdev, NULL);
++	return 0;
++}
++
++
++static const struct acpi_device_id surface_sam_vhf_match[] = {
++	{ "MSHW0096" },
++	{ },
++};
++MODULE_DEVICE_TABLE(acpi, surface_sam_vhf_match);
++
++static struct platform_driver surface_sam_vhf = {
++	.probe = surface_sam_vhf_probe,
++	.remove = surface_sam_vhf_remove,
++	.driver = {
++		.name = "surface_sam_vhf",
++		.acpi_match_table = ACPI_PTR(surface_sam_vhf_match),
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++	},
++};
++module_platform_driver(surface_sam_vhf);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Virtual HID Framework Driver for 5th Generation Surface Devices");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/tty/serdev/core.c b/drivers/tty/serdev/core.c
+index a0ac16ee6575..226adeec2aed 100644
+--- a/drivers/tty/serdev/core.c
++++ b/drivers/tty/serdev/core.c
+@@ -552,16 +552,97 @@ static int of_serdev_register_devices(struct serdev_controller *ctrl)
+ }
+ 
+ #ifdef CONFIG_ACPI
++
++#define SERDEV_ACPI_MAX_SCAN_DEPTH 32
++
++struct acpi_serdev_lookup {
++	acpi_handle device_handle;
++	acpi_handle controller_handle;
++	int n;
++	int index;
++};
++
++static int acpi_serdev_parse_resource(struct acpi_resource *ares, void *data)
++{
++	struct acpi_serdev_lookup *lookup = data;
++	struct acpi_resource_uart_serialbus *sb;
++	acpi_status status;
++
++	if (ares->type != ACPI_RESOURCE_TYPE_SERIAL_BUS)
++		return 1;
++
++	if (ares->data.common_serial_bus.type != ACPI_RESOURCE_SERIAL_TYPE_UART)
++		return 1;
++
++	if (lookup->index != -1 && lookup->n++ != lookup->index)
++		return 1;
++
++	sb = &ares->data.uart_serial_bus;
++
++	status = acpi_get_handle(lookup->device_handle,
++				 sb->resource_source.string_ptr,
++				 &lookup->controller_handle);
++	if (ACPI_FAILURE(status))
++		return 1;
++
++	/*
++	 * NOTE: Ideally, we would also want to retreive other properties here,
++	 * once setting them before opening the device is supported by serdev.
++	 */
++
++	return 1;
++}
++
++static int acpi_serdev_do_lookup(struct acpi_device *adev,
++                                 struct acpi_serdev_lookup *lookup)
++{
++	struct list_head resource_list;
++	int ret;
++
++	lookup->device_handle = acpi_device_handle(adev);
++	lookup->controller_handle = NULL;
++	lookup->n = 0;
++
++	INIT_LIST_HEAD(&resource_list);
++	ret = acpi_dev_get_resources(adev, &resource_list,
++				     acpi_serdev_parse_resource, lookup);
++	acpi_dev_free_resource_list(&resource_list);
++
++	if (ret < 0)
++		return -EINVAL;
++
++	return 0;
++}
++
++static int acpi_serdev_check_resources(struct serdev_controller *ctrl,
++				       struct acpi_device *adev)
++{
++	struct acpi_serdev_lookup lookup;
++	int ret;
++
++	if (acpi_bus_get_status(adev) || !adev->status.present)
++		return -EINVAL;
++
++	/* Look for UARTSerialBusV2 resource */
++	lookup.index = -1;	// we only care for the last device
++
++	ret = acpi_serdev_do_lookup(adev, &lookup);
++	if (ret)
++		return ret;
++
++	/* Make sure controller and ResourceSource handle match */
++	if (ACPI_HANDLE(ctrl->dev.parent) != lookup.controller_handle)
++		return -ENODEV;
++
++	return 0;
++}
++
+ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
+-					    struct acpi_device *adev)
++					       struct acpi_device *adev)
+ {
+-	struct serdev_device *serdev = NULL;
++	struct serdev_device *serdev;
+ 	int err;
+ 
+-	if (acpi_bus_get_status(adev) || !adev->status.present ||
+-	    acpi_device_enumerated(adev))
+-		return AE_OK;
+-
+ 	serdev = serdev_device_alloc(ctrl);
+ 	if (!serdev) {
+ 		dev_err(&ctrl->dev, "failed to allocate serdev device for %s\n",
+@@ -583,7 +664,7 @@ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
+ }
+ 
+ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
+-				       void *data, void **return_value)
++					  void *data, void **return_value)
+ {
+ 	struct serdev_controller *ctrl = data;
+ 	struct acpi_device *adev;
+@@ -591,22 +672,28 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
+ 	if (acpi_bus_get_device(handle, &adev))
+ 		return AE_OK;
+ 
++	if (acpi_device_enumerated(adev))
++		return AE_OK;
++
++	if (acpi_serdev_check_resources(ctrl, adev))
++		return AE_OK;
++
+ 	return acpi_serdev_register_device(ctrl, adev);
+ }
+ 
++
+ static int acpi_serdev_register_devices(struct serdev_controller *ctrl)
+ {
+ 	acpi_status status;
+-	acpi_handle handle;
+ 
+-	handle = ACPI_HANDLE(ctrl->dev.parent);
+-	if (!handle)
++	if (!has_acpi_companion(ctrl->dev.parent))
+ 		return -ENODEV;
+ 
+-	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, handle, 1,
++	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
++				     SERDEV_ACPI_MAX_SCAN_DEPTH,
+ 				     acpi_serdev_add_device, NULL, ctrl, NULL);
+ 	if (ACPI_FAILURE(status))
+-		dev_dbg(&ctrl->dev, "failed to enumerate serdev slaves\n");
++		dev_warn(&ctrl->dev, "failed to enumerate serdev slaves\n");
+ 
+ 	if (!ctrl->serdev)
+ 		return -ENODEV;
+-- 
+2.24.0
+
