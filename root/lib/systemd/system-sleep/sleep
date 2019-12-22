@@ -7,6 +7,11 @@ case $1 in
       bluetoothctl power off
     fi
 
+    ## Disable bluetooth regardless if devices are connected (see notes below)
+    #if ps cax | grep bluetoothd; then
+    #  bluetoothctl power off
+    #fi
+
     # handle wifi issues
     modprobe -r mwifiex_pcie;
     modprobe -r mwifiex;
@@ -59,3 +64,9 @@ esac
 #   experience any issues on suspend/resume, please file an appropriate issue or
 #   join the discussion linked above so that we can fix it. As a temporary
 #   workaround, you may want to uncomment the IPTS-related lines above.
+# - For bluetooth: If you have spontaneous wakeups, you may want to disable
+#   bluetooth completely, regardless if any devices are connected or not, by
+#   removing the `! bluetoothctl info;` part as indicated in the comment (e.g.
+#   comment-out the original check and comment-in the one below). Note that you
+#   may be required to re-connect your devices after resume if you choose this
+#   change.
