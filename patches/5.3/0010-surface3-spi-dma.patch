@@ -1,0 +1,63 @@
+From 4aded6dfb23129b9bd03f7d37ff655912db5cfb0 Mon Sep 17 00:00:00 2001
+From: kitakar5525 <34676735+kitakar5525@users.noreply.github.com>
+Date: Fri, 6 Dec 2019 23:10:30 +0900
+Subject: [PATCH 10/10] surface3-spi dma
+
+---
+ drivers/input/touchscreen/surface3_spi.c | 26 ++++++++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/drivers/input/touchscreen/surface3_spi.c b/drivers/input/touchscreen/surface3_spi.c
+index ce4828b1415a..63b0b8ddf090 100644
+--- a/drivers/input/touchscreen/surface3_spi.c
++++ b/drivers/input/touchscreen/surface3_spi.c
+@@ -25,6 +25,12 @@
+ #define SURFACE3_REPORT_TOUCH	0xd2
+ #define SURFACE3_REPORT_PEN	0x16
+ 
++bool use_dma = false;
++module_param(use_dma, bool, 0644);
++MODULE_PARM_DESC(use_dma,
++				"Disable DMA mode if you encounter touch input crash. "
++				"(default: false, disabled to avoid crash)");
++
+ struct surface3_ts_data {
+ 	struct spi_device *spi;
+ 	struct gpio_desc *gpiod_rst[2];
+@@ -326,6 +332,13 @@ static int surface3_spi_create_pen_input(struct surface3_ts_data *data)
+ 	return 0;
+ }
+ 
++static bool surface3_spi_can_dma(struct spi_controller *ctlr,
++				struct spi_device *spi,
++				struct spi_transfer *tfr)
++{
++	return use_dma;
++}
++
+ static int surface3_spi_probe(struct spi_device *spi)
+ {
+ 	struct surface3_ts_data *data;
+@@ -368,6 +381,19 @@ static int surface3_spi_probe(struct spi_device *spi)
+ 	if (error)
+ 		return error;
+ 
++	/*
++	 * Set up DMA
++	 *
++	 * TODO: Currently, touch input with DMA seems to be broken.
++	 * On 4.19 LTS, touch input will crash after suspend.
++	 * On recent stable kernel (at least after 5.1), touch input will crash after
++	 * the first touch. No problem with PIO on those kernels.
++	 * Maybe we need to configure DMA here.
++	 *
++	 * Link to issue: https://github.com/jakeday/linux-surface/issues/596
++	 */
++	spi->controller->can_dma = surface3_spi_can_dma;
++
+ 	return 0;
+ }
+ 
+-- 
+2.24.1
+
