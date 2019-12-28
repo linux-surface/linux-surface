@@ -37,8 +37,6 @@ ask() {
     done
 }
 
-SUR_MODEL="$(dmidecode | grep "Product Name" -m 1 | xargs | sed -e 's/Product Name: //g')"
-
 echo "==> Copying the config files under root to where they belong..."
 for dir in $(ls root/); do
     cp -Rbv "root/$dir/"* "/$dir/"
@@ -49,6 +47,9 @@ cp -rv firmware/* /lib/firmware/
 
 echo "==> Making /lib/systemd/system-sleep/sleep executable..."
 chmod -v a+x /lib/systemd/system-sleep/sleep
+
+echo "==> Enabling power management for Surface Go touchscreen..."
+systemctl enable -q surfacego-touchscreen
 
 echo
 
@@ -68,18 +69,6 @@ if ask "Do you want to replace suspend with hibernate?" N; then
     ln -vsfb $LIB/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
 else
     echo "==> Not touching Suspend"
-fi
-
-echo
-
-if [ "$SUR_MODEL" = "Surface Go" ]; then
-    if [ ! -f "/etc/init.d/surfacego-touchscreen" ]; then
-        echo "==> Patching power control for Surface Go touchscreen..."
-        echo "echo \"on\" > /sys/devices/pci0000:00/0000:00:15.1/i2c_designware.1/power/control" \
-            > /etc/init.d/surfacego-touchscreen
-        chmod -v 755 /etc/init.d/surfacego-touchscreen
-        update-rc.d surfacego-touchscreen defaults
-    fi
 fi
 
 echo
