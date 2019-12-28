@@ -23,4 +23,4 @@ The touchscreen contact count descriptor is incorrectly declared as being report
 It is actually reported one time followed by three padding bytes.
 The descriptor has been patched accordingly.
 
-For more details, see https://github.com/qzed/linux-surface-kernel/wiki/IPTS-Firmware#bogus-hid-descriptor-for-surface-laptops-mshw0079.
+For more details, see https://github.com/linux-surface/kernel/wiki/IPTS-Firmware#bogus-hid-descriptor-for-surface-laptops-mshw0079.

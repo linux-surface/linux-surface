@@ -68,7 +68,7 @@ read -rp "Do you want to install the patched libwacom packages? (type yes or no)
 if [ "$uselibwacom" = "yes" ]; then
     echo "==> Downloading latest libwacom-surface..."
 
-    urls=$(curl --silent "https://api.github.com/repos/qzed/libwacom-surface-deb/releases/latest" \
+    urls=$(curl --silent "https://api.github.com/repos/linux-surface/libwacom-surface-deb/releases/latest" \
            | tr ',' '\n' \
            | grep '"browser_download_url":' \
            | sed -E 's/.*"([^"]+)".*/\1/' \
@@ -147,7 +147,7 @@ Do you want this script to download and install the latest kernel for you?
 if [ "$autoinstallkernel" = "yes" ]; then
     echo "==> Downloading latest kernel..."
 
-    urls=$(curl --silent "https://api.github.com/repos/qzed/linux-surface/releases/latest" \
+    urls=$(curl --silent "https://api.github.com/repos/linux-surface/linux-surface/releases/latest" \
            | tr ',' '\n' \
            | grep '"browser_download_url":' \
            | sed -E 's/.*"([^"]+)".*/\1/' \
