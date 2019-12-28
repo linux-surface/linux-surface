@@ -39,17 +39,17 @@ ask() {
 
 echo "==> Copying the config files under root to where they belong..."
 for dir in $(ls root/); do
-    cp -Rbv "root/$dir/"* "/$dir/"
+    sudo cp -Rbv "root/$dir/"* "/$dir/"
 done
 
 echo "==> Copying firmware files under root..."
-cp -rv firmware/* /lib/firmware/
+sudo cp -rv firmware/* /lib/firmware/
 
 echo "==> Making /lib/systemd/system-sleep/sleep executable..."
-chmod -v a+x /lib/systemd/system-sleep/sleep
+sudo chmod -v a+x /lib/systemd/system-sleep/sleep
 
 echo "==> Enabling power management for Surface Go touchscreen..."
-systemctl enable -q surfacego-touchscreen
+sudo systemctl enable -q surfacego-touchscreen
 
 echo
 
@@ -65,8 +65,8 @@ if ask "Do you want to replace suspend with hibernate?" N; then
         LIB="/lib"
     fi
 
-    ln -vsfb $LIB/systemd/system/hibernate.target /etc/systemd/system/suspend.target
-    ln -vsfb $LIB/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
+    sudo ln -vsfb $LIB/systemd/system/hibernate.target /etc/systemd/system/suspend.target
+    sudo ln -vsfb $LIB/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
 else
     echo "==> Not touching Suspend"
 fi
@@ -76,8 +76,8 @@ echo
 echo "Setting your clock to local time can fix issues with Windows dualboot."
 if ask "Do you want to set your clock to local time instead of UTC?" N; then
     echo "==> Setting clock to local time..."
-    timedatectl set-local-rtc 1
-    hwclock --systohc --localtime
+    sudo timedatectl set-local-rtc 1
+    sudo hwclock --systohc --localtime
 else
     echo "==> Not setting clock..."
 fi
@@ -100,7 +100,7 @@ if ask "Do you want to install the patched libwacom?" Y; then
 
     echo "==> Installing latest libwacom-surface..."
 
-    dpkg -i tmp/*.deb
+    sudo dpkg -i tmp/*.deb
     rm -rf tmp
 else
     echo "==> Not touching libwacom"
@@ -122,7 +122,7 @@ if ask "Do you want to download and install the latest kernel?" Y; then
     echo
     echo "==> Installing latest kernel..."
 
-    dpkg -i tmp/*.deb
+    sudo dpkg -i tmp/*.deb
     rm -rf tmp
 else
     echo "==> Not downloading latest kernel"
