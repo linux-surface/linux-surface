@@ -53,26 +53,6 @@ sudo systemctl enable -q surfacego-touchscreen
 
 echo
 
-echo "Suspend is recommended over hibernate. If you chose to use"
-echo "hibernate, please make sure you've setup your swap file per"
-echo "the instructions in the README."
-
-if ask "Do you want to replace suspend with hibernate?" N; then
-    echo "==> Using Hibernate instead of Suspend..."
-    if [ -f "/usr/lib/systemd/system/hibernate.target" ]; then
-        LIB="/usr/lib"
-    else
-        LIB="/lib"
-    fi
-
-    sudo ln -vsfb $LIB/systemd/system/hibernate.target /etc/systemd/system/suspend.target
-    sudo ln -vsfb $LIB/systemd/system/systemd-hibernate.service /etc/systemd/system/systemd-suspend.service
-else
-    echo "==> Not touching Suspend"
-fi
-
-echo
-
 echo "Setting your clock to local time can fix issues with Windows dualboot."
 if ask "Do you want to set your clock to local time instead of UTC?" N; then
     echo "==> Setting clock to local time..."
