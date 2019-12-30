@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/bin/sh
+
 case $1 in
   pre)    # unload the modules before going to sleep
 
@@ -8,9 +9,9 @@ case $1 in
     fi
 
     ## Disable bluetooth regardless if devices are connected (see notes below)
-    #if ps cax | grep bluetoothd; then
-    #  bluetoothctl power off
-    #fi
+    # if ps cax | grep bluetoothd; then
+    #   bluetoothctl power off
+    # fi
 
     # handle wifi issues
     modprobe -r mwifiex_pcie;
@@ -19,24 +20,28 @@ case $1 in
 
     ## IPTS: see notes below
     ## > Remove IPTS from ME side
-    #modprobe -r ipts_surface
-    #modprobe -r intel_ipts
-    #modprobe -r mei_hdcp
-    #modprobe -r mei_me
-    #modprobe -r mei
+    # modprobe -r ipts_surface
+    # modprobe -r intel_ipts
+    # modprobe -r mei_hdcp
+    # modprobe -r mei_me
+    # modprobe -r mei
     ## > Remove IPTS from i915 side
-    #for i in $(find /sys/kernel/debug/dri -name i915_intel_ipts_cleanup); do echo 1 > $i; done
+    # for i in $(find /sys/kernel/debug/dri -name i915_intel_ipts_cleanup); do
+    #   echo 1 > $i
+    # done
     ;;
   post)   # re-load modules after resume
     ## IPTS: see notes below
     ## > Load IPTS from i915 side
-    #for i in $(find /sys/kernel/debug/dri -name i915_intel_ipts_init); do echo 1 > $i; done
+    # for i in $(find /sys/kernel/debug/dri -name i915_intel_ipts_init); do
+    #   echo 1 > $i
+    # done
     ## > Load IPTS from ME side
-    #modprobe mei
-    #modprobe mei_me
-    #modprobe mei_hdcp
-    #modprobe intel_ipts
-    #modprobe ipts_surface
+    # modprobe mei
+    # modprobe mei_me
+    # modprobe mei_hdcp
+    # modprobe intel_ipts
+    # modprobe ipts_surface
 
     # Restart bluetooth
     if ps cax | grep bluetoothd; then
@@ -57,6 +62,7 @@ case $1 in
 esac
 
 # Notes:
+#
 # - For IPTS, see
 #   >  https://github.com/jakeday/linux-surface/issues/544#issuecomment-519126757
 #   for an explanation/discussion. We do not unload/reload modules for now as
@@ -64,6 +70,7 @@ esac
 #   experience any issues on suspend/resume, please file an appropriate issue or
 #   join the discussion linked above so that we can fix it. As a temporary
 #   workaround, you may want to uncomment the IPTS-related lines above.
+#
 # - For bluetooth: If you have spontaneous wakeups, you may want to disable
 #   bluetooth completely, regardless if any devices are connected or not, by
 #   removing the `! bluetoothctl info;` part as indicated in the comment (e.g.
