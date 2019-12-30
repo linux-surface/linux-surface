@@ -90,7 +90,7 @@ If you want to compile the kernel yourself (e.g. if your distribution is not sup
 ### Support
 
 If you have questions or need support, please use our [Gitter Community][gitter]!
-For development related questions and discussions, please consider joining our IRC channel on freenode (`freenode/##linux-surface`).
+For development related questions and discussions, please consider joining our IRC channel on freenode (`freenode/##linux-surface`) or the [equivalent Matrix bridge](https://matrix.to/#/#freenode_##linux-surface:matrix.org).
 
 [wiki-setup]: https://github.com/linux-surface/linux-surface/wiki/Installation-and-Setup
 [wiki-setup-post]: https://github.com/linux-surface/linux-surface/wiki/Installation-and-Setup#post-installation
