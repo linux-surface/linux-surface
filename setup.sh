@@ -45,9 +45,6 @@ done
 echo "==> Copying firmware files under root..."
 sudo cp -rv firmware/* /lib/firmware/
 
-echo "==> Making /lib/systemd/system-sleep/sleep executable..."
-sudo chmod -v a+x /lib/systemd/system-sleep/sleep
-
 echo "==> Enabling power management for Surface Go touchscreen..."
 sudo systemctl enable -q surfacego-touchscreen
 
