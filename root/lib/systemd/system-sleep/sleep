@@ -13,11 +13,6 @@ case $1 in
     #   bluetoothctl power off
     # fi
 
-    # handle wifi issues
-    modprobe -r mwifiex_pcie;
-    modprobe -r mwifiex;
-    modprobe -r cfg80211;
-
     ## IPTS: see notes below
     ## > Remove IPTS from ME side
     # modprobe -r ipts_surface
@@ -46,17 +41,6 @@ case $1 in
     # Restart bluetooth
     if ps cax | grep bluetoothd; then
       bluetoothctl power on
-    fi
-
-    # handle wifi issues: complete cycle
-    modprobe cfg80211;
-    modprobe mwifiex;
-    modprobe mwifiex_pcie;
-    echo 1 > /sys/bus/pci/rescan
-
-    if [ -x "$(command -v nmcli)" ]  && [ "$(nmcli net)" = "enabled" ]; then
-      nmcli net off
-      nmcli net on
     fi
     ;;
 esac
