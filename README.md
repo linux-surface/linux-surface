@@ -18,34 +18,9 @@ Follow the instructions below to install the latest kernel and config files.
 * Surface Pro 7
 * Surface Studio
 
-### What's Working
+### Features / What's Working
 
-* Keyboard (and backlight)
-* Touchpad
-* 2D/3D Acceleration
-* Touchscreen
-* Pen
-* WiFi
-* Bluetooth
-* Speakers
-* Power Button
-* Volume Buttons
-* SD Card Reader
-* Hibernate
-* S2Idle (suspend)
-* Sensors (accelerometer, gyroscope, ambient light sensor)
-* Battery Readings
-* Docking/Undocking Tablet and Keyboard
-* Surface Docks
-* DisplayPort
-* USB-C (including for HDMI Out)
-* Dedicated Nvidia GPU (Surface Book 2)
-
-### What's NOT Working
-
-* Cameras (not fully supported yet)
-* Dedicated Nvidia GPU (Surface Book 1 with Performance Base)
-* Connected Standby is not supported yet
+See the [feature matrix](https://github.com/linux-surface/linux-surface/wiki/Supported-Devices-and-Features#feature-matrix) for more information about each device.
 
 ### Disclaimer
 
