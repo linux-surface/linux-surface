@@ -102,6 +102,6 @@ For development related questions and discussions, please consider joining our I
 [fedora-linux-surface]: https://github.com/StollD/fedora-linux-surface/
 
 [gitter]: https://gitter.im/linux-surface
-[hibernate-setup]: https://github.com/linux-surface/linux-surface/wiki/Secure-Boot
+[hibernate-setup]: https://fitzcarraldoblog.wordpress.com/2018/07/14/configuring-lubuntu-18-04-to-enable-hibernation-using-a-swap-file
 
 [linux-surface-kernel]: https://github.com/linux-surface/kernel/
