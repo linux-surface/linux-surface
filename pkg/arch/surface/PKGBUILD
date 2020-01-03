@@ -1,0 +1,37 @@
+# Maintainer: Blaž Hrastnik <blaz@mxxn.io>
+
+pkgbase=surface
+pkgver=1.0.0
+pkgrel=1
+arch=(any)
+url="http://github.com/linux-surface/linux-surface"
+license=(GPL2)
+_srcname=source
+_srcbranch='master'
+source=(
+  "$_srcname::git+https://github.com/linux-surface/linux-surface.git#branch=$_srcbranch"
+)
+sha256sums=('SKIP')
+
+_package-firmware() {
+  pkgdesc="Surface firmware"
+  cd ${srcdir}/${_srcname}/
+  install -d "${pkgdir}/usr/lib/firmware/"
+  cp -r firmware/* "${pkgdir}/usr/lib/firmware/"
+}
+
+_package-config() {
+  pkgdesc="Surface config files"
+  cd ${srcdir}/${_srcname}/
+  cp -r root/etc "${pkgdir}/etc/"
+  install -d "${pkgdir}/usr/lib/"
+  cp -r root/lib/* "${pkgdir}/usr/lib/"
+}
+
+pkgname=("$pkgbase-firmware" "$pkgbase-config")
+for _p in "${pkgname[@]}"; do
+  eval "package_$_p() {
+    $(declare -f "_package${_p#$pkgbase}")
+    _package${_p#$pkgbase}
+  }"
+done
