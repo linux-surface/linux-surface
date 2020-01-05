@@ -34,23 +34,19 @@ For a more detailed installation and setup guide, please refer to the correspond
 There, you may also find device-specific caveats.
 A short overview of the process is provided below.
 
-This repository is aimed at Debian based distributions (Ubuntu, Pop!_OS, elementary OS, ...).
-Releases are provided for both, Debian and Arch Linux based distributions, but if you're running Arch, you may want to consider looking at [this][arch-linux-surface] project instead, or [here][fedora-linux-surface] if you're running Fedora.
+Releases are provided for both Debian and Arch Linux based distributions, but if you're running Arch, you may want to consider looking at [this][arch-linux-surface] project instead, or [here][fedora-linux-surface] if you're running Fedora.
 These releases can be found here: https://github.com/linux-surface/linux-surface/releases.
 
 You may also want to consider setting up one of the [package repositories][wiki-repos] to obtain automatic updates.
 After the installation, you should have a look at the [post-installation notes][wiki-setup-post], specifically you may want to set up [secure-boot][wiki-secure-boot] and install the proprietary firmware package (usually named `linux-firmware`) if you have not done so already.
 
-The following setup instructions re for Debian based systems (Debian, Ubuntu, Pop!_OS, elementary OS, ...).
-If you're running something else, you may need to adapt them for your distribution (have a look at the setup.sh script for more information).
-
 1. Before you can actually start, you will need to install some required packages.
    On Debian based distributions, you can do this by simply running
    ```
-   sudo apt install git curl wget sed
+   sudo apt install git
    ```
 
-2. Clone this repository.
+2. **Clone this repository.**
    To save some time, you can use the `--depth 1` flag.
    ```
    git clone --depth 1 https://github.com/linux-surface/linux-surface.git
@@ -62,14 +58,17 @@ If you're running something else, you may need to adapt them for your distributi
    sudo ./setup.sh
    ```
    Follow the instructions and make your choices.
-   If you have/intend to set up the kernel and libwacom package via one of the package repositories, say `no` to installing them.
-   Alternatively, you can also install them manually via (for Debian)
+
+4. **Download and install the required packages.**
+   You can use one of the package repositories to install the kernel and libwacom package.
+
+   Alternatively, you can also install them manually via (for Debian) after
+   downloading these files from the [releases][releases] section of this repo.
    ```
    sudo dpkg -i linux-headers-[VERSION].deb linux-image-[VERSION].deb linux-libc-dev-[VERSION].deb
    ```
-   after downloading these files from the [releases][releases] section of this repo.
 
-4. Finally, you will need to re-boot your system and boot into the linux-surface kernel.
+5. Finally, you will need to re-boot your system and boot into the linux-surface kernel.
    Please make sure that you actually boot in the right kernel via `uname -a` before opening any issues.
    This should give you a version string containing `surface`.
    If not, you may need to configure your bootloader.
