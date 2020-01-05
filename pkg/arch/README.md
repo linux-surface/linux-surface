@@ -27,4 +27,3 @@ Primarily tested on Arch Linux + Surface Laptop 13" (Intel).
   makepkg -s
   sudo pacman -U *.pkg.tar.*
   ```
-  You will need to blacklist the builtin modules.

@@ -15,12 +15,19 @@ _srcname=source
 _srcbranch='master'
 source=(
   "$_srcname::git+https://github.com/linux-surface/surface-aggregator-module.git#branch=$_srcbranch"
+  surface-sam.conf
 )
-sha256sums=('SKIP')
+sha256sums=(
+  'SKIP'
+  'a1fe1e49bfcbb7a2e24ceeeb1fc0e8f36d5cc577b4ef5ae17f15a007a91e2860'
+)
 
 package() {
   cd ${srcdir}/${_srcname}/
 
   install -d "${pkgdir}"/usr/src/${_modname}-${_modver}/
   cp -t "${pkgdir}"/usr/src/${_modname}-${_modver}/ module/*
+
+  # blacklist the precompiled modules
+  install -Dt "${pkgdir}"/etc/modprobe.d/surface-sam.conf -m644 surface-sam.conf
 }
