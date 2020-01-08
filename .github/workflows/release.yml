@@ -1,0 +1,57 @@
+on:
+  push:
+   branches:
+      - feature/pkg
+    # tags:
+    # - 'v[0-9]+.[0-9]+.[0-9]*'
+
+name: Create release and upload binaries
+
+jobs:
+  build-arch:
+    name: Build Arch Linux
+    runs-on: ubuntu-latest
+    container: archlinux
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Build
+        run: |
+          pkg/arch/build.sh
+          mkdir release
+          mv pkg/arch/**/*.pkg.tar.zst* release
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v1
+        with:
+          name: arch-latest
+          path: release
+  release:
+    name: Create and Upload Release
+    needs: [build-arch]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Arch Linux artifacts
+        uses: actions/download-artifact@v1
+        with:
+          name: arch-latest
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Arch Linux Assets to Release
+        uses: svenstaro/upload-release-action@v1-release
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./arch-latest/*
+          tag: ${{ github.ref }}
+          overwrite: true
+          file_glob: true
