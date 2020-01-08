@@ -45,9 +45,6 @@ done
 echo "==> Copying firmware files under root..."
 sudo cp -rv firmware/* /lib/firmware/
 
-echo "==> Enabling power management for Surface Go touchscreen..."
-sudo systemctl enable -q surfacego-touchscreen
-
 echo
 
 echo "Setting your clock to local time can fix issues with Windows dualboot."
