@@ -5,20 +5,19 @@ set -euxo pipefail
 export PKGEXT='.pkg.tar.zst'
 export COMPRESSZST=(zstd -c -T0 --ultra -20 -)
 
-# Create user
-useradd -m -g wheel -s /bin/sh tester
-echo "nobody ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-chown -R nobody:wheel .
+# Import GPG key
+echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
+export GPG_TTY=$(tty)
 
-# Install makepkg deps
-pacman -Sy sudo binutils fakeroot grep base-devel git --noconfirm
-
-# Build the packages as `nobody' user
-# TODO: use --sign --key <key>
-pushd pkg/arch/surface
-su nobody -p -s /bin/bash -c 'makepkg -f --syncdeps --skippgpcheck --noconfirm'
+# Build the packages as `build' user
+pushd surface
+makepkg -f --syncdeps --skippgpcheck --noconfirm
+# Sign as a separate step (makepkg -s needs pinentry)
+makepkg --packagelist | xargs -L1 gpg --detach-sign --batch --no-tty --pinentry-mode=loopback --passphrase $GPG_PASSPHRASE -u 5B574D1B513F9A05
 popd
 
-pushd pkg/arch/kernel
-# su nobody -p -s /bin/bash -c 'makepkg -f --syncdeps --skippgpcheck --noconfirm'
+pushd kernel
+makepkg -f --syncdeps --skippgpcheck --noconfirm
+# Sign as a separate step (makepkg -s needs pinentry)
+makepkg --packagelist | xargs -L1 gpg --detach-sign --batch --no-tty --pinentry-mode=loopback --passphrase $GPG_PASSPHRASE -u 5B574D1B513F9A05
 popd

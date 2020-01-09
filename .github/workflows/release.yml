@@ -3,7 +3,7 @@ on:
    branches:
       - feature/pkg
     # tags:
-    # - 'v[0-9]+.[0-9]+.[0-9]*'
+    # - 'v*+'
 
 name: Create release and upload binaries
 
@@ -17,10 +17,26 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Build
+        env:
+          GPG_KEY: ${{ secrets.GITHUB_GPG_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GITHUB_GPG_PASSPHRASE }}
         run: |
-          pkg/arch/build.sh
+          pushd pkg/arch
+          # Create user
+          useradd -m -g wheel -s /bin/bash build
+          echo "build ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          chown -R build:wheel .
+          chown -R build:wheel $HOME
+
+          # Install makepkg deps
+          pacman -Sy sudo binutils fakeroot grep base-devel git --noconfirm
+
+          # Build
+          su build --pty -s /bin/bash -c './build.sh'
+          popd
           mkdir release
           mv pkg/arch/**/*.pkg.tar.zst* release
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v1
         with:
