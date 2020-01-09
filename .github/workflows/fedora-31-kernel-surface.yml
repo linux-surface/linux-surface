@@ -1,0 +1,31 @@
+name: Fedora 31 - kernel-surface
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: fedora:31
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Decrypt certificates
+      env:
+        LS_PASSWORD: ${{ secrets.LS_PASSWORD }}
+      run: |
+        pkg/secrets/decrypt.sh -p "$LS_PASSWORD" -f pkg/secrets/gpg/surface_gpg.key.gpg
+        pkg/secrets/decrypt.sh -p "$LS_PASSWORD" -f pkg/secrets/sb/surface_sb.key.gpg
+    - name: Install certificates
+      run: |
+        gpg --quiet --no-tty --batch --yes --import pkg/secrets/gpg/surface_gpg.key
+        cp pkg/secrets/sb/surface_sb.key pkg/fedora/kernel-surface/surface.key
+        cp pkg/secrets/sb/surface_sb.crt pkg/fedora/kernel-surface/surface.crt
+    - name: Build kernel
+      run: |
+        cd pkg/fedora/kernel-surface
+        ../makerpm -sk linux-surface
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v1
+      with:
+        name: kernel-surface-fc31
+        path: pkg/fedora/kernel-surface/out/x86_64
