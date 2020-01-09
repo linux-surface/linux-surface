@@ -8,7 +8,8 @@ jobs:
     container: fedora:31
 
     steps:
-    - uses: actions/checkout@v1
+    - name: Fetch repository
+      uses: actions/checkout@v2
     - name: Decrypt certificates
       env:
         LS_PASSWORD: ${{ secrets.LS_PASSWORD }}
@@ -17,9 +18,17 @@ jobs:
         pkg/secrets/decrypt.sh -p "$LS_PASSWORD" -f pkg/secrets/sb/surface_sb.key.gpg
     - name: Install certificates
       run: |
-        gpg --quiet --no-tty --batch --yes --import pkg/secrets/gpg/surface_gpg.key
+        gpg --no-tty --batch --yes --import pkg/secrets/gpg/surface_gpg.key
         cp pkg/secrets/sb/surface_sb.key pkg/fedora/kernel-surface/surface.key
         cp pkg/secrets/sb/surface_sb.crt pkg/fedora/kernel-surface/surface.crt
+    - name: Install build-dependencies
+      run: |
+        dnf install -y rpmdevtools findutils openssl openssl-devel kmod patch
+        dnf install -y bash tar git-core sbsigntools bzip2 xz findutils gzip
+        dnf install -y m4 perl-interpreter perl-Carp perl-devel perl-generators
+        dnf install -y make diffutils gawk gcc binutils redhat-rpm-config
+        dnf install -y hmaccalc bison flex net-tools hostname bc elfutils-devel
+        dnf install -y python3-devel
     - name: Build kernel
       run: |
         cd pkg/fedora/kernel-surface
