@@ -1,0 +1,117 @@
+#!/bin/sh
+
+# Default to using the first specfile in the current directory
+SPEC="*.spec"
+OPTS="-ba"
+
+SIGN=0
+KEY=""
+
+BUILD=".build"
+RPMS="out"
+
+usage() {
+	echo "Usage: $0 [OPTION]..."
+	echo "Wrapper for rpmbuild that is easier to use."
+	echo
+	echo "Options:"
+	echo "    -h    This help message"
+	echo "    -f    The specfile to build from"
+	echo "    -c    Clean the build artifacts"
+	echo "    -s    Sign the produced RPM packages"
+	echo "    -k    The GPG key to use for signing"
+	exit
+}
+
+clean() {
+	rm -rf $BUILD
+	rm -rf $RPMS
+	exit
+}
+
+while getopts ":hcsf:k:" args; do
+	case "$args" in
+	f)
+		SPEC=$OPTARG
+		;;
+	s)
+		SIGN=1
+		;;
+	k)
+		KEY=$OPTARG
+		;;
+	c)
+		clean
+		;;
+	h)
+		usage
+		;;
+	esac
+done
+shift $((OPTIND-1))
+
+if [ ! "$@" = "" ]; then
+	OPTS="$@"
+fi
+
+# Check if the specfile exists
+if [ "$(ls -f $SPEC | wc -l)" = "0" ]; then
+	echo "ERROR: No specfile found. Specify it with the -s option."
+	exit -2
+fi
+
+# Check if there are too many specfiles
+if [ ! "$(ls -f $SPEC | wc -l)" = "1" ]; then
+	echo "ERROR: Ambiguous matches for specfile. Please specify a single" \
+		"file through the -s option."
+	exit -7
+fi
+
+# Get the directory of the specfile
+SPEC=$(ls -f $SPEC)
+DIR=$(readlink -f $(dirname $SPEC))
+
+if [ ! -d "$DIR/$BUILD" ]; then
+	mkdir "$DIR/$BUILD"
+fi
+
+FILES=$(find $DIR -maxdepth 1);
+for file in $FILES; do
+	[ "$file" = "$DIR" ] && continue
+	[ "$file" = "$DIR/$BUILD" ] && continue
+	[ "$file" = "$DIR/$RPMS" ] && continue
+
+	cp -r "$file" "$DIR/$BUILD"
+done
+
+spectool                                   \
+	--define "_sourcedir $DIR/$BUILD"  \
+	--define "_builddir $DIR/$BUILD"   \
+	--define "_srcrpmdir $DIR/$RPMS"   \
+	--define "_rpmdir $DIR/$RPMS"      \
+	--define "_specdir $DIR"           \
+	--get-files --all                  \
+	--directory $DIR/$BUILD $SPEC
+
+echo
+
+rpmbuild                                   \
+	--define "_sourcedir $DIR/$BUILD"  \
+	--define "_builddir $DIR/$BUILD"   \
+	--define "_srcrpmdir $DIR/$RPMS"   \
+	--define "_rpmdir $DIR/$RPMS"      \
+	--define "_specdir $DIR"           \
+	$OPTS $SPEC
+
+if [ ! "$SIGN" = "1" ]; then
+	exit
+fi
+
+for file in $(find out/ -name '*.rpm'); do
+	echo "Signing $file"
+	if [ "$KEY" = "" ]; then
+		rpm --resign $file 2>&1 > /dev/null
+	else
+		rpm --resign $file --define "_gpg_name $KEY" 2>&1 > /dev/null
+	fi
+done
