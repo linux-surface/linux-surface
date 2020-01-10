@@ -4,35 +4,37 @@ on: [push]
 
 jobs:
   build:
+    name: Build Kernel
     runs-on: ubuntu-latest
     container: fedora:31
-
     steps:
-    - name: Fetch repository
+    - name: Checkout
       uses: actions/checkout@v2
     - name: Decrypt certificates
       env:
         LS_PASSWORD: ${{ secrets.LS_PASSWORD }}
       run: |
-        pkg/secrets/decrypt.sh -p "$LS_PASSWORD" -f pkg/secrets/gpg/surface_gpg.key.gpg
-        pkg/secrets/decrypt.sh -p "$LS_PASSWORD" -f pkg/secrets/sb/surface_sb.key.gpg
+        pushd pkg/secrets
+          decrypt.sh -p "$LS_PASSWORD" -f gpg/surface_gpg.key.gpg
+          decrypt.sh -p "$LS_PASSWORD" -f sb/surface_sb.key.gpg
+        popd
     - name: Install certificates
-      run: |
+      runpackages|
         gpg --no-tty --batch --yes --import pkg/secrets/gpg/surface_gpg.key
         cp pkg/secrets/sb/surface_sb.key pkg/fedora/kernel-surface/surface.key
         cp pkg/secrets/sb/surface_sb.crt pkg/fedora/kernel-surface/surface.crt
-    - name: Install build-dependencies
+    - name: Install build dependencies
       run: |
-        dnf install -y rpmdevtools findutils openssl openssl-devel kmod patch
-        dnf install -y bash tar git-core sbsigntools bzip2 xz findutils gzip
-        dnf install -y m4 perl-interpreter perl-Carp perl-devel perl-generators
-        dnf install -y make diffutils gawk gcc binutils redhat-rpm-config
-        dnf install -y hmaccalc bison flex net-tools hostname bc elfutils-devel
-        dnf install -y python3-devel
-    - name: Build kernel
+        dnf install -y rpmdevtools findutils openssl openssl-devel kmod   \
+          patch bash tar git-core sbsigntools bzip2 xz findutils gzip m4  \
+          diffutils perl-interpreter perl-Carp perl-devel perl-generators \
+          make gawk gcc binutils redhat-rpm-config hmaccalc bison flex    \
+          net-tools hostname bc elfutils-devel python3-devel rpm-sign
+    - name: Build packages
       run: |
-        cd pkg/fedora/kernel-surface
-        ../makerpm -sk linux-surface
+        pushd pkg/fedora/kernel-surface
+          ../makerpm -sk linux-surface
+        popd
     - name: Upload artifacts
       uses: actions/upload-artifact@v1
       with:
