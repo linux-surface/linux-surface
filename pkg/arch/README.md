@@ -4,11 +4,11 @@ Primarily tested on Arch Linux + Surface Laptop 13" (Intel).
 
 ## Instructions
 
-- Building firmware & configs
+- Building firmware
   ```
-  cd surface
+  cd surface-ipts-firmware
   makepkg -s
-  sudo pacman -U surface-firmware*.pkg.tar.* surface-config*.pkg.tar.*
+  sudo pacman -U surface-ipts-firmware*.pkg.tar.*
   ```
 
 - Building the patched kernel (includes ACPI module)

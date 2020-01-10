@@ -10,7 +10,7 @@ echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
 export GPG_TTY=$(tty)
 
 # Build the packages as `build' user
-pushd surface
+pushd surface-ipts-firmware
 makepkg -f --syncdeps --skippgpcheck --noconfirm
 # Sign as a separate step (makepkg -s needs pinentry)
 makepkg --packagelist | xargs -L1 gpg --detach-sign --batch --no-tty --pinentry-mode=loopback --passphrase $GPG_PASSPHRASE -u 5B574D1B513F9A05
