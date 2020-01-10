@@ -96,7 +96,6 @@ Patch101:   0002-drm-i915-Mark-contents-as-dirty-on-a-write-fault.patch
 ExclusiveArch: x86_64
 
 %global debug_package %{nil}
-%global _binary_payload w3T.xzdio
 
 %description
 The Linux Kernel, the operating system core itself, with support for
