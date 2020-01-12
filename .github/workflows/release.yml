@@ -76,14 +76,14 @@ jobs:
     - name: Install build dependencies
       run: |
         dnf distro-sync -y
-        dnf install -y rpmdevtools rpm-sign
-        dnf builddep pkg/fedora/kernel-surface/kernel-surface.spec
+        dnf install -y rpmdevtools rpm-sign 'dnf-command(builddep)'
+        dnf builddep -y pkg/fedora/kernel-surface/kernel-surface.spec
 
     - name: Setup certificates
       env:
         LS_PASSWORD: ${{ secrets.LS_PASSWORD }}
       run: |
-        pkg/secrets/decrypt.sh -p "$LS_PASSWORD" -f sb/surface_sb.key.gpg
+        pkg/secrets/decrypt.sh -p "$LS_PASSWORD" -f pkg/secrets/sb/surface_sb.key.gpg
         cp pkg/secrets/sb/surface_sb.key pkg/fedora/kernel-surface/surface.key
         cp pkg/secrets/sb/surface_sb.crt pkg/fedora/kernel-surface/surface.crt
 
