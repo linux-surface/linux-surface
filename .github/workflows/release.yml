@@ -1,9 +1,8 @@
 on:
   push:
-   branches:
-      - feature/pkg
-    # tags:
-    # - 'v*+'
+    tags:
+      - 'test'
+      # - 'v*+'
 
 name: Create release and upload binaries
 
@@ -18,7 +17,7 @@ jobs:
 
       - name: Build
         run: |
-          cd pkg/arch
+          cd pkg/arch/kernel
 
           # Create build user (can't makepkg as root)
           useradd -m -g wheel -s /bin/bash build
@@ -28,13 +27,18 @@ jobs:
           # Install makepkg deps
           pacman -Sy sudo binutils fakeroot grep base-devel git --noconfirm
 
+          # Package compression settings (Matches latest Arch)
+          export PKGEXT='.pkg.tar.zst'
+          export COMPRESSZST=(zstd -c -T0 --ultra -20 -)
+          export MAKEFLAGS="-j2"
+
           # Build
-          su build --pty -s /bin/bash -c './build.sh'
+          su build --pty -p -s /bin/bash -c 'makepkg -f --syncdeps --skippgpcheck --noconfirm'
 
       - name: Prepare Release
         run: |
           mkdir release
-          mv pkg/arch/**/*.pkg.tar.zst release
+          mv pkg/arch/kernel/*.pkg.tar.zst release
 
       - name: Sign Packages
         env:
@@ -73,7 +77,7 @@ jobs:
         with:
           tag_name: ${{ github.ref }}
           release_name: ${{ github.ref }}
-          draft: false
+          draft: true
           prerelease: false
 
       - name: Upload Arch Linux Assets to Release
