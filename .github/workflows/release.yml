@@ -4,11 +4,11 @@ on:
       - 'test'
       # - 'v*+'
 
-name: Create release and upload binaries
+name: Create kernel release and upload binaries
 
 jobs:
   build-arch:
-    name: Build Arch Linux
+    name: Build Arch Linux Kernel
     runs-on: ubuntu-latest
     container: archlinux
     steps:
@@ -59,6 +59,51 @@ jobs:
         with:
           name: arch-latest
           path: release
+
+  build-fedora:
+    name: Build Fedora Kernel
+    runs-on: ubuntu-latest
+    container: fedora:31
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: Decrypt certificates
+      env:
+        LS_PASSWORD: ${{ secrets.LS_PASSWORD }}
+      run: |
+        pushd pkg/secrets
+          ./decrypt.sh -p "$LS_PASSWORD" -f gpg/surface_gpg.key.gpg
+          ./decrypt.sh -p "$LS_PASSWORD" -f sb/surface_sb.key.gpg
+        popd
+
+    - name: Install certificates
+      run: |
+        gpg --no-tty --batch --yes --import pkg/secrets/gpg/surface_gpg.key
+        cp pkg/secrets/sb/surface_sb.key pkg/fedora/kernel-surface/surface.key
+        cp pkg/secrets/sb/surface_sb.crt pkg/fedora/kernel-surface/surface.crt
+
+    - name: Install build dependencies
+      run: |
+        dnf distro-sync -y
+        dnf install -y rpmdevtools findutils openssl openssl-devel kmod   \
+          patch bash tar git-core sbsigntools bzip2 xz findutils gzip m4  \
+          diffutils perl-interpreter perl-Carp perl-devel perl-generators \
+          make gawk gcc binutils redhat-rpm-config hmaccalc bison flex    \
+          net-tools hostname bc elfutils-devel python3-devel rpm-sign
+
+    - name: Build packages
+      run: |
+        pushd pkg/fedora/kernel-surface
+          ../makerpm -sk linux-surface
+        popd
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v1
+      with:
+        name: fedora-latest
+        path: pkg/fedora/kernel-surface/out/x86_64
+
   release:
     name: Create and Upload Release
     needs: [build-arch]
@@ -68,6 +113,11 @@ jobs:
         uses: actions/download-artifact@v1
         with:
           name: arch-latest
+
+      - name: Download Fedora artifacts
+        uses: actions/download-artifact@v1
+        with:
+          name: fedora-latest
 
       - name: Create Release
         id: create_release
@@ -80,11 +130,11 @@ jobs:
           draft: true
           prerelease: false
 
-      - name: Upload Arch Linux Assets to Release
+      - name: Upload Assets to Release
         uses: svenstaro/upload-release-action@v1-release
         with:
           repo_token: ${{ secrets.GITHUB_BOT_TOKEN }}
-          file: ./arch-latest/*
+          file: ./*-latest/*
           tag: ${{ github.ref }}
           overwrite: true
           file_glob: true
