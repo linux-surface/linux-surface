@@ -1,0 +1,57 @@
+From 4a362c03025050f830f3afb107ec62d44f0299b0 Mon Sep 17 00:00:00 2001
+From: Chris Wilson <chris@chris-wilson.co.uk>
+Date: Fri, 20 Sep 2019 13:18:21 +0100
+Subject: [PATCH] drm/i915: Mark contents as dirty on a write fault
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+commit b925708f28c2b7a3a362d709bd7f77bc75c1daac upstream.
+
+Since dropping the set-to-gtt-domain in commit a679f58d0510 ("drm/i915:
+Flush pages on acquisition"), we no longer mark the contents as dirty on
+a write fault. This has the issue of us then not marking the pages as
+dirty on releasing the buffer, which means the contents are not written
+out to the swap device (should we ever pick that buffer as a victim).
+Notably, this is visible in the dumb buffer interface used for cursors.
+Having updated the cursor contents via mmap, and swapped away, if the
+shrinker should evict the old cursor, upon next reuse, the cursor would
+be invisible.
+
+E.g. echo 80 > /proc/sys/kernel/sysrq ; echo f > /proc/sysrq-trigger
+
+Bugzilla: https://bugs.freedesktop.org/show_bug.cgi?id=111541
+Fixes: a679f58d0510 ("drm/i915: Flush pages on acquisition")
+Signed-off-by: Chris Wilson <chris@chris-wilson.co.uk>
+Cc: Matthew Auld <matthew.william.auld@gmail.com>
+Cc: Ville Syrjälä <ville.syrjala@linux.intel.com>
+Cc: <stable@vger.kernel.org> # v5.2+
+Reviewed-by: Matthew Auld <matthew.william.auld@gmail.com>
+Link: https://patchwork.freedesktop.org/patch/msgid/20190920121821.7223-1-chris@chris-wilson.co.uk
+(cherry picked from commit 5028851cdfdf78dc22eacbc44a0ab0b3f599ee4a)
+Signed-off-by: Rodrigo Vivi <rodrigo.vivi@intel.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/gpu/drm/i915_legacy/i915_gem.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/i915_legacy/i915_gem.c b/drivers/gpu/drm/i915_legacy/i915_gem.c
+index ad01c92aaf74..3c4e41a837b5 100644
+--- a/drivers/gpu/drm/i915_legacy/i915_gem.c
++++ b/drivers/gpu/drm/i915_legacy/i915_gem.c
+@@ -1908,7 +1908,11 @@ vm_fault_t i915_gem_fault(struct vm_fault *vmf)
+ 		list_add(&obj->userfault_link, &dev_priv->mm.userfault_list);
+ 	GEM_BUG_ON(!obj->userfault_count);
+ 
+-	i915_vma_set_ggtt_write(vma);
++	if (write) {
++		GEM_BUG_ON(!i915_gem_object_has_pinned_pages(obj));
++		i915_vma_set_ggtt_write(vma);
++		obj->mm.dirty = true;
++	}
+ 
+ err_fence:
+ 	i915_vma_unpin_fence(vma);
+-- 
+2.23.0
+
