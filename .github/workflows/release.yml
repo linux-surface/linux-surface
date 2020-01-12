@@ -6,6 +6,10 @@ on:
 
 name: Create kernel release and upload binaries
 
+env:
+  KEY_ID: C1F105E07DA59F2C
+  KEY_NAME: surface-linux
+
 jobs:
   build-arch:
     name: Build Arch Linux Kernel
@@ -35,15 +39,14 @@ jobs:
           # Build
           su build --pty -p -s /bin/bash -c 'makepkg -f --syncdeps --skippgpcheck --noconfirm'
 
-      - name: Prepare Release
+      - name: Prepare release
         run: |
           mkdir release
           mv pkg/arch/kernel/*.pkg.tar.zst release
 
-      - name: Sign Packages
+      - name: Sign packages
         env:
           GPG_KEY: ${{ secrets.GITHUB_GPG_KEY }}
-          GPG_PASSPHRASE: ${{ secrets.GITHUB_GPG_PASSPHRASE }}
         run: |
           cd release
 
@@ -52,7 +55,7 @@ jobs:
           export GPG_TTY=$(tty)
 
           # sign packages
-          ls *.pkg.tar.zst | xargs -L1 gpg --detach-sign --batch --no-tty --pinentry-mode=loopback --passphrase $GPG_PASSPHRASE -u 5B574D1B513F9A05
+          ls *.pkg.tar.zst | xargs -L1 gpg --detach-sign --batch --no-tty -u $KEY_ID
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v1
@@ -65,23 +68,8 @@ jobs:
     runs-on: ubuntu-latest
     container: fedora:31
     steps:
-    - name: Checkout
+    - name: Checkout code
       uses: actions/checkout@v2
-
-    - name: Decrypt certificates
-      env:
-        LS_PASSWORD: ${{ secrets.LS_PASSWORD }}
-      run: |
-        pushd pkg/secrets
-          ./decrypt.sh -p "$LS_PASSWORD" -f gpg/surface_gpg.key.gpg
-          ./decrypt.sh -p "$LS_PASSWORD" -f sb/surface_sb.key.gpg
-        popd
-
-    - name: Install certificates
-      run: |
-        gpg --no-tty --batch --yes --import pkg/secrets/gpg/surface_gpg.key
-        cp pkg/secrets/sb/surface_sb.key pkg/fedora/kernel-surface/surface.key
-        cp pkg/secrets/sb/surface_sb.crt pkg/fedora/kernel-surface/surface.crt
 
     - name: Install build dependencies
       run: |
@@ -89,11 +77,31 @@ jobs:
         dnf install -y rpmdevtools rpm-sign
         dnf builddep pkg/fedora/kernel-surface/kernel-surface.spec
 
+    - name: Setup certificates
+      env:
+        LS_PASSWORD: ${{ secrets.LS_PASSWORD }}
+      run: |
+        pkg/secrets/decrypt.sh -p "$LS_PASSWORD" -f sb/surface_sb.key.gpg
+        cp pkg/secrets/sb/surface_sb.key pkg/fedora/kernel-surface/surface.key
+        cp pkg/secrets/sb/surface_sb.crt pkg/fedora/kernel-surface/surface.crt
+
     - name: Build packages
       run: |
         pushd pkg/fedora/kernel-surface
-          ../makerpm -sk linux-surface
+          ../makerpm
         popd
+
+    - name: Sign packages
+      env:
+        GPG_KEY: ${{ secrets.GITHUB_GPG_KEY }}
+      run: |
+        cd pkg/fedora/kernel-surface/out/x86_64
+
+        # import GPG key
+        echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
+
+        # sign packages
+        ls *.rpm | xargs -L1 -I % rpm --resign % --define "_gpg_name $KEY_NAME"
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v1
@@ -102,7 +110,7 @@ jobs:
         path: pkg/fedora/kernel-surface/out/x86_64
 
   release:
-    name: Create and Upload Release
+    name: Publish release
     needs: [build-arch]
     runs-on: ubuntu-latest
     steps:
@@ -116,7 +124,7 @@ jobs:
         with:
           name: fedora-latest
 
-      - name: Create Release
+      - name: Create release
         id: create_release
         uses: actions/create-release@v1
         env:
@@ -127,7 +135,7 @@ jobs:
           draft: true
           prerelease: false
 
-      - name: Upload Assets to Release
+      - name: Upload assets to release
         uses: svenstaro/upload-release-action@v1-release
         with:
           repo_token: ${{ secrets.GITHUB_BOT_TOKEN }}
