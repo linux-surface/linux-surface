@@ -65,6 +65,71 @@ jobs:
           name: arch-latest
           path: release
 
+  build-debian:
+    name: Build Debian Kernel
+    runs-on: ubuntu-latest
+    container: debian:sid
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install build dependencies
+        run: |
+          sed 's/^deb /deb-src /' /etc/apt/sources.list >> /etc/apt/sources.list
+          apt-get -y update
+          apt-get -y install build-essential fakeroot rsync git wget python3-debian
+          apt-get -y build-dep linux
+
+      - name: Build
+        env:
+          PACKAGE_VERSION: 5.4.8-1
+        run: |
+          cd pkg/debian
+
+          export KERNEL_VERSION=${PACKAGE_VERSION%-*}
+
+          # download sources
+          wget https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/linux-$KERNEL_VERSION.tar.xz
+          git clone -b "debian/$PACKAGE_VERSION" --depth 1 --single-branch https://salsa.debian.org/kernel-team/linux.git
+
+          cd linux
+
+          # apply debian patches
+          debian/bin/genorig.py ../linux-$KERNEL_VERSION.tar.xz
+          debian/rules orig
+
+          # apply patches
+          for PATCH in ../../../patches/${KERNEL_VERSION%.*}/*.patch; do patch -p1 < ${PATCH}; done
+
+          # merge configs
+          ./scripts/kconfig/merge_config.sh -m debian/config/config ../surface.config
+
+          # config & build!
+          make olddefconfig
+          make bindeb-pkg
+
+      - name: Prepare release
+        run: |
+          mkdir release
+          mv pkg/debian/*.deb release
+
+      - name: Sign packages
+        env:
+          GPG_KEY: ${{ secrets.GITHUB_GPG_KEY }}
+        run: |
+          # import GPG key
+          echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
+          export GPG_TTY=$(tty)
+
+          # sign package
+          dpkg-sig -g "--batch --no-tty" --sign builder -k $KEY_ID release/*.deb
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v1
+        with:
+          name: debian-latest
+          path: release
+
   build-fedora:
     name: Build Fedora Kernel
     runs-on: ubuntu-latest
@@ -113,7 +178,7 @@ jobs:
 
   release:
     name: Publish release
-    needs: [build-arch]
+    needs: [build-arch, build-debian]
     runs-on: ubuntu-latest
     steps:
       - name: Download Arch Linux artifacts
@@ -121,10 +186,15 @@ jobs:
         with:
           name: arch-latest
 
-      - name: Download Fedora artifacts
+      - name: Download Debian artifacts
         uses: actions/download-artifact@v1
         with:
-          name: fedora-latest
+          name: debian-latest
+
+      # - name: Download Fedora artifacts
+      #   uses: actions/download-artifact@v1
+      #   with:
+      #     name: fedora-latest
 
       - name: Create release
         id: create_release
