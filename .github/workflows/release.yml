@@ -21,17 +21,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
+      - name: Install build dependencies
+        run: |
+          # Install makepkg deps
+          pacman -Sy sudo binutils fakeroot grep base-devel git --noconfirm
+
       - name: Build
         run: |
           cd pkg/arch/kernel
 
-          # Create build user (can't makepkg as root)
-          useradd -m -g wheel -s /bin/bash build
-          echo "build ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-          chown -R build:wheel .
-
-          # Install makepkg deps
-          pacman -Sy sudo binutils fakeroot grep base-devel git --noconfirm
+          # Fix permissions (can't makepkg as root)
+          echo "nobody ALL=(ALL) NOPASSWD: /usr/bin/pacman" >> /etc/sudoers
+          chown -R nobody .
 
           # Package compression settings (Matches latest Arch)
           export PKGEXT='.pkg.tar.zst'
@@ -39,7 +40,7 @@ jobs:
           export MAKEFLAGS="-j2"
 
           # Build
-          su build --pty -p -s /bin/bash -c 'makepkg -f --syncdeps --skippgpcheck --noconfirm'
+          su nobody --pty -p -s /bin/bash -c 'makepkg -f --syncdeps --skippgpcheck --noconfirm'
 
       - name: Prepare release
         run: |
@@ -77,7 +78,7 @@ jobs:
         run: |
           sed 's/^deb /deb-src /' /etc/apt/sources.list >> /etc/apt/sources.list
           apt-get -y update
-          apt-get -y install build-essential fakeroot rsync git wget python3-debian
+          apt-get -y install build-essential fakeroot rsync git wget python3-debian dpkg-sig
           apt-get -y build-dep linux
 
       - name: Build
@@ -168,7 +169,7 @@ jobs:
         echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
 
         # sign packages
-        ls *.rpm | xargs -L1 -I % rpm --resign % --define "_gpg_name $KEY_NAME"
+        rpm --resign *.rpm --define "_gpg_name $KEY_NAME"
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v1
@@ -191,10 +192,10 @@ jobs:
         with:
           name: debian-latest
 
-      # - name: Download Fedora artifacts
-      #   uses: actions/download-artifact@v1
-      #   with:
-      #     name: fedora-latest
+      - name: Download Fedora artifacts
+        uses: actions/download-artifact@v1
+        with:
+          name: fedora-latest
 
       - name: Create release
         id: create_release
@@ -203,8 +204,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_BOT_TOKEN }}
         with:
           # tag_name: ${{ github.ref }}
+          # release_name: ${{ github.ref }}
           tag_name: test
-          release_name: ${{ github.ref }}
+          release_name: test
           draft: true
           prerelease: false
 
@@ -213,6 +215,7 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_BOT_TOKEN }}
           file: ./*-latest/*
-          tag: ${{ github.ref }}
+          # tag: ${{ github.ref }}
+          tag: test
           overwrite: true
           file_glob: true
