@@ -88,6 +88,7 @@ jobs:
           cd pkg/debian
 
           export KERNEL_VERSION=${PACKAGE_VERSION%-*}
+          export FLAVOR=amd64_none_amd64
 
           # download sources
           wget https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/linux-$KERNEL_VERSION.tar.xz
@@ -99,15 +100,21 @@ jobs:
           debian/bin/genorig.py ../linux-$KERNEL_VERSION.tar.xz
           debian/rules orig
 
+          # because debian knows better and intentionally raises an error, we
+          # have to bypass it. *sigh*
+          debian/rules debian/control || true
+
           # apply patches
           for PATCH in ../../../patches/${KERNEL_VERSION%.*}/*.patch; do patch -p1 < ${PATCH}; done
 
-          # merge configs
-          ./scripts/kconfig/merge_config.sh -m debian/config/config ../surface.config
+          # run the setup to generate the base config
+          fakeroot make -f debian/rules.gen setup_$FLAVOR
 
-          # config & build!
-          make olddefconfig
-          make bindeb-pkg
+          # merge configs
+          ./scripts/kconfig/merge_config.sh -O debian/build/build_$FLAVOR -m debian/build/build_$FLAVOR/.config ../surface.config
+
+          # build!
+          fakeroot make -f debian/rules.gen binary-arch_$FLAVOR -j2
 
       - name: Prepare release
         run: |
