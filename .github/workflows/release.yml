@@ -83,17 +83,20 @@ jobs:
 
       - name: Build
         env:
-          PACKAGE_VERSION: 5.4.8-1
+          KERNEL_VERSION: 5.4.12
+          # sid:5.4.12
+          COMMIT: 003b2879ed30cb75647fd54153acc8e03838cdf9
         run: |
           cd pkg/debian
 
-          export KERNEL_VERSION=${PACKAGE_VERSION%-*}
           export FLAVOR=amd64_none_amd64
           export LOCALVERSION="-surface"
 
           # download sources
           wget https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/linux-$KERNEL_VERSION.tar.xz
-          git clone -b "debian/$PACKAGE_VERSION" --depth 1 --single-branch https://salsa.debian.org/kernel-team/linux.git
+          wget https://salsa.debian.org/kernel-team/linux/-/archive/$COMMIT/linux-$COMMIT.tar
+          tar xf linux-$COMMIT.tar
+          mv linux-$COMMIT linux
 
           cd linux
 
