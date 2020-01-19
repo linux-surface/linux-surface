@@ -86,18 +86,16 @@ jobs:
         env:
           KERNEL_VERSION: 5.4.13
         run: |
-          pushd pkg/debian
+          cd pkg/debian
 
           # download sources
           wget https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/linux-$KERNEL_VERSION.tar.xz
           tar xf linux-$KERNEL_VERSION.tar.xz
           mv linux-$KERNEL_VERSION linux
 
-          popd
-
       - name: Apply patches
         run: |
-          pushd pkg/debian/linux
+          cd pkg/debian/linux
 
           # apply build patches
           for PATCH in ./*.patch; do patch -p1 < ${PATCH}; done
@@ -105,19 +103,15 @@ jobs:
           # apply surface patches
           for PATCH in ../../../patches/${KERNEL_VERSION%.*}/*.patch; do patch -p1 < ${PATCH}; done
 
-          popd
-
       - name: Configure
         run: |
-          pushd pkg/debian/linux
+          cd pkg/debian/linux
 
           # copy config
           cp ../debian.config .config
 
           # update config
           make olddefconfig
-
-          popd
 
       - name: Build
         run: |
