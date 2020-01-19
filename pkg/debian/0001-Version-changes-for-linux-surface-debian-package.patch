@@ -1,0 +1,69 @@
+From 95afee22fd12b5d38d7f575941909c108a6f3156 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 19 Jan 2020 22:50:24 +0100
+Subject: [PATCH] Version changes for linux-surface debian package
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+---
+ scripts/package/builddeb | 7 ++++---
+ scripts/package/mkdebian | 8 +++++---
+ 2 files changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/scripts/package/builddeb b/scripts/package/builddeb
+index c4c580f547ef..7cf52de71cf9 100755
+--- a/scripts/package/builddeb
++++ b/scripts/package/builddeb
+@@ -47,13 +47,14 @@ create_package() {
+ }
+ 
+ version=$KERNELRELEASE
++featureset=$(echo "$version" | sed -E 's/[0-9]+\.[0-9]+\.[0-9]+-(.*)/\1/')
+ tmpdir="$objtree/debian/tmp"
+ kernel_headers_dir="$objtree/debian/hdrtmp"
+ libc_headers_dir="$objtree/debian/headertmp"
+ dbg_dir="$objtree/debian/dbgtmp"
+-packagename=linux-image-$version
+-kernel_headers_packagename=linux-headers-$version
+-libc_headers_packagename=linux-libc-dev
++packagename=linux-image-$featureset
++kernel_headers_packagename=linux-headers-$featureset
++libc_headers_packagename=linux-libc-dev-$featureset
+ dbg_packagename=$packagename-dbg
+ 
+ if [ "$ARCH" = "um" ] ; then
+diff --git a/scripts/package/mkdebian b/scripts/package/mkdebian
+index e0750b70453f..7978f62cbcde 100755
+--- a/scripts/package/mkdebian
++++ b/scripts/package/mkdebian
+@@ -86,6 +86,7 @@ set_debarch() {
+ 
+ # Some variables and settings used throughout the script
+ version=$KERNELRELEASE
++featureset=$(echo "$version" | sed -E 's/[0-9]+\.[0-9]+\.[0-9]+-(.*)/\1/')
+ if [ -n "$KDEB_PKGVERSION" ]; then
+ 	packageversion=$KDEB_PKGVERSION
+ 	revision=${packageversion##*-}
+@@ -94,8 +95,9 @@ else
+ 	packageversion=$version-$revision
+ fi
+ sourcename=$KDEB_SOURCENAME
+-packagename=linux-image-$version
+-kernel_headers_packagename=linux-headers-$version
++packagename=linux-image-$featureset
++kernel_headers_packagename=linux-headers-$featureset
++libc_headers_packagename=linux-libc-dev-$featureset
+ dbg_packagename=$packagename-dbg
+ debarch=
+ set_debarch
+@@ -190,7 +192,7 @@ Description: Linux kernel headers for $version on $debarch
+  .
+  This is useful for people who need to build external modules
+ 
+-Package: linux-libc-dev
++Package: $libc_headers_packagename
+ Section: devel
+ Provides: linux-kernel-headers
+ Architecture: $debarch
+-- 
+2.25.0
+

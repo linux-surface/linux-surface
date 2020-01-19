@@ -2,6 +2,7 @@ on:
   push:
     branches:
       - feature/pkg
+      - feature/pkg-deb
     # tags:
       # - 'test'
       # - 'v*+'
@@ -81,48 +82,47 @@ jobs:
           apt-get -y install build-essential fakeroot rsync git wget python3-debian dpkg-sig
           apt-get -y build-dep linux
 
-      - name: Build
+      - name: Fetch kernel source
         env:
-          KERNEL_VERSION: 5.4.12
-          # sid:5.4.12
-          COMMIT: 003b2879ed30cb75647fd54153acc8e03838cdf9
+          KERNEL_VERSION: 5.4.13
         run: |
-          cd pkg/debian
-
-          export FLAVOR=amd64_none_amd64
-          export LOCALVERSION="-surface"
+          pushd pkg/debian
 
           # download sources
           wget https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/linux-$KERNEL_VERSION.tar.xz
-          wget https://salsa.debian.org/kernel-team/linux/-/archive/$COMMIT/linux-$COMMIT.tar
-          tar xf linux-$COMMIT.tar
-          mv linux-$COMMIT linux
+          tar xf linux-$KERNEL_VERSION.tar.xz
+          mv linux-$KERNEL_VERSION linux
 
-          cd linux
+          popd
 
-          # disable debug-info because we don't want a 800MB image
-          sed --in-place 's/debug-info: true/debug-info: false/' debian/config/defines
-          sed --in-place 's/debug-info: true/debug-info: false/' debian/config/amd64/defines
+      - name: Apply patches
+        run: |
+          pushd pkg/debian/linux
 
-          # apply debian patches
-          debian/bin/genorig.py ../linux-$KERNEL_VERSION.tar.xz
-          debian/rules orig
+          # apply build patches
+          for PATCH in ./*.patch; do patch -p1 < ${PATCH}; done
 
-          # because debian knows better and intentionally raises an error, we
-          # have to bypass it. *sigh*
-          debian/rules debian/control || true
-
-          # apply patches
+          # apply surface patches
           for PATCH in ../../../patches/${KERNEL_VERSION%.*}/*.patch; do patch -p1 < ${PATCH}; done
 
-          # run the setup to generate the base config
-          fakeroot make -f debian/rules.gen setup_$FLAVOR
+          popd
 
-          # merge configs
-          ./scripts/kconfig/merge_config.sh -O debian/build/build_$FLAVOR -m debian/build/build_$FLAVOR/.config ../surface.config
+      - name: Configure
+        run: |
+          pushd pkg/debian/linux
 
-          # build!
-          fakeroot make -f debian/rules.gen binary-arch_$FLAVOR -j2
+          # copy config
+          cp ../debian.config .config
+
+          # update config
+          make olddefconfig
+
+          popd
+
+      - name: Build
+        run: |
+          export LOCALVERSION="-surface"
+          make bindeb-pkg -j2
 
       - name: Prepare release
         run: |
