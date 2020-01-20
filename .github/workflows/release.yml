@@ -10,8 +10,7 @@ on:
 name: Create kernel release and upload binaries
 
 env:
-  KEY_ID: C1F105E07DA59F2C
-  KEY_NAME: surface-linux
+  GPG_KEY_ID: C1F105E07DA59F2C
 
 jobs:
   build-arch:
@@ -50,7 +49,7 @@ jobs:
 
       - name: Sign packages
         env:
-          GPG_KEY: ${{ secrets.GITHUB_GPG_KEY }}
+          GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
         run: |
           cd release
 
@@ -59,7 +58,7 @@ jobs:
           export GPG_TTY=$(tty)
 
           # sign packages
-          ls *.pkg.tar.zst | xargs -L1 gpg --detach-sign --batch --no-tty -u $KEY_ID
+          ls *.pkg.tar.zst | xargs -L1 gpg --detach-sign --batch --no-tty -u $GPG_KEY_ID
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v1
@@ -129,14 +128,14 @@ jobs:
 
       - name: Sign packages
         env:
-          GPG_KEY: ${{ secrets.GITHUB_GPG_KEY }}
+          GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
         run: |
           # import GPG key
           echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
           export GPG_TTY=$(tty)
 
           # sign package
-          dpkg-sig -g "--batch --no-tty" --sign builder -k $KEY_ID release/*.deb
+          dpkg-sig -g "--batch --no-tty" --sign builder -k $GPG_KEY_ID release/*.deb
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v1
@@ -158,23 +157,26 @@ jobs:
         dnf install -y rpmdevtools rpm-sign 'dnf-command(builddep)'
         dnf builddep -y pkg/fedora/kernel-surface/kernel-surface.spec
 
-    - name: Setup certificates
+    - name: Setup secureboot certificate
       env:
-        LS_PASSWORD: ${{ secrets.LS_PASSWORD }}
+        SB_KEY: ${{ secrets.SURFACE_SB_KEY }}
       run: |
-        pkg/secrets/decrypt.sh -p "$LS_PASSWORD" -f pkg/secrets/sb/surface_sb.key.gpg
-        cp pkg/secrets/sb/surface_sb.key pkg/fedora/kernel-surface/surface.key
-        cp pkg/secrets/sb/surface_sb.crt pkg/fedora/kernel-surface/surface.crt
+        cd pkg
+
+        # Install the surface secureboot certificate
+        echo "$SB_KEY" | base64 -d > fedora/kernel-surface/surface.key
+        cp keys/surface.crt fedora/kernel-surface/surface.crt
 
     - name: Build packages
       run: |
-        pushd pkg/fedora/kernel-surface
-          ../makerpm
-        popd
+        cd pkg/fedora/kernel-surface
+
+        # Build the .rpm packages
+        ../makerpm
 
     - name: Sign packages
       env:
-        GPG_KEY: ${{ secrets.GITHUB_GPG_KEY }}
+        GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
       run: |
         cd pkg/fedora/kernel-surface/out/x86_64
 
@@ -182,7 +184,7 @@ jobs:
         echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
 
         # sign packages
-        rpm --resign *.rpm --define "_gpg_name $KEY_NAME"
+        rpm --resign *.rpm --define "_gpg_name $GPG_KEY_ID"
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v1
