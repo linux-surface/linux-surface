@@ -72,9 +72,10 @@ BuildConflicts: rhbuildsys(DiskFree) < 500Mb
 
 Source0:    %{fedora_source}/snapshot/fedora-%{kernel_tag}.tar.gz
 Source1:    %{config_source}/%{kernel_patches}/surface.config
+Source2:    fedora.config
 
-Source2:    %{sb_crt}
-Source3:    %{sb_key}
+Source20:    %{sb_crt}
+Source21:    %{sb_key}
 
 Source100:  mod-sign.sh
 Source101:  parallel_xz.sh
@@ -114,15 +115,16 @@ against the kernel-surface package.
 
 scripts/kconfig/merge_config.sh         \
 	fedora/configs/%{kernel_config} \
-	%{SOURCE1}
+	%{SOURCE1}                      \
+	%{SOURCE2}
 
 echo $((%{kernel_release} - 1)) > .version
 
 # Copy secureboot certificates if they are available
-if [ -f "%{SOURCE2}" ] && [ -f "%{SOURCE3}" ]; then
+if [ -f "%{SOURCE20}" ] && [ -f "%{SOURCE21}" ]; then
 	mkdir -p keys
-	cp %{SOURCE2} keys/MOK.crt
-	cp %{SOURCE3} keys/MOK.key
+	cp %{SOURCE20} keys/MOK.crt
+	cp %{SOURCE21} keys/MOK.key
 fi
 
 # This Prevents scripts/setlocalversion from mucking with our version numbers.

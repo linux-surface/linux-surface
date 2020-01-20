@@ -81,7 +81,7 @@ jobs:
           apt-get -y install build-essential fakeroot rsync git wget python3-debian dpkg-sig lz4
           apt-get -y build-dep linux
 
-      - name: Fetch kernel source
+      - name: Prepare kernel source
         env:
           KERNEL_VERSION: 5.4.13
         run: |
@@ -90,13 +90,8 @@ jobs:
           # download sources
           wget https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/linux-$KERNEL_VERSION.tar.xz
           tar xf linux-$KERNEL_VERSION.tar.xz
-          mv linux-$KERNEL_VERSION linux
 
-      - name: Apply patches
-        env:
-          KERNEL_VERSION: 5.4.13
-        run: |
-          cd pkg/debian/linux
+          mv linux-$KERNEL_VERSION linux && cd linux
 
           # apply build patches
           for PATCH in ../*.patch; do patch -p1 < ${PATCH}; done
