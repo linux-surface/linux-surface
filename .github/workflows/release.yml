@@ -24,7 +24,17 @@ jobs:
       - name: Install build dependencies
         run: |
           # Install makepkg deps
-          pacman -Sy sudo binutils fakeroot grep base-devel git --noconfirm
+          pacman -Sy sudo binutils fakeroot grep base-devel git sbsigntools --noconfirm
+
+      - name: Setup secureboot certificate
+        env:
+          SB_KEY: ${{ secrets.SURFACE_SB_KEY }}
+        run: |
+          cd pkg
+
+          # Install the surface secureboot certificate
+          echo "$SB_KEY" | base64 -d > arch/kernel/MOK.key
+          cp keys/surface.crt arch/kernel/MOK.crt
 
       - name: Build
         run: |

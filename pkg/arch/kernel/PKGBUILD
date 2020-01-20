@@ -87,14 +87,24 @@ _package() {
   optdepends=('crda: to set the correct wireless channels of your country'
               'linux-firmware: firmware images needed for some devices')
 
+  local mok_crt="$PWD/MOK.crt"
+  local mok_key="$PWD/MOK.key"
+
   cd $_srcname
   local kernver="$(<version)"
   local modulesdir="$pkgdir/usr/lib/modules/$kernver"
+  local image_name="$(make -s image_name)"
+
+  # sign boot image if the prequisites are available
+  if [[ -f "$mok_crt" ]] && [[ -f "$mok_key" ]] && [[ -x "$(command -v sbsign)" ]]; then
+    msg2 "Signing boot image..."
+    sbsign --key "$mok_key" --cert "$mok_crt" --output "$image_name" "$image_name"
+  fi
 
   msg2 "Installing boot image..."
   # systemd expects to find the kernel here to allow hibernation
   # https://github.com/systemd/systemd/commit/edda44605f06a41fb86b7ab8128dcf99161d2344
-  install -Dm644 "$(make -s image_name)" "$modulesdir/vmlinuz"
+  install -Dm644 "$image_name" "$modulesdir/vmlinuz"
 
   # Used by mkinitcpio to name the kernel
   echo "$pkgbase" | install -Dm644 /dev/stdin "$modulesdir/pkgbase"
