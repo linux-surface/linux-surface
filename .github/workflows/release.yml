@@ -143,8 +143,8 @@ jobs:
           name: debian-latest
           path: release
 
-  build-fedora:
-    name: Build Fedora Kernel
+  build-fedora-31:
+    name: Build Fedora 31 Kernel
     runs-on: ubuntu-latest
     container: fedora:31
     steps:
@@ -189,12 +189,61 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@v1
       with:
-        name: fedora-latest
+        name: fedora-31-latest
+        path: pkg/fedora/kernel-surface/out/x86_64
+
+  build-fedora-30:
+    name: Build Fedora 30 Kernel
+    runs-on: ubuntu-latest
+    container: fedora:30
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Install build dependencies
+      run: |
+        dnf distro-sync -y
+        dnf install -y rpmdevtools rpm-sign 'dnf-command(builddep)'
+        dnf builddep -y pkg/fedora/kernel-surface/kernel-surface.spec
+
+    - name: Setup secureboot certificate
+      env:
+        SB_KEY: ${{ secrets.SURFACE_SB_KEY }}
+      run: |
+        cd pkg
+
+        # Install the surface secureboot certificate
+        echo "$SB_KEY" | base64 -d > fedora/kernel-surface/surface.key
+        cp keys/surface.crt fedora/kernel-surface/surface.crt
+
+    - name: Build packages
+      run: |
+        cd pkg/fedora/kernel-surface
+
+        # Build the .rpm packages
+        ../makerpm
+
+    - name: Sign packages
+      env:
+        GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
+      run: |
+        cd pkg/fedora/kernel-surface/out/x86_64
+
+        # import GPG key
+        echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
+
+        # sign packages
+        rpm --resign *.rpm --define "_gpg_name $GPG_KEY_ID"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v1
+      with:
+        name: fedora-30-latest
         path: pkg/fedora/kernel-surface/out/x86_64
 
   release:
     name: Publish release
-    needs: [build-arch, build-debian, build-fedora]
+    needs: [build-arch, build-debian, build-fedora-31, build-fedora-30]
     runs-on: ubuntu-latest
     steps:
       - name: Download Arch Linux artifacts
@@ -207,10 +256,15 @@ jobs:
         with:
           name: debian-latest
 
-      - name: Download Fedora artifacts
+      - name: Download Fedora 31 artifacts
         uses: actions/download-artifact@v1
         with:
-          name: fedora-latest
+          name: fedora-31-latest
+
+      - name: Download Fedora 30 artifacts
+        uses: actions/download-artifact@v1
+        with:
+          name: fedora-30-latest
 
       - name: Create release
         id: create_release
