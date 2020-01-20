@@ -14,130 +14,130 @@ env:
   KEY_NAME: surface-linux
 
 jobs:
-  build-arch:
-    name: Build Arch Linux Kernel
-    runs-on: ubuntu-latest
-    container: archlinux
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Install build dependencies
-        run: |
-          # Install makepkg deps
-          pacman -Sy sudo binutils fakeroot grep base-devel git --noconfirm
-
-      - name: Build
-        run: |
-          cd pkg/arch/kernel
-
-          # Fix permissions (can't makepkg as root)
-          echo "nobody ALL=(ALL) NOPASSWD: /usr/bin/pacman" >> /etc/sudoers
-          chown -R nobody .
-
-          # Package compression settings (Matches latest Arch)
-          export PKGEXT='.pkg.tar.zst'
-          export COMPRESSZST=(zstd -c -T0 --ultra -20 -)
-          export MAKEFLAGS="-j2"
-
-          # Build
-          su nobody --pty -p -s /bin/bash -c 'makepkg -f --syncdeps --skippgpcheck --noconfirm'
-
-      - name: Prepare release
-        run: |
-          mkdir release
-          mv pkg/arch/kernel/*.pkg.tar.zst release
-
-      - name: Sign packages
-        env:
-          GPG_KEY: ${{ secrets.GITHUB_GPG_KEY }}
-        run: |
-          cd release
-
-          # import GPG key
-          echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
-          export GPG_TTY=$(tty)
-
-          # sign packages
-          ls *.pkg.tar.zst | xargs -L1 gpg --detach-sign --batch --no-tty -u $KEY_ID
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v1
-        with:
-          name: arch-latest
-          path: release
-
-  build-debian:
-    name: Build Debian Kernel
-    runs-on: ubuntu-latest
-    container: debian:sid
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Install build dependencies
-        run: |
-          sed 's/^deb /deb-src /' /etc/apt/sources.list >> /etc/apt/sources.list
-          apt-get -y update
-          apt-get -y install build-essential fakeroot rsync git wget python3-debian dpkg-sig lz4
-          apt-get -y build-dep linux
-
-      - name: Prepare kernel source
-        env:
-          KERNEL_VERSION: 5.4.13
-        run: |
-          cd pkg/debian
-
-          # download sources
-          wget https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/linux-$KERNEL_VERSION.tar.xz
-          tar xf linux-$KERNEL_VERSION.tar.xz
-
-          mv linux-$KERNEL_VERSION linux && cd linux
-
-          # apply build patches
-          for PATCH in ../*.patch; do patch -p1 < ${PATCH}; done
-
-          # apply surface patches
-          for PATCH in ../../../patches/${KERNEL_VERSION%.*}/*.patch; do patch -p1 < ${PATCH}; done
-
-      - name: Configure
-        run: |
-          cd pkg/debian/linux
-
-          # copy config
-          cp ../debian.config .config
-
-          # update config
-          make olddefconfig
-
-      - name: Build
-        run: |
-          cd pkg/debian/linux
-
-          export LOCALVERSION="-surface"
-          make bindeb-pkg -j2
-
-      - name: Prepare release
-        run: |
-          mkdir release
-          mv pkg/debian/*.deb release
-
-      - name: Sign packages
-        env:
-          GPG_KEY: ${{ secrets.GITHUB_GPG_KEY }}
-        run: |
-          # import GPG key
-          echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
-          export GPG_TTY=$(tty)
-
-          # sign package
-          dpkg-sig -g "--batch --no-tty" --sign builder -k $KEY_ID release/*.deb
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v1
-        with:
-          name: debian-latest
-          path: release
+#  build-arch:
+#    name: Build Arch Linux Kernel
+#    runs-on: ubuntu-latest
+#    container: archlinux
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v2
+#
+#      - name: Install build dependencies
+#        run: |
+#          # Install makepkg deps
+#          pacman -Sy sudo binutils fakeroot grep base-devel git --noconfirm
+#
+#      - name: Build
+#        run: |
+#          cd pkg/arch/kernel
+#
+#          # Fix permissions (can't makepkg as root)
+#          echo "nobody ALL=(ALL) NOPASSWD: /usr/bin/pacman" >> /etc/sudoers
+#          chown -R nobody .
+#
+#          # Package compression settings (Matches latest Arch)
+#          export PKGEXT='.pkg.tar.zst'
+#          export COMPRESSZST=(zstd -c -T0 --ultra -20 -)
+#          export MAKEFLAGS="-j2"
+#
+#          # Build
+#          su nobody --pty -p -s /bin/bash -c 'makepkg -f --syncdeps --skippgpcheck --noconfirm'
+#
+#      - name: Prepare release
+#        run: |
+#          mkdir release
+#          mv pkg/arch/kernel/*.pkg.tar.zst release
+#
+#      - name: Sign packages
+#        env:
+#          GPG_KEY: ${{ secrets.GITHUB_GPG_KEY }}
+#        run: |
+#          cd release
+#
+#          # import GPG key
+#          echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
+#          export GPG_TTY=$(tty)
+#
+#          # sign packages
+#          ls *.pkg.tar.zst | xargs -L1 gpg --detach-sign --batch --no-tty -u $KEY_ID
+#
+#      - name: Upload artifacts
+#        uses: actions/upload-artifact@v1
+#        with:
+#          name: arch-latest
+#          path: release
+#
+#  build-debian:
+#    name: Build Debian Kernel
+#    runs-on: ubuntu-latest
+#    container: debian:sid
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v2
+#
+#      - name: Install build dependencies
+#        run: |
+#          sed 's/^deb /deb-src /' /etc/apt/sources.list >> /etc/apt/sources.list
+#          apt-get -y update
+#          apt-get -y install build-essential fakeroot rsync git wget python3-debian dpkg-sig lz4
+#          apt-get -y build-dep linux
+#
+#      - name: Prepare kernel source
+#        env:
+#          KERNEL_VERSION: 5.4.13
+#        run: |
+#          cd pkg/debian
+#
+#          # download sources
+#          wget https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/linux-$KERNEL_VERSION.tar.xz
+#          tar xf linux-$KERNEL_VERSION.tar.xz
+#
+#          mv linux-$KERNEL_VERSION linux && cd linux
+#
+#          # apply build patches
+#          for PATCH in ../*.patch; do patch -p1 < ${PATCH}; done
+#
+#          # apply surface patches
+#          for PATCH in ../../../patches/${KERNEL_VERSION%.*}/*.patch; do patch -p1 < ${PATCH}; done
+#
+#      - name: Configure
+#        run: |
+#          cd pkg/debian/linux
+#
+#          # copy config
+#          cp ../debian.config .config
+#
+#          # update config
+#          make olddefconfig
+#
+#      - name: Build
+#        run: |
+#          cd pkg/debian/linux
+#
+#          export LOCALVERSION="-surface"
+#          make bindeb-pkg -j2
+#
+#      - name: Prepare release
+#        run: |
+#          mkdir release
+#          mv pkg/debian/*.deb release
+#
+#      - name: Sign packages
+#        env:
+#          GPG_KEY: ${{ secrets.GITHUB_GPG_KEY }}
+#        run: |
+#          # import GPG key
+#          echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
+#          export GPG_TTY=$(tty)
+#
+#          # sign package
+#          dpkg-sig -g "--batch --no-tty" --sign builder -k $KEY_ID release/*.deb
+#
+#      - name: Upload artifacts
+#        uses: actions/upload-artifact@v1
+#        with:
+#          name: debian-latest
+#          path: release
 
   build-fedora:
     name: Build Fedora Kernel
@@ -187,18 +187,19 @@ jobs:
 
   release:
     name: Publish release
-    needs: [build-arch, build-debian]
+#    needs: [build-arch, build-debian]
+    needs: [build-fedora]
     runs-on: ubuntu-latest
     steps:
-      - name: Download Arch Linux artifacts
-        uses: actions/download-artifact@v1
-        with:
-          name: arch-latest
-
-      - name: Download Debian artifacts
-        uses: actions/download-artifact@v1
-        with:
-          name: debian-latest
+#      - name: Download Arch Linux artifacts
+#        uses: actions/download-artifact@v1
+#        with:
+#          name: arch-latest
+#
+#      - name: Download Debian artifacts
+#        uses: actions/download-artifact@v1
+#        with:
+#          name: debian-latest
 
       - name: Download Fedora artifacts
         uses: actions/download-artifact@v1
