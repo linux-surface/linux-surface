@@ -99,6 +99,19 @@ jobs:
           # apply surface patches
           for PATCH in ../../../patches/${KERNEL_VERSION%.*}/*.patch; do patch -p1 < ${PATCH}; done
 
+      - name: Setup secureboot certificate
+        env:
+          SB_KEY: ${{ secrets.SURFACE_SB_KEY }}
+        run: |
+          cd pkg
+
+          mkdir -o debian/linux/keys
+
+          # unlock/copy key and certificate
+          echo "$SB_KEY" | base64 -d > debian/linux/keys/MOK.key
+          cp keys/surface.crt debian/linux/keys/MOK.crt
+
+
       - name: Configure
         run: |
           cd pkg/debian/linux
