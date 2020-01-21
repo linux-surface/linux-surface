@@ -97,17 +97,44 @@ jobs:
         run: |
           cd pkg/debian
 
-          # download sources
+          # get ubuntu build patches (for config)
+          SOURCE_URL="https://kernel.ubuntu.com/~kernel-ppa/mainline/v$KERNEL_VERSION"
+          SOURCE_LIST="$SOURCE_URL/SOURCES"
+
+          mkdir -p "ubuntu"
+          wget "$SOURCE_LIST" -O "ubuntu/SOURCES"
+          SOURCE_FILES="$(tail -n +2 "ubuntu/SOURCES")"
+
+          for f in $SOURCE_FILES; do
+              wget "$SOURCE_URL/$f" -O "ubuntu/$f"
+          done
+
+          # download kernel sources
           wget https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/linux-$KERNEL_VERSION.tar.xz
           tar xf linux-$KERNEL_VERSION.tar.xz
 
           mv linux-$KERNEL_VERSION linux && cd linux
 
-          # apply build patches
+          # apply ubuntu build patches
+          for PATCH in ../ubuntu/*.patch; do patch -p1 < ${PATCH}; done
+
+          # apply surface build patches
           for PATCH in ../*.patch; do patch -p1 < ${PATCH}; done
 
           # apply surface patches
           for PATCH in ../../../patches/${KERNEL_VERSION%.*}/*.patch; do patch -p1 < ${PATCH}; done
+
+      - name: Configure
+        run: |
+          cd pkg/debian/linux
+
+          # merge configs
+          ./scripts/kconfig/merge_config.sh                     \
+              debian.master/config/config.common.ubuntu         \
+              debian.master/config/amd64/config.common.amd64    \
+              debian.master/config/amd64/config.flavour.generic \
+              ../ubuntu.config                                  \
+              ../surface.config
 
       - name: Setup secureboot certificate
         env:
@@ -120,17 +147,6 @@ jobs:
           # unlock/copy key and certificate
           echo "$SB_KEY" | base64 -d > debian/linux/keys/MOK.key
           cp keys/surface.crt debian/linux/keys/MOK.crt
-
-
-      - name: Configure
-        run: |
-          cd pkg/debian/linux
-
-          # copy config
-          cp ../debian.config .config
-
-          # update config
-          make olddefconfig
 
       - name: Build
         run: |
