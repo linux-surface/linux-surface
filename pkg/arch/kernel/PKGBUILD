@@ -49,6 +49,10 @@ export KBUILD_BUILD_HOST=archlinux
 export KBUILD_BUILD_USER=$pkgbase
 export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EPOCH})"
 
+# optional certificate and key for secure boot signing
+_mok_crt="$PWD/MOK.crt"
+_mok_key="$PWD/MOK.key"
+
 prepare() {
   cd $_srcname
 
@@ -87,18 +91,15 @@ _package() {
   optdepends=('crda: to set the correct wireless channels of your country'
               'linux-firmware: firmware images needed for some devices')
 
-  local mok_crt="$PWD/MOK.crt"
-  local mok_key="$PWD/MOK.key"
-
   cd $_srcname
   local kernver="$(<version)"
   local modulesdir="$pkgdir/usr/lib/modules/$kernver"
   local image_name="$(make -s image_name)"
 
   # sign boot image if the prequisites are available
-  if [[ -f "$mok_crt" ]] && [[ -f "$mok_key" ]] && [[ -x "$(command -v sbsign)" ]]; then
+  if [[ -f "$_mok_crt" ]] && [[ -f "$_mok_key" ]] && [[ -x "$(command -v sbsign)" ]]; then
     msg2 "Signing boot image..."
-    sbsign --key "$mok_key" --cert "$mok_crt" --output "$image_name" "$image_name"
+    sbsign --key "$_mok_key" --cert "$_mok_crt" --output "$image_name" "$image_name"
   fi
 
   msg2 "Installing boot image..."
