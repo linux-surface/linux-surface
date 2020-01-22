@@ -1,0 +1,154 @@
+on:
+  push:
+    tags:
+      - 'arch-*'
+
+name: Arch
+
+env:
+  GPG_KEY_ID: 56C464BAAC421453
+
+jobs:
+  build:
+    name: Build Kernel
+    runs-on: ubuntu-latest
+    container: archlinux
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Install build dependencies
+      run: |
+        # Install makepkg deps
+        pacman -Sy --noconfirm sudo binutils fakeroot grep base-devel git sbsigntools
+
+    - name: Setup secureboot certificate
+      env:
+        SB_KEY: ${{ secrets.SURFACE_SB_KEY }}
+      run: |
+        cd pkg
+
+        # Install the surface secureboot certificate
+        echo "$SB_KEY" | base64 -d > arch/kernel/MOK.key
+        cp keys/surface.crt arch/kernel/MOK.crt
+
+    - name: Build
+      run: |
+        cd pkg/arch/kernel
+
+        # Fix permissions (can't makepkg as root)
+        echo "nobody ALL=(ALL) NOPASSWD: /usr/bin/pacman" >> /etc/sudoers
+        chown -R nobody .
+
+        # Package compression settings (Matches latest Arch)
+        export PKGEXT='.pkg.tar.zst'
+        export COMPRESSZST=(zstd -c -T0 --ultra -20 -)
+        export MAKEFLAGS="-j2"
+
+        # Build
+        su nobody --pty -p -s /bin/bash -c 'makepkg -f --syncdeps --skippgpcheck --noconfirm'
+
+    - name: Prepare release
+      run: |
+        mkdir release
+        mv pkg/arch/kernel/*.pkg.tar.zst release
+
+    - name: Sign packages
+      env:
+        GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
+      run: |
+        cd release
+
+        # import GPG key
+        echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
+        export GPG_TTY=$(tty)
+
+        # sign packages
+        ls *.pkg.tar.zst | xargs -L1 gpg --detach-sign --batch --no-tty -u $GPG_KEY_ID
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v1
+      with:
+        name: arch-latest
+        path: release
+
+  repo:
+    name: Update package repository
+    needs: [build]
+    runs-on: ubuntu-latest
+    container: archlinux
+    steps:
+    - name: Install dependencies
+      run: |
+        pacman -Sy --noconfirm obase-devel git
+
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        repository: linux-surface/repo
+        token: ${{ secrets.GITHUB_BOT_TOKEN }}
+        fetch-depth: 0
+        ref: master
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v1
+      with:
+        name: arch-latest
+
+    - name: Update repository
+      env:
+        GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
+        GIT_REF: ${{ github.ref }}
+      run: |
+        cp arch-latest/* arch/
+        rm -r arch-latest
+
+        cd arch
+        repo-add -n linux-surface.db.tar.gz *.pkg.tar.zst
+
+        # Sign the updated repository
+        echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
+        gpg --detach-sign --batch --no-tty --no-armor -u $GPG_KEY_ID linux-surface.db
+        gpg --detach-sign --batch --no-tty --no-armor -u $GPG_KEY_ID linux-surface.db.tar.gz
+        gpg --detach-sign --batch --no-tty --no-armor -u $GPG_KEY_ID linux-surface.files
+        gpg --detach-sign --batch --no-tty --no-armor -u $GPG_KEY_ID linux-surface.files.tar.gz
+
+        # Parse git tag from ref
+        GIT_TAG=$(echo $GIT_REF | sed 's|^refs/tags/||g')
+
+        # Convert packages into references
+        for pkg in $(find . -name '*.pkg.tar.zst'); do
+          echo "$GIT_TAG/$(basename $pkg)" > $pkg.blob
+          rm $pkg
+        done
+
+    - name: Commit and push
+      uses: github-actions-x/commit@v2.3
+      with:
+        github-token: ${{ secrets.GITHUB_BOT_TOKEN }}
+        push-branch: master
+        commit-message: Update arch kernel
+        force-add: false
+        rebase: true
+        files: arch/*
+        name: surfacebot
+        email: surfacebot@users.noreply.github.com
+
+  release:
+    name: Publish release
+    needs: [repo]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download artifacts
+      uses: action/download-artifact@v1
+      with:
+        name: arch-latest
+
+    - name: Upload assets
+      uses: svenstaro/upload-release-action@v1-release
+      with:
+        repo_token: ${{ secrets.GITHUB_BOT_TOKEN }}
+        file: ./*-latest/*
+        tag: ${{ github.ref }}
+        overwrite: true
+        file_glob: true
