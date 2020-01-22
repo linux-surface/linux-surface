@@ -1,0 +1,197 @@
+on:
+  push:
+    tags:
+      - 'debian-*'
+
+name: Debian
+
+env:
+  GPG_KEY_ID: 56C464BAAC421453
+
+jobs:
+  build:
+    name: Build Kernel
+    runs-on: ubuntu-latest
+    container: debian:sid
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Install build dependencies
+      run: |
+        sed 's/^deb /deb-src /' /etc/apt/sources.list >> /etc/apt/sources.list
+        apt-get -y update
+        apt-get -y install build-essential fakeroot rsync git wget python3-debian dpkg-sig lz4 sbsigntool
+        apt-get -y build-dep linux
+
+    - name: Prepare kernel source
+      env:
+        KERNEL_VERSION: 5.4.13
+      run: |
+        cd pkg/debian
+
+        # get ubuntu build patches (for config)
+        SOURCE_URL="https://kernel.ubuntu.com/~kernel-ppa/mainline/v$KERNEL_VERSION"
+        SOURCE_LIST="$SOURCE_URL/SOURCES"
+
+        mkdir -p "ubuntu"
+        wget "$SOURCE_LIST" -O "ubuntu/SOURCES"
+        SOURCE_FILES="$(tail -n +2 "ubuntu/SOURCES")"
+
+        for f in $SOURCE_FILES; do
+          wget "$SOURCE_URL/$f" -O "ubuntu/$f"
+        done
+
+        # download kernel sources
+        wget https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/linux-$KERNEL_VERSION.tar.xz
+        tar xf linux-$KERNEL_VERSION.tar.xz
+
+        mv linux-$KERNEL_VERSION linux && cd linux
+
+        # apply ubuntu build patches
+        for PATCH in ../ubuntu/*.patch; do
+          patch -p1 < ${PATCH}
+        done
+
+        # apply surface build patches
+        for PATCH in ../*.patch; do
+          patch -p1 < ${PATCH}
+        done
+
+        # apply surface patches
+        for PATCH in ../../../patches/${KERNEL_VERSION%.*}/*.patch; do
+          patch -p1 < ${PATCH}
+        done
+
+    - name: Configure
+      run: |
+        cd pkg/debian/linux
+
+        # merge configs
+        ./scripts/kconfig/merge_config.sh                     \
+          debian.master/config/config.common.ubuntu           \
+          debian.master/config/amd64/config.common.amd64      \
+          debian.master/config/amd64/config.flavour.generic   \
+          ../ubuntu.config                                    \
+          ../surface.config
+
+    - name: Setup secureboot certificate
+      env:
+        SB_KEY: ${{ secrets.SURFACE_SB_KEY }}
+      run: |
+        cd pkg
+
+        mkdir -p debian/linux/keys
+
+        # unlock/copy key and certificate
+        echo "$SB_KEY" | base64 -d > debian/linux/keys/MOK.key
+        cp keys/surface.crt debian/linux/keys/MOK.crt
+
+    - name: Build
+      run: |
+        cd pkg/debian/linux
+
+        export LOCALVERSION="-surface"
+        make bindeb-pkg -j2
+
+    - name: Prepare release
+      run: |
+        mkdir release
+        mv pkg/debian/*.deb release
+
+    - name: Sign packages
+      env:
+        GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
+      run: |
+        # import GPG key
+        echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
+        export GPG_TTY=$(tty)
+
+        # sign package
+        dpkg-sig -g "--batch --no-tty" --sign builder -k $GPG_KEY_ID release/*.deb
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v1
+      with:
+        name: debian-latest
+        path: release
+
+  repo:
+    name: Update package repository
+    needs: [build]
+    runs-on: ubuntu-latest
+    container: debian:sid
+    steps:
+    - name: Install dependencies
+      run: |
+        apt-get update
+        apt-get install -y reprepro git
+
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        repository: linux-surface/repo
+        token: ${{ secrets.GITHUB_BOT_TOKEN }}
+        fetch-depth: 0
+        ref: master
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v1
+      with:
+        name: debian-latest
+
+    - name: Update repository
+      env:
+        GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
+        GIT_REF: ${{ github.ref }}
+      run: |
+        cd debian
+
+        # Import the GPG key for signing the repository
+        echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
+
+        # Add packages to repository
+        for pkg in ../debian-latest/*.deb; do
+          reprepro --basedir . --component main includedeb release $pkg
+        done
+        rm -r ../debian-latest
+
+        # Parse git tag from ref
+        GIT_TAG=$(echo $GIT_REF | sed 's|^refs/tags/||g')
+
+        # Convert packages into references
+        for pkg in $(find . -name '*.deb'); do
+          echo "$GIT_TAG/$(basename $pkg)" > $pkg.blob
+          rm $pkg
+        done
+
+    - name: Commit and push
+      uses: github-actions-x/commit@v2.3
+      with:
+        github-token: ${{ secrets.GITHUB_BOT_TOKEN }}
+        push-branch: master
+        commit-message: Update debian kernel
+        force-add: false
+        rebase: true
+        files: debian/*
+        name: surfacebot
+        email: surfacebot@users.noreply.github.com
+
+  release:
+    name: Publish release
+    needs: [repo]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download artifacts
+      uses: actions/download-artifact@v1
+      with:
+        name: debian-latest
+
+    - name: Upload assets
+      uses: svenstaro/upload-release-action@v1-release
+      with:
+        repo_token: ${{ secrets.GITHUB_BOT_TOKEN }}
+        file: ./*-latest/*
+        tag: ${{ github.ref }}
+        overwrite: true
+        file_glob: true
