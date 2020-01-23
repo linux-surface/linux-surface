@@ -66,7 +66,7 @@ jobs:
     steps:
     - name: Install dependencies
       run: |
-        dnf install -y createrepo_c git findutils
+        dnf install -y createrepo_c git findutils wget
 
     - name: Checkout repository
       uses: actions/checkout@v2
@@ -75,6 +75,14 @@ jobs:
         token: ${{ secrets.GITHUB_BOT_TOKEN }}
         fetch-depth: 0
         ref: master
+
+    - name: Unpack repository
+      run: |
+        cd fedora/f31
+
+        for blob in $(find . -name '*.blob'); do
+          wget https://github.com/linux-surface/linux-surface/releases/download/$(cat $blob)
+        done
 
     - name: Download artifacts
       uses: actions/download-artifact@v1
@@ -86,6 +94,10 @@ jobs:
         GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
         GIT_REF: ${{ github.ref }}
       run: |
+        for pkg in $(find fedora-31-latest -name '*.rpm'); do
+          echo "$GIT_TAG/$(basename $pkg)" > $pkg.blob
+        done
+
         cp fedora-31-latest/* fedora/f31/
         rm -r fedora-31-latest
 
@@ -101,12 +113,6 @@ jobs:
 
         # Parse git tag from ref
         GIT_TAG=$(echo $GIT_REF | sed 's|^refs/tags/||g')
-
-        # Convert packages into references
-        for pkg in $(find . -name '*.rpm'); do
-          echo "$GIT_TAG/$(basename $pkg)" > $pkg.blob
-          rm $pkg
-        done
 
     - name: Commit and push
       uses: github-actions-x/commit@v2.3
