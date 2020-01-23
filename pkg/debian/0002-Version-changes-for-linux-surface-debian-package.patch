@@ -1,4 +1,4 @@
-From 95afee22fd12b5d38d7f575941909c108a6f3156 Mon Sep 17 00:00:00 2001
+From 8b2757ee31252c7a4fe1b3531397f76ce00e9ad6 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 19 Jan 2020 22:50:24 +0100
 Subject: [PATCH] Version changes for linux-surface debian package
@@ -13,15 +13,15 @@ repository.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 ---
- scripts/package/builddeb | 7 ++++---
- scripts/package/mkdebian | 8 +++++---
- 2 files changed, 9 insertions(+), 6 deletions(-)
+ scripts/package/builddeb |  7 ++++---
+ scripts/package/mkdebian | 13 +++++++++----
+ 2 files changed, 13 insertions(+), 7 deletions(-)
 
 diff --git a/scripts/package/builddeb b/scripts/package/builddeb
-index c4c580f547ef..7cf52de71cf9 100755
+index 0b31f4f1f92c..af25b9397c39 100755
 --- a/scripts/package/builddeb
 +++ b/scripts/package/builddeb
-@@ -47,13 +47,14 @@ create_package() {
+@@ -35,13 +35,14 @@ create_package() {
  }
  
  version=$KERNELRELEASE
@@ -40,18 +40,19 @@ index c4c580f547ef..7cf52de71cf9 100755
  
  if [ "$ARCH" = "um" ] ; then
 diff --git a/scripts/package/mkdebian b/scripts/package/mkdebian
-index e0750b70453f..7978f62cbcde 100755
+index edcad61fe3cd..34f6bd2447b6 100755
 --- a/scripts/package/mkdebian
 +++ b/scripts/package/mkdebian
-@@ -86,6 +86,7 @@ set_debarch() {
+@@ -86,6 +86,8 @@ set_debarch() {
  
  # Some variables and settings used throughout the script
  version=$KERNELRELEASE
 +featureset=$(echo "$version" | sed -E 's/[0-9]+\.[0-9]+\.[0-9]+-(.*)/\1/')
++shortversion=$(echo "$version" | sed -E 's/([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')
  if [ -n "$KDEB_PKGVERSION" ]; then
  	packageversion=$KDEB_PKGVERSION
  	revision=${packageversion##*-}
-@@ -94,8 +95,9 @@ else
+@@ -94,8 +96,9 @@ else
  	packageversion=$version-$revision
  fi
  sourcename=$KDEB_SOURCENAME
@@ -63,15 +64,20 @@ index e0750b70453f..7978f62cbcde 100755
  dbg_packagename=$packagename-dbg
  debarch=
  set_debarch
-@@ -190,7 +192,7 @@ Description: Linux kernel headers for $version on $debarch
+@@ -186,9 +189,11 @@ Description: Linux kernel headers for $version on $debarch
   .
   This is useful for people who need to build external modules
  
 -Package: linux-libc-dev
 +Package: $libc_headers_packagename
  Section: devel
- Provides: linux-kernel-headers
+-Provides: linux-kernel-headers
++Provides: linux-kernel-headers, linux-libc-dev (= $shortversion)
++Conflicts: linux-libc-dev
++Replaces: linux-libc-dev
  Architecture: $debarch
+ Description: Linux support headers for userspace development
+  This package provides userspaces headers from the Linux kernel.  These headers
 -- 
 2.25.0
 
