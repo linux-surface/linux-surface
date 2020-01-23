@@ -5,7 +5,7 @@
 %global kernel_tag_fc31 kernel-5.3.18-300.fc31
 %global kernel_tag_fc30 kernel-5.3.18-200.fc30
 
-%global kernel_release_fc31 2
+%global kernel_release_fc31 3
 %global kernel_release_fc30 2
 
 %global fedora_title_fc31 31 (Thirty One)
