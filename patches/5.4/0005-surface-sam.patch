@@ -1,14 +1,14 @@
-From e6fa887173e4d0e6477421b9c38072f7f4063ade Mon Sep 17 00:00:00 2001
+From 30399aca12e933c6945ceb241882f80bb40a7931 Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:11:08 +0200
-Subject: [PATCH 3/7] surface-acpi
+Subject: [PATCH 5/7] surface-sam
 
 ---
  drivers/acpi/acpica/dsopcode.c                |    2 +-
  drivers/acpi/acpica/exfield.c                 |   12 +-
  drivers/platform/x86/Kconfig                  |    1 +
  drivers/platform/x86/Makefile                 |    1 +
- drivers/platform/x86/surface_sam/Kconfig      |  166 ++
+ drivers/platform/x86/surface_sam/Kconfig      |  163 ++
  drivers/platform/x86/surface_sam/Makefile     |   10 +
  .../x86/surface_sam/surface_sam_dtx.c         |  623 ++++++
  .../x86/surface_sam/surface_sam_hps.c         | 1110 +++++++++++
@@ -23,7 +23,7 @@ Subject: [PATCH 3/7] surface-acpi
  .../x86/surface_sam/surface_sam_ssh.h         |   97 +
  .../x86/surface_sam/surface_sam_vhf.c         |  276 +++
  drivers/tty/serdev/core.c                     |  111 +-
- 19 files changed, 7356 insertions(+), 16 deletions(-)
+ 19 files changed, 7353 insertions(+), 16 deletions(-)
  create mode 100644 drivers/platform/x86/surface_sam/Kconfig
  create mode 100644 drivers/platform/x86/surface_sam/Makefile
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_dtx.c
@@ -85,10 +85,10 @@ index d3d2dbfba680..0b7f617a6e9b 100644
  		buffer_desc = acpi_ut_create_buffer_object(buffer_length);
  		if (!buffer_desc) {
 diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
-index ae21d08c65e8..675ec12cbc0e 100644
+index 348c795019fa..d25067a838a3 100644
 --- a/drivers/platform/x86/Kconfig
 +++ b/drivers/platform/x86/Kconfig
-@@ -1336,6 +1336,7 @@ config PCENGINES_APU2
+@@ -1342,6 +1342,7 @@ config PCENGINES_APU2
  	  will be called pcengines-apuv2.
  
  source "drivers/platform/x86/intel_speed_select_if/Kconfig"
@@ -97,20 +97,20 @@ index ae21d08c65e8..675ec12cbc0e 100644
  endif # X86_PLATFORM_DEVICES
  
 diff --git a/drivers/platform/x86/Makefile b/drivers/platform/x86/Makefile
-index 415104033060..18f5a4ba7244 100644
+index 6dd955ad9bf1..19b56f2181eb 100644
 --- a/drivers/platform/x86/Makefile
 +++ b/drivers/platform/x86/Makefile
-@@ -100,3 +100,4 @@ obj-$(CONFIG_I2C_MULTI_INSTANTIATE)	+= i2c-multi-instantiate.o
+@@ -101,3 +101,4 @@ obj-$(CONFIG_I2C_MULTI_INSTANTIATE)	+= i2c-multi-instantiate.o
  obj-$(CONFIG_INTEL_ATOMISP2_PM)	+= intel_atomisp2_pm.o
  obj-$(CONFIG_PCENGINES_APU2)	+= pcengines-apuv2.o
  obj-$(CONFIG_INTEL_SPEED_SELECT_INTERFACE) += intel_speed_select_if/
 +obj-$(CONFIG_SURFACE_SAM)	+= surface_sam/
 diff --git a/drivers/platform/x86/surface_sam/Kconfig b/drivers/platform/x86/surface_sam/Kconfig
 new file mode 100644
-index 000000000000..4eff58a121cb
+index 000000000000..b4513c234c4d
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/Kconfig
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,163 @@
 +menuconfig SURFACE_SAM
 +    depends on ACPI
 +    tristate "Microsoft Surface/System Aggregator Module and Platform Drivers"
@@ -128,9 +128,6 @@ index 000000000000..4eff58a121cb
 +config SURFACE_SAM_SSH
 +	tristate "Surface Serial Hub Driver"
 +	depends on SURFACE_SAM
-+	depends on X86_INTEL_LPSS
-+	depends on SERIAL_8250_DW
-+	depends on SERIAL_8250_DMA
 +	depends on SERIAL_DEV_CTRL_TTYPORT
 +	select CRC_CCITT
 +	default m
@@ -7435,7 +7432,7 @@ index 000000000000..0ed0ebbdb3cb
 +MODULE_DESCRIPTION("Virtual HID Framework Driver for 5th Generation Surface Devices");
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/tty/serdev/core.c b/drivers/tty/serdev/core.c
-index a0ac16ee6575..226adeec2aed 100644
+index a9719858c950..ce5309d00280 100644
 --- a/drivers/tty/serdev/core.c
 +++ b/drivers/tty/serdev/core.c
 @@ -552,16 +552,97 @@ static int of_serdev_register_devices(struct serdev_controller *ctrl)
@@ -7542,8 +7539,8 @@ index a0ac16ee6575..226adeec2aed 100644
  	serdev = serdev_device_alloc(ctrl);
  	if (!serdev) {
  		dev_err(&ctrl->dev, "failed to allocate serdev device for %s\n",
-@@ -583,7 +664,7 @@ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
- }
+@@ -589,7 +670,7 @@ static const struct acpi_device_id serdev_acpi_devices_blacklist[] = {
+ };
  
  static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
 -				       void *data, void **return_value)
@@ -7551,13 +7548,17 @@ index a0ac16ee6575..226adeec2aed 100644
  {
  	struct serdev_controller *ctrl = data;
  	struct acpi_device *adev;
-@@ -591,22 +672,28 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
+@@ -597,26 +678,32 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
  	if (acpi_bus_get_device(handle, &adev))
  		return AE_OK;
  
 +	if (acpi_device_enumerated(adev))
 +		return AE_OK;
 +
+ 	/* Skip if black listed */
+ 	if (!acpi_match_device_ids(adev, serdev_acpi_devices_blacklist))
+ 		return AE_OK;
+ 
 +	if (acpi_serdev_check_resources(ctrl, adev))
 +		return AE_OK;
 +
@@ -7586,5 +7587,5 @@ index a0ac16ee6575..226adeec2aed 100644
  	if (!ctrl->serdev)
  		return -ENODEV;
 -- 
-2.24.1
+2.25.0
 
