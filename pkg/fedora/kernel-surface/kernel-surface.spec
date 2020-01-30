@@ -34,7 +34,7 @@
 %global kernel_config kernel-%{kernel_version}-%{_target_cpu}.config
 %global kernel_name %{kernel_version}-%{kernel_localversion}
 
-%global fedora_source https://git.kernel.org/pub/scm/linux/kernel/git/jwboyer/fedora.git
+%global fedora_source https://github.com/StollD/linux-fedora
 %global surface_source https://raw.githubusercontent.com/linux-surface/linux-surface/%{ls_patches_commit}/patches
 %global config_source https://raw.githubusercontent.com/linux-surface/kernel-configs/%{ls_configs_commit}
 
@@ -70,7 +70,7 @@ Conflicts: xfsprogs < 4.3.0-1
 Conflicts: xorg-x11-drv-vmmouse < 13.0.99
 BuildConflicts: rhbuildsys(DiskFree) < 500Mb
 
-Source0:    %{fedora_source}/snapshot/fedora-%{kernel_tag}.tar.gz
+Source0:    %{fedora_source}/archive/%{kernel_tag}.tar.gz
 Source1:    %{config_source}/%{kernel_patches}/surface.config
 Source2:    fedora.config
 
@@ -111,7 +111,7 @@ This package provides kernel headers and makefiles sufficient to build modules
 against the kernel-surface package.
 
 %prep
-%autosetup -S git -n fedora-%{kernel_tag}
+%autosetup -S git -n linux-fedora-%{kernel_tag}
 
 scripts/kconfig/merge_config.sh         \
 	fedora/configs/%{kernel_config} \
