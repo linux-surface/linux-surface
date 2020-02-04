@@ -94,6 +94,9 @@ jobs:
         GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
         GIT_REF: ${{ github.ref }}
       run: |
+        # Parse git tag from ref
+        GIT_TAG=$(echo $GIT_REF | sed 's|^refs/tags/||g')
+
         for pkg in $(find fedora-31-latest -name '*.rpm'); do
           echo "$GIT_TAG/$(basename $pkg)" > $pkg.blob
         done
@@ -110,9 +113,6 @@ jobs:
           rm repodata/repomd.xml.asc
         fi
         gpg --detach-sign --batch --no-tty --armor -u $GPG_KEY_ID repodata/repomd.xml
-
-        # Parse git tag from ref
-        GIT_TAG=$(echo $GIT_REF | sed 's|^refs/tags/||g')
 
     - name: Commit and push
       uses: github-actions-x/commit@v2.3
