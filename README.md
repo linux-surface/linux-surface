@@ -7,6 +7,7 @@ Follow the instructions below to install the latest kernel and config files.
 
 * Surface Book
 * Surface Book 2
+* Surface 3
 * Surface Go
 * Surface Laptop
 * Surface Laptop 2
