@@ -1,30 +1,32 @@
-From 2bd84c6967b2741d012844717f46f514b2122f4f Mon Sep 17 00:00:00 2001
+From 9715bc9a94fa7b9f30b3b12a6a09160a9aca43ec Mon Sep 17 00:00:00 2001
 From: sebanc <22224731+sebanc@users.noreply.github.com>
 Date: Mon, 4 Nov 2019 09:30:57 +0100
-Subject: [PATCH 6/7] wifi
+Subject: [PATCH 10/10] wifi
 
 ---
- drivers/net/wireless/marvell/mwifiex/pcie.c   | 74 ++++++++++---------
+ drivers/net/wireless/marvell/mwifiex/pcie.c   | 75 ++++++++++---------
  .../net/wireless/marvell/mwifiex/sta_cmd.c    | 15 +---
- 2 files changed, 41 insertions(+), 48 deletions(-)
+ 2 files changed, 40 insertions(+), 50 deletions(-)
 
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
-index eff06d59e9df..eeda5de9173f 100644
+index 991b9cc18000..4549359ee19b 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie.c
 +++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
-@@ -149,35 +149,38 @@ static bool mwifiex_pcie_ok_to_access_hw(struct mwifiex_adapter *adapter)
+@@ -149,37 +149,39 @@ static bool mwifiex_pcie_ok_to_access_hw(struct mwifiex_adapter *adapter)
   */
  static int mwifiex_pcie_suspend(struct device *dev)
  {
-+	struct pci_dev *pdev = to_pci_dev(dev);
+-	struct mwifiex_adapter *adapter;
+-	struct pcie_service_card *card;
+ 	struct pci_dev *pdev = to_pci_dev(dev);
 +	struct pcie_service_card *card = pci_get_drvdata(pdev);
- 	struct mwifiex_adapter *adapter;
--	struct pcie_service_card *card = dev_get_drvdata(dev);
--
++	struct mwifiex_adapter *adapter;
 +	struct mwifiex_private *priv;
 +	const struct mwifiex_pcie_card_reg *reg;
 +	u32 fw_status;
 +	int ret;
+ 
+-	card = pci_get_drvdata(pdev);
  
  	/* Might still be loading firmware */
  	wait_for_completion(&card->fw_done);
@@ -58,27 +60,28 @@ index eff06d59e9df..eeda5de9173f 100644
  
 -	flush_workqueue(adapter->workqueue);
 +		mwifiex_disable_auto_ds(priv);
++
++		mwifiex_init_shutdown_fw(priv, MWIFIEX_FUNC_SHUTDOWN);
++	}
  
 -	/* Indicate device suspended */
 -	set_bit(MWIFIEX_IS_SUSPENDED, &adapter->work_flags);
 -	clear_bit(MWIFIEX_IS_HS_ENABLING, &adapter->work_flags);
-+		mwifiex_init_shutdown_fw(priv, MWIFIEX_FUNC_SHUTDOWN);
-+	}
-+
 +	mwifiex_remove_card(adapter);
  
  	return 0;
  }
-@@ -192,28 +195,29 @@ static int mwifiex_pcie_suspend(struct device *dev)
+@@ -194,30 +196,29 @@ static int mwifiex_pcie_suspend(struct device *dev)
   */
  static int mwifiex_pcie_resume(struct device *dev)
  {
 -	struct mwifiex_adapter *adapter;
--	struct pcie_service_card *card = dev_get_drvdata(dev);
-+	struct pci_dev *pdev = to_pci_dev(dev);
+-	struct pcie_service_card *card;
+ 	struct pci_dev *pdev = to_pci_dev(dev);
 +	struct pcie_service_card *card = pci_get_drvdata(pdev);
 +	int ret;
  
+-	card = pci_get_drvdata(pdev);
 +	pr_debug("info: vendor=0x%4.04X device=0x%4.04X rev=%d\n",
 +		 pdev->vendor, pdev->device, pdev->revision);
  
@@ -115,7 +118,7 @@ index eff06d59e9df..eeda5de9173f 100644
  
  	return 0;
  }
-@@ -267,6 +271,8 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
+@@ -271,6 +272,8 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
  		return -1;
  	}
  
@@ -164,5 +167,5 @@ index 4ed10cf82f9a..013db4386c39 100644
  		/* Send cmd to FW to enable/disable 11D function */
  		state_11d = ENABLE_11D;
 -- 
-2.24.1
+2.25.0
 

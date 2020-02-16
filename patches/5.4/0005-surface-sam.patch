@@ -1,14 +1,14 @@
-From 0003680bafe3efd813a0802fcf7add69873a3b4a Mon Sep 17 00:00:00 2001
+From 30399aca12e933c6945ceb241882f80bb40a7931 Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
-Date: Mon, 26 Aug 2019 01:15:40 +0200
-Subject: [PATCH 01/13] surface-acpi
+Date: Mon, 26 Aug 2019 01:11:08 +0200
+Subject: [PATCH 5/7] surface-sam
 
 ---
  drivers/acpi/acpica/dsopcode.c                |    2 +-
- drivers/acpi/acpica/exfield.c                 |   26 +-
- drivers/platform/x86/Kconfig                  |    2 +
+ drivers/acpi/acpica/exfield.c                 |   12 +-
+ drivers/platform/x86/Kconfig                  |    1 +
  drivers/platform/x86/Makefile                 |    1 +
- drivers/platform/x86/surface_sam/Kconfig      |  166 ++
+ drivers/platform/x86/surface_sam/Kconfig      |  163 ++
  drivers/platform/x86/surface_sam/Makefile     |   10 +
  .../x86/surface_sam/surface_sam_dtx.c         |  623 ++++++
  .../x86/surface_sam/surface_sam_hps.c         | 1110 +++++++++++
@@ -23,7 +23,7 @@ Subject: [PATCH 01/13] surface-acpi
  .../x86/surface_sam/surface_sam_ssh.h         |   97 +
  .../x86/surface_sam/surface_sam_vhf.c         |  276 +++
  drivers/tty/serdev/core.c                     |  111 +-
- 19 files changed, 7358 insertions(+), 29 deletions(-)
+ 19 files changed, 7353 insertions(+), 16 deletions(-)
  create mode 100644 drivers/platform/x86/surface_sam/Kconfig
  create mode 100644 drivers/platform/x86/surface_sam/Makefile
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_dtx.c
@@ -40,7 +40,7 @@ Subject: [PATCH 01/13] surface-acpi
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_vhf.c
 
 diff --git a/drivers/acpi/acpica/dsopcode.c b/drivers/acpi/acpica/dsopcode.c
-index 2f4641e5ecde..beb22d7e245e 100644
+index 10f32b62608e..7b2a4987f050 100644
 --- a/drivers/acpi/acpica/dsopcode.c
 +++ b/drivers/acpi/acpica/dsopcode.c
 @@ -123,7 +123,7 @@ acpi_ds_init_buffer_field(u16 aml_opcode,
@@ -53,27 +53,27 @@ index 2f4641e5ecde..beb22d7e245e 100644
  		bit_count = (u32) length_desc->integer.value;
  
 diff --git a/drivers/acpi/acpica/exfield.c b/drivers/acpi/acpica/exfield.c
-index b272c329d45d..cf547883a993 100644
+index d3d2dbfba680..0b7f617a6e9b 100644
 --- a/drivers/acpi/acpica/exfield.c
 +++ b/drivers/acpi/acpica/exfield.c
-@@ -102,6 +102,7 @@ acpi_ex_read_data_from_field(struct acpi_walk_state *walk_state,
+@@ -109,6 +109,7 @@ acpi_ex_read_data_from_field(struct acpi_walk_state *walk_state,
+ 	union acpi_operand_object *buffer_desc;
  	void *buffer;
- 	u32 function;
- 	u16 accessor_type;
+ 	u32 buffer_length;
 +	u8 field_flags;
  
  	ACPI_FUNCTION_TRACE_PTR(ex_read_data_from_field, obj_desc);
  
-@@ -199,11 +200,16 @@ acpi_ex_read_data_from_field(struct acpi_walk_state *walk_state,
+@@ -157,11 +158,16 @@ acpi_ex_read_data_from_field(struct acpi_walk_state *walk_state,
  	 * Note: Field.length is in bits.
  	 */
- 	length =
+ 	buffer_length =
 -	    (acpi_size)ACPI_ROUND_BITS_UP_TO_BYTES(obj_desc->field.bit_length);
 +	    (acpi_size)ACPI_ROUND_BITS_UP_TO_BYTES(obj_desc->common_field.bit_length);
 +	field_flags = obj_desc->common_field.field_flags;
  
--	if (length > acpi_gbl_integer_byte_width) {
-+	if (length > acpi_gbl_integer_byte_width ||
+-	if (buffer_length > acpi_gbl_integer_byte_width) {
++	if (buffer_length > acpi_gbl_integer_byte_width ||
 +	    (field_flags & AML_FIELD_ACCESS_TYPE_MASK) == AML_FIELD_ACCESS_BUFFER) {
  
 -		/* Field is too large for an Integer, create a Buffer instead */
@@ -82,57 +82,35 @@ index b272c329d45d..cf547883a993 100644
 +		 * buffer, so create a Buffer.
 +		 */
  
- 		buffer_desc = acpi_ut_create_buffer_object(length);
+ 		buffer_desc = acpi_ut_create_buffer_object(buffer_length);
  		if (!buffer_desc) {
-@@ -366,19 +372,7 @@ acpi_ex_write_data_to_field(union acpi_operand_object *source_desc,
- 		} else if (obj_desc->field.region_obj->region.space_id ==
- 			   ACPI_ADR_SPACE_GSBUS) {
- 			accessor_type = obj_desc->field.attribute;
--			length =
--			    acpi_ex_get_serial_access_length(accessor_type,
--							     obj_desc->field.
--							     access_length);
--
--			/*
--			 * Add additional 2 bytes for the generic_serial_bus data buffer:
--			 *
--			 *     Status;    (Byte 0 of the data buffer)
--			 *     Length;    (Byte 1 of the data buffer)
--			 *     Data[x-1]: (Bytes 2-x of the arbitrary length data buffer)
--			 */
--			length += 2;
-+			length = source_desc->buffer.length;
- 			function = ACPI_WRITE | (accessor_type << 16);
- 		} else {	/* IPMI */
- 
 diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
-index 1e2524de6a63..ea17f993320e 100644
+index 348c795019fa..d25067a838a3 100644
 --- a/drivers/platform/x86/Kconfig
 +++ b/drivers/platform/x86/Kconfig
-@@ -1243,6 +1243,8 @@ config INTEL_ATOMISP2_PM
- 	  To compile this driver as a module, choose M here: the module
- 	  will be called intel_atomisp2_pm.
+@@ -1342,6 +1342,7 @@ config PCENGINES_APU2
+ 	  will be called pcengines-apuv2.
  
+ source "drivers/platform/x86/intel_speed_select_if/Kconfig"
 +source "drivers/platform/x86/surface_sam/Kconfig"
-+
+ 
  endif # X86_PLATFORM_DEVICES
  
- config PMC_ATOM
 diff --git a/drivers/platform/x86/Makefile b/drivers/platform/x86/Makefile
-index dc29af4d8e2f..ddc2fbfaf110 100644
+index 6dd955ad9bf1..19b56f2181eb 100644
 --- a/drivers/platform/x86/Makefile
 +++ b/drivers/platform/x86/Makefile
-@@ -93,3 +93,4 @@ obj-$(CONFIG_INTEL_TURBO_MAX_3) += intel_turbo_max_3.o
- obj-$(CONFIG_INTEL_CHTDC_TI_PWRBTN)	+= intel_chtdc_ti_pwrbtn.o
- obj-$(CONFIG_I2C_MULTI_INSTANTIATE)	+= i2c-multi-instantiate.o
+@@ -101,3 +101,4 @@ obj-$(CONFIG_I2C_MULTI_INSTANTIATE)	+= i2c-multi-instantiate.o
  obj-$(CONFIG_INTEL_ATOMISP2_PM)	+= intel_atomisp2_pm.o
+ obj-$(CONFIG_PCENGINES_APU2)	+= pcengines-apuv2.o
+ obj-$(CONFIG_INTEL_SPEED_SELECT_INTERFACE) += intel_speed_select_if/
 +obj-$(CONFIG_SURFACE_SAM)	+= surface_sam/
 diff --git a/drivers/platform/x86/surface_sam/Kconfig b/drivers/platform/x86/surface_sam/Kconfig
 new file mode 100644
-index 000000000000..4eff58a121cb
+index 000000000000..b4513c234c4d
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/Kconfig
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,163 @@
 +menuconfig SURFACE_SAM
 +    depends on ACPI
 +    tristate "Microsoft Surface/System Aggregator Module and Platform Drivers"
@@ -150,9 +128,6 @@ index 000000000000..4eff58a121cb
 +config SURFACE_SAM_SSH
 +	tristate "Surface Serial Hub Driver"
 +	depends on SURFACE_SAM
-+	depends on X86_INTEL_LPSS
-+	depends on SERIAL_8250_DW
-+	depends on SERIAL_8250_DMA
 +	depends on SERIAL_DEV_CTRL_TTYPORT
 +	select CRC_CCITT
 +	default m
@@ -7457,10 +7432,10 @@ index 000000000000..0ed0ebbdb3cb
 +MODULE_DESCRIPTION("Virtual HID Framework Driver for 5th Generation Surface Devices");
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/tty/serdev/core.c b/drivers/tty/serdev/core.c
-index 9db93f500b4e..42d1dae34b21 100644
+index a9719858c950..ce5309d00280 100644
 --- a/drivers/tty/serdev/core.c
 +++ b/drivers/tty/serdev/core.c
-@@ -496,16 +496,97 @@ static int of_serdev_register_devices(struct serdev_controller *ctrl)
+@@ -552,16 +552,97 @@ static int of_serdev_register_devices(struct serdev_controller *ctrl)
  }
  
  #ifdef CONFIG_ACPI
@@ -7564,8 +7539,8 @@ index 9db93f500b4e..42d1dae34b21 100644
  	serdev = serdev_device_alloc(ctrl);
  	if (!serdev) {
  		dev_err(&ctrl->dev, "failed to allocate serdev device for %s\n",
-@@ -527,7 +608,7 @@ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
- }
+@@ -589,7 +670,7 @@ static const struct acpi_device_id serdev_acpi_devices_blacklist[] = {
+ };
  
  static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
 -				       void *data, void **return_value)
@@ -7573,13 +7548,17 @@ index 9db93f500b4e..42d1dae34b21 100644
  {
  	struct serdev_controller *ctrl = data;
  	struct acpi_device *adev;
-@@ -535,22 +616,28 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
+@@ -597,26 +678,32 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
  	if (acpi_bus_get_device(handle, &adev))
  		return AE_OK;
  
 +	if (acpi_device_enumerated(adev))
 +		return AE_OK;
 +
+ 	/* Skip if black listed */
+ 	if (!acpi_match_device_ids(adev, serdev_acpi_devices_blacklist))
+ 		return AE_OK;
+ 
 +	if (acpi_serdev_check_resources(ctrl, adev))
 +		return AE_OK;
 +
@@ -7608,5 +7587,5 @@ index 9db93f500b4e..42d1dae34b21 100644
  	if (!ctrl->serdev)
  		return -ENODEV;
 -- 
-2.24.1
+2.25.0
 
