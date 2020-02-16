@@ -2,8 +2,8 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc31 kernel-5.3.18-300.fc31
-%global kernel_tag_fc30 kernel-5.3.18-200.fc30
+%global kernel_tag_fc31 kernel-5.4.18-200.fc31
+%global kernel_tag_fc30 kernel-5.4.18-100.fc30
 
 %global kernel_release_fc31 3
 %global kernel_release_fc30 2
@@ -11,8 +11,7 @@
 %global fedora_title_fc31 31 (Thirty One)
 %global fedora_title_fc30 30 (Thirty)
 
-%global ls_patches_commit b931b147da670fd9507391d41e56d34953ae687b
-%global ls_configs_commit f3cdfc4fca8f60221d8fea4396b2486bced295b5
+%global ls_patches_commit ffe19063f7c6469d4a625e72793e26a9f5ad3d5c
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -28,15 +27,14 @@
 %global fedora_title %{fedora_title_%{fedora_ver}}
 
 %global kernel_version %(echo %{kernel_tag} | cut -d'-' -f2)
-%global kernel_patches %(echo %{kernel_version} | cut -d'.' -f1-2)
+%global kernel_patches patches/%(echo %{kernel_version} | cut -d'.' -f1-2)
 
 %global kernel_localversion %{kernel_release}.surface%{?dist}.%{_target_cpu}
 %global kernel_config kernel-%{kernel_version}-%{_target_cpu}.config
 %global kernel_name %{kernel_version}-%{kernel_localversion}
 
 %global fedora_source https://github.com/StollD/linux-fedora
-%global surface_source https://raw.githubusercontent.com/linux-surface/linux-surface/%{ls_patches_commit}/patches
-%global config_source https://raw.githubusercontent.com/linux-surface/kernel-configs/%{ls_configs_commit}
+%global surface_source https://raw.githubusercontent.com/linux-surface/linux-surface/%{ls_patches_commit}
 
 %global kernel_modpath %{buildroot}/lib/modules/%{kernel_name}
 
@@ -71,7 +69,7 @@ Conflicts: xorg-x11-drv-vmmouse < 13.0.99
 BuildConflicts: rhbuildsys(DiskFree) < 500Mb
 
 Source0:    %{fedora_source}/archive/%{kernel_tag}.tar.gz
-Source1:    %{config_source}/%{kernel_patches}/surface.config
+Source1:    %{surface_source}/surface.config
 Source2:    fedora.config
 
 Source20:    %{sb_crt}
@@ -80,16 +78,13 @@ Source21:    %{sb_key}
 Source100:  mod-sign.sh
 Source101:  parallel_xz.sh
 
-Patch0:     %{surface_source}/%{kernel_patches}/0001-surface-acpi.patch
-Patch1:     %{surface_source}/%{kernel_patches}/0002-buttons.patch
-Patch2:     %{surface_source}/%{kernel_patches}/0003-hid.patch
-Patch3:     %{surface_source}/%{kernel_patches}/0004-surface3-power.patch
-Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-lte.patch
-Patch5:     %{surface_source}/%{kernel_patches}/0006-wifi.patch
-Patch6:     %{surface_source}/%{kernel_patches}/0007-legacy-i915.patch
-Patch7:     %{surface_source}/%{kernel_patches}/0008-ipts.patch
-Patch8:     %{surface_source}/%{kernel_patches}/0009-ioremap_uc.patch
-Patch9:     %{surface_source}/%{kernel_patches}/0010-surface3-spi-dma.patch
+Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-power.patch
+Patch1:     %{surface_source}/%{kernel_patches}/0002-surface3-spi.patch
+Patch2:     %{surface_source}/%{kernel_patches}/0003-surface3-oemb.patch
+Patch3:     %{surface_source}/%{kernel_patches}/0004-ioremap_uc.patch
+Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam.patch
+Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-lte.patch
+Patch6:     %{surface_source}/%{kernel_patches}/0007-wifi.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 Patch101:   0002-drm-i915-Mark-contents-as-dirty-on-a-write-fault.patch
