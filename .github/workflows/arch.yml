@@ -80,15 +80,7 @@ jobs:
     steps:
     - name: Install dependencies
       run: |
-        pacman -Sy --noconfirm base-devel git
-
-    - name: Checkout repository
-      uses: actions/checkout@v2
-      with:
-        repository: linux-surface/repo
-        token: ${{ secrets.GITHUB_BOT_TOKEN }}
-        fetch-depth: 0
-        ref: master
+        pacman -Sy --noconfirm git
 
     - name: Download artifacts
       uses: actions/download-artifact@v1
@@ -97,48 +89,38 @@ jobs:
 
     - name: Update repository
       env:
-        GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
+        SURFACEBOT_TOKEN: ${{ secrets.GITHUB_BOT_TOKEN }}
+        BRANCH_STAGING: autoupd/staging
         GIT_REF: ${{ github.ref }}
       run: |
-        cp arch-latest/* arch/
-        rm -r arch-latest
+        repo="https://surfacebot:${SURFACEBOT_TOKEN}@github.com/linux-surface/repo.git"
 
-        cd arch
-        repo-add -n linux-surface.db.tar.gz *.pkg.tar.zst
+        # clone package repository
+        git clone -b "${BRANCH_STAGING}" "${repo}" repo
 
-        # Sign the updated repository
-        echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
-        if [ -f 'linux-surface.db.sig' ]; then
-          rm linux-surface.db.sig
-          rm linux-surface.db.tar.gz.sig
-          rm linux-surface.files.sig
-          rm linux-surface.files.tar.gz.sig
-        fi
-        gpg --detach-sign --batch --no-tty --no-armor -u $GPG_KEY_ID linux-surface.db
-        gpg --detach-sign --batch --no-tty --no-armor -u $GPG_KEY_ID linux-surface.db.tar.gz
-        gpg --detach-sign --batch --no-tty --no-armor -u $GPG_KEY_ID linux-surface.files
-        gpg --detach-sign --batch --no-tty --no-armor -u $GPG_KEY_ID linux-surface.files.tar.gz
+        # copy packages
+        cp arch-latest/* repo/arch/
+        cd repo/arch
 
-        # Parse git tag from ref
+        # parse git tag from ref
         GIT_TAG=$(echo $GIT_REF | sed 's|^refs/tags/||g')
 
-        # Convert packages into references
+        # convert packages into references
         for pkg in $(find . -name '*.pkg.tar.zst'); do
           echo "linux-surface:$GIT_TAG/$(basename $pkg)" > $pkg.blob
           rm $pkg
         done
 
-    - name: Commit and push
-      uses: github-actions-x/commit@v2.3
-      with:
-        github-token: ${{ secrets.GITHUB_BOT_TOKEN }}
-        push-branch: master
-        commit-message: Update arch kernel
-        force-add: false
-        rebase: true
-        files: arch/*
-        name: surfacebot
-        email: surfacebot@users.noreply.github.com
+        # set git identity
+        git config --global user.email "surfacebot@users.noreply.github.com"
+        git config --global user.name "surfacebot"
+
+        # commit and push
+        update_branch="${BRANCH_STAGING}-$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
+        git switch -c "${update_branch}"
+        git add .
+        git commit -m "Update Arch Linux kernel"
+        git push --set-upstream origin "${update_branch}"
 
   release:
     name: Publish release
