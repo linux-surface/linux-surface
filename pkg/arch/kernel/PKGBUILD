@@ -1,7 +1,8 @@
 # Maintainer: Blaž Hrastnik <blaz@mxxn.io>
+# Maintainer: Jan Alexander Steffens (heftig) <jan.steffens@gmail.com>
 
 pkgbase=linux-surface
-pkgver=5.4.12.arch1
+pkgver=5.5.4.arch1
 pkgrel=1
 pkgdesc='Linux'
 _fullver=${pkgver%.*}-${pkgver##*.}
@@ -20,13 +21,13 @@ source=(
   config         # the main kernel config file
 
   surface.config # surface specific options
-  # 0001-ioremap_uc.patch included in arch
-  # 0002-hid.patch landed in 5.4.8
-  0003-surface-acpi.patch
-  0004-surface3-power.patch
+  0001-surface3-power.patch
+  0002-surface3-spi.patch
+  0003-surface3-oemb.patch
+  0004-surface-sam.patch
   0005-surface-lte.patch
   0006-wifi.patch
-  0007-surface3-spi-dma.patch
+  0007-ipts.patch
 )
 validpgpkeys=(
   'ABAF11C65A2970B130ABE3C479BE3E4300411886'  # Linus Torvalds
@@ -34,16 +35,18 @@ validpgpkeys=(
   '8218F88849AAC522E94CF470A5E9288C4FA415FA'  # Jan Alexander Steffens (heftig)
 )
 sha256sums=('SKIP'
-            'eeb60c19586bf5855eeaeac8323b0012107bfa74f9efa0c8e129d979d38f1f31'
+            'f40b1d707ee1199275a7ad0e456e67e39fba7bd41e9a3921af26e7fd1bf08a27'
 
             'f410ce12cf83e1642ac02e23689112d7a6027da79bec358ec9bf93e7e301cacc'
-            #'9e11ed3668ce57f9b08c0d00ddeb2b30a4417d88800a276b4e4a1ac3305f6c10'
-            #'2642329d4926e19643281105dfb26602af1affbfc82c6941ce32727125df9e56'
-            '7bd2839b38bbea19499f35c705f36be099284909f39c3ee72f4dfe774af1153e'
-            'b18be8992743789cde51eac4e966cb35a6ede98c647955144c26f58cae771cd1'
-            '384139e54ce879fcbd8d8d92e9ce9496e5d11d1a8752bb6c930a51adf9d87af0'
-            '278643b3aa4a70579c1b60ad7ba812787a44dfeaff9cc2ec0541fba5a7f2a3ae'
-            '3c82b1adf9a18c42a93d103772c35f668f0631785f7de41ac9e9d89d1624aa6d')
+
+            '73fe82cef2edb008f198cb7d2ee832d6ada622a408fa36f7a0c07ae468fb531a' # 0001-surface3-power.patch
+            '9dd1623f1c4f35c2a0454df9786a9bb64fd47b7dec0263444b64957d8ae7babf' # 0002-surface3-spi.patch
+            '45fbc7cb0c7c33e0e342cc72c181004c1a63b82eaa96e6cdd1d4b99794743a59' # 0003-surface3-oemb.patch
+            'a26bf23b1b8572355a04aa4dbfb86e6613636c860510ee96dedea770f693bc83' # 0004-surface-sam.patch
+            'ad2a230ec0a60c4a3d8acee1484a7d24117c1477ecf106d97c197c736cba2886' # 0005-surface-lte.patch
+            '62b938d63563427ee6272013249646dc26e67b496c60de1803a847545461d69e' # 0006-wifi.patch
+            'd5286ad55e3c72d12caf306029e9a255eba2bdadf7f300ee363aa4e6ce03767e' # 0007-ipts.patch
+          )
 
 export KBUILD_BUILD_HOST=archlinux
 export KBUILD_BUILD_USER=$pkgbase
@@ -56,7 +59,7 @@ _mok_key="$PWD/MOK.key"
 prepare() {
   cd $_srcname
 
-  msg2 "Setting version..."
+  echo "Setting version..."
   scripts/setlocalversion --save-scmversion
   echo "-$pkgrel" > localversion.10-pkgrel
   echo "${pkgbase#linux}" > localversion.20-pkgname
@@ -66,18 +69,18 @@ prepare() {
     src="${src%%::*}"
     src="${src##*/}"
     [[ $src = *.patch ]] || continue
-    msg2 "Applying patch $src..."
+    echo "Applying patch $src..."
     patch -Np1 < "../$src"
   done
 
-  msg2 "Setting config..."
+  echo "Setting config..."
   # cp ../config .config
   # merge the two configs together
   ./scripts/kconfig/merge_config.sh -m ../config ../surface.config
   make olddefconfig
 
   make -s kernelrelease > version
-  msg2 "Prepared %s version %s" "$pkgbase" "$(<version)"
+  echo "Prepared %s version %s" "$pkgbase" "$(<version)"
 }
 
 build() {
@@ -98,11 +101,11 @@ _package() {
 
   # sign boot image if the prequisites are available
   if [[ -f "$_mok_crt" ]] && [[ -f "$_mok_key" ]] && [[ -x "$(command -v sbsign)" ]]; then
-    msg2 "Signing boot image..."
+    echo "Signing boot image..."
     sbsign --key "$_mok_key" --cert "$_mok_crt" --output "$image_name" "$image_name"
   fi
 
-  msg2 "Installing boot image..."
+  echo "Installing boot image..."
   # systemd expects to find the kernel here to allow hibernation
   # https://github.com/systemd/systemd/commit/edda44605f06a41fb86b7ab8128dcf99161d2344
   install -Dm644 "$image_name" "$modulesdir/vmlinuz"
@@ -110,13 +113,13 @@ _package() {
   # Used by mkinitcpio to name the kernel
   echo "$pkgbase" | install -Dm644 /dev/stdin "$modulesdir/pkgbase"
 
-  msg2 "Installing modules..."
+  echo "Installing modules..."
   make INSTALL_MOD_PATH="$pkgdir/usr" modules_install
 
   # remove build and source links
   rm "$modulesdir"/{source,build}
 
-  msg2 "Fixing permissions..."
+  echo "Fixing permissions..."
   chmod -Rc u=rwX,go=rX "$pkgdir"
 }
 
@@ -126,7 +129,7 @@ _package-headers() {
   cd $_srcname
   local builddir="$pkgdir/usr/lib/modules/$(<version)/build"
 
-  msg2 "Installing build files..."
+  echo "Installing build files..."
   install -Dt "$builddir" -m644 .config Makefile Module.symvers System.map \
     localversion.* version vmlinux
   install -Dt "$builddir/kernel" -m644 kernel/Makefile
@@ -139,7 +142,7 @@ _package-headers() {
   # add xfs and shmem for aufs building
   mkdir -p "$builddir"/{fs/xfs,mm}
 
-  msg2 "Installing headers..."
+  echo "Installing headers..."
   cp -t "$builddir" -a include
   cp -t "$builddir/arch/x86" -a arch/x86/include
   install -Dt "$builddir/arch/x86/kernel" -m644 arch/x86/kernel/asm-offsets.s
@@ -155,10 +158,10 @@ _package-headers() {
   install -Dt "$builddir/drivers/media/dvb-frontends" -m644 drivers/media/dvb-frontends/*.h
   install -Dt "$builddir/drivers/media/tuners" -m644 drivers/media/tuners/*.h
 
-  msg2 "Installing KConfig files..."
+  echo "Installing KConfig files..."
   find . -name 'Kconfig*' -exec install -Dm644 {} "$builddir/{}" \;
 
-  msg2 "Removing unneeded architectures..."
+  echo "Removing unneeded architectures..."
   local arch
   for arch in "$builddir"/arch/*/; do
     [[ $arch = */x86/ ]] && continue
@@ -166,16 +169,16 @@ _package-headers() {
     rm -r "$arch"
   done
 
-  msg2 "Removing documentation..."
+  echo "Removing documentation..."
   rm -r "$builddir/Documentation"
 
-  msg2 "Removing broken symlinks..."
+  echo "Removing broken symlinks..."
   find -L "$builddir" -type l -printf 'Removing %P\n' -delete
 
-  msg2 "Removing loose objects..."
+  echo "Removing loose objects..."
   find "$builddir" -type f -name '*.o' -printf 'Removing %P\n' -delete
 
-  msg2 "Stripping build tools..."
+  echo "Stripping build tools..."
   local file
   while read -rd '' file; do
     case "$(file -bi "$file")" in
@@ -190,11 +193,11 @@ _package-headers() {
     esac
   done < <(find "$builddir" -type f -perm -u+x ! -name vmlinux -print0)
 
-  msg2 "Adding symlink..."
+  echo "Adding symlink..."
   mkdir -p "$pkgdir/usr/src"
   ln -sr "$builddir" "$pkgdir/usr/src/$pkgbase"
 
-  msg2 "Fixing permissions..."
+  echo "Fixing permissions..."
   chmod -Rc u=rwX,go=rX "$pkgdir"
 }
 
