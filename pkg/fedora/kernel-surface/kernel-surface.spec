@@ -87,7 +87,6 @@ Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-lte.patch
 Patch6:     %{surface_source}/%{kernel_patches}/0007-wifi.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
-Patch101:   0002-drm-i915-Mark-contents-as-dirty-on-a-write-fault.patch
 
 ExclusiveArch: x86_64
 
