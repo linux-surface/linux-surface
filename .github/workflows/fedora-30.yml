@@ -58,9 +58,28 @@ jobs:
         name: fedora-30-latest
         path: pkg/fedora/kernel-surface/out/x86_64
 
+  release:
+    name: Publish release
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download artifacts
+      uses: actions/download-artifact@v1
+      with:
+        name: fedora-30-latest
+
+    - name: Upload assets
+      uses: svenstaro/upload-release-action@v1-release
+      with:
+        repo_token: ${{ secrets.GITHUB_BOT_TOKEN }}
+        file: ./*-latest/*
+        tag: ${{ github.ref }}
+        overwrite: true
+        file_glob: true
+
   repo:
     name: Update package repository
-    needs: [build]
+    needs: [release]
     runs-on: ubuntu-latest
     container: fedora:30
     steps:
@@ -107,22 +126,3 @@ jobs:
         git add .
         git commit -m "Update Fedora 30 kernel"
         git push --set-upstream origin "${update_branch}"
-
-  release:
-    name: Publish release
-    needs: [repo]
-    runs-on: ubuntu-latest
-    steps:
-    - name: Download artifacts
-      uses: actions/download-artifact@v1
-      with:
-        name: fedora-30-latest
-
-    - name: Upload assets
-      uses: svenstaro/upload-release-action@v1-release
-      with:
-        repo_token: ${{ secrets.GITHUB_BOT_TOKEN }}
-        file: ./*-latest/*
-        tag: ${{ github.ref }}
-        overwrite: true
-        file_glob: true
