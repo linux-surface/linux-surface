@@ -126,14 +126,6 @@ jobs:
         apt-get update
         apt-get install -y reprepro git
 
-    - name: Checkout repository
-      uses: actions/checkout@v2
-      with:
-        repository: linux-surface/repo
-        token: ${{ secrets.GITHUB_BOT_TOKEN }}
-        fetch-depth: 0
-        ref: master
-
     - name: Download artifacts
       uses: actions/download-artifact@v1
       with:
@@ -141,40 +133,38 @@ jobs:
 
     - name: Update repository
       env:
-        GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
+        SURFACEBOT_TOKEN: ${{ secrets.GITHUB_BOT_TOKEN }}
+        BRANCH_STAGING: u/staging
         GIT_REF: ${{ github.ref }}
       run: |
-        cd debian
+        repo="https://surfacebot:${SURFACEBOT_TOKEN}@github.com/linux-surface/repo.git"
 
-        # Import the GPG key for signing the repository
-        echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
+        # clone package repository
+        git clone -b "${BRANCH_STAGING}" "${repo}" repo
 
-        # Add packages to repository
-        for pkg in ../debian-latest/*.deb; do
-          reprepro --basedir . --component main includedeb release $pkg
-        done
-        rm -r ../debian-latest
+        # copy packages
+        cp debian-latest/* repo/debian/
+        cd repo/debian
 
-        # Parse git tag from ref
+        # parse git tag from ref
         GIT_TAG=$(echo $GIT_REF | sed 's|^refs/tags/||g')
 
-        # Convert packages into references
+        # convert packages into references
         for pkg in $(find . -name '*.deb'); do
           echo "linux-surface:$GIT_TAG/$(basename $pkg)" > $pkg.blob
           rm $pkg
         done
 
-    - name: Commit and push
-      uses: github-actions-x/commit@v2.3
-      with:
-        github-token: ${{ secrets.GITHUB_BOT_TOKEN }}
-        push-branch: master
-        commit-message: Update debian lts kernel
-        force-add: false
-        rebase: true
-        files: debian/*
-        name: surfacebot
-        email: surfacebot@users.noreply.github.com
+        # set git identity
+        git config --global user.email "surfacebot@users.noreply.github.com"
+        git config --global user.name "surfacebot"
+
+        # commit and push
+        update_branch="${BRANCH_STAGING}-$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
+        git switch -c "${update_branch}"
+        git add .
+        git commit -m "Update Debian LTS kernel"
+        git push --set-upstream origin "${update_branch}"
 
   release:
     name: Publish release
