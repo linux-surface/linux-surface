@@ -66,26 +66,7 @@ jobs:
     steps:
     - name: Install dependencies
       run: |
-        dnf install -y createrepo_c git findutils wget
-
-    - name: Checkout repository
-      uses: actions/checkout@v2
-      with:
-        repository: linux-surface/repo
-        token: ${{ secrets.GITHUB_BOT_TOKEN }}
-        fetch-depth: 0
-        ref: master
-
-    - name: Unpack repository
-      run: |
-        cd fedora/f30
-
-        for blob in $(find . -name '*.blob'); do
-          blobref="$(cat $blob)"
-          repo="${blobref%%:*}"
-          vers="${blobref#*:}"
-          wget "https://github.com/linux-surface/$repo/releases/download/$vers"
-        done
+        dnf install -y git
 
     - name: Download artifacts
       uses: actions/download-artifact@v1
@@ -94,40 +75,38 @@ jobs:
 
     - name: Update repository
       env:
-        GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
+        SURFACEBOT_TOKEN: ${{ secrets.GITHUB_BOT_TOKEN }}
+        BRANCH_STAGING: autoupd/staging
         GIT_REF: ${{ github.ref }}
       run: |
-        # Parse git tag from ref
+        repo="https://surfacebot:${SURFACEBOT_TOKEN}@github.com/linux-surface/repo.git"
+
+        # clone package repository
+        git clone -b "${BRANCH_STAGING}" "${repo}" repo
+
+        # copy packages
+        cp fedora-30-latest/* repo/fedora/f30
+        cd repo/fedora/f30
+
+        # parse git tag from ref
         GIT_TAG=$(echo $GIT_REF | sed 's|^refs/tags/||g')
 
-        for pkg in $(find fedora-30-latest -name '*.rpm'); do
+        # convert packages into references
+        for pkg in $(find . -name '*.pkg.tar.zst'); do
           echo "linux-surface:$GIT_TAG/$(basename $pkg)" > $pkg.blob
+          rm $pkg
         done
 
-        cp fedora-30-latest/* fedora/f30/
-        rm -r fedora-30-latest
+        # set git identity
+        git config --global user.email "surfacebot@users.noreply.github.com"
+        git config --global user.name "surfacebot"
 
-        cd fedora/f30
-        createrepo_c --xz --update --verbose .
-
-        # Sign the updated repository
-        echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
-        if [ -f 'repodata/repomd.xml.asc' ]; then
-          rm repodata/repomd.xml.asc
-        fi
-        gpg --detach-sign --batch --no-tty --armor -u $GPG_KEY_ID repodata/repomd.xml
-
-    - name: Commit and push
-      uses: github-actions-x/commit@v2.3
-      with:
-        github-token: ${{ secrets.GITHUB_BOT_TOKEN }}
-        push-branch: master
-        commit-message: Update f30 kernel
-        force-add: false
-        rebase: true
-        files: fedora/f30/*
-        name: surfacebot
-        email: surfacebot@users.noreply.github.com
+        # commit and push
+        update_branch="${BRANCH_STAGING}-$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
+        git switch -c "${update_branch}"
+        git add .
+        git commit -m "Update Fedora 30 kernel"
+        git push --set-upstream origin "${update_branch}"
 
   release:
     name: Publish release
