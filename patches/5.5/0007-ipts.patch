@@ -1,4 +1,4 @@
-From 3e83aa79daed3c26b4b525cb0a4314f9a3ef6035 Mon Sep 17 00:00:00 2001
+From a229e405b925f6d740e16a34edd014d9344aa520 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Mon, 27 Jan 2020 21:16:20 +0100
 Subject: [PATCH 7/7] ipts
@@ -13,7 +13,7 @@ Subject: [PATCH 7/7] ipts
  drivers/input/touchscreen/ipts/control.h      |  18 ++
  drivers/input/touchscreen/ipts/devices.c      |  46 +++
  drivers/input/touchscreen/ipts/devices.h      |  33 +++
- drivers/input/touchscreen/ipts/hid.c          | 122 ++++++++
+ drivers/input/touchscreen/ipts/hid.c          | 126 +++++++++
  drivers/input/touchscreen/ipts/hid.h          |  17 ++
  drivers/input/touchscreen/ipts/init.c         |  93 ++++++
  drivers/input/touchscreen/ipts/math.c         | 103 +++++++
@@ -36,7 +36,7 @@ Subject: [PATCH 7/7] ipts
  drivers/misc/mei/hw-me-regs.h                 |   2 +
  drivers/misc/mei/pci-me.c                     |   2 +
  include/uapi/linux/input.h                    |   1 +
- 32 files changed, 1591 insertions(+)
+ 32 files changed, 1595 insertions(+)
  create mode 100644 drivers/input/touchscreen/ipts/Kconfig
  create mode 100644 drivers/input/touchscreen/ipts/Makefile
  create mode 100644 drivers/input/touchscreen/ipts/context.h
@@ -415,10 +415,10 @@ index 000000000000..9bf8da9fbfab
 +#endif /* _IPTS_DEVICES_H_ */
 diff --git a/drivers/input/touchscreen/ipts/hid.c b/drivers/input/touchscreen/ipts/hid.c
 new file mode 100644
-index 000000000000..c9f27b0e3b75
+index 000000000000..866e8f02864f
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/hid.c
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,126 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
 +#include <linux/delay.h>
@@ -439,7 +439,11 @@ index 000000000000..c9f27b0e3b75
 +		struct ipts_context *ipts, struct ipts_touch_data *data)
 +{
 +	// If the buffer contains HID data, we are in single touch mode
-+	if (data->type == IPTS_TOUCH_DATA_TYPE_HID_REPORT)
++	//
++	// On gen7 IPTS will send other data using HID reports,
++	// so we have to additionally filter out the touch reports.
++	if (data->type == IPTS_TOUCH_DATA_TYPE_HID_REPORT &&
++			data->data[0] == 0x40)
 +		return IPTS_REPORT_TYPE_SINGLETOUCH;
 +
 +	// If the buffer doesn't contain touch data
@@ -1834,7 +1838,7 @@ index 000000000000..3b6424ade542
 +
 +#endif /* _IPTS_STYLUS_H_ */
 diff --git a/drivers/misc/mei/hw-me-regs.h b/drivers/misc/mei/hw-me-regs.h
-index 7cd67fb2365d..b6c685e861f9 100644
+index 87a0201ba6b3..3cf5922e8c64 100644
 --- a/drivers/misc/mei/hw-me-regs.h
 +++ b/drivers/misc/mei/hw-me-regs.h
 @@ -59,6 +59,7 @@
@@ -1845,16 +1849,16 @@ index 7cd67fb2365d..b6c685e861f9 100644
  #define MEI_DEV_ID_SPT_H      0xA13A  /* Sunrise Point H */
  #define MEI_DEV_ID_SPT_H_2    0xA13B  /* Sunrise Point H 2 */
  
-@@ -84,6 +85,7 @@
- #define MEI_DEV_ID_CMP_V      0xA3BA  /* Comet Point Lake V */
+@@ -88,6 +89,7 @@
+ #define MEI_DEV_ID_CMP_H_3    0x06e4  /* Comet Lake H 3 (iTouch) */
  
  #define MEI_DEV_ID_ICP_LP     0x34E0  /* Ice Lake Point LP */
 +#define MEI_DEV_ID_ICP_LP_4   0x34E4  /* Ice Lake Point LP 4 (iTouch) */
  
- #define MEI_DEV_ID_TGP_LP     0xA0E0  /* Tiger Lake Point LP */
+ #define MEI_DEV_ID_JSP_N      0x4DE0  /* Jasper Lake Point N */
  
 diff --git a/drivers/misc/mei/pci-me.c b/drivers/misc/mei/pci-me.c
-index c845b7e40f26..0d1a13bb406a 100644
+index 2711451b3d87..00d1eaa03dc7 100644
 --- a/drivers/misc/mei/pci-me.c
 +++ b/drivers/misc/mei/pci-me.c
 @@ -77,6 +77,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
@@ -1865,8 +1869,8 @@ index c845b7e40f26..0d1a13bb406a 100644
  	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT_H, MEI_ME_PCH8_SPS_CFG)},
  	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT_H_2, MEI_ME_PCH8_SPS_CFG)},
  	{MEI_PCI_DEVICE(MEI_DEV_ID_LBG, MEI_ME_PCH12_CFG)},
-@@ -101,6 +102,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
- 	{MEI_PCI_DEVICE(MEI_DEV_ID_CMP_V, MEI_ME_PCH12_CFG)},
+@@ -103,6 +104,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
+ 	{MEI_PCI_DEVICE(MEI_DEV_ID_CMP_H_3, MEI_ME_PCH8_CFG)},
  
  	{MEI_PCI_DEVICE(MEI_DEV_ID_ICP_LP, MEI_ME_PCH12_CFG)},
 +	{MEI_PCI_DEVICE(MEI_DEV_ID_ICP_LP_4, MEI_ME_PCH12_CFG)},
