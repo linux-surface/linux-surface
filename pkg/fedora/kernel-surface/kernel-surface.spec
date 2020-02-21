@@ -152,6 +152,9 @@ pathfix.py -i "%{__python3} %{py3_shbang_opts}" -p -n \
 	scripts/show_delta \
 	scripts/diffconfig \
 	scripts/bloat-o-meter \
+%if "%{fedora_ver}" == "fc31"
+	scripts/jobserver-exec \
+%endif
 	tools/perf/tests/attr.py \
 	tools/perf/scripts/python/stat-cpi.py \
 	tools/perf/scripts/python/sched-migration.py \
