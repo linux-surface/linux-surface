@@ -2,11 +2,11 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc31 kernel-5.4.18-200.fc31
-%global kernel_tag_fc30 kernel-5.4.18-100.fc30
+%global kernel_tag_fc31 kernel-5.5.5-200.fc31
+%global kernel_tag_fc30 kernel-5.4.21-100.fc30
 
-%global kernel_release_fc31 3
-%global kernel_release_fc30 2
+%global kernel_release_fc31 1
+%global kernel_release_fc30 1
 
 %global fedora_title_fc31 31 (Thirty One)
 %global fedora_title_fc30 30 (Thirty)
@@ -27,7 +27,8 @@
 %global fedora_title %{fedora_title_%{fedora_ver}}
 
 %global kernel_version %(echo %{kernel_tag} | cut -d'-' -f2)
-%global kernel_patches patches/%(echo %{kernel_version} | cut -d'.' -f1-2)
+%global kernel_majorver %(echo %{kernel_version} | cut -d'.' -f1-2)
+%global kernel_patches patches/%{kernel_majorver}
 
 %global kernel_localversion %{kernel_release}.surface%{?dist}.%{_target_cpu}
 %global kernel_config kernel-%{kernel_version}-%{_target_cpu}.config
@@ -78,6 +79,18 @@ Source21:    %{sb_key}
 Source100:  mod-sign.sh
 Source101:  parallel_xz.sh
 
+%if "%{fedora_ver}" == "fc31"
+
+Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-power.patch
+Patch1:     %{surface_source}/%{kernel_patches}/0002-surface3-spi.patch
+Patch2:     %{surface_source}/%{kernel_patches}/0003-surface3-oemb.patch
+Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-sam.patch
+Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-lte.patch
+Patch5:     %{surface_source}/%{kernel_patches}/0006-wifi.patch
+Patch6:     %{surface_source}/%{kernel_patches}/0007-ipts.patch
+
+%else
+
 Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-power.patch
 Patch1:     %{surface_source}/%{kernel_patches}/0002-surface3-spi.patch
 Patch2:     %{surface_source}/%{kernel_patches}/0003-surface3-oemb.patch
@@ -85,6 +98,8 @@ Patch3:     %{surface_source}/%{kernel_patches}/0004-ioremap_uc.patch
 Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam.patch
 Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-lte.patch
 Patch6:     %{surface_source}/%{kernel_patches}/0007-wifi.patch
+
+%endif
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
