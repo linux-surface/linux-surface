@@ -70,7 +70,7 @@ Conflicts: xorg-x11-drv-vmmouse < 13.0.99
 BuildConflicts: rhbuildsys(DiskFree) < 500Mb
 
 Source0:    %{fedora_source}/snapshot/fedora-%{kernel_tag}.tar.gz
-Source1:    %{surface_source}/surface.config
+Source1:    %{surface_source}/configs/surface-%{kernel_majorver}.config
 Source2:    fedora.config
 
 Source20:    %{sb_crt}
