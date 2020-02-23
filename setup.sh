@@ -37,11 +37,6 @@ ask() {
     done
 }
 
-echo "==> Copying the config files under root to where they belong..."
-for dir in $(ls root/); do
-    sudo cp -Rbv "root/$dir/"* "/$dir/"
-done
-
 echo
 
 echo "Setting your clock to local time can fix issues with Windows dualboot."
