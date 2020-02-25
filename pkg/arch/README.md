@@ -4,13 +4,6 @@ Primarily tested on Arch Linux + Surface Laptop 13" (Intel).
 
 ## Instructions
 
-- Building firmware
-  ```
-  cd surface-ipts-firmware
-  makepkg -s
-  sudo pacman -U surface-ipts-firmware*.pkg.tar.*
-  ```
-
 - Building the patched kernel (includes ACPI module)
   ```
   cd kernel
@@ -19,11 +12,11 @@ Primarily tested on Arch Linux + Surface Laptop 13" (Intel).
   ```
   It's based on the Arch kernel tree (with patches curated by Arch developers) and Surface specific patches.
 
+- Building firmware:
+  Please refer to https://github.com/linux-surface/surface-ipts-firmware
+
 ### Advanced users / testers
 
 - Building the ACPI module as a DKMS package (won't work with secure boot):
-  ```
-  cd surface-aggregator-module
-  makepkg -s
-  sudo pacman -U *.pkg.tar.*
-  ```
+  Please refer to https://github.com/linux-surface/surface-aggregator-module
+
