@@ -2,8 +2,8 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc31 kernel-5.5.5-200.fc31
-%global kernel_tag_fc30 kernel-5.4.21-100.fc30
+%global kernel_tag_fc31 kernel-5.5.6-201.fc31
+%global kernel_tag_fc30 kernel-5.5.6-100.fc30
 
 %global kernel_release_fc31 1
 %global kernel_release_fc30 1
@@ -79,8 +79,6 @@ Source21:    %{sb_key}
 Source100:  mod-sign.sh
 Source101:  parallel_xz.sh
 
-%if "%{fedora_ver}" == "fc31"
-
 Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-power.patch
 Patch1:     %{surface_source}/%{kernel_patches}/0002-surface3-spi.patch
 Patch2:     %{surface_source}/%{kernel_patches}/0003-surface3-oemb.patch
@@ -88,18 +86,6 @@ Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-sam.patch
 Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-lte.patch
 Patch5:     %{surface_source}/%{kernel_patches}/0006-wifi.patch
 Patch6:     %{surface_source}/%{kernel_patches}/0007-ipts.patch
-
-%else
-
-Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-power.patch
-Patch1:     %{surface_source}/%{kernel_patches}/0002-surface3-spi.patch
-Patch2:     %{surface_source}/%{kernel_patches}/0003-surface3-oemb.patch
-Patch3:     %{surface_source}/%{kernel_patches}/0004-ioremap_uc.patch
-Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam.patch
-Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-lte.patch
-Patch6:     %{surface_source}/%{kernel_patches}/0007-wifi.patch
-
-%endif
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
@@ -152,9 +138,7 @@ pathfix.py -i "%{__python3} %{py3_shbang_opts}" -p -n \
 	scripts/show_delta \
 	scripts/diffconfig \
 	scripts/bloat-o-meter \
-%if "%{fedora_ver}" == "fc31"
 	scripts/jobserver-exec \
-%endif
 	tools/perf/tests/attr.py \
 	tools/perf/scripts/python/stat-cpi.py \
 	tools/perf/scripts/python/sched-migration.py \
