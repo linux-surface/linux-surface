@@ -51,17 +51,23 @@ fi
 echo
 
 echo "WARNING: This script doesn't automatically install packages anymore."
-echo "Please download and install them from the releases page!"
+echo "Please add a package repository and install the packages yourself!"
+echo "https://github.com/linux-surface/linux-surface/wiki/Installation-and-Setup#surface-kernel-installation"
 echo
-echo "Patched libwacom packages are available to better support the pen."
-echo "If you intend to use the pen, it's recommended that you install them!"
-echo "  https://github.com/linux-surface/libwacom-surface-deb/releases"
+echo "You should also check the post installation notes:"
+echo "https://github.com/linux-surface/linux-surface/wiki/Installation-and-Setup#post-installation"
 echo
-echo "Install the IPTS firmware package:"
-echo "  https://github.com/linux-surface/surface-ipts-firmware/releases"
+echo "If you want to install the packages manually instead:"
 echo
 echo "Install the patched kernel:"
 echo "- SL3/SP7: Use the latest release."
 echo "- Other devices: Use the latest 4.19/5.3 release if you want multi-touch"
 echo "  support. 5.5 only supports pen and single-touch."
 echo "  https://github.com/linux-surface/linux-surface/releases"
+echo
+echo "Install the IPTS firmware package:"
+echo "  https://github.com/linux-surface/surface-ipts-firmware/releases"
+echo
+echo "Patched libwacom packages are available to better support the pen."
+echo "If you intend to use the pen, it's recommended that you install them!"
+echo "  https://github.com/linux-surface/libwacom-surface-deb/releases"
