@@ -37,14 +37,6 @@ ask() {
     done
 }
 
-echo "==> Copying the config files under root to where they belong..."
-for dir in $(ls root/); do
-    sudo cp -Rbv "root/$dir/"* "/$dir/"
-done
-
-echo "==> Copying firmware files under root..."
-sudo cp -rv firmware/* /lib/firmware/
-
 echo
 
 echo "Setting your clock to local time can fix issues with Windows dualboot."
@@ -59,15 +51,23 @@ fi
 echo
 
 echo "WARNING: This script doesn't automatically install packages anymore."
-echo "Please download and install them from the releases page!"
-echo ""
+echo "Please add a package repository and install the packages yourself!"
+echo "https://github.com/linux-surface/linux-surface/wiki/Installation-and-Setup#surface-kernel-installation"
+echo
+echo "You should also check the post installation notes:"
+echo "https://github.com/linux-surface/linux-surface/wiki/Installation-and-Setup#post-installation"
+echo
+echo "If you want to install the packages manually instead:"
+echo
+echo "Install the patched kernel:"
+echo "- SL3/SP7: Use the latest release."
+echo "- Other devices: Use the latest 4.19/5.3 release if you want multi-touch"
+echo "  support. 5.5 only supports pen and single-touch."
+echo "  https://github.com/linux-surface/linux-surface/releases"
+echo
+echo "Install the IPTS firmware package:"
+echo "  https://github.com/linux-surface/surface-ipts-firmware/releases"
+echo
 echo "Patched libwacom packages are available to better support the pen."
 echo "If you intend to use the pen, it's recommended that you install them!"
 echo "  https://github.com/linux-surface/libwacom-surface-deb/releases"
-echo
-echo "Install the patched kernel:"
-echo "  https://github.com/linux-surface/linux-surface/releases"
-echo
-echo "- SL3/SP7: Use the latest 5.4 release."
-echo "- Other devices: Use the latest 5.3 release if you want touchscreen"
-echo "  support. It's currently broken on 5.4."

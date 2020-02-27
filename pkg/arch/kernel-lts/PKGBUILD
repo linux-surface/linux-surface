@@ -1,0 +1,221 @@
+# Maintainer: Maximilian Luz <luzmaximilian@gmail.com>
+
+pkgbase=linux-surface-lts
+pkgver=4.19.106
+pkgrel=1
+pkgdesc='LTS Linux'
+url="https://www.kernel.org/"
+arch=(x86_64)
+license=(GPL2)
+makedepends=(
+  bc kmod libelf
+  xmlto python-sphinx python-sphinx_rtd_theme graphviz imagemagick
+)
+options=('!strip')
+_srcname=linux-$pkgver
+source=(
+  https://www.kernel.org/pub/linux/kernel/v${pkgver%%.*}.x/${_srcname}.tar.{xz,sign}
+  config         # the main kernel config file
+  0001-ZEN-Add-sysctl-and-CONFIG-to-disallow-unprivileged-C.patch
+
+  surface.config
+
+  0001-surface3-power.patch
+  0002-surface3-spi.patch
+  0003-surface3-oemb.patch
+  0004-surface-buttons.patch
+  0005-surface-sam.patch
+  0006-suspend.patch
+  0007-ipts.patch
+  0008-surface-lte.patch
+  0009-ioremap_uc.patch
+  0010-wifi.patch
+)
+validpgpkeys=(
+  'ABAF11C65A2970B130ABE3C479BE3E4300411886'  # Linus Torvalds
+  '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
+)
+# https://www.kernel.org/pub/linux/kernel/v4.x/sha256sums.asc
+sha256sums=('63c8bd76a9b282e18112f8ff9e3fd41e3d1df9f9b7248ea1a370b05a827e9cda'
+            'SKIP'
+            '4e68572e7cc4c5368f0236e0792660ae8498373988625dca46e509399a7eaea6' # config
+            'a13581d3c6dc595206e4fe7fcf6b542e7a1bdbe96101f0f010fc5be49f99baf2' # 0001-ZEN-Add-sysctl-and-CONFIG-to-disallow-unprivileged-C.patch
+            '75080f2961b8745fc7c4f4563a8c93e7f2f47446ce736f1ad89c3de99f9ef2c1' # surface.config
+
+            '393dff7390fd83fd49cbae944aa8a1d449d6602c07bd07959ac5fa22f849962b' # 0001-surface3-power.patch
+            '254329686dce44a4e7e88835995963c97b66825d208129b1044c66fd00eb1176' # 0002-surface3-spi.patch
+            '17bdcf288b7d038a4860e64fb76d9cd69f46384939d29a974e6c0ee440e52edf' # 0003-surface3-oemb.patch
+            '541a7c778b115e8f417c1e2932adcef316e764a3480273dbcd4ae4264261d75c' # 0004-surface-buttons.patch
+            '4d9e6ef08179c2da5712669a8953fd7abf3f1b2f77b583ce4c454604e04169af' # 0005-surface-sam.patch
+            '76f97f33f0bf09884d0249f4fa2ab88fb4d2c3a5aa229b62350b29a5c9b33c16' # 0006-suspend.patch
+            'd33f80ead00634329cf684bd52f0a302904fcf9896f5a1d17eeac97f102bdb6d' # 0007-ipts.patch
+            '35b7a48b84b567366372dc1f653f9bd67945b870477ec3ef18e2bf3b9a61027e' # 0008-surface-lte.patch
+            '2fed1846459333486c3e548ee8a3a6d169fae88fdd0c8246cea8b23c42192aff' # 0009-ioremap_uc.patch
+            '2d4dabf0b5b0e788348de57424725d52d2103b8abb84951b9af9fdf95f7af04b' # 0010-wifi.patch
+          )
+
+export KBUILD_BUILD_HOST=archlinux
+export KBUILD_BUILD_USER=$pkgbase
+export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EPOCH})"
+
+# optional certificate and key for secure boot signing
+_mok_crt="$PWD/MOK.crt"
+_mok_key="$PWD/MOK.key"
+
+prepare() {
+  cd $_srcname
+
+  msg2 "Setting version..."
+  scripts/setlocalversion --save-scmversion
+  echo "-$pkgrel" > localversion.10-pkgrel
+  echo "${pkgbase#linux}" > localversion.20-pkgname
+
+  local src
+  for src in "${source[@]}"; do
+    src="${src%%::*}"
+    src="${src##*/}"
+    [[ $src = *.patch ]] || continue
+    msg2 "Applying patch $src..."
+    patch -Np1 < "../$src"
+  done
+
+  msg2 "Setting config..."
+  # cp ../config .config
+  # merge the two configs together
+  ./scripts/kconfig/merge_config.sh -m ../config ../surface.config
+  make olddefconfig
+
+  make -s kernelrelease > version
+  msg2 "Prepared %s version %s" "$pkgbase" "$(<version)"
+}
+
+build() {
+  cd $_srcname
+  make bzImage modules
+}
+
+_package() {
+  pkgdesc="The $pkgdesc kernel and modules"
+  depends=(coreutils kmod initramfs)
+  optdepends=('crda: to set the correct wireless channels of your country'
+              'linux-firmware: firmware images needed for some devices')
+
+  cd $_srcname
+  local kernver="$(<version)"
+  local modulesdir="$pkgdir/usr/lib/modules/$kernver"
+  local image_name="$(make -s image_name)"
+
+  # sign boot image if the prequisites are available
+  if [[ -f "$_mok_crt" ]] && [[ -f "$_mok_key" ]] && [[ -x "$(command -v sbsign)" ]]; then
+    msg2 "Signing boot image..."
+    sbsign --key "$_mok_key" --cert "$_mok_crt" --output "$image_name" "$image_name"
+  fi
+
+  msg2 "Installing boot image..."
+  # systemd expects to find the kernel here to allow hibernation
+  # https://github.com/systemd/systemd/commit/edda44605f06a41fb86b7ab8128dcf99161d2344
+  install -Dm644 "$image_name" "$modulesdir/vmlinuz"
+
+  # Used by mkinitcpio to name the kernel
+  echo "$pkgbase" | install -Dm644 /dev/stdin "$modulesdir/pkgbase"
+
+  msg2 "Installing modules..."
+  make INSTALL_MOD_PATH="$pkgdir/usr" modules_install
+
+  # remove build and source links
+  rm "$modulesdir"/{source,build}
+
+  msg2 "Fixing permissions..."
+  chmod -Rc u=rwX,go=rX "$pkgdir"
+}
+
+_package-headers() {
+  pkgdesc="Headers and scripts for building modules for the $pkgdesc kernel"
+
+  cd $_srcname
+  local builddir="$pkgdir/usr/lib/modules/$(<version)/build"
+
+  msg2 "Installing build files..."
+  install -Dt "$builddir" -m644 .config Makefile Module.symvers System.map \
+    localversion.* version vmlinux
+  install -Dt "$builddir/kernel" -m644 kernel/Makefile
+  install -Dt "$builddir/arch/x86" -m644 arch/x86/Makefile
+  cp -t "$builddir" -a scripts
+
+  # add objtool for external module building and enabled VALIDATION_STACK option
+  install -Dt "$builddir/tools/objtool" tools/objtool/objtool
+
+  # add xfs and shmem for aufs building
+  mkdir -p "$builddir"/{fs/xfs,mm}
+
+  # this is gone in v5.3
+  mkdir "$builddir/.tmp_versions"
+
+  msg2 "Installing headers..."
+  cp -t "$builddir" -a include
+  cp -t "$builddir/arch/x86" -a arch/x86/include
+  install -Dt "$builddir/arch/x86/kernel" -m644 arch/x86/kernel/asm-offsets.s
+
+  install -Dt "$builddir/drivers/md" -m644 drivers/md/*.h
+  install -Dt "$builddir/net/mac80211" -m644 net/mac80211/*.h
+
+  # http://bugs.archlinux.org/task/13146
+  install -Dt "$builddir/drivers/media/i2c" -m644 drivers/media/i2c/msp3400-driver.h
+
+  # http://bugs.archlinux.org/task/20402
+  install -Dt "$builddir/drivers/media/usb/dvb-usb" -m644 drivers/media/usb/dvb-usb/*.h
+  install -Dt "$builddir/drivers/media/dvb-frontends" -m644 drivers/media/dvb-frontends/*.h
+  install -Dt "$builddir/drivers/media/tuners" -m644 drivers/media/tuners/*.h
+
+  msg2 "Installing KConfig files..."
+  find . -name 'Kconfig*' -exec install -Dm644 {} "$builddir/{}" \;
+
+  msg2 "Removing unneeded architectures..."
+  local arch
+  for arch in "$builddir"/arch/*/; do
+    [[ $arch = */x86/ ]] && continue
+    echo "Removing $(basename "$arch")"
+    rm -r "$arch"
+  done
+
+  msg2 "Removing documentation..."
+  rm -r "$builddir/Documentation"
+
+  msg2 "Removing broken symlinks..."
+  find -L "$builddir" -type l -printf 'Removing %P\n' -delete
+
+  msg2 "Removing loose objects..."
+  find "$builddir" -type f -name '*.o' -printf 'Removing %P\n' -delete
+
+  msg2 "Stripping build tools..."
+  local file
+  while read -rd '' file; do
+    case "$(file -bi "$file")" in
+      application/x-sharedlib\;*)      # Libraries (.so)
+        strip -v $STRIP_SHARED "$file" ;;
+      application/x-archive\;*)        # Libraries (.a)
+        strip -v $STRIP_STATIC "$file" ;;
+      application/x-executable\;*)     # Binaries
+        strip -v $STRIP_BINARIES "$file" ;;
+      application/x-pie-executable\;*) # Relocatable binaries
+        strip -v $STRIP_SHARED "$file" ;;
+    esac
+  done < <(find "$builddir" -type f -perm -u+x ! -name vmlinux -print0)
+
+  msg2 "Adding symlink..."
+  mkdir -p "$pkgdir/usr/src"
+  ln -sr "$builddir" "$pkgdir/usr/src/$pkgbase"
+
+  msg2 "Fixing permissions..."
+  chmod -Rc u=rwX,go=rX "$pkgdir"
+}
+
+pkgname=("$pkgbase" "$pkgbase-headers")
+for _p in "${pkgname[@]}"; do
+  eval "package_$_p() {
+    $(declare -f "_package${_p#$pkgbase}")
+    _package${_p#$pkgbase}
+  }"
+done
+
+# vim:set ts=8 sts=2 sw=2 et:
