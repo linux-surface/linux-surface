@@ -5,13 +5,13 @@
 %global kernel_tag_fc31 kernel-5.5.9-200.fc31
 %global kernel_tag_fc30 kernel-5.5.9-100.fc30
 
-%global kernel_release_fc31 1
-%global kernel_release_fc30 1
+%global kernel_release_fc31 2
+%global kernel_release_fc30 2
 
 %global fedora_title_fc31 31 (Thirty One)
 %global fedora_title_fc30 30 (Thirty)
 
-%global ls_patches_commit 3edcfeee65a85d67d7f308b40f51285ccab46788
+%global ls_patches_commit f62156c9e1e771f6d5ac9f4aebcb5e042d364e1b
 
 %global sb_crt surface.crt
 %global sb_key surface.key
