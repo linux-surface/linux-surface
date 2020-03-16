@@ -146,6 +146,10 @@ pathfix.py -i "%{__python3} %{py3_shbang_opts}" -p -n \
 	scripts/gen_compile_commands.py
 
 %build
+
+# This ensures build-ids are unique to allow parallel debuginfo
+perl -p -i -e "s/^CONFIG_BUILD_SALT.*/CONFIG_BUILD_SALT=\"%{kernel_name}\"/" .config
+
 make %{?_smp_mflags} all LOCALVERSION=-%{kernel_localversion} ARCH=%{_target_cpu}
 
 %define __modsign_install_post \
