@@ -1,13 +1,58 @@
-From 0ddca72e89d8d512ec8ba779be709c7be185aca2 Mon Sep 17 00:00:00 2001
+From 2b22581e4dd5184f87f264af7499cc034b543cb6 Mon Sep 17 00:00:00 2001
 From: sebanc <22224731+sebanc@users.noreply.github.com>
 Date: Mon, 4 Nov 2019 09:30:57 +0100
 Subject: [PATCH 10/10] wifi
 
 ---
+ .../net/wireless/marvell/mwifiex/cfg80211.c   | 26 +++++++
  drivers/net/wireless/marvell/mwifiex/pcie.c   | 75 ++++++++++---------
- .../net/wireless/marvell/mwifiex/sta_cmd.c    | 15 +---
- 2 files changed, 40 insertions(+), 50 deletions(-)
+ .../net/wireless/marvell/mwifiex/sta_cmd.c    | 26 +------
+ 3 files changed, 66 insertions(+), 61 deletions(-)
 
+diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+index 7b74ef71bef1..d8e65b733cb3 100644
+--- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
++++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+@@ -25,6 +25,11 @@
+ static char *reg_alpha2;
+ module_param(reg_alpha2, charp, 0);
+ 
++static bool allow_ps_mode;
++module_param(allow_ps_mode, bool, 0444);
++MODULE_PARM_DESC(allow_ps_mode,
++		 "allow WiFi power management to be enabled. (default: disallowed)");
++
+ static const struct ieee80211_iface_limit mwifiex_ap_sta_limits[] = {
+ 	{
+ 		.max = 3, .types = BIT(NL80211_IFTYPE_STATION) |
+@@ -439,6 +444,27 @@ mwifiex_cfg80211_set_power_mgmt(struct wiphy *wiphy,
+ 
+ 	ps_mode = enabled;
+ 
++	/* Allow ps_mode to be enabled only when allow_ps_mode is set
++	 * (but always allow ps_mode to be disabled in case it gets enabled
++	 * for unknown reason and you want to disable it) */
++	if (ps_mode && !allow_ps_mode) {
++		dev_info(priv->adapter->dev,
++			    "Request to enable ps_mode received but it's disallowed "
++			    "by module parameter. Rejecting the request.\n");
++
++		/* Return negative value to inform userspace tools that setting
++		 * power_save to be enabled is not permitted. */
++		return -1;
++	}
++
++	if (ps_mode)
++		dev_warn(priv->adapter->dev,
++			    "WARN: Request to enable ps_mode received. Enabling it. "
++			    "Disable it if you encounter connection instability.\n");
++	else
++		dev_info(priv->adapter->dev,
++			    "Request to disable ps_mode received. Disabling it.\n");
++
+ 	return mwifiex_drv_set_power(priv, &ps_mode);
+ }
+ 
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
 index 991b9cc18000..4549359ee19b 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie.c
@@ -128,7 +173,7 @@ index 991b9cc18000..4549359ee19b 100644
  }
  
 diff --git a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
-index 4ed10cf82f9a..013db4386c39 100644
+index 4ed10cf82f9a..977b57c0908f 100644
 --- a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
 +++ b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
 @@ -2265,14 +2265,13 @@ int mwifiex_sta_prepare_cmd(struct mwifiex_private *priv, uint16_t cmd_no,
@@ -147,7 +192,25 @@ index 4ed10cf82f9a..013db4386c39 100644
  
  	if (first_sta) {
  		if (priv->adapter->iface_type == MWIFIEX_PCIE) {
-@@ -2395,18 +2394,6 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
+@@ -2339,17 +2338,6 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
+ 		if (ret)
+ 			return -1;
+ 
+-		if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
+-			/* Enable IEEE PS by default */
+-			priv->adapter->ps_mode = MWIFIEX_802_11_POWER_MODE_PSP;
+-			ret = mwifiex_send_cmd(priv,
+-					       HostCmd_CMD_802_11_PS_MODE_ENH,
+-					       EN_AUTO_PS, BITMAP_STA_PS, NULL,
+-					       true);
+-			if (ret)
+-				return -1;
+-		}
+-
+ 		if (drcs) {
+ 			adapter->drcs_enabled = true;
+ 			if (ISSUPP_DRCS_ENABLED(adapter->fw_cap_info))
+@@ -2395,18 +2383,6 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
  	if (ret)
  		return -1;
  
@@ -167,5 +230,5 @@ index 4ed10cf82f9a..013db4386c39 100644
  		/* Send cmd to FW to enable/disable 11D function */
  		state_11d = ENABLE_11D;
 -- 
-2.25.0
+2.25.1
 

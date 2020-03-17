@@ -1,4 +1,4 @@
-From a229e405b925f6d740e16a34edd014d9344aa520 Mon Sep 17 00:00:00 2001
+From 503f194c91971b94a7a558e8108fa82b26c0d375 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Mon, 27 Jan 2020 21:16:20 +0100
 Subject: [PATCH 7/7] ipts
@@ -7,43 +7,48 @@ Subject: [PATCH 7/7] ipts
  drivers/input/touchscreen/Kconfig             |   2 +
  drivers/input/touchscreen/Makefile            |   1 +
  drivers/input/touchscreen/ipts/Kconfig        |  16 ++
- drivers/input/touchscreen/ipts/Makefile       |  16 ++
+ drivers/input/touchscreen/ipts/Makefile       |  17 ++
  drivers/input/touchscreen/ipts/context.h      |  61 ++++
- drivers/input/touchscreen/ipts/control.c      |  93 ++++++
+ drivers/input/touchscreen/ipts/control.c      |  94 +++++++
  drivers/input/touchscreen/ipts/control.h      |  18 ++
- drivers/input/touchscreen/ipts/devices.c      |  46 +++
- drivers/input/touchscreen/ipts/devices.h      |  33 +++
- drivers/input/touchscreen/ipts/hid.c          | 126 +++++++++
- drivers/input/touchscreen/ipts/hid.h          |  17 ++
+ drivers/input/touchscreen/ipts/data.c         | 107 +++++++
+ drivers/input/touchscreen/ipts/data.h         |  12 +
+ drivers/input/touchscreen/ipts/hid.c          |  38 +++
+ drivers/input/touchscreen/ipts/hid.h          |  13 +
  drivers/input/touchscreen/ipts/init.c         |  93 ++++++
  drivers/input/touchscreen/ipts/math.c         | 103 +++++++
  drivers/input/touchscreen/ipts/math.h         |  21 ++
  drivers/input/touchscreen/ipts/params.c       |  27 ++
  drivers/input/touchscreen/ipts/params.h       |  15 +
- .../touchscreen/ipts/protocol/commands.h      |  55 ++++
- .../input/touchscreen/ipts/protocol/enums.h   |  59 ++++
+ drivers/input/touchscreen/ipts/payload.c      |  52 ++++
+ drivers/input/touchscreen/ipts/payload.h      |  14 +
+ .../touchscreen/ipts/protocol/commands.h      |  61 ++++
+ .../input/touchscreen/ipts/protocol/data.h    |  30 ++
  .../input/touchscreen/ipts/protocol/events.h  |  29 ++
- .../touchscreen/ipts/protocol/responses.h     |  40 +++
- .../input/touchscreen/ipts/protocol/touch.h   |  62 ++++
- drivers/input/touchscreen/ipts/receiver.c     | 266 ++++++++++++++++++
+ .../touchscreen/ipts/protocol/feedback.h      |  30 ++
+ .../input/touchscreen/ipts/protocol/payload.h |  47 ++++
+ .../touchscreen/ipts/protocol/responses.h     |  62 ++++
+ .../touchscreen/ipts/protocol/singletouch.h   |  17 ++
+ .../input/touchscreen/ipts/protocol/stylus.h  |  51 ++++
+ drivers/input/touchscreen/ipts/receiver.c     | 265 ++++++++++++++++++
  drivers/input/touchscreen/ipts/receiver.h     |   8 +
  drivers/input/touchscreen/ipts/resources.c    | 131 +++++++++
  drivers/input/touchscreen/ipts/resources.h    |  11 +
- drivers/input/touchscreen/ipts/singletouch.c  |  56 ++++
- drivers/input/touchscreen/ipts/singletouch.h  |  13 +
- drivers/input/touchscreen/ipts/stylus.c       | 159 +++++++++++
- drivers/input/touchscreen/ipts/stylus.h       |  13 +
+ drivers/input/touchscreen/ipts/singletouch.c  |  64 +++++
+ drivers/input/touchscreen/ipts/singletouch.h  |  14 +
+ drivers/input/touchscreen/ipts/stylus.c       | 191 +++++++++++++
+ drivers/input/touchscreen/ipts/stylus.h       |  14 +
  drivers/misc/mei/hw-me-regs.h                 |   2 +
  drivers/misc/mei/pci-me.c                     |   2 +
  include/uapi/linux/input.h                    |   1 +
- 32 files changed, 1595 insertions(+)
+ 37 files changed, 1734 insertions(+)
  create mode 100644 drivers/input/touchscreen/ipts/Kconfig
  create mode 100644 drivers/input/touchscreen/ipts/Makefile
  create mode 100644 drivers/input/touchscreen/ipts/context.h
  create mode 100644 drivers/input/touchscreen/ipts/control.c
  create mode 100644 drivers/input/touchscreen/ipts/control.h
- create mode 100644 drivers/input/touchscreen/ipts/devices.c
- create mode 100644 drivers/input/touchscreen/ipts/devices.h
+ create mode 100644 drivers/input/touchscreen/ipts/data.c
+ create mode 100644 drivers/input/touchscreen/ipts/data.h
  create mode 100644 drivers/input/touchscreen/ipts/hid.c
  create mode 100644 drivers/input/touchscreen/ipts/hid.h
  create mode 100644 drivers/input/touchscreen/ipts/init.c
@@ -51,11 +56,16 @@ Subject: [PATCH 7/7] ipts
  create mode 100644 drivers/input/touchscreen/ipts/math.h
  create mode 100644 drivers/input/touchscreen/ipts/params.c
  create mode 100644 drivers/input/touchscreen/ipts/params.h
+ create mode 100644 drivers/input/touchscreen/ipts/payload.c
+ create mode 100644 drivers/input/touchscreen/ipts/payload.h
  create mode 100644 drivers/input/touchscreen/ipts/protocol/commands.h
- create mode 100644 drivers/input/touchscreen/ipts/protocol/enums.h
+ create mode 100644 drivers/input/touchscreen/ipts/protocol/data.h
  create mode 100644 drivers/input/touchscreen/ipts/protocol/events.h
+ create mode 100644 drivers/input/touchscreen/ipts/protocol/feedback.h
+ create mode 100644 drivers/input/touchscreen/ipts/protocol/payload.h
  create mode 100644 drivers/input/touchscreen/ipts/protocol/responses.h
- create mode 100644 drivers/input/touchscreen/ipts/protocol/touch.h
+ create mode 100644 drivers/input/touchscreen/ipts/protocol/singletouch.h
+ create mode 100644 drivers/input/touchscreen/ipts/protocol/stylus.h
  create mode 100644 drivers/input/touchscreen/ipts/receiver.c
  create mode 100644 drivers/input/touchscreen/ipts/receiver.h
  create mode 100644 drivers/input/touchscreen/ipts/resources.c
@@ -112,10 +122,10 @@ index 000000000000..d3c530dafa94
 +	  module will be called ipts.
 diff --git a/drivers/input/touchscreen/ipts/Makefile b/drivers/input/touchscreen/ipts/Makefile
 new file mode 100644
-index 000000000000..d80808175788
+index 000000000000..0f7c904e7317
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/Makefile
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,17 @@
 +# SPDX-License-Identifier: GPL-2.0-or-later
 +#
 +# Makefile for the IPTS touchscreen driver
@@ -123,18 +133,19 @@ index 000000000000..d80808175788
 +
 +obj-$(CONFIG_TOUCHSCREEN_IPTS) += ipts.o
 +ipts-objs := control.o
-+ipts-objs += devices.o
++ipts-objs += data.o
 +ipts-objs += hid.o
 +ipts-objs += init.o
 +ipts-objs += math.o
 +ipts-objs += params.o
++ipts-objs += payload.o
 +ipts-objs += receiver.o
 +ipts-objs += resources.o
 +ipts-objs += singletouch.o
 +ipts-objs += stylus.o
 diff --git a/drivers/input/touchscreen/ipts/context.h b/drivers/input/touchscreen/ipts/context.h
 new file mode 100644
-index 000000000000..97a6e13c30c5
+index 000000000000..13ea03b6482e
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/context.h
 @@ -0,0 +1,61 @@
@@ -148,13 +159,15 @@ index 000000000000..97a6e13c30c5
 +#include <linux/mei_cl_bus.h>
 +#include <linux/types.h>
 +
-+#include "devices.h"
-+#include "protocol/enums.h"
++#include "protocol/commands.h"
 +#include "protocol/responses.h"
 +
-+/*
-+ * IPTS driver states
-+ */
++/* HACK: Workaround for DKMS build without BUS_MEI patch */
++#ifndef BUS_MEI
++#define BUS_MEI 0x44
++#endif
++
++/* IPTS driver states */
 +enum ipts_host_status {
 +	IPTS_HOST_STATUS_NONE,
 +	IPTS_HOST_STATUS_INIT,
@@ -165,7 +178,6 @@ index 000000000000..97a6e13c30c5
 +};
 +
 +struct ipts_buffer_info {
-+	u32 size;
 +	u8 *address;
 +	dma_addr_t dma_address;
 +};
@@ -174,12 +186,11 @@ index 000000000000..97a6e13c30c5
 +	struct mei_cl_device *client_dev;
 +	struct device *dev;
 +	struct ipts_device_info device_info;
-+	struct ipts_device_config device_cfg;
 +
 +	enum ipts_host_status status;
 +	enum ipts_sensor_mode mode;
 +
-+	struct ipts_buffer_info touch_data[16];
++	struct ipts_buffer_info data[16];
 +	struct ipts_buffer_info feedback[16];
 +	struct ipts_buffer_info doorbell;
 +
@@ -191,7 +202,7 @@ index 000000000000..97a6e13c30c5
 +	struct ipts_buffer_info host2me;
 +
 +	struct task_struct *receiver_loop;
-+	struct task_struct *hid_loop;
++	struct task_struct *data_loop;
 +
 +	struct input_dev *stylus;
 +	struct input_dev *singletouch;
@@ -201,21 +212,21 @@ index 000000000000..97a6e13c30c5
 +#endif /* _IPTS_CONTEXT_H_ */
 diff --git a/drivers/input/touchscreen/ipts/control.c b/drivers/input/touchscreen/ipts/control.c
 new file mode 100644
-index 000000000000..66ccea1b0a74
+index 000000000000..9179eca66558
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/control.c
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,94 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
 +#include <linux/mei_cl_bus.h>
 +#include <linux/types.h>
 +
 +#include "context.h"
++#include "data.h"
 +#include "params.h"
 +#include "protocol/commands.h"
-+#include "protocol/enums.h"
 +#include "protocol/events.h"
-+#include "protocol/touch.h"
++#include "protocol/feedback.h"
 +#include "resources.h"
 +
 +int ipts_control_send(struct ipts_context *ipts,
@@ -287,6 +298,7 @@ index 000000000000..66ccea1b0a74
 +	if (old_status < IPTS_HOST_STATUS_RESOURCE_READY)
 +		return;
 +
++	ipts_data_free(ipts);
 +	ipts_resources_free(ipts);
 +}
 +
@@ -322,107 +334,15 @@ index 000000000000..e57609c85d62
 +		u32 buffer, u32 transaction);
 +
 +#endif /* _IPTS_CONTROL_H_ */
-diff --git a/drivers/input/touchscreen/ipts/devices.c b/drivers/input/touchscreen/ipts/devices.c
+diff --git a/drivers/input/touchscreen/ipts/data.c b/drivers/input/touchscreen/ipts/data.c
 new file mode 100644
-index 000000000000..10593a85e083
+index 000000000000..568bf04f7ea6
 --- /dev/null
-+++ b/drivers/input/touchscreen/ipts/devices.c
-@@ -0,0 +1,46 @@
-+// SPDX-License-Identifier: GPL-2.0-or-later
-+
-+#include <linux/kernel.h>
-+#include <linux/types.h>
-+
-+#include "devices.h"
-+
-+static const struct ipts_device_config ipts_devices[] = {
-+	{
-+		.vendor_id = 0x1B96,
-+		.device_id = 0x006A,
-+		.max_stylus_pressure = 1024,
-+		.stylus_protocol = IPTS_STYLUS_PROTOCOL_GEN1,
-+	},
-+	{
-+		.vendor_id = 0x1B96,
-+		.device_id = 0x005e,
-+		.max_stylus_pressure = 1024,
-+		.stylus_protocol = IPTS_STYLUS_PROTOCOL_GEN1,
-+	},
-+};
-+
-+struct ipts_device_config ipts_devices_get_config(u32 vendor, u32 device)
-+{
-+	int i;
-+	struct ipts_device_config cfg;
-+
-+	for (i = 0; i < ARRAY_SIZE(ipts_devices); i++) {
-+		cfg = ipts_devices[i];
-+
-+		if (cfg.vendor_id != vendor)
-+			continue;
-+		if (cfg.device_id != device)
-+			continue;
-+
-+		return cfg;
-+	}
-+
-+	// No device was found, so return a default config
-+	cfg.vendor_id = vendor;
-+	cfg.device_id = device;
-+	cfg.max_stylus_pressure = 4096;
-+	cfg.stylus_protocol = IPTS_STYLUS_PROTOCOL_GEN2;
-+
-+	return cfg;
-+}
-diff --git a/drivers/input/touchscreen/ipts/devices.h b/drivers/input/touchscreen/ipts/devices.h
-new file mode 100644
-index 000000000000..9bf8da9fbfab
---- /dev/null
-+++ b/drivers/input/touchscreen/ipts/devices.h
-@@ -0,0 +1,33 @@
-+/* SPDX-License-Identifier: GPL-2.0-or-later */
-+
-+#ifndef _IPTS_DEVICES_H_
-+#define _IPTS_DEVICES_H_
-+
-+#include <linux/types.h>
-+
-+/*
-+ * These names describe the different iterations of the IPTS stylus protocol.
-+ *
-+ * IPTS_STYLUS_PROTOCOL_GEN1 can be found on devices that don't have
-+ * support for tilt, and only 1024 pressure levels. (Using NTRIG digitizers)
-+ *
-+ * IPTS_STYLUS_PROTOCOL_GEN2 can be found on devices that support tilting
-+ * the stylus, with 4096 levels of pressure. (Using MS digitizers)
-+ *
-+ * New generations have to be added as they are discovered.
-+ */
-+enum ipts_stylus_protocol {
-+	IPTS_STYLUS_PROTOCOL_GEN1,
-+	IPTS_STYLUS_PROTOCOL_GEN2
-+};
-+
-+struct ipts_device_config {
-+	u32 vendor_id;
-+	u32 device_id;
-+	u32 max_stylus_pressure;
-+	enum ipts_stylus_protocol stylus_protocol;
-+};
-+
-+struct ipts_device_config ipts_devices_get_config(u32 vendor, u32 device);
-+
-+#endif /* _IPTS_DEVICES_H_ */
-diff --git a/drivers/input/touchscreen/ipts/hid.c b/drivers/input/touchscreen/ipts/hid.c
-new file mode 100644
-index 000000000000..866e8f02864f
---- /dev/null
-+++ b/drivers/input/touchscreen/ipts/hid.c
-@@ -0,0 +1,126 @@
++++ b/drivers/input/touchscreen/ipts/data.c
+@@ -0,0 +1,107 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
 +#include <linux/delay.h>
-+#include <linux/input.h>
 +#include <linux/kthread.h>
 +#include <linux/ktime.h>
 +
@@ -430,42 +350,16 @@ index 000000000000..866e8f02864f
 +#include "control.h"
 +#include "hid.h"
 +#include "params.h"
-+#include "protocol/enums.h"
-+#include "protocol/touch.h"
-+#include "singletouch.h"
-+#include "stylus.h"
++#include "payload.h"
++#include "protocol/data.h"
 +
-+static enum ipts_report_type ipts_hid_parse_report_type(
-+		struct ipts_context *ipts, struct ipts_touch_data *data)
-+{
-+	// If the buffer contains HID data, we are in single touch mode
-+	//
-+	// On gen7 IPTS will send other data using HID reports,
-+	// so we have to additionally filter out the touch reports.
-+	if (data->type == IPTS_TOUCH_DATA_TYPE_HID_REPORT &&
-+			data->data[0] == 0x40)
-+		return IPTS_REPORT_TYPE_SINGLETOUCH;
-+
-+	// If the buffer doesn't contain touch data
-+	// we don't care about it
-+	if (data->type != IPTS_TOUCH_DATA_TYPE_FRAME)
-+		return IPTS_REPORT_TYPE_MAX;
-+
-+	// If the number 0x6 is written at offset 14,
-+	// the report describes a stylus
-+	if (data->data[14] == 0x6)
-+		return IPTS_REPORT_TYPE_STYLUS;
-+
-+	return IPTS_REPORT_TYPE_MAX;
-+}
-+
-+static void ipts_hid_handle_input(struct ipts_context *ipts, int buffer_id)
++static void ipts_data_handle_input(struct ipts_context *ipts, int buffer_id)
 +{
 +	struct ipts_buffer_info buffer;
-+	struct ipts_touch_data *data;
++	struct ipts_data *data;
 +
-+	buffer = ipts->touch_data[buffer_id];
-+	data = (struct ipts_touch_data *)buffer.address;
++	buffer = ipts->data[buffer_id];
++	data = (struct ipts_data *)buffer.address;
 +
 +	if (ipts_params.debug) {
 +		dev_info(ipts->dev, "Buffer %d\n", buffer_id);
@@ -473,14 +367,14 @@ index 000000000000..866e8f02864f
 +				data->data, data->size, false);
 +	}
 +
-+	switch (ipts_hid_parse_report_type(ipts, data)) {
-+	case IPTS_REPORT_TYPE_STYLUS:
-+		ipts_stylus_parse_report(ipts, data);
++	switch (data->type) {
++	case IPTS_DATA_TYPE_PAYLOAD:
++		ipts_payload_handle_input(ipts, data);
 +		break;
-+	case IPTS_REPORT_TYPE_SINGLETOUCH:
-+		ipts_singletouch_parse_report(ipts, data);
++	case IPTS_DATA_TYPE_HID_REPORT:
++		ipts_hid_handle_input(ipts, data);
 +		break;
-+	case IPTS_REPORT_TYPE_MAX:
++	default:
 +		// ignore
 +		break;
 +	}
@@ -488,18 +382,19 @@ index 000000000000..866e8f02864f
 +	ipts_control_send_feedback(ipts, buffer_id, data->transaction);
 +}
 +
-+int ipts_hid_loop(void *data)
++int ipts_data_loop(void *data)
 +{
-+	time64_t ll_timeout;
-+	u32 doorbell, last_doorbell;
++	time64_t timeout;
++	u32 doorbell;
++	u32 last_doorbell;
 +	struct ipts_context *ipts;
 +
-+	ll_timeout = ktime_get_seconds() + 5;
++	timeout = ktime_get_seconds() + 5;
 +	ipts = (struct ipts_context *)data;
 +	last_doorbell = 0;
 +	doorbell = 0;
 +
-+	dev_info(ipts->dev, "Starting input loop\n");
++	dev_info(ipts->dev, "Starting data loop\n");
 +
 +	while (!kthread_should_stop()) {
 +		if (ipts->status != IPTS_HOST_STATUS_STARTED) {
@@ -507,37 +402,101 @@ index 000000000000..866e8f02864f
 +			continue;
 +		}
 +
-+		// IPTS will increment the doorbell after it filled up
-+		// all of the touch data buffers. If the doorbell didn't
-+		// change, there is no work for us to do.
++		// IPTS will increment the doorbell after if filled up one of
++		// the data buffers. If the doorbell didn't change, there is
++		// no work for us to do. Otherwise, the value of the doorbell
++		// will stand for the *next* buffer thats going to be filled.
 +		doorbell = *(u32 *)ipts->doorbell.address;
 +		if (doorbell == last_doorbell)
 +			goto sleep;
 +
-+		ll_timeout = ktime_get_seconds() + 5;
++		timeout = ktime_get_seconds() + 5;
 +
 +		while (last_doorbell != doorbell) {
-+			ipts_hid_handle_input(ipts, last_doorbell % 16);
++			ipts_data_handle_input(ipts, last_doorbell % 16);
 +			last_doorbell++;
 +		}
 +sleep:
-+		if (ll_timeout > ktime_get_seconds())
++		if (timeout > ktime_get_seconds())
 +			usleep_range(5000, 30000);
 +		else
 +			msleep(200);
 +	}
 +
-+	dev_info(ipts->dev, "Stopping input loop\n");
++	dev_info(ipts->dev, "Stopping data loop\n");
 +	return 0;
++}
++
++int ipts_data_init(struct ipts_context *ipts)
++{
++	int ret;
++
++	ret = ipts_payload_init(ipts);
++	if (ret)
++		return ret;
++
++	ret = ipts_hid_init(ipts);
++	if (ret)
++		return ret;
++
++	return 0;
++}
++
++void ipts_data_free(struct ipts_context *ipts)
++{
++	ipts_payload_free(ipts);
++	ipts_hid_free(ipts);
++}
+diff --git a/drivers/input/touchscreen/ipts/data.h b/drivers/input/touchscreen/ipts/data.h
+new file mode 100644
+index 000000000000..fa72c1be0945
+--- /dev/null
++++ b/drivers/input/touchscreen/ipts/data.h
+@@ -0,0 +1,12 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++
++#ifndef _IPTS_DATA_H_
++#define _IPTS_DATA_H_
++
++#include "context.h"
++
++int ipts_data_loop(void *data);
++int ipts_data_init(struct ipts_context *ipts);
++void ipts_data_free(struct ipts_context *ipts);
++
++#endif /* _IPTS_DATA_H_ */
+diff --git a/drivers/input/touchscreen/ipts/hid.c b/drivers/input/touchscreen/ipts/hid.c
+new file mode 100644
+index 000000000000..2642990b8c42
+--- /dev/null
++++ b/drivers/input/touchscreen/ipts/hid.c
+@@ -0,0 +1,38 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include "context.h"
++#include "protocol/data.h"
++#include "singletouch.h"
++
++/*
++ * IPTS on surface gen7 appears to make heavy use of HID reports, unlike
++ * previous generations. This file can be used to implement handling for
++ * them in the future, seperated from the actual singletouch implementation.
++ */
++
++void ipts_hid_handle_input(struct ipts_context *ipts, struct ipts_data *data)
++{
++	// Make sure that we only handle singletouch inputs
++	// 40 is the report id of the singletouch device in the generic
++	// IPTS HID descriptor.
++	if (data->data[0] != 0x40)
++		return;
++
++	ipts_singletouch_handle_input(ipts, data);
 +}
 +
 +int ipts_hid_init(struct ipts_context *ipts)
 +{
 +	int ret;
-+
-+	ret = ipts_stylus_init(ipts);
-+	if (ret)
-+		return ret;
 +
 +	ret = ipts_singletouch_init(ipts);
 +	if (ret)
@@ -545,32 +504,33 @@ index 000000000000..866e8f02864f
 +
 +	return 0;
 +}
++
++void ipts_hid_free(struct ipts_context *ipts)
++{
++	ipts_singletouch_free(ipts);
++}
 diff --git a/drivers/input/touchscreen/ipts/hid.h b/drivers/input/touchscreen/ipts/hid.h
 new file mode 100644
-index 000000000000..c6f2ca814c2f
+index 000000000000..e6cf38fce454
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/hid.h
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,13 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +
 +#ifndef _IPTS_HID_H_
 +#define _IPTS_HID_H_
 +
 +#include "context.h"
++#include "protocol/data.h"
 +
-+enum ipts_report_type {
-+	IPTS_REPORT_TYPE_STYLUS,
-+	IPTS_REPORT_TYPE_SINGLETOUCH,
-+	IPTS_REPORT_TYPE_MAX
-+};
-+
++int ipts_hid_handle_input(struct ipts_context *ipts, struct ipts_data *data);
 +int ipts_hid_init(struct ipts_context *ipts);
-+int ipts_hid_loop(void *data);
++void ipts_hid_free(struct ipts_context *ipts);
 +
 +#endif /* _IPTS_HID_H_ */
 diff --git a/drivers/input/touchscreen/ipts/init.c b/drivers/input/touchscreen/ipts/init.c
 new file mode 100644
-index 000000000000..46f7c7ed1534
+index 000000000000..fb70d55542af
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/init.c
 @@ -0,0 +1,93 @@
@@ -583,7 +543,7 @@ index 000000000000..46f7c7ed1534
 +
 +#include "context.h"
 +#include "control.h"
-+#include "hid.h"
++#include "data.h"
 +#include "receiver.h"
 +
 +#define IPTS_MEI_UUID UUID_LE(0x3e8d0870, 0x271a, 0x4208, \
@@ -628,8 +588,8 @@ index 000000000000..46f7c7ed1534
 +
 +	ipts->receiver_loop = kthread_run(ipts_receiver_loop, (void *)ipts,
 +			"ipts_receiver_loop");
-+	ipts->hid_loop = kthread_run(ipts_hid_loop, (void *)ipts,
-+			"ipts_hid_loop");
++	ipts->data_loop = kthread_run(ipts_data_loop, (void *)ipts,
++			"ipts_data_loop");
 +
 +	ipts_control_start(ipts);
 +
@@ -645,7 +605,7 @@ index 000000000000..46f7c7ed1534
 +	ipts_control_stop(ipts);
 +	mei_cldev_disable(cldev);
 +	kthread_stop(ipts->receiver_loop);
-+	kthread_stop(ipts->hid_loop);
++	kthread_stop(ipts->data_loop);
 +
 +	return 0;
 +}
@@ -857,12 +817,90 @@ index 000000000000..1f992a3bc21b
 +extern struct ipts_modparams ipts_params;
 +
 +#endif /* _IPTS_PARAMS_H_ */
+diff --git a/drivers/input/touchscreen/ipts/payload.c b/drivers/input/touchscreen/ipts/payload.c
+new file mode 100644
+index 000000000000..3572ddc0f2fb
+--- /dev/null
++++ b/drivers/input/touchscreen/ipts/payload.c
+@@ -0,0 +1,52 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include <linux/types.h>
++
++#include "context.h"
++#include "protocol/data.h"
++#include "protocol/payload.h"
++#include "stylus.h"
++
++void ipts_payload_handle_input(struct ipts_context *ipts,
++		struct ipts_data *data)
++{
++	u32 i, offset;
++	struct ipts_payload *payload;
++	struct ipts_payload_frame *frame;
++
++	payload = (struct ipts_payload *)data->data;
++	offset = 0;
++
++	for (i = 0; i < payload->num_frames; i++) {
++		frame = (struct ipts_payload_frame *)&payload->data[offset];
++		offset += sizeof(struct ipts_payload_frame) + frame->size;
++
++		switch (frame->type) {
++		case IPTS_PAYLOAD_FRAME_TYPE_STYLUS:
++			ipts_stylus_handle_input(ipts, frame);
++			break;
++		case IPTS_PAYLOAD_FRAME_TYPE_TOUCH:
++			// ignored (for the moment)
++			break;
++		default:
++			// ignored
++			break;
++		}
++	}
++}
++
++int ipts_payload_init(struct ipts_context *ipts)
++{
++	int ret;
++
++	ret = ipts_stylus_init(ipts);
++	if (ret)
++		return ret;
++
++	return 0;
++}
++
++void ipts_payload_free(struct ipts_context *ipts)
++{
++	ipts_stylus_free(ipts);
++}
+diff --git a/drivers/input/touchscreen/ipts/payload.h b/drivers/input/touchscreen/ipts/payload.h
+new file mode 100644
+index 000000000000..6603714bb6fd
+--- /dev/null
++++ b/drivers/input/touchscreen/ipts/payload.h
+@@ -0,0 +1,14 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++
++#ifndef _IPTS_PAYLOAD_H_
++#define _IPTS_PAYLOAD_H_
++
++#include "context.h"
++#include "protocol/data.h"
++
++void ipts_payload_handle_input(struct ipts_context *ipts,
++		struct ipts_data *data);
++int ipts_payload_init(struct ipts_context *ipts);
++void ipts_payload_free(struct ipts_context *ipts);
++
++#endif /* _IPTS_PAYLOAD_H_ */
 diff --git a/drivers/input/touchscreen/ipts/protocol/commands.h b/drivers/input/touchscreen/ipts/protocol/commands.h
 new file mode 100644
-index 000000000000..919a83264d05
+index 000000000000..2533dfb13584
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/protocol/commands.h
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,61 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +
 +#ifndef _IPTS_PROTOCOL_COMMANDS_H_
@@ -871,14 +909,20 @@ index 000000000000..919a83264d05
 +#include <linux/build_bug.h>
 +#include <linux/types.h>
 +
++enum ipts_sensor_mode {
++	IPTS_SENSOR_MODE_SINGLETOUCH = 0,
++	IPTS_SENSOR_MODE_MULTITOUCH,
++	IPTS_SENSOR_MODE_MAX
++};
++
 +struct ipts_set_mode_cmd {
 +	u32 sensor_mode;
 +	u8 reserved[12];
 +} __packed;
 +
 +struct ipts_set_mem_window_cmd {
-+	u32 touch_data_buffer_addr_lower[16];
-+	u32 touch_data_buffer_addr_upper[16];
++	u32 data_buffer_addr_lower[16];
++	u32 data_buffer_addr_upper[16];
 +	u32 workqueue_addr_lower;
 +	u32 workqueue_addr_upper;
 +	u32 doorbell_addr_lower;
@@ -918,71 +962,42 @@ index 000000000000..919a83264d05
 +static_assert(sizeof(struct ipts_command) == 324);
 +
 +#endif /* _IPTS_PROTOCOL_COMMANDS_H_ */
-diff --git a/drivers/input/touchscreen/ipts/protocol/enums.h b/drivers/input/touchscreen/ipts/protocol/enums.h
+diff --git a/drivers/input/touchscreen/ipts/protocol/data.h b/drivers/input/touchscreen/ipts/protocol/data.h
 new file mode 100644
-index 000000000000..ae952c4cf83c
+index 000000000000..148e0545b2e4
 --- /dev/null
-+++ b/drivers/input/touchscreen/ipts/protocol/enums.h
-@@ -0,0 +1,59 @@
++++ b/drivers/input/touchscreen/ipts/protocol/data.h
+@@ -0,0 +1,30 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +
-+#ifndef _IPTS_PROTOCOL_ENUMS_H_
-+#define _IPTS_PROTOCOL_ENUMS_H_
++#ifndef _IPTS_PROTOCOL_DATA_H_
++#define _IPTS_PROTOCOL_DATA_H_
 +
-+/*
-+ * IPTS ME state
-+ */
-+enum ipts_me_status {
-+	IPTS_ME_STATUS_SUCCESS = 0,
-+	IPTS_ME_STATUS_INVALID_PARAMS,
-+	IPTS_ME_STATUS_ACCESS_DENIED,
-+	IPTS_ME_STATUS_CMD_SIZE_ERROR,
-+	IPTS_ME_STATUS_NOT_READY,
-+	IPTS_ME_STATUS_REQUEST_OUTSTANDING,
-+	IPTS_ME_STATUS_NO_SENSOR_FOUND,
-+	IPTS_ME_STATUS_OUT_OF_MEMORY,
-+	IPTS_ME_STATUS_INTERNAL_ERROR,
-+	IPTS_ME_STATUS_SENSOR_DISABLED,
-+	IPTS_ME_STATUS_COMPAT_CHECK_FAIL,
-+	IPTS_ME_STATUS_SENSOR_EXPECTED_RESET,
-+	IPTS_ME_STATUS_SENSOR_UNEXPECTED_RESET,
-+	IPTS_ME_STATUS_RESET_FAILED,
-+	IPTS_ME_STATUS_TIMEOUT,
-+	IPTS_ME_STATUS_TEST_MODE_FAIL,
-+	IPTS_ME_STATUS_SENSOR_FAIL_FATAL,
-+	IPTS_ME_STATUS_SENSOR_FAIL_NONFATAL,
-+	IPTS_ME_STATUS_INVALID_DEVICE_CAPS,
-+	IPTS_ME_STATUS_QUIESCE_IO_IN_PROGRESS,
-+	IPTS_ME_STATUS_MAX
++#include <linux/build_bug.h>
++#include <linux/types.h>
++
++enum ipts_data_type {
++	IPTS_DATA_TYPE_PAYLOAD = 0,
++	IPTS_DATA_TYPE_ERROR,
++	IPTS_DATA_TYPE_VENDOR_DATA,
++	IPTS_DATA_TYPE_HID_REPORT,
++	IPTS_DATA_TYPE_GET_FEATURES,
++	IPTS_DATA_TYPE_MAX
 +};
 +
-+enum ipts_sensor_mode {
-+	IPTS_SENSOR_MODE_SINGLETOUCH = 0,
-+	IPTS_SENSOR_MODE_MULTITOUCH,
-+	IPTS_SENSOR_MODE_MAX
-+};
++struct ipts_data {
++	u32 type;
++	u32 size;
++	u32 buffer;
++	u8 reserved1[20];
++	u8 transaction;
++	u8 reserved2[31];
++	u8 data[];
++} __packed;
 +
-+enum ipts_touch_data_type {
-+	IPTS_TOUCH_DATA_TYPE_FRAME = 0,
-+	IPTS_TOUCH_DATA_TYPE_ERROR,
-+	IPTS_TOUCH_DATA_TYPE_VENDOR_DATA,
-+	IPTS_TOUCH_DATA_TYPE_HID_REPORT,
-+	IPTS_TOUCH_DATA_TYPE_GET_FEATURES,
-+	IPTS_TOUCH_DATA_TYPE_MAX
-+};
++static_assert(sizeof(struct ipts_data) == 64);
 +
-+enum ipts_feedback_type {
-+	IPTS_FEEDBACK_TYPE_NONE = 0,
-+	IPTS_FEEDBACK_TYPE_SOFT_RESET,
-+	IPTS_FEEDBACK_TYPE_GOTO_ARMED,
-+	IPTS_FEEDBACK_TYPE_GOTO_SENSING,
-+	IPTS_FEEDBACK_TYPE_GOTO_SLEEP,
-+	IPTS_FEEDBACK_TYPE_GOTO_DOZE,
-+	IPTS_FEEDBACK_TYPE_HARD_RESET,
-+	IPTS_FEEDBACK_TYPE_MAX
-+};
-+
-+#endif /* _IPTS_PROTOCOL_ENUMS_H_ */
++#endif /* _IPTS_PROTOCOL_DATA_H_ */
 diff --git a/drivers/input/touchscreen/ipts/protocol/events.h b/drivers/input/touchscreen/ipts/protocol/events.h
 new file mode 100644
 index 000000000000..f8b771f90bd2
@@ -1018,12 +1033,101 @@ index 000000000000..f8b771f90bd2
 +};
 +
 +#endif /* _IPTS_PROTOCOL_EVENTS_H_ */
+diff --git a/drivers/input/touchscreen/ipts/protocol/feedback.h b/drivers/input/touchscreen/ipts/protocol/feedback.h
+new file mode 100644
+index 000000000000..8b3d8b689ee8
+--- /dev/null
++++ b/drivers/input/touchscreen/ipts/protocol/feedback.h
+@@ -0,0 +1,30 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++
++#ifndef _IPTS_PROTOCOL_FEEDBACK_H_
++#define _IPTS_PROTOCOL_FEEDBACK_H_
++
++#include <linux/build_bug.h>
++#include <linux/types.h>
++
++enum ipts_feedback_type {
++	IPTS_FEEDBACK_TYPE_NONE = 0,
++	IPTS_FEEDBACK_TYPE_SOFT_RESET,
++	IPTS_FEEDBACK_TYPE_GOTO_ARMED,
++	IPTS_FEEDBACK_TYPE_GOTO_SENSING,
++	IPTS_FEEDBACK_TYPE_GOTO_SLEEP,
++	IPTS_FEEDBACK_TYPE_GOTO_DOZE,
++	IPTS_FEEDBACK_TYPE_HARD_RESET,
++	IPTS_FEEDBACK_TYPE_MAX
++};
++
++struct ipts_feedback {
++	u32 type;
++	u32 size;
++	u32 transaction;
++	u8 reserved[52];
++	u8 data[];
++} __packed;
++
++static_assert(sizeof(struct ipts_feedback) == 64);
++
++#endif /* _IPTS_PROTOCOL_FEEDBACK_H_ */
+diff --git a/drivers/input/touchscreen/ipts/protocol/payload.h b/drivers/input/touchscreen/ipts/protocol/payload.h
+new file mode 100644
+index 000000000000..f46da4ea81f2
+--- /dev/null
++++ b/drivers/input/touchscreen/ipts/protocol/payload.h
+@@ -0,0 +1,47 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++
++#ifndef _IPTS_PROTOCOL_PAYLOAD_H_
++#define _IPTS_PROTOCOL_PAYLOAD_H_
++
++#include <linux/build_bug.h>
++#include <linux/types.h>
++
++enum ipts_payload_frame_type {
++	IPTS_PAYLOAD_FRAME_TYPE_STYLUS = 6,
++	IPTS_PAYLOAD_FRAME_TYPE_TOUCH = 8,
++};
++
++enum ipts_report_type {
++	IPTS_REPORT_TYPE_TOUCH_HEATMAP_DIM = 0x0403,
++	IPTS_REPORT_TYPE_TOUCH_HEATMAP = 0x0425,
++	IPTS_REPORT_TYPE_STYLUS_NO_TILT = 0x0410,
++	IPTS_REPORT_TYPE_STYLUS_TILT = 0x0461,
++	IPTS_REPORT_TYPE_STYLUS_TILT_SERIAL = 0x0460,
++};
++
++struct ipts_payload {
++	u32 counter;
++	u32 num_frames;
++	u8 reserved[4];
++	u8 data[];
++} __packed;
++
++struct ipts_payload_frame {
++	u16 index;
++	u16 type;
++	u32 size;
++	u8 reserved[8];
++	u8 data[];
++} __packed;
++
++struct ipts_report {
++	u16 type;
++	u16 size;
++	u8 data[];
++} __packed;
++
++static_assert(sizeof(struct ipts_payload) == 12);
++static_assert(sizeof(struct ipts_payload_frame) == 16);
++static_assert(sizeof(struct ipts_report) == 4);
++
++#endif /* _IPTS_PROTOCOL_PAYLOAD_H_ */
 diff --git a/drivers/input/touchscreen/ipts/protocol/responses.h b/drivers/input/touchscreen/ipts/protocol/responses.h
 new file mode 100644
-index 000000000000..7f8902a1486b
+index 000000000000..27153d82a5d6
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/protocol/responses.h
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,62 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +
 +#ifndef _IPTS_PROTOCOL_RESPONSES_H_
@@ -1032,7 +1136,29 @@ index 000000000000..7f8902a1486b
 +#include <linux/build_bug.h>
 +#include <linux/types.h>
 +
-+#include "enums.h"
++enum ipts_me_status {
++	IPTS_ME_STATUS_SUCCESS = 0,
++	IPTS_ME_STATUS_INVALID_PARAMS,
++	IPTS_ME_STATUS_ACCESS_DENIED,
++	IPTS_ME_STATUS_CMD_SIZE_ERROR,
++	IPTS_ME_STATUS_NOT_READY,
++	IPTS_ME_STATUS_REQUEST_OUTSTANDING,
++	IPTS_ME_STATUS_NO_SENSOR_FOUND,
++	IPTS_ME_STATUS_OUT_OF_MEMORY,
++	IPTS_ME_STATUS_INTERNAL_ERROR,
++	IPTS_ME_STATUS_SENSOR_DISABLED,
++	IPTS_ME_STATUS_COMPAT_CHECK_FAIL,
++	IPTS_ME_STATUS_SENSOR_EXPECTED_RESET,
++	IPTS_ME_STATUS_SENSOR_UNEXPECTED_RESET,
++	IPTS_ME_STATUS_RESET_FAILED,
++	IPTS_ME_STATUS_TIMEOUT,
++	IPTS_ME_STATUS_TEST_MODE_FAIL,
++	IPTS_ME_STATUS_SENSOR_FAIL_FATAL,
++	IPTS_ME_STATUS_SENSOR_FAIL_NONFATAL,
++	IPTS_ME_STATUS_INVALID_DEVICE_CAPS,
++	IPTS_ME_STATUS_QUIESCE_IO_IN_PROGRESS,
++	IPTS_ME_STATUS_MAX
++};
 +
 +struct ipts_device_info {
 +	u16 vendor_id;
@@ -1041,7 +1167,7 @@ index 000000000000..7f8902a1486b
 +	u32 fw_rev;
 +
 +	/* Required size of one touch data buffer */
-+	u32 frame_size;
++	u32 data_size;
 +
 +	/* Required size of one feedback buffer */
 +	u32 feedback_size;
@@ -1064,38 +1190,57 @@ index 000000000000..7f8902a1486b
 +static_assert(sizeof(struct ipts_response) == 88);
 +
 +#endif /* _IPTS_PROTOCOL_RESPONSES_H_ */
-diff --git a/drivers/input/touchscreen/ipts/protocol/touch.h b/drivers/input/touchscreen/ipts/protocol/touch.h
+diff --git a/drivers/input/touchscreen/ipts/protocol/singletouch.h b/drivers/input/touchscreen/ipts/protocol/singletouch.h
 new file mode 100644
-index 000000000000..86248c015a2e
+index 000000000000..bf9912ee2af4
 --- /dev/null
-+++ b/drivers/input/touchscreen/ipts/protocol/touch.h
-@@ -0,0 +1,62 @@
++++ b/drivers/input/touchscreen/ipts/protocol/singletouch.h
+@@ -0,0 +1,17 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +
-+#ifndef _IPTS_PROTOCOL_TOUCH_H_
-+#define _IPTS_PROTOCOL_TOUCH_H_
++#ifndef _IPTS_PROTOCOL_SINGLETOUCH_H_
++#define _IPTS_PROTOCOL_SINGLETOUCH_H_
 +
++#include <linux/build_bug.h>
 +#include <linux/types.h>
 +
-+struct ipts_touch_data {
-+	u32 type;
-+	u32 size;
-+	u32 buffer;
-+	u8 reserved1[20];
-+	u8 transaction;
-+	u8 reserved2[31];
-+	u8 data[];
++struct ipts_singletouch_report {
++	u8 touch;
++	u16 x;
++	u16 y;
 +} __packed;
 +
-+struct ipts_feedback {
-+	u32 type;
-+	u32 size;
-+	u32 transaction;
-+	u8 reserved[52];
-+	u8 data[];
-+} __packed;
++static_assert(sizeof(struct ipts_singletouch_report) == 5);
++
++#endif /* _IPTS_PROTOCOL_SINGLETOUCH_H_ */
+diff --git a/drivers/input/touchscreen/ipts/protocol/stylus.h b/drivers/input/touchscreen/ipts/protocol/stylus.h
+new file mode 100644
+index 000000000000..1ae63c49bc07
+--- /dev/null
++++ b/drivers/input/touchscreen/ipts/protocol/stylus.h
+@@ -0,0 +1,51 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++
++#ifndef _IPTS_PROTOCOL_STYLUS_H_
++#define _IPTS_PROTOCOL_STYLUS_H_
++
++#include <linux/build_bug.h>
++#include <linux/types.h>
 +
 +struct ipts_stylus_report {
++	u8 reports;
++	u8 reserved[3];
++	u8 data[];
++} __packed;
++
++struct ipts_stylus_report_serial {
++	u8 reports;
++	u8 reserved[3];
++	u32 serial;
++	u8 data[];
++} __packed;
++
++struct ipts_stylus_report_data {
 +	u16 timestamp;
 +	u16 mode;
 +	u16 x;
@@ -1106,7 +1251,7 @@ index 000000000000..86248c015a2e
 +	u16 reserved;
 +} __packed;
 +
-+struct ipts_stylus_report_gen1 {
++struct ipts_stylus_report_data_no_tilt {
 +	u8 mode;
 +	u16 x;
 +	u16 y;
@@ -1114,39 +1259,31 @@ index 000000000000..86248c015a2e
 +	u8 reserved[5];
 +} __packed;
 +
-+struct ipts_singletouch_report {
-+	u8 touch;
-+	u16 x;
-+	u16 y;
-+} __packed;
++#define IPTS_STYLUS_REPORT_MODE_PROX   BIT(0)
++#define IPTS_STYLUS_REPORT_MODE_TOUCH  BIT(1)
++#define IPTS_STYLUS_REPORT_MODE_BUTTON BIT(2)
++#define IPTS_STYLUS_REPORT_MODE_ERASER BIT(3)
 +
-+#define IPTS_STYLUS_REPORT_MODE_PROXIMITY	BIT(0)
-+#define IPTS_STYLUS_REPORT_MODE_TOUCH		BIT(1)
-+#define IPTS_STYLUS_REPORT_MODE_BUTTON		BIT(2)
-+#define IPTS_STYLUS_REPORT_MODE_RUBBER		BIT(3)
++static_assert(sizeof(struct ipts_stylus_report) == 4);
++static_assert(sizeof(struct ipts_stylus_report_serial) == 8);
++static_assert(sizeof(struct ipts_stylus_report_data) == 16);
++static_assert(sizeof(struct ipts_stylus_report_data_no_tilt) == 12);
 +
-+static_assert(sizeof(struct ipts_touch_data) == 64);
-+static_assert(sizeof(struct ipts_feedback) == 64);
-+static_assert(sizeof(struct ipts_stylus_report) == 16);
-+static_assert(sizeof(struct ipts_stylus_report_gen1) == 12);
-+static_assert(sizeof(struct ipts_singletouch_report) == 5);
-+
-+#endif /* _IPTS_PROTOCOL_TOUCH_H_ */
++#endif /* _IPTS_PAYLOAD_STYLUS_H_ */
 diff --git a/drivers/input/touchscreen/ipts/receiver.c b/drivers/input/touchscreen/ipts/receiver.c
 new file mode 100644
-index 000000000000..06f4509ff1c4
+index 000000000000..ab283994c3e5
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/receiver.c
-@@ -0,0 +1,266 @@
+@@ -0,0 +1,265 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
 +#include <linux/types.h>
 +
 +#include "context.h"
 +#include "control.h"
-+#include "hid.h"
++#include "data.h"
 +#include "protocol/commands.h"
-+#include "protocol/enums.h"
 +#include "protocol/events.h"
 +#include "protocol/responses.h"
 +#include "resources.h"
@@ -1182,10 +1319,7 @@ index 000000000000..06f4509ff1c4
 +			ipts->device_info.vendor_id,
 +			ipts->device_info.device_id);
 +
-+	ipts->device_cfg = ipts_devices_get_config(ipts->device_info.vendor_id,
-+			ipts->device_info.device_id);
-+
-+	if (ipts_hid_init(ipts))
++	if (ipts_data_init(ipts))
 +		return;
 +
 +	*cmd_status = ipts_control_send(ipts,
@@ -1234,11 +1368,11 @@ index 000000000000..06f4509ff1c4
 +	memset(&cmd, 0, sizeof(struct ipts_set_mem_window_cmd));
 +
 +	for (i = 0; i < 16; i++) {
-+		cmd.touch_data_buffer_addr_lower[i] =
-+			lower_32_bits(ipts->touch_data[i].dma_address);
++		cmd.data_buffer_addr_lower[i] =
++			lower_32_bits(ipts->data[i].dma_address);
 +
-+		cmd.touch_data_buffer_addr_upper[i] =
-+			upper_32_bits(ipts->touch_data[i].dma_address);
++		cmd.data_buffer_addr_upper[i] =
++			upper_32_bits(ipts->data[i].dma_address);
 +
 +		cmd.feedback_buffer_addr_lower[i] =
 +			lower_32_bits(ipts->feedback[i].dma_address);
@@ -1255,7 +1389,7 @@ index 000000000000..06f4509ff1c4
 +
 +	cmd.host2me_addr_lower = lower_32_bits(ipts->host2me.dma_address);
 +	cmd.host2me_addr_upper = upper_32_bits(ipts->host2me.dma_address);
-+	cmd.host2me_size = ipts->device_info.frame_size;
++	cmd.host2me_size = ipts->device_info.data_size;
 +
 +	cmd.workqueue_size = 8192;
 +	cmd.workqueue_item_size = 16;
@@ -1367,6 +1501,9 @@ index 000000000000..06f4509ff1c4
 +		break;
 +	}
 +
++	if (ipts->status == IPTS_HOST_STATUS_STOPPING)
++		return 0;
++
 +	if (msg->status == IPTS_ME_STATUS_SENSOR_UNEXPECTED_RESET ||
 +			msg->status == IPTS_ME_STATUS_SENSOR_EXPECTED_RESET) {
 +		dev_info(ipts->dev, "Sensor has been reset: %d\n", msg->status);
@@ -1420,7 +1557,7 @@ index 000000000000..4d413a0abd4c
 +#endif /* _IPTS_RECEIVER_H_ */
 diff --git a/drivers/input/touchscreen/ipts/resources.c b/drivers/input/touchscreen/ipts/resources.c
 new file mode 100644
-index 000000000000..b4bec3cb63fd
+index 000000000000..704db9fdd3fd
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/resources.c
 @@ -0,0 +1,131 @@
@@ -1437,10 +1574,10 @@ index 000000000000..b4bec3cb63fd
 +	u32 feedback_buffer_size;
 +	struct ipts_buffer_info *buffers;
 +
-+	touch_buffer_size = ipts->device_info.frame_size;
++	touch_buffer_size = ipts->device_info.data_size;
 +	feedback_buffer_size = ipts->device_info.feedback_size;
 +
-+	buffers = ipts->touch_data;
++	buffers = ipts->data;
 +	for (i = 0; i < 16; i++) {
 +		if (!buffers[i].address)
 +			continue;
@@ -1499,10 +1636,10 @@ index 000000000000..b4bec3cb63fd
 +	u32 feedback_buffer_size;
 +	struct ipts_buffer_info *buffers;
 +
-+	touch_buffer_size = ipts->device_info.frame_size;
++	touch_buffer_size = ipts->device_info.data_size;
 +	feedback_buffer_size = ipts->device_info.feedback_size;
 +
-+	buffers = ipts->touch_data;
++	buffers = ipts->data;
 +	for (i = 0; i < 16; i++) {
 +		buffers[i].address = dmam_alloc_coherent(ipts->dev,
 +				touch_buffer_size,
@@ -1574,22 +1711,21 @@ index 000000000000..cf9807b0dbe6
 +#endif /* _IPTS_RESOURCES_H_ */
 diff --git a/drivers/input/touchscreen/ipts/singletouch.c b/drivers/input/touchscreen/ipts/singletouch.c
 new file mode 100644
-index 000000000000..237dd89f5816
+index 000000000000..ed70444f649c
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/singletouch.c
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,64 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
 +#include <linux/input.h>
-+#include <linux/input/mt.h>
 +#include <linux/kernel.h>
 +
 +#include "context.h"
-+#include "protocol/enums.h"
-+#include "protocol/touch.h"
++#include "protocol/data.h"
++#include "protocol/singletouch.h"
 +
-+void ipts_singletouch_parse_report(struct ipts_context *ipts,
-+		struct ipts_touch_data *data)
++void ipts_singletouch_handle_input(struct ipts_context *ipts,
++		struct ipts_data *data)
 +{
 +	struct ipts_singletouch_report *report =
 +		(struct ipts_singletouch_report *)&data->data[1];
@@ -1605,7 +1741,7 @@ index 000000000000..237dd89f5816
 +{
 +	int ret;
 +
-+	ipts->singletouch = devm_input_allocate_device(ipts->dev);
++	ipts->singletouch = input_allocate_device();
 +	if (!ipts->singletouch)
 +		return -ENOMEM;
 +
@@ -1623,71 +1759,79 @@ index 000000000000..237dd89f5816
 +	ipts->singletouch->id.version = ipts->device_info.fw_rev;
 +
 +	ipts->singletouch->phys = "heci3";
-+	ipts->singletouch->name = "Intel Precise Touchscreen (Singletouch)";
++	ipts->singletouch->name = "IPTS Singletouch";
 +
 +	ret = input_register_device(ipts->singletouch);
 +	if (ret) {
-+		dev_err(ipts->dev, "Failed to register touch device: %d\n",
-+				ret);
++		dev_err(ipts->dev, "Cannot register input device: %s (%d)\n",
++				ipts->singletouch->name, ret);
++		input_free_device(ipts->singletouch);
 +		return ret;
 +	}
 +
 +	return 0;
 +}
++
++void ipts_singletouch_free(struct ipts_context *ipts)
++{
++	if (!ipts->singletouch)
++		return;
++
++	input_unregister_device(ipts->singletouch);
++}
 diff --git a/drivers/input/touchscreen/ipts/singletouch.h b/drivers/input/touchscreen/ipts/singletouch.h
 new file mode 100644
-index 000000000000..6bcaf939c8e3
+index 000000000000..53207497a462
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/singletouch.h
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,14 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +
 +#ifndef _IPTS_SINGLETOUCH_H_
 +#define _IPTS_SINGLETOUCH_H_
 +
 +#include "context.h"
-+#include "protocol/touch.h"
++#include "protocol/data.h"
 +
-+void ipts_singletouch_parse_report(struct ipts_context *ipts,
-+		struct ipts_touch_data *data);
++void ipts_singletouch_handle_input(struct ipts_context *ipts,
++		struct ipts_data *data);
 +int ipts_singletouch_init(struct ipts_context *ipts);
++void ipts_singletouch_free(struct ipts_context *ipts);
 +
 +#endif /* _IPTS_SINGLETOUCH_H_ */
 diff --git a/drivers/input/touchscreen/ipts/stylus.c b/drivers/input/touchscreen/ipts/stylus.c
 new file mode 100644
-index 000000000000..263aa133b706
+index 000000000000..dbb4fe0bf559
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/stylus.c
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,191 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
-+#include <asm/fpu/api.h>
 +#include <linux/input.h>
 +#include <linux/kernel.h>
 +
 +#include "context.h"
-+#include "devices.h"
 +#include "math.h"
-+#include "protocol/enums.h"
-+#include "protocol/touch.h"
++#include "protocol/payload.h"
++#include "protocol/stylus.h"
 +
-+static void ipts_stylus_handle_report(struct ipts_context *ipts,
-+		struct ipts_stylus_report *report)
++static void ipts_stylus_handle_stylus_data(struct ipts_context *ipts,
++		struct ipts_stylus_report_data *data)
 +{
 +	u16 tool;
-+	u8 prox = report->mode & IPTS_STYLUS_REPORT_MODE_PROXIMITY;
-+	u8 touch = report->mode & IPTS_STYLUS_REPORT_MODE_TOUCH;
-+	u8 button = report->mode & IPTS_STYLUS_REPORT_MODE_BUTTON;
-+	u8 rubber = report->mode & IPTS_STYLUS_REPORT_MODE_RUBBER;
++	u8 prox = data->mode & IPTS_STYLUS_REPORT_MODE_PROX;
++	u8 touch = data->mode & IPTS_STYLUS_REPORT_MODE_TOUCH;
++	u8 button = data->mode & IPTS_STYLUS_REPORT_MODE_BUTTON;
++	u8 rubber = data->mode & IPTS_STYLUS_REPORT_MODE_ERASER;
 +
 +	s32 tx = 0;
 +	s32 ty = 0;
 +
 +	// avoid unnecessary computations
 +	// altitude is zero if stylus does not touch the screen
-+	if (report->altitude) {
-+		ipts_math_altitude_azimuth_to_tilt(report->altitude,
-+				report->azimuth, &tx, &ty);
++	if (data->altitude) {
++		ipts_math_altitude_azimuth_to_tilt(data->altitude,
++				data->azimuth, &tx, &ty);
 +	}
 +
 +	if (prox && rubber)
@@ -1706,10 +1850,10 @@ index 000000000000..263aa133b706
 +	input_report_key(ipts->stylus, ipts->stylus_tool, prox);
 +	input_report_key(ipts->stylus, BTN_STYLUS, button);
 +
-+	input_report_abs(ipts->stylus, ABS_X, report->x);
-+	input_report_abs(ipts->stylus, ABS_Y, report->y);
-+	input_report_abs(ipts->stylus, ABS_PRESSURE, report->pressure);
-+	input_report_abs(ipts->stylus, ABS_MISC, report->timestamp);
++	input_report_abs(ipts->stylus, ABS_X, data->x);
++	input_report_abs(ipts->stylus, ABS_Y, data->y);
++	input_report_abs(ipts->stylus, ABS_PRESSURE, data->pressure);
++	input_report_abs(ipts->stylus, ABS_MISC, data->timestamp);
 +
 +	input_report_abs(ipts->stylus, ABS_TILT_X, tx);
 +	input_report_abs(ipts->stylus, ABS_TILT_Y, ty);
@@ -1717,71 +1861,96 @@ index 000000000000..263aa133b706
 +	input_sync(ipts->stylus);
 +}
 +
-+static void ipts_stylus_parse_report_gen1(struct ipts_context *ipts,
-+		struct ipts_touch_data *data)
++static void ipts_stylus_handle_report_tilt_serial(struct ipts_context *ipts,
++		struct ipts_report *report)
 +{
-+	u8 count, i;
-+	struct ipts_stylus_report report;
-+	struct ipts_stylus_report_gen1 *reports;
++	int i;
++	struct ipts_stylus_report_serial *stylus_report;
++	struct ipts_stylus_report_data *data;
 +
-+	count = data->data[32];
-+	reports = (struct ipts_stylus_report_gen1 *)&data->data[44];
++	stylus_report = (struct ipts_stylus_report_serial *)report->data;
++	data = (struct ipts_stylus_report_data *)stylus_report->data;
 +
-+	for (i = 0; i < count; i++) {
-+		report.mode = reports[i].mode;
-+		report.x = reports[i].x;
-+		report.y = reports[i].y;
-+		report.pressure = reports[i].pressure;
++	// TODO: Track serial number and support multiple styli
 +
-+		// The gen1 protocol doesn't support tilting the stylus
-+		report.altitude = 0;
-+		report.azimuth = 0;
++	for (i = 0; i < stylus_report->reports; i++)
++		ipts_stylus_handle_stylus_data(ipts, &data[i]);
++}
 +
-+		// Use the buffer ID to emulate a timestamp
-+		report.timestamp = data->buffer;
++static void ipts_stylus_handle_report_tilt(struct ipts_context *ipts,
++		struct ipts_report *report)
++{
++	int i;
++	struct ipts_stylus_report *stylus_report;
++	struct ipts_stylus_report_data *data;
 +
-+		ipts_stylus_handle_report(ipts, &report);
++	stylus_report = (struct ipts_stylus_report *)report->data;
++	data = (struct ipts_stylus_report_data *)stylus_report->data;
++
++	for (i = 0; i < stylus_report->reports; i++)
++		ipts_stylus_handle_stylus_data(ipts, &data[i]);
++}
++
++static void ipts_stylus_handle_report_no_tilt(struct ipts_context *ipts,
++		struct ipts_report *report)
++{
++	int i;
++	struct ipts_stylus_report_serial *stylus_report;
++	struct ipts_stylus_report_data_no_tilt *data;
++	struct ipts_stylus_report_data new_data;
++
++	stylus_report = (struct ipts_stylus_report_serial *)report->data;
++	data = (struct ipts_stylus_report_data_no_tilt *)stylus_report->data;
++
++	for (i = 0; i < stylus_report->reports; i++) {
++		new_data.mode = data[i].mode;
++		new_data.x = data[i].x;
++		new_data.y = data[i].y;
++		new_data.pressure = data[i].pressure * 4;
++		new_data.altitude = 0;
++		new_data.azimuth = 0;
++		new_data.timestamp = 0;
++
++		ipts_stylus_handle_stylus_data(ipts, &new_data);
 +	}
 +}
 +
-+static void ipts_stylus_parse_report_gen2(struct ipts_context *ipts,
-+		struct ipts_touch_data *data)
++void ipts_stylus_handle_input(struct ipts_context *ipts,
++		struct ipts_payload_frame *frame)
 +{
-+	u8 count, i;
-+	struct ipts_stylus_report *reports;
++	int size;
++	struct ipts_report *report;
 +
-+	count = data->data[32];
-+	reports = (struct ipts_stylus_report *)&data->data[40];
++	size = 0;
 +
-+	for (i = 0; i < count; i++)
-+		ipts_stylus_handle_report(ipts, &reports[i]);
-+}
++	while (size < frame->size) {
++		report = (struct ipts_report *)&frame->data[size];
++		size += sizeof(struct ipts_report) + report->size;
 +
-+void ipts_stylus_parse_report(struct ipts_context *ipts,
-+		struct ipts_touch_data *data)
-+{
-+	switch (ipts->device_cfg.stylus_protocol) {
-+	case IPTS_STYLUS_PROTOCOL_GEN1:
-+		ipts_stylus_parse_report_gen1(ipts, data);
-+		break;
-+	case IPTS_STYLUS_PROTOCOL_GEN2:
-+		ipts_stylus_parse_report_gen2(ipts, data);
-+		break;
++		switch (report->type) {
++		case IPTS_REPORT_TYPE_STYLUS_NO_TILT:
++			ipts_stylus_handle_report_no_tilt(ipts, report);
++			break;
++		case IPTS_REPORT_TYPE_STYLUS_TILT:
++			ipts_stylus_handle_report_tilt(ipts, report);
++			break;
++		case IPTS_REPORT_TYPE_STYLUS_TILT_SERIAL:
++			ipts_stylus_handle_report_tilt_serial(ipts, report);
++			break;
++		default:
++			// ignored
++			break;
++		}
 +	}
 +}
 +
 +int ipts_stylus_init(struct ipts_context *ipts)
 +{
 +	int ret;
-+	u16 pressure;
 +
-+	ipts->stylus = devm_input_allocate_device(ipts->dev);
++	ipts->stylus = input_allocate_device();
 +	if (!ipts->stylus)
 +		return -ENOMEM;
-+
-+	pressure = ipts->device_cfg.max_stylus_pressure;
-+
-+	ipts->stylus_tool = BTN_TOOL_PEN;
 +
 +	__set_bit(INPUT_PROP_DIRECT, ipts->stylus->propbit);
 +	__set_bit(INPUT_PROP_POINTER, ipts->stylus->propbit);
@@ -1790,7 +1959,7 @@ index 000000000000..263aa133b706
 +	input_abs_set_res(ipts->stylus, ABS_X, 34);
 +	input_set_abs_params(ipts->stylus, ABS_Y, 0, 7200, 0, 0);
 +	input_abs_set_res(ipts->stylus, ABS_Y, 38);
-+	input_set_abs_params(ipts->stylus, ABS_PRESSURE, 0, pressure, 0, 0);
++	input_set_abs_params(ipts->stylus, ABS_PRESSURE, 0, 4096, 0, 0);
 +	input_set_abs_params(ipts->stylus, ABS_TILT_X, -9000, 9000, 0, 0);
 +	input_abs_set_res(ipts->stylus, ABS_TILT_X, 5730);
 +	input_set_abs_params(ipts->stylus, ABS_TILT_Y, -9000, 9000, 0, 0);
@@ -1807,34 +1976,44 @@ index 000000000000..263aa133b706
 +	ipts->stylus->id.version = ipts->device_info.fw_rev;
 +
 +	ipts->stylus->phys = "heci3";
-+	ipts->stylus->name = "Intel Precise Stylus";
++	ipts->stylus->name = "IPTS Stylus";
 +
 +	ret = input_register_device(ipts->stylus);
 +	if (ret) {
-+		dev_err(ipts->dev, "Failed to register stylus device: %d\n",
-+				ret);
++		dev_err(ipts->dev, "Cannot register input device: %s (%d)\n",
++				ipts->stylus->name, ret);
++		input_free_device(ipts->stylus);
 +		return ret;
 +	}
 +
 +	return 0;
 +}
++
++void ipts_stylus_free(struct ipts_context *ipts)
++{
++	if (!ipts->stylus)
++		return;
++
++	input_unregister_device(ipts->stylus);
++}
 diff --git a/drivers/input/touchscreen/ipts/stylus.h b/drivers/input/touchscreen/ipts/stylus.h
 new file mode 100644
-index 000000000000..3b6424ade542
+index 000000000000..5b93add1eac2
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/stylus.h
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,14 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +
 +#ifndef _IPTS_STYLUS_H_
 +#define _IPTS_STYLUS_H_
 +
 +#include "context.h"
-+#include "protocol/touch.h"
++#include "protocol/payload.h"
 +
-+void ipts_stylus_parse_report(struct ipts_context *ipts,
-+		struct ipts_touch_data *data);
++void ipts_stylus_handle_input(struct ipts_context *ipts,
++		struct ipts_payload_frame *frame);
 +int ipts_stylus_init(struct ipts_context *ipts);
++void ipts_stylus_free(struct ipts_context *ipts);
 +
 +#endif /* _IPTS_STYLUS_H_ */
 diff --git a/drivers/misc/mei/hw-me-regs.h b/drivers/misc/mei/hw-me-regs.h
@@ -1890,5 +2069,5 @@ index 9a61c28ed3ae..47fc20975245 100644
  /*
   * MT_TOOL types
 -- 
-2.25.0
+2.25.1
 

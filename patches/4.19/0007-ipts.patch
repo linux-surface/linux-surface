@@ -1,4 +1,4 @@
-From 3aa4577c1327da13ed2cece7174da5ee7153d570 Mon Sep 17 00:00:00 2001
+From 9c8623f624d31b18be85f69684c7e5d07102fbb1 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 28 Sep 2019 17:58:17 +0200
 Subject: [PATCH 07/10] ipts
@@ -20,7 +20,6 @@ Subject: [PATCH 07/10] ipts
  drivers/gpu/drm/i915/intel_lrc.c            |   12 +-
  drivers/gpu/drm/i915/intel_lrc.h            |    8 +
  drivers/gpu/drm/i915/intel_panel.c          |    7 +
- drivers/hid/hid-core.c                      |    5 +-
  drivers/misc/Kconfig                        |    1 +
  drivers/misc/Makefile                       |    1 +
  drivers/misc/ipts/Kconfig                   |   12 +
@@ -33,7 +32,7 @@ Subject: [PATCH 07/10] ipts
  drivers/misc/ipts/dbgfs.c                   |  277 +++++
  drivers/misc/ipts/gfx.c                     |  180 ++++
  drivers/misc/ipts/gfx.h                     |   25 +
- drivers/misc/ipts/hid.c                     |  499 +++++++++
+ drivers/misc/ipts/hid.c                     |  502 +++++++++
  drivers/misc/ipts/hid.h                     |   21 +
  drivers/misc/ipts/ipts.c                    |   62 ++
  drivers/misc/ipts/ipts.h                    |  172 +++
@@ -55,7 +54,7 @@ Subject: [PATCH 07/10] ipts
  include/linux/ipts-companion.h              |   30 +
  include/linux/ipts-gfx.h                    |   86 ++
  include/linux/ipts.h                        |   20 +
- 51 files changed, 6802 insertions(+), 24 deletions(-)
+ 50 files changed, 6802 insertions(+), 22 deletions(-)
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.c
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.h
  create mode 100644 drivers/misc/ipts/Kconfig
@@ -1291,22 +1290,6 @@ index 4a9f139e7b73..c137a57f6702 100644
  }
  
  static void pch_enable_backlight(const struct intel_crtc_state *crtc_state,
-diff --git a/drivers/hid/hid-core.c b/drivers/hid/hid-core.c
-index e723156057a6..11795c7a1662 100644
---- a/drivers/hid/hid-core.c
-+++ b/drivers/hid/hid-core.c
-@@ -290,8 +290,9 @@ static int hid_add_field(struct hid_parser *parser, unsigned report_type, unsign
- 
- 	/* Total size check: Allow for possible report index byte */
- 	if (report->size > (HID_MAX_BUFFER_SIZE - 1) << 3) {
--		hid_err(parser->device, "report is too long\n");
--		return -1;
-+		hid_warn(parser->device, "report is too long (%u), skipping\n",
-+			 report->size);
-+		return 0;
- 	}
- 
- 	if (!parser->local.usage_index) /* Ignore padding fields */
 diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
 index 3726eacdf65d..77263b5f5915 100644
 --- a/drivers/misc/Kconfig
@@ -2396,10 +2379,10 @@ index 000000000000..2880e122e9f9
 +#endif // _IPTS_GFX_H_
 diff --git a/drivers/misc/ipts/hid.c b/drivers/misc/ipts/hid.c
 new file mode 100644
-index 000000000000..3652803b5376
+index 000000000000..1a487b633fdd
 --- /dev/null
 +++ b/drivers/misc/ipts/hid.c
-@@ -0,0 +1,499 @@
+@@ -0,0 +1,502 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + *
@@ -2705,8 +2688,11 @@ index 000000000000..3652803b5376
 +
 +	switch (raw_header->data_type) {
 +	case TOUCH_RAW_DATA_TYPE_HID_REPORT: {
-+		if (raw_header->raw_data_size_bytes > HID_MAX_BUFFER_SIZE)
-+			raw_header->raw_data_size_bytes = HID_MAX_BUFFER_SIZE;
++		if (raw_header->raw_data_size_bytes > HID_MAX_BUFFER_SIZE) {
++			ipts_err(ipts, "input report too large (%u bytes), skipping",
++				 raw_header->raw_data_size_bytes);
++			break;
++		}
 +
 +		memcpy(ipts->hid_input_report, raw_data,
 +			raw_header->raw_data_size_bytes);
@@ -7441,5 +7427,5 @@ index 000000000000..bfa8e1375926
 +
 +#endif // IPTS_H
 -- 
-2.25.0
+2.25.1
 
