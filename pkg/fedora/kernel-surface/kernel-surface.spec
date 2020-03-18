@@ -73,8 +73,8 @@ Source0:    %{fedora_source}/archive/%{kernel_tag}.tar.gz
 Source1:    %{surface_source}/configs/surface-%{kernel_majorver}.config
 Source2:    fedora.config
 
-Source20:    %{sb_crt}
-Source21:    %{sb_key}
+Source20:   %{sb_crt}
+Source21:   %{sb_key}
 
 Source100:  mod-sign.sh
 Source101:  parallel_xz.sh
