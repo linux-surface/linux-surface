@@ -50,6 +50,8 @@ Release:    %{kernel_release}%{?dist}
 License:    GPLv2
 URL:        https://github.com/linux-surface/linux-surface
 
+Provides: installonlypkg(kernel-surface)
+
 Requires(pre): coreutils, systemd >= 203-2, /usr/bin/kernel-install
 Requires(pre): dracut >= 027
 Requires(pre): linux-firmware >= 20150904-56.git6ebf5d57
@@ -100,6 +102,7 @@ Microsoft Surface.
 %package devel
 Summary: Development package for building kernel modules for kernel-surface
 AutoReqProv: no
+Provides: installonlypkg(kernel-surface)
 
 %description devel
 This package provides kernel headers and makefiles sufficient to build modules
