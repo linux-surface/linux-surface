@@ -94,6 +94,7 @@ Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 ExclusiveArch: x86_64
 
 %global debug_package %{nil}
+%global _build_id_links alldebug
 
 %description
 The Linux Kernel, the operating system core itself, with support for
