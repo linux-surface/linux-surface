@@ -1,0 +1,128 @@
+on:
+  push:
+    tags:
+      - 'fedora-32-*'
+
+name: Fedora 32
+
+env:
+  GPG_KEY_ID: 56C464BAAC421453
+
+jobs:
+  build:
+    name: Build Kernel
+    runs-on: ubuntu-latest
+    container: fedora:32
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Install build dependencies
+      run: |
+        dnf distro-sync -y
+        dnf install -y rpmdevtools rpm-sign 'dnf-command(builddep)'
+        dnf builddep -y pkg/fedora/kernel-surface/kernel-surface.spec
+
+    - name: Setup secureboot certificate
+      env:
+        SB_KEY: ${{ secrets.SURFACE_SB_KEY }}
+      run: |
+        cd pkg
+
+        # Install the surface secureboot certificate
+        echo "$SB_KEY" | base64 -d > fedora/kernel-surface/surface.key
+        cp keys/surface.crt fedora/kernel-surface/surface.crt
+
+    - name: Build packages
+      run: |
+        cd pkg/fedora/kernel-surface
+
+        # Build the .rpm packages
+        ../makerpm
+
+    - name: Sign packages
+      env:
+        GPG_KEY: ${{ secrets.SURFACE_GPG_KEY }}
+      run: |
+        cd pkg/fedora/kernel-surface/out/x86_64
+
+        # import GPG key
+        echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
+
+        # sign packages
+        rpm --resign *.rpm --define "_gpg_name $GPG_KEY_ID"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v1
+      with:
+        name: fedora-32-latest
+        path: pkg/fedora/kernel-surface/out/x86_64
+
+  release:
+    name: Publish release
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download artifacts
+      uses: actions/download-artifact@v1
+      with:
+        name: fedora-32-latest
+
+    - name: Upload assets
+      uses: svenstaro/upload-release-action@v1-release
+      with:
+        repo_token: ${{ secrets.GITHUB_BOT_TOKEN }}
+        file: ./*-latest/*
+        tag: ${{ github.ref }}
+        overwrite: true
+        file_glob: true
+
+  repo:
+    name: Update package repository
+    needs: [release]
+    runs-on: ubuntu-latest
+    container: fedora:32
+    steps:
+    - name: Install dependencies
+      run: |
+        dnf install -y git findutils
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v1
+      with:
+        name: fedora-32-latest
+
+    - name: Update repository
+      env:
+        SURFACEBOT_TOKEN: ${{ secrets.GITHUB_BOT_TOKEN }}
+        BRANCH_STAGING: u/staging
+        GIT_REF: ${{ github.ref }}
+      run: |
+        repo="https://surfacebot:${SURFACEBOT_TOKEN}@github.com/linux-surface/repo.git"
+
+        # clone package repository
+        git clone -b "${BRANCH_STAGING}" "${repo}" repo
+
+        # copy packages
+        cp fedora-32-latest/* repo/fedora/f32
+        cd repo/fedora/f32
+
+        # parse git tag from ref
+        GIT_TAG=$(echo $GIT_REF | sed 's|^refs/tags/||g')
+
+        # convert packages into references
+        for pkg in $(find . -name '*.rpm'); do
+          echo "linux-surface:$GIT_TAG/$(basename $pkg)" > $pkg.blob
+          rm $pkg
+        done
+
+        # set git identity
+        git config --global user.email "surfacebot@users.noreply.github.com"
+        git config --global user.name "surfacebot"
+
+        # commit and push
+        update_branch="${BRANCH_STAGING}-$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
+        git checkout -b "${update_branch}"
+        git add .
+        git commit -m "Update Fedora 32 kernel"
+        git push --set-upstream origin "${update_branch}"
