@@ -29,7 +29,7 @@ jobs:
 
     - name: Prepare kernel source
       run: |
-        cd pkg/debian
+        cd pkg/debian/kernel-lts
 
         # get ubuntu build patches (for config)
         SOURCE_URL="https://kernel.ubuntu.com/~kernel-ppa/mainline/v$KERNEL_VERSION"
@@ -60,13 +60,13 @@ jobs:
         done
 
         # apply surface patches
-        for PATCH in ../../../patches/${KERNEL_VERSION%.*}/*.patch; do
+        for PATCH in ../../../../patches/${KERNEL_VERSION%.*}/*.patch; do
           patch -p1 < ${PATCH}
         done
 
     - name: Configure
       run: |
-        cd pkg/debian/linux
+        cd pkg/debian/kernel-lts/linux
 
         # merge configs
         ./scripts/kconfig/merge_config.sh                     \
@@ -74,7 +74,7 @@ jobs:
           debian.master/config/amd64/config.common.amd64      \
           debian.master/config/amd64/config.flavour.generic   \
           ../ubuntu.config                                    \
-          ../../../configs/surface-${KERNEL_VERSION%.*}.config
+          ../../../../configs/surface-${KERNEL_VERSION%.*}.config
 
     - name: Setup secureboot certificate
       env:
@@ -82,21 +82,21 @@ jobs:
       run: |
         cd pkg
 
-        mkdir -p debian/linux/keys
+        mkdir -p debian/kernel-lts/linux/keys
 
         # unlock/copy key and certificate
-        echo "$SB_KEY" | base64 -d > debian/linux/keys/MOK.key
-        cp keys/surface.crt debian/linux/keys/MOK.crt
+        echo "$SB_KEY" | base64 -d > debian/kernel-lts/linux/keys/MOK.key
+        cp keys/surface.crt debian/kernel-lts/linux/keys/MOK.crt
 
     - name: Build
       run: |
-        cd pkg/debian/linux
+        cd pkg/debian/kernel-lts/linux
         make bindeb-pkg -j2
 
     - name: Prepare release
       run: |
         mkdir release
-        mv pkg/debian/*.deb release
+        mv pkg/debian/kernel-lts/*.deb release
 
     - name: Sign packages
       env:

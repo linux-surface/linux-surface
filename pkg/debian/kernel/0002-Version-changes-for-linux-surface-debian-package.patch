@@ -1,0 +1,108 @@
+From cafe01ae116792598633633f255893e768886422 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 3 Apr 2020 01:16:39 +0200
+Subject: [PATCH] Version changes for linux-surface debian package
+
+Rename debian kernel packages so that they do not contain the full version
+in the name any more as this allows automated updates via a package
+repository. Instead the package name now only contains the $LOCALVERSION
+string.
+
+Also rename libc-dev to allow multiple versions to co-exist in the same
+repository.
+---
+ scripts/package/builddeb | 13 ++++++++-----
+ scripts/package/mkdebian | 13 +++++++++----
+ 2 files changed, 17 insertions(+), 9 deletions(-)
+
+diff --git a/scripts/package/builddeb b/scripts/package/builddeb
+index 6df3c9f8b2da..156a44f951f0 100755
+--- a/scripts/package/builddeb
++++ b/scripts/package/builddeb
+@@ -71,7 +71,7 @@ deploy_kernel_headers () {
+ 		fi
+ 	} > debian/hdrobjfiles
+ 
+-	destdir=$pdir/usr/src/linux-headers-$version
++	destdir=$pdir/usr/src/$kernel_headers_packagename
+ 	mkdir -p $destdir
+ 	tar -c -f - -C $srctree -T debian/hdrsrcfiles | tar -xf - -C $destdir
+ 	tar -c -f - -T debian/hdrobjfiles | tar -xf - -C $destdir
+@@ -81,7 +81,7 @@ deploy_kernel_headers () {
+ 	cp $KCONFIG_CONFIG $destdir/.config
+ 
+ 	mkdir -p $pdir/lib/modules/$version/
+-	ln -s /usr/src/linux-headers-$version $pdir/lib/modules/$version/build
++	ln -s /usr/src/$kernel_headers_packagename $pdir/lib/modules/$version/build
+ }
+ 
+ deploy_libc_headers () {
+@@ -100,9 +100,12 @@ deploy_libc_headers () {
+ }
+ 
+ version=$KERNELRELEASE
++featureset=$(echo "$version" | sed -E 's/[0-9]+\.[0-9]+\.[0-9]+-(.*)/\1/')
+ tmpdir=debian/linux-image
+ dbg_dir=debian/linux-image-dbg
+-packagename=linux-image-$version
++packagename=linux-image-$featureset
++kernel_headers_packagename=linux-headers-$featureset
++libc_headers_packagename=linux-libc-dev-$featureset
+ dbg_packagename=$packagename-dbg
+ 
+ if [ "$ARCH" = "um" ] ; then
+@@ -203,10 +206,10 @@ done
+ 
+ if [ "$ARCH" != "um" ]; then
+ 	deploy_kernel_headers debian/linux-headers
+-	create_package linux-headers-$version debian/linux-headers
++	create_package $kernel_headers_packagename debian/linux-headers
+ 
+ 	deploy_libc_headers debian/linux-libc-dev
+-	create_package linux-libc-dev debian/linux-libc-dev
++	create_package $libc_headers_packagename debian/linux-libc-dev
+ fi
+ 
+ create_package "$packagename" "$tmpdir"
+diff --git a/scripts/package/mkdebian b/scripts/package/mkdebian
+index 357dc56bcf30..4a3c570be220 100755
+--- a/scripts/package/mkdebian
++++ b/scripts/package/mkdebian
+@@ -86,6 +86,8 @@ set_debarch() {
+ 
+ # Some variables and settings used throughout the script
+ version=$KERNELRELEASE
++featureset=$(echo "$version" | sed -E 's/[0-9]+\.[0-9]+\.[0-9]+-(.*)/\1/')
++shortversion=$(echo "$version" | sed -E 's/([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')
+ if [ -n "$KDEB_PKGVERSION" ]; then
+ 	packageversion=$KDEB_PKGVERSION
+ 	revision=${packageversion##*-}
+@@ -94,8 +96,9 @@ else
+ 	packageversion=$version-$revision
+ fi
+ sourcename=$KDEB_SOURCENAME
+-packagename=linux-image-$version
+-kernel_headers_packagename=linux-headers-$version
++packagename=linux-image-$featureset
++kernel_headers_packagename=linux-headers-$featureset
++libc_headers_packagename=linux-libc-dev-$featureset
+ dbg_packagename=$packagename-dbg
+ debarch=
+ set_debarch
+@@ -190,9 +193,11 @@ Description: Linux kernel headers for $version on $debarch
+  .
+  This is useful for people who need to build external modules
+ 
+-Package: linux-libc-dev
++Package: $libc_headers_packagename
+ Section: devel
+-Provides: linux-kernel-headers
++Provides: linux-kernel-headers, linux-libc-dev (= $shortversion)
++Conflicts: linux-libc-dev
++Replaces: linux-libc-dev
+ Architecture: $debarch
+ Description: Linux support headers for userspace development
+  This package provides userspaces headers from the Linux kernel.  These headers
+-- 
+2.26.0
+
