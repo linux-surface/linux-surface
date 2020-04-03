@@ -2,7 +2,7 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc32 kernel-5.6.0-300.fc32
+%global kernel_tag_fc32 kernel-5.6.2-300.fc32
 %global kernel_tag_fc31 kernel-5.5.13-200.fc31
 %global kernel_tag_fc30 kernel-5.5.13-100.fc30
 
@@ -14,7 +14,7 @@
 %global fedora_title_fc31 31 (Thirty One)
 %global fedora_title_fc30 30 (Thirty)
 
-%global ls_patches_commit c21dcaceccbd71d48bc831981446c3d7270340cc
+%global ls_patches_commit a13da771f0698f838df9dbf6f24acf962bc20324
 
 %global sb_crt surface.crt
 %global sb_key surface.key
