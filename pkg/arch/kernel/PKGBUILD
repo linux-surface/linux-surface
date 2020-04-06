@@ -2,7 +2,7 @@
 # Maintainer: Jan Alexander Steffens (heftig) <jan.steffens@gmail.com>
 
 pkgbase=linux-surface
-pkgver=5.5.13.arch2
+pkgver=5.6.2.arch1
 pkgrel=1
 pkgdesc='Linux'
 _fullver=${pkgver%.*}-${pkgver##*.}
@@ -34,16 +34,16 @@ validpgpkeys=(
   '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
   '8218F88849AAC522E94CF470A5E9288C4FA415FA'  # Jan Alexander Steffens (heftig)
 )
-sha256sums=('b37f0851db8541b2ebf3b292adaa95603ace42aaa86daf28c856cddd343ab579'
-            'a841aa011edf6bae0ffbe8ead8177e5056de5a6d7333bb96e16917903de4d868'
+sha256sums=('88277e77df1cc7aa94a3ebf8480fff14d11ddbead5501b06b2c6c5d8c15c0ab1'
+            '5c809f7ca4f21ebd95368533b20c0ed78fe2e006762dff742e5fd0751521ad11'
             '4662d1c8c5557e7531cfd4175809e832aa2d96771454f9631f5c09c2c40eb881'
-            '97d726d1ba748a325c2a6ac5c5727fba657d4c19ebcff59b3e277a9a78e0c2dc'
-            'c550c50f2e00742bfc282348fb99e74f68d683bcba21a64c4b0978b10691750c'
-            'da5d00d4b1598da5bf25019b7bc4b68692d9befc7204aac366d0080d55b119b1'
-            '624e3722ecec856a3967da10ecebb80ad58884f3c8998cf43885eab3a99b1472'
-            '90a41f3ad89d80dc4b98c158d3c87dcd3a900941e51b3340372c629c00059332'
-            'c356baa7856a6f21d8a1c38beed0085654a2678786777cd7e19da1056fcb1f22'
-            '4bf5cb7b4ecfde07cd5b1f8a0a850015792ed4c3f1372189e6b30948c57010b3')
+            '05325a85fc3d6861f563350200a3e9919e106225d69a583b1fefa8e7186f162c'
+            'd6738e74df18c344ac1915e10cb24010a565ea8760e299ae7952ca1d53da8b38'
+            '965b13e33de3b0b790e9484dd0da39aac340ca60a53ef0ef90fca34efc8dd48f'
+            '1f2197bde874d43ea15683dcaa712415498fd0d7a36cf6b4d2f7f47a2fbd87d8'
+            'd1c4b3b0e0937b43892ac884b325ee174f0dbfca0a0f015057b8ff1b31d5eff2'
+            '62ec39fc0b13505751cd190c071aca1c5d5e7ac0221ec525503b0d31fd7215c7'
+            'ca8893c1b4e572f4770e7d148dc858e5f89b3977334bbaa1b7fcc72b6d32d14a')
 
 
 export KBUILD_BUILD_HOST=archlinux
@@ -91,6 +91,8 @@ _package() {
   depends=(coreutils kmod initramfs)
   optdepends=('crda: to set the correct wireless channels of your country'
               'linux-firmware: firmware images needed for some devices')
+  provides=(VIRTUALBOX-GUEST-MODULES WIREGUARD-MODULE)
+  replaces=(virtualbox-guest-modules-arch wireguard-arch)
 
   cd $_srcname
   local kernver="$(<version)"
@@ -116,9 +118,6 @@ _package() {
 
   # remove build and source links
   rm "$modulesdir"/{source,build}
-
-  echo "Fixing permissions..."
-  chmod -Rc u=rwX,go=rX "$pkgdir"
 }
 
 _package-headers() {
@@ -194,9 +193,6 @@ _package-headers() {
   echo "Adding symlink..."
   mkdir -p "$pkgdir/usr/src"
   ln -sr "$builddir" "$pkgdir/usr/src/$pkgbase"
-
-  echo "Fixing permissions..."
-  chmod -Rc u=rwX,go=rX "$pkgdir"
 }
 
 pkgname=("$pkgbase" "$pkgbase-headers")
