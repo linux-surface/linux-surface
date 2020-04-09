@@ -14,7 +14,7 @@
 %global fedora_title_fc31 31 (Thirty One)
 %global fedora_title_fc30 30 (Thirty)
 
-%global ls_patches_commit a13da771f0698f838df9dbf6f24acf962bc20324
+%global ls_patches_commit 1b80351c002a139876f5d1923eb102309bcc6bf8
 
 %global sb_crt surface.crt
 %global sb_key surface.key
