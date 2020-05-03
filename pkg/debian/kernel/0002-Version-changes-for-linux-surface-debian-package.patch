@@ -1,6 +1,6 @@
-From cafe01ae116792598633633f255893e768886422 Mon Sep 17 00:00:00 2001
+From 0ba6e3fc4c3b40a7a38dc835a5e6cfc143e2afd9 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Fri, 3 Apr 2020 01:16:39 +0200
+Date: Sun, 3 May 2020 16:55:14 +0200
 Subject: [PATCH] Version changes for linux-surface debian package
 
 Rename debian kernel packages so that they do not contain the full version
@@ -10,15 +10,32 @@ string.
 
 Also rename libc-dev to allow multiple versions to co-exist in the same
 repository.
+
+Further, revert upstream change 9945722afdc3443eab826b2da1122509a13a50a5
+as the Kconfig files dropped in this commit seem to be required by some
+out-of-tree driver modules.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 ---
- scripts/package/builddeb | 13 ++++++++-----
+ scripts/package/builddeb | 17 ++++++++++-------
  scripts/package/mkdebian | 13 +++++++++----
- 2 files changed, 17 insertions(+), 9 deletions(-)
+ 2 files changed, 19 insertions(+), 11 deletions(-)
 
 diff --git a/scripts/package/builddeb b/scripts/package/builddeb
-index 6df3c9f8b2da..156a44f951f0 100755
+index 6df3c9f8b2da..48be1f95a413 100755
 --- a/scripts/package/builddeb
 +++ b/scripts/package/builddeb
+@@ -53,8 +53,8 @@ deploy_kernel_headers () {
+ 
+ 	(
+ 		cd $srctree
+-		find . arch/$SRCARCH -maxdepth 1 -name Makefile\*
+-		find include scripts -type f -o -type l
++		find . -name Makefile\* -o -name Kconfig\* -o -name \*.pl
++		find arch/*/include include scripts -type f -o -type l
+ 		find arch/$SRCARCH -name module.lds -o -name Kbuild.platforms -o -name Platform
+ 		find $(find arch/$SRCARCH -name include -o -name scripts -type d) -type f
+ 	) > debian/hdrsrcfiles
 @@ -71,7 +71,7 @@ deploy_kernel_headers () {
  		fi
  	} > debian/hdrobjfiles
@@ -65,7 +82,7 @@ index 6df3c9f8b2da..156a44f951f0 100755
  
  create_package "$packagename" "$tmpdir"
 diff --git a/scripts/package/mkdebian b/scripts/package/mkdebian
-index 357dc56bcf30..4a3c570be220 100755
+index df1adbfb8ead..0a8ed2f98b6a 100755
 --- a/scripts/package/mkdebian
 +++ b/scripts/package/mkdebian
 @@ -86,6 +86,8 @@ set_debarch() {
@@ -104,5 +121,5 @@ index 357dc56bcf30..4a3c570be220 100755
  Description: Linux support headers for userspace development
   This package provides userspaces headers from the Linux kernel.  These headers
 -- 
-2.26.0
+2.26.2
 
