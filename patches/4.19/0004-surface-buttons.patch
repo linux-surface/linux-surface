@@ -1,13 +1,13 @@
-From c924fb68b7aa19fd8947991f128c56296e9b678d Mon Sep 17 00:00:00 2001
+From 25c1108f70fde7cca28e5f851427108737443088 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 27 Jul 2019 17:51:37 +0200
 Subject: [PATCH 04/10] surface-buttons
 
 ---
  drivers/input/misc/Kconfig                |   6 +-
- drivers/input/misc/soc_button_array.c     | 112 +++++++++++++++++++---
+ drivers/input/misc/soc_button_array.c     | 114 +++++++++++++++++++---
  drivers/platform/x86/surfacepro3_button.c |  47 +++++++++
- 3 files changed, 150 insertions(+), 15 deletions(-)
+ 3 files changed, 151 insertions(+), 16 deletions(-)
 
 diff --git a/drivers/input/misc/Kconfig b/drivers/input/misc/Kconfig
 index ca59a2be9bc5..ea69610370e8 100644
@@ -28,7 +28,7 @@ index ca59a2be9bc5..ea69610370e8 100644
  	  To compile this driver as a module, choose M here: the
  	  module will be called soc_button_array.
 diff --git a/drivers/input/misc/soc_button_array.c b/drivers/input/misc/soc_button_array.c
-index 55cd6e0b409c..5983733d78dd 100644
+index 55cd6e0b409c..c564ea99f47d 100644
 --- a/drivers/input/misc/soc_button_array.c
 +++ b/drivers/input/misc/soc_button_array.c
 @@ -29,6 +29,11 @@ struct soc_button_info {
@@ -100,15 +100,17 @@ index 55cd6e0b409c..5983733d78dd 100644
  	}
  
  	error = gpiod_count(dev, NULL);
-@@ -357,7 +377,7 @@ static int soc_button_probe(struct platform_device *pdev)
+@@ -357,8 +377,8 @@ static int soc_button_probe(struct platform_device *pdev)
  	if (!priv->children[0] && !priv->children[1])
  		return -ENODEV;
  
 -	if (!id->driver_data)
+-		devm_kfree(dev, button_info);
 +	if (!device_data || !device_data->button_info)
- 		devm_kfree(dev, button_info);
++		devm_kfree(dev, (void *)button_info);
  
  	return 0;
+ }
 @@ -368,7 +388,7 @@ static int soc_button_probe(struct platform_device *pdev)
   * is defined in section 2.8.7.2 of "Windows ACPI Design Guide for SoC
   * Platforms"
@@ -270,5 +272,5 @@ index 1b491690ce07..96627627060e 100644
  	if (!button)
  		return -ENOMEM;
 -- 
-2.26.0
+2.26.2
 

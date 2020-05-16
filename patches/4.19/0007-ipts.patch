@@ -1,4 +1,4 @@
-From 5ae0ab65b746c3298aadabadd1ad5bbbac75de94 Mon Sep 17 00:00:00 2001
+From ec6ee78e1b8700139edd50e62e3815d12e5a889e Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 28 Sep 2019 17:58:17 +0200
 Subject: [PATCH 07/10] ipts
@@ -24,15 +24,15 @@ Subject: [PATCH 07/10] ipts
  drivers/misc/Makefile                       |    1 +
  drivers/misc/ipts/Kconfig                   |   12 +
  drivers/misc/ipts/Makefile                  |   19 +
- drivers/misc/ipts/companion.c               |  230 ++++
- drivers/misc/ipts/companion.h               |   26 +
+ drivers/misc/ipts/companion.c               |  211 ++++
+ drivers/misc/ipts/companion.h               |   25 +
  drivers/misc/ipts/companion/Kconfig         |    8 +
  drivers/misc/ipts/companion/Makefile        |    2 +
- drivers/misc/ipts/companion/ipts-surface.c  |  224 ++++
+ drivers/misc/ipts/companion/ipts-surface.c  |  157 +++
  drivers/misc/ipts/dbgfs.c                   |  277 +++++
  drivers/misc/ipts/gfx.c                     |  180 ++++
  drivers/misc/ipts/gfx.h                     |   25 +
- drivers/misc/ipts/hid.c                     |  502 +++++++++
+ drivers/misc/ipts/hid.c                     |  469 +++++++++
  drivers/misc/ipts/hid.h                     |   21 +
  drivers/misc/ipts/ipts.c                    |   62 ++
  drivers/misc/ipts/ipts.h                    |  172 +++
@@ -40,10 +40,10 @@ Subject: [PATCH 07/10] ipts
  drivers/misc/ipts/kernel.h                  |   17 +
  drivers/misc/ipts/mei-msgs.h                |  901 ++++++++++++++++
  drivers/misc/ipts/mei.c                     |  238 +++++
- drivers/misc/ipts/msg-handler.c             |  396 +++++++
+ drivers/misc/ipts/msg-handler.c             |  405 +++++++
  drivers/misc/ipts/msg-handler.h             |   28 +
- drivers/misc/ipts/params.c                  |   46 +
- drivers/misc/ipts/params.h                  |   26 +
+ drivers/misc/ipts/params.c                  |   42 +
+ drivers/misc/ipts/params.h                  |   25 +
  drivers/misc/ipts/resource.c                |  291 ++++++
  drivers/misc/ipts/resource.h                |   26 +
  drivers/misc/ipts/sensor-regs.h             |  834 +++++++++++++++
@@ -51,10 +51,10 @@ Subject: [PATCH 07/10] ipts
  drivers/misc/mei/hw-me-regs.h               |    1 +
  drivers/misc/mei/pci-me.c                   |    1 +
  include/linux/ipts-binary.h                 |  140 +++
- include/linux/ipts-companion.h              |   30 +
+ include/linux/ipts-companion.h              |   29 +
  include/linux/ipts-gfx.h                    |   86 ++
- include/linux/ipts.h                        |   20 +
- 50 files changed, 6802 insertions(+), 22 deletions(-)
+ include/linux/ipts.h                        |   19 +
+ 50 files changed, 6684 insertions(+), 22 deletions(-)
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.c
  create mode 100644 drivers/gpu/drm/i915/intel_ipts.h
  create mode 100644 drivers/misc/ipts/Kconfig
@@ -1359,10 +1359,10 @@ index 000000000000..bb3982f48afc
 +obj-y += companion/
 diff --git a/drivers/misc/ipts/companion.c b/drivers/misc/ipts/companion.c
 new file mode 100644
-index 000000000000..c8199d8be5d6
+index 000000000000..8f66b852f137
 --- /dev/null
 +++ b/drivers/misc/ipts/companion.c
-@@ -0,0 +1,230 @@
+@@ -0,0 +1,211 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + *
@@ -1574,31 +1574,12 @@ index 000000000000..c8199d8be5d6
 +	return ret;
 +
 +}
-+
-+unsigned int ipts_get_quirks(void)
-+{
-+	unsigned int ret;
-+
-+	// Make sure that access to the companion is synchronized
-+	mutex_lock(&ipts_companion_lock);
-+
-+	// If the companion is ignored, or doesn't exist, assume that
-+	// the device doesn't have any quirks
-+	if (ipts_modparams.ignore_companion || ipts_companion == NULL)
-+		ret = IPTS_QUIRK_NONE;
-+	else
-+		ret = ipts_companion->get_quirks(ipts_companion);
-+
-+	mutex_unlock(&ipts_companion_lock);
-+
-+	return ret;
-+}
 diff --git a/drivers/misc/ipts/companion.h b/drivers/misc/ipts/companion.h
 new file mode 100644
-index 000000000000..bb3368b41a38
+index 000000000000..7a1e4b388c40
 --- /dev/null
 +++ b/drivers/misc/ipts/companion.h
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,25 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + *
@@ -1616,7 +1597,6 @@ index 000000000000..bb3368b41a38
 +#include "ipts.h"
 +
 +bool ipts_companion_available(void);
-+unsigned int ipts_get_quirks(void);
 +
 +int ipts_request_firmware(const struct firmware **fw, const char *name,
 +		struct device *device);
@@ -1649,10 +1629,10 @@ index 000000000000..b37f2f59937a
 +obj-$(CONFIG_INTEL_IPTS_SURFACE)+= ipts-surface.o
 diff --git a/drivers/misc/ipts/companion/ipts-surface.c b/drivers/misc/ipts/companion/ipts-surface.c
 new file mode 100644
-index 000000000000..1a151538b898
+index 000000000000..a717dfcdfeba
 --- /dev/null
 +++ b/drivers/misc/ipts/companion/ipts-surface.c
-@@ -0,0 +1,224 @@
+@@ -0,0 +1,157 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + *
@@ -1680,53 +1660,6 @@ index 000000000000..1a151538b898
 +	MODULE_FIRMWARE("intel/ipts/" X "/intel_desc.bin");		\
 +	MODULE_FIRMWARE("intel/ipts/" X "/vendor_desc.bin");		\
 +	MODULE_FIRMWARE("intel/ipts/" X "/vendor_kernel.bin")
-+
-+struct ipts_surface_data {
-+	const char *hid;
-+	unsigned int quirks;
-+};
-+
-+// Surface Book 1 / Surface Studio
-+static const struct ipts_surface_data ipts_surface_mshw0076 = {
-+	.hid = "MSHW0076",
-+	.quirks = IPTS_QUIRK_NO_FEEDBACK,
-+};
-+
-+// Surface Pro 4
-+static const struct ipts_surface_data ipts_surface_mshw0078 = {
-+	.hid = "MSHW0078",
-+	.quirks = IPTS_QUIRK_NO_FEEDBACK,
-+};
-+
-+// Surface Laptop 1 / 2
-+static const struct ipts_surface_data ipts_surface_mshw0079 = {
-+	.hid = "MSHW0079",
-+	.quirks = IPTS_QUIRK_NONE,
-+};
-+
-+// Surface Pro 5 / 6
-+static const struct ipts_surface_data ipts_surface_mshw0101 = {
-+	.hid = "MSHW0101",
-+	.quirks = IPTS_QUIRK_NONE,
-+};
-+
-+// Surface Book 2 15"
-+static const struct ipts_surface_data ipts_surface_mshw0102 = {
-+	.hid = "MSHW0102",
-+	.quirks = IPTS_QUIRK_NONE,
-+};
-+
-+// Unknown, but firmware exists
-+static const struct ipts_surface_data ipts_surface_mshw0103 = {
-+	.hid = "MSHW0103",
-+	.quirks = IPTS_QUIRK_NONE,
-+};
-+
-+// Surface Book 2 13"
-+static const struct ipts_surface_data ipts_surface_mshw0137 = {
-+	.hid = "MSHW0137",
-+	.quirks = IPTS_QUIRK_NONE,
-+};
 +
 +/*
 + * Checkpatch complains about the following lines because it sees them as
@@ -1774,7 +1707,6 @@ index 000000000000..1a151538b898
 +static struct ipts_companion ipts_surface_companion = {
 +	.firmware_request = &ipts_surface_request_firmware,
 +	.firmware_config = ipts_surface_fw_config,
-+	.get_quirks = &ipts_surface_get_quirks,
 +	.name = "ipts_surface",
 +};
 +
@@ -1783,44 +1715,26 @@ index 000000000000..1a151538b898
 +		struct device *device)
 +{
 +	char fw_path[MAX_IOCL_FILE_PATH_LEN];
-+	struct ipts_surface_data *data;
 +
 +	if (companion == NULL || companion->data == NULL)
 +		return -ENOENT;
 +
-+	data = (struct ipts_surface_data *)companion->data;
-+
 +	snprintf(fw_path, MAX_IOCL_FILE_PATH_LEN, IPTS_SURFACE_FW_PATH_FMT,
-+		data->hid, name);
++		(const char *)companion->data, name);
 +	return request_firmware(fw, fw_path, device);
-+}
-+
-+unsigned int ipts_surface_get_quirks(struct ipts_companion *companion)
-+{
-+	struct ipts_surface_data *data;
-+
-+	// In case something went wrong, assume that the
-+	// device doesn't have any quirks
-+	if (companion == NULL || companion->data == NULL)
-+		return IPTS_QUIRK_NONE;
-+
-+	data = (struct ipts_surface_data *)companion->data;
-+
-+	return data->quirks;
 +}
 +
 +static int ipts_surface_probe(struct platform_device *pdev)
 +{
 +	int r;
-+	const struct ipts_surface_data *data =
-+		acpi_device_get_match_data(&pdev->dev);
++	struct acpi_device *adev = ACPI_COMPANION(&pdev->dev);
 +
-+	if (!data) {
++	if (!adev) {
 +		dev_err(&pdev->dev, "Unable to find ACPI info for device\n");
 +		return -ENODEV;
 +	}
 +
-+	ipts_surface_companion.data = (void *)data;
++	ipts_surface_companion.data = (void *)acpi_device_hid(adev);
 +
 +	r = ipts_add_companion(&ipts_surface_companion);
 +	if (r) {
@@ -1844,13 +1758,13 @@ index 000000000000..1a151538b898
 +}
 +
 +static const struct acpi_device_id ipts_surface_acpi_match[] = {
-+	{ "MSHW0076", (unsigned long)&ipts_surface_mshw0076 },
-+	{ "MSHW0078", (unsigned long)&ipts_surface_mshw0078 },
-+	{ "MSHW0079", (unsigned long)&ipts_surface_mshw0079 },
-+	{ "MSHW0101", (unsigned long)&ipts_surface_mshw0101 },
-+	{ "MSHW0102", (unsigned long)&ipts_surface_mshw0102 },
-+	{ "MSHW0103", (unsigned long)&ipts_surface_mshw0103 },
-+	{ "MSHW0137", (unsigned long)&ipts_surface_mshw0137 },
++	{ "MSHW0076", 0 }, // Surface Book 1 / Surface Studio
++	{ "MSHW0078", 0 }, // some Surface Pro 4
++	{ "MSHW0079", 0 }, // Surface Laptop 1 / 2
++	{ "MSHW0101", 0 }, // Surface Book 2 15"
++	{ "MSHW0102", 0 }, // Surface Pro 5 / 6
++	{ "MSHW0103", 0 }, // some Surface Pro 4
++	{ "MSHW0137", 0 }, // Surface Book 2
 +	{ },
 +};
 +MODULE_DEVICE_TABLE(acpi, ipts_surface_acpi_match);
@@ -1875,7 +1789,6 @@ index 000000000000..1a151538b898
 +IPTS_SURFACE_FIRMWARE("MSHW0101");
 +IPTS_SURFACE_FIRMWARE("MSHW0102");
 +IPTS_SURFACE_FIRMWARE("MSHW0103");
-+
 +IPTS_SURFACE_FIRMWARE("MSHW0137");
 diff --git a/drivers/misc/ipts/dbgfs.c b/drivers/misc/ipts/dbgfs.c
 new file mode 100644
@@ -2379,10 +2292,10 @@ index 000000000000..2880e122e9f9
 +#endif // _IPTS_GFX_H_
 diff --git a/drivers/misc/ipts/hid.c b/drivers/misc/ipts/hid.c
 new file mode 100644
-index 000000000000..1a487b633fdd
+index 000000000000..1b7ad2a774a8
 --- /dev/null
 +++ b/drivers/misc/ipts/hid.c
-@@ -0,0 +1,502 @@
+@@ -0,0 +1,469 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + *
@@ -2741,10 +2654,11 @@ index 000000000000..1a487b633fdd
 +static int handle_outputs(struct ipts_info *ipts, int parallel_idx)
 +{
 +	struct kernel_output_buffer_header *out_buf_hdr;
-+	struct ipts_buffer_info *output_buf, *fb_buf = NULL;
++	struct ipts_buffer_info *output_buf;
 +	u8 *input_report, *payload;
-+	u32 tr_id;
-+	int i, payload_size, ret = 0, header_size;
++	u8 tr_id;
++	int i, payload_size, header_size;
++	bool send_feedback = false;
 +
 +	header_size = sizeof(struct kernel_output_buffer_header);
 +	output_buf = ipts_get_output_buffers_by_parallel_id(ipts,
@@ -2756,6 +2670,9 @@ index 000000000000..1a487b633fdd
 +
 +		if (out_buf_hdr->length < header_size)
 +			continue;
++
++		tr_id = *(u8 *)&out_buf_hdr->hid_private_data.transaction_id;
++		send_feedback = true;
 +
 +		payload_size = out_buf_hdr->length - header_size;
 +		payload = out_buf_hdr->data;
@@ -2779,12 +2696,7 @@ index 000000000000..1a487b633fdd
 +			break;
 +		}
 +		case OUTPUT_BUFFER_PAYLOAD_FEEDBACK_BUFFER: {
-+			// send feedback data for raw data mode
-+			fb_buf = ipts_get_feedback_buffer(ipts, parallel_idx);
-+			tr_id = out_buf_hdr->hid_private_data.transaction_id;
-+
-+			memcpy(fb_buf->addr, payload, payload_size);
-+
++			// Ignored
 +			break;
 +		}
 +		case OUTPUT_BUFFER_PAYLOAD_ERROR: {
@@ -2814,42 +2726,10 @@ index 000000000000..1a487b633fdd
 +		}
 +	}
 +
-+	/*
-+	 * XXX: Calling the "ipts_send_feedback" function repeatedly seems to
-+	 * be what is causing touch to crash (found by sebanc, see the link
-+	 * below for the comment) on some models, especially on Surface Pro 4
-+	 * and Surface Book 1.
-+	 * The most desirable fix could be done by raising IPTS GuC priority.
-+	 * Until we find a better solution, use this workaround.
-+	 *
-+	 * The decision which devices have no_feedback enabled by default is
-+	 * made by the companion driver. If no companion driver was loaded,
-+	 * no_feedback is disabled and the default behaviour is used.
-+	 *
-+	 * Link to the comment where sebanc found this workaround:
-+	 * https://github.com/jakeday/linux-surface/issues/374#issuecomment-508234110
-+	 * (Touch and pen issue persists · Issue #374 · jakeday/linux-surface)
-+	 *
-+	 * Link to the usage from kitakar5525 who made this change:
-+	 * https://github.com/jakeday/linux-surface/issues/374#issuecomment-517289171
-+	 * (Touch and pen issue persists · Issue #374 · jakeday/linux-surface)
-+	 */
-+	if (fb_buf) {
-+		// A negative value means "decide by dmi table"
-+		if (ipts_modparams.no_feedback < 0) {
-+			if (ipts_get_quirks() & IPTS_QUIRK_NO_FEEDBACK)
-+				ipts_modparams.no_feedback = true;
-+			else
-+				ipts_modparams.no_feedback = false;
-+		}
 +
-+		if (ipts_modparams.no_feedback)
-+			return 0;
 +
-+		ret = ipts_send_feedback(ipts, parallel_idx, tr_id);
-+		if (ret)
-+			return ret;
-+	}
++	if (send_feedback)
++		return ipts_send_feedback(ipts, parallel_idx, tr_id);
 +
 +	return 0;
 +}
@@ -5387,10 +5267,10 @@ index 000000000000..03b5d747a728
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/ipts/msg-handler.c b/drivers/misc/ipts/msg-handler.c
 new file mode 100644
-index 000000000000..b2b382ea4675
+index 000000000000..9431b1dfc6e0
 --- /dev/null
 +++ b/drivers/misc/ipts/msg-handler.c
-@@ -0,0 +1,396 @@
+@@ -0,0 +1,405 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + *
@@ -5435,16 +5315,24 @@ index 000000000000..b2b382ea4675
 +int ipts_send_feedback(struct ipts_info *ipts, int buffer_idx,
 +		u32 transaction_id)
 +{
-+	int cmd_len = sizeof(struct touch_sensor_feedback_ready_cmd_data);
-+	struct touch_sensor_feedback_ready_cmd_data fb_ready_cmd;
++	struct ipts_buffer_info feedback_buffer;
++	struct touch_feedback_hdr *feedback;
++	struct touch_sensor_feedback_ready_cmd_data cmd;
 +
-+	memset(&fb_ready_cmd, 0, cmd_len);
++	feedback_buffer = ipts->resource.feedback_buffer[buffer_idx];
++	feedback = (struct touch_feedback_hdr *)feedback_buffer.addr;
 +
-+	fb_ready_cmd.feedback_index = buffer_idx;
-+	fb_ready_cmd.transaction_id = transaction_id;
++	memset(feedback, 0, sizeof(struct touch_feedback_hdr));
++	memset(&cmd, 0, sizeof(struct touch_sensor_feedback_ready_cmd_data));
++
++	feedback->feedback_cmd_type = TOUCH_FEEDBACK_CMD_TYPE_NONE;
++	feedback->buffer_id = transaction_id;
++
++	cmd.feedback_index = buffer_idx;
++	cmd.transaction_id = transaction_id;
 +
 +	return ipts_handle_cmd(ipts, TOUCH_SENSOR_FEEDBACK_READY_CMD,
-+		&fb_ready_cmd, cmd_len);
++		&cmd, sizeof(struct touch_sensor_feedback_ready_cmd_data));
 +}
 +
 +int ipts_send_sensor_quiesce_io_cmd(struct ipts_info *ipts)
@@ -5732,6 +5620,7 @@ index 000000000000..b2b382ea4675
 +	}
 +	case TOUCH_SENSOR_FEEDBACK_READY_RSP: {
 +		if (rsp_status != TOUCH_STATUS_COMPAT_CHECK_FAIL &&
++				rsp_status != TOUCH_STATUS_INVALID_PARAMS &&
 +				rsp_status != 0) {
 +			rsp_failed(ipts, cmd, rsp_status);
 +			break;
@@ -5823,10 +5712,10 @@ index 000000000000..eca4238adf4b
 +#endif /* _IPTS_MSG_HANDLER_H */
 diff --git a/drivers/misc/ipts/params.c b/drivers/misc/ipts/params.c
 new file mode 100644
-index 000000000000..93b19cbf4786
+index 000000000000..3ea76ca8342a
 --- /dev/null
 +++ b/drivers/misc/ipts/params.c
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,42 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + *
@@ -5847,7 +5736,6 @@ index 000000000000..93b19cbf4786
 +	.ignore_fw_fallback = false,
 +	.ignore_config_fallback = false,
 +	.ignore_companion = false,
-+	.no_feedback = -1,
 +
 +	.debug = false,
 +	.debug_thread = false,
@@ -5862,9 +5750,6 @@ index 000000000000..93b19cbf4786
 +IPTS_PARAM(ignore_companion, bool, 0400,
 +	"Don't use a companion driver to load firmware. (default: false)"
 +);
-+IPTS_PARAM(no_feedback, int, 0644,
-+	"Disable sending feedback to ME (can prevent crashes on Skylake). (-1=auto [default], 0=false, 1=true)"
-+);
 +
 +IPTS_PARAM(debug, bool, 0400,
 +	"Enable IPTS debugging output. (default: false)"
@@ -5875,10 +5760,10 @@ index 000000000000..93b19cbf4786
 +
 diff --git a/drivers/misc/ipts/params.h b/drivers/misc/ipts/params.h
 new file mode 100644
-index 000000000000..4d9d2bca5ede
+index 000000000000..c20546bacb08
 --- /dev/null
 +++ b/drivers/misc/ipts/params.h
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,25 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + *
@@ -5896,7 +5781,6 @@ index 000000000000..4d9d2bca5ede
 +	bool ignore_fw_fallback;
 +	bool ignore_config_fallback;
 +	bool ignore_companion;
-+	int no_feedback;
 +
 +	bool debug;
 +	bool debug_thread;
@@ -7103,7 +6987,7 @@ index 000000000000..ef73d28db47c
 +
 +#endif // _IPTS_STATE_H_
 diff --git a/drivers/misc/mei/hw-me-regs.h b/drivers/misc/mei/hw-me-regs.h
-index d80372d21c14..6e14bde0a819 100644
+index 2ac1dc5104b7..5daa857a4938 100644
 --- a/drivers/misc/mei/hw-me-regs.h
 +++ b/drivers/misc/mei/hw-me-regs.h
 @@ -119,6 +119,7 @@
@@ -7115,7 +6999,7 @@ index d80372d21c14..6e14bde0a819 100644
  #define MEI_DEV_ID_SPT_H_2    0xA13B  /* Sunrise Point H 2 */
  
 diff --git a/drivers/misc/mei/pci-me.c b/drivers/misc/mei/pci-me.c
-index 3498c10b8263..4442c6366f0d 100644
+index b4bf12f27caf..34f4338fa641 100644
 --- a/drivers/misc/mei/pci-me.c
 +++ b/drivers/misc/mei/pci-me.c
 @@ -86,6 +86,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
@@ -7274,10 +7158,10 @@ index 000000000000..98b54d74ff88
 +#endif // IPTS_BINARY_H
 diff --git a/include/linux/ipts-companion.h b/include/linux/ipts-companion.h
 new file mode 100644
-index 000000000000..1f606a5fb5f2
+index 000000000000..de31f5e0b186
 --- /dev/null
 +++ b/include/linux/ipts-companion.h
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,29 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + *
@@ -7294,7 +7178,6 @@ index 000000000000..1f606a5fb5f2
 +#include <linux/ipts-binary.h>
 +
 +struct ipts_companion {
-+	unsigned int (*get_quirks)(struct ipts_companion *companion);
 +	int (*firmware_request)(struct ipts_companion *companion,
 +		const struct firmware **fw,
 +		const char *name, struct device *device);
@@ -7402,10 +7285,10 @@ index 000000000000..cb9d98fe96e4
 +#endif // IPTS_GFX_H
 diff --git a/include/linux/ipts.h b/include/linux/ipts.h
 new file mode 100644
-index 000000000000..bfa8e1375926
+index 000000000000..f229a3436851
 --- /dev/null
 +++ b/include/linux/ipts.h
-@@ -0,0 +1,20 @@
+@@ -0,0 +1,19 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + *
@@ -7423,9 +7306,8 @@ index 000000000000..bfa8e1375926
 +#define MAX_IOCL_FILE_PATH_LEN 256
 +
 +#define IPTS_QUIRK_NONE        0
-+#define IPTS_QUIRK_NO_FEEDBACK BIT(0)
 +
 +#endif // IPTS_H
 -- 
-2.26.0
+2.26.2
 
