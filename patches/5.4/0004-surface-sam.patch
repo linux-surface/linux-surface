@@ -1,29 +1,29 @@
-From bab81477b7af1b95845d7a35d418a6395136d434 Mon Sep 17 00:00:00 2001
+From 58d7f7c62d0b37687982b6ed9d891f3420d47e13 Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:11:08 +0200
-Subject: [PATCH 5/7] surface-sam
+Subject: [PATCH 4/7] surface-sam
 
 ---
  drivers/acpi/acpica/dsopcode.c                |    2 +-
  drivers/acpi/acpica/exfield.c                 |   12 +-
  drivers/platform/x86/Kconfig                  |    1 +
  drivers/platform/x86/Makefile                 |    1 +
- drivers/platform/x86/surface_sam/Kconfig      |  163 ++
+ drivers/platform/x86/surface_sam/Kconfig      |  164 ++
  drivers/platform/x86/surface_sam/Makefile     |   10 +
- .../x86/surface_sam/surface_sam_dtx.c         |  623 ++++++
+ .../x86/surface_sam/surface_sam_dtx.c         |  604 ++++++
  .../x86/surface_sam/surface_sam_hps.c         | 1110 +++++++++++
- .../x86/surface_sam/surface_sam_san.c         |  901 +++++++++
- .../x86/surface_sam/surface_sam_san.h         |   29 +
- .../x86/surface_sam/surface_sam_sid.c         |  117 ++
- .../x86/surface_sam/surface_sam_sid_gpelid.c  |  219 ++
- .../surface_sam/surface_sam_sid_perfmode.c    |  225 +++
- .../x86/surface_sam/surface_sam_sid_power.c   | 1259 ++++++++++++
- .../x86/surface_sam/surface_sam_sid_vhf.c     |  440 ++++
- .../x86/surface_sam/surface_sam_ssh.c         | 1773 +++++++++++++++++
- .../x86/surface_sam/surface_sam_ssh.h         |   97 +
- .../x86/surface_sam/surface_sam_vhf.c         |  276 +++
+ .../x86/surface_sam/surface_sam_san.c         |  883 +++++++++
+ .../x86/surface_sam/surface_sam_san.h         |   30 +
+ .../x86/surface_sam/surface_sam_sid.c         |  137 ++
+ .../x86/surface_sam/surface_sam_sid_gpelid.c  |  224 +++
+ .../surface_sam/surface_sam_sid_perfmode.c    |  216 ++
+ .../x86/surface_sam/surface_sam_sid_power.c   | 1264 ++++++++++++
+ .../x86/surface_sam/surface_sam_sid_vhf.c     |  428 ++++
+ .../x86/surface_sam/surface_sam_ssh.c         | 1744 +++++++++++++++++
+ .../x86/surface_sam/surface_sam_ssh.h         |   98 +
+ .../x86/surface_sam/surface_sam_vhf.c         |  270 +++
  drivers/tty/serdev/core.c                     |  111 +-
- 19 files changed, 7353 insertions(+), 16 deletions(-)
+ 19 files changed, 7293 insertions(+), 16 deletions(-)
  create mode 100644 drivers/platform/x86/surface_sam/Kconfig
  create mode 100644 drivers/platform/x86/surface_sam/Makefile
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_dtx.c
@@ -40,7 +40,7 @@ Subject: [PATCH 5/7] surface-sam
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_vhf.c
 
 diff --git a/drivers/acpi/acpica/dsopcode.c b/drivers/acpi/acpica/dsopcode.c
-index 10f32b62608e..7b2a4987f050 100644
+index 10f32b62608ee..7b2a4987f0507 100644
 --- a/drivers/acpi/acpica/dsopcode.c
 +++ b/drivers/acpi/acpica/dsopcode.c
 @@ -123,7 +123,7 @@ acpi_ds_init_buffer_field(u16 aml_opcode,
@@ -53,7 +53,7 @@ index 10f32b62608e..7b2a4987f050 100644
  		bit_count = (u32) length_desc->integer.value;
  
 diff --git a/drivers/acpi/acpica/exfield.c b/drivers/acpi/acpica/exfield.c
-index d3d2dbfba680..0b7f617a6e9b 100644
+index d3d2dbfba680c..0b7f617a6e9b1 100644
 --- a/drivers/acpi/acpica/exfield.c
 +++ b/drivers/acpi/acpica/exfield.c
 @@ -109,6 +109,7 @@ acpi_ex_read_data_from_field(struct acpi_walk_state *walk_state,
@@ -85,7 +85,7 @@ index d3d2dbfba680..0b7f617a6e9b 100644
  		buffer_desc = acpi_ut_create_buffer_object(buffer_length);
  		if (!buffer_desc) {
 diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
-index 348c795019fa..d25067a838a3 100644
+index 348c795019fa4..d25067a838a33 100644
 --- a/drivers/platform/x86/Kconfig
 +++ b/drivers/platform/x86/Kconfig
 @@ -1342,6 +1342,7 @@ config PCENGINES_APU2
@@ -97,7 +97,7 @@ index 348c795019fa..d25067a838a3 100644
  endif # X86_PLATFORM_DEVICES
  
 diff --git a/drivers/platform/x86/Makefile b/drivers/platform/x86/Makefile
-index 6dd955ad9bf1..19b56f2181eb 100644
+index 6dd955ad9bf18..19b56f2181eb9 100644
 --- a/drivers/platform/x86/Makefile
 +++ b/drivers/platform/x86/Makefile
 @@ -101,3 +101,4 @@ obj-$(CONFIG_I2C_MULTI_INSTANTIATE)	+= i2c-multi-instantiate.o
@@ -107,23 +107,23 @@ index 6dd955ad9bf1..19b56f2181eb 100644
 +obj-$(CONFIG_SURFACE_SAM)	+= surface_sam/
 diff --git a/drivers/platform/x86/surface_sam/Kconfig b/drivers/platform/x86/surface_sam/Kconfig
 new file mode 100644
-index 000000000000..b4513c234c4d
+index 0000000000000..c4556e58b9a58
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/Kconfig
-@@ -0,0 +1,163 @@
+@@ -0,0 +1,164 @@
 +menuconfig SURFACE_SAM
-+    depends on ACPI
-+    tristate "Microsoft Surface/System Aggregator Module and Platform Drivers"
-+    ---help---
-+      Drivers for the Surface/System Aggregator Module (SAM) of Microsoft
-+      Surface devices.
++	depends on ACPI
++	tristate "Microsoft Surface/System Aggregator Module and Platform Drivers"
++	help
++	  Drivers for the Surface/System Aggregator Module (SAM) of Microsoft
++	  Surface devices.
 +
-+      SAM is an embedded controller that provides access to various
-+      functionalities on these devices, including battery status, keyboard
-+      events (on the Laptops) and many more.
++	  SAM is an embedded controller that provides access to various
++	  functionalities on these devices, including battery status, keyboard
++	  events (on the Laptops) and many more.
 +
-+      Say M/Y here if you have a Microsoft Surface device with a SAM device
-+      (i.e. 5th generation or later).
++	  Say M/Y here if you have a Microsoft Surface device with a SAM device
++	  (i.e. 5th generation or later).
 +
 +config SURFACE_SAM_SSH
 +	tristate "Surface Serial Hub Driver"
@@ -131,7 +131,7 @@ index 000000000000..b4513c234c4d
 +	depends on SERIAL_DEV_CTRL_TTYPORT
 +	select CRC_CCITT
 +	default m
-+	---help---
++	help
 +	  Surface Serial Hub driver for 5th generation (or later) Microsoft
 +	  Surface devices.
 +
@@ -149,7 +149,7 @@ index 000000000000..b4513c234c4d
 +	depends on SURFACE_SAM_SSH
 +	depends on SYSFS
 +	default n
-+	---help---
++	help
 +	  Debug device for direct communication with the embedded controller
 +	  found on 5th generation (and later) Microsoft Surface devices (e.g.
 +	  Book 2, Laptop, Laptop 2, Pro 2017, Pro 6, ...) via sysfs.
@@ -160,7 +160,7 @@ index 000000000000..b4513c234c4d
 +	tristate "Surface ACPI Notify Driver"
 +	depends on SURFACE_SAM_SSH
 +	default m
-+	---help---
++	help
 +	  Surface ACPI Notify driver for 5th generation (or later) Microsoft
 +	  Surface devices.
 +
@@ -175,7 +175,7 @@ index 000000000000..b4513c234c4d
 +	depends on SURFACE_SAM_SSH
 +	depends on HID
 +	default m
-+	---help---
++	help
 +	  Surface Virtual HID Framework driver for 5th generation (or later)
 +	  Microsoft Surface devices.
 +
@@ -189,7 +189,7 @@ index 000000000000..b4513c234c4d
 +	depends on SURFACE_SAM_SSH
 +	depends on INPUT
 +	default m
-+	---help---
++	help
 +	  Surface Detachment System (DTX) driver for the Microsoft Surface Book
 +	  2. This driver provides support for proper detachment handling in
 +	  user-space, status-events relating to the base and support for
@@ -205,8 +205,9 @@ index 000000000000..b4513c234c4d
 +	tristate "Surface dGPU Hot-Plug System (dGPU-HPS) Driver"
 +	depends on SURFACE_SAM_SSH
 +	depends on SURFACE_SAM_SAN
++	depends on GPIO_SYSFS
 +	default m
-+	---help---
++	help
 +	  Driver to properly handle hot-plugging and explicit power-on/power-off
 +	  of the discrete GPU (dGPU) on the Surface Book 2.
 +
@@ -216,7 +217,7 @@ index 000000000000..b4513c234c4d
 +	tristate "Surface Platform Integration Driver"
 +	depends on SURFACE_SAM_SSH
 +	default m
-+	---help---
++	help
 +	  Surface Platform Integration Driver for the Microsoft Surface Devices.
 +	  This driver loads various model-specific sub-drivers, including
 +	  battery and keyboard support on 7th generation Surface devices, proper
@@ -230,7 +231,7 @@ index 000000000000..b4513c234c4d
 +	tristate "Surface Lid Wakeup Driver"
 +	depends on SURFACE_SAM_SID
 +	default m
-+	---help---
++	help
 +	  Driver to set up device wake-up via lid on Intel-based Microsoft
 +	  Surface devices. These devices do not wake up from sleep as their GPE
 +	  interrupt is not configured automatically. This driver solves that
@@ -243,8 +244,8 @@ index 000000000000..b4513c234c4d
 +	depends on SURFACE_SAM_SID
 +	depends on SYSFS
 +	default m
-+	---help---
-+	  This driver provides suport for setting performance-modes on Surface
++	help
++	  This driver provides support for setting performance-modes on Surface
 +	  devices via the perf_mode sysfs attribute. Currently only supports the
 +	  Surface Book 2. Performance-modes directly influence the fan-profile
 +	  of the device, allowing to choose between higher performance or
@@ -257,7 +258,7 @@ index 000000000000..b4513c234c4d
 +	depends on SURFACE_SAM_SID
 +	depends on HID
 +	default m
-+	---help---
++	help
 +	  This driver provides support for HID devices connected via the Surface
 +	  SAM embedded controller. It provides support for keyboard and touchpad
 +	  on the Surface Laptop 3 models.
@@ -269,14 +270,14 @@ index 000000000000..b4513c234c4d
 +	depends on SURFACE_SAM_SID
 +	select POWER_SUPPLY
 +	default m
-+	---help---
++	help
 +	  This driver provides support for the battery and AC on 7th generation
 +	  Surface devices.
 +
 +	  If you are not sure, say M here.
 diff --git a/drivers/platform/x86/surface_sam/Makefile b/drivers/platform/x86/surface_sam/Makefile
 new file mode 100644
-index 000000000000..188975ccde5c
+index 0000000000000..188975ccde5ce
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/Makefile
 @@ -0,0 +1,10 @@
@@ -292,10 +293,11 @@ index 000000000000..188975ccde5c
 +obj-$(CONFIG_SURFACE_SAM_SID_VHF)	+= surface_sam_sid_vhf.o
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_dtx.c b/drivers/platform/x86/surface_sam/surface_sam_dtx.c
 new file mode 100644
-index 000000000000..4b924de6ab09
+index 0000000000000..1e772fd5b0bea
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_dtx.c
-@@ -0,0 +1,623 @@
+@@ -0,0 +1,604 @@
++// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Detachment system (DTX) driver for Microsoft Surface Book 2.
 + */
@@ -415,13 +417,11 @@ index 000000000000..4b924de6ab09
 +	};
 +
 +	status = surface_sam_ssh_rqst(&rqst, &result);
-+	if (status) {
++	if (status)
 +		return status;
-+	}
 +
-+	if (result.len != 1) {
++	if (result.len != 1)
 +		return -EFAULT;
-+	}
 +
 +	return result.data[0];
 +}
@@ -444,14 +444,14 @@ index 000000000000..4b924de6ab09
 +
 +static int dtx_cmd_get_opmode(int __user *buf)
 +{
-+	int opmode = surface_sam_query_opmpde();
-+	if (opmode < 0) {
-+		return opmode;
-+	}
++	int opmode;
 +
-+	if (put_user(opmode, buf)) {
++	opmode = surface_sam_query_opmpde();
++	if (opmode < 0)
++		return opmode;
++
++	if (put_user(opmode, buf))
 +		return -EACCES;
-+	}
 +
 +	return 0;
 +}
@@ -464,9 +464,8 @@ index 000000000000..4b924de6ab09
 +
 +	// initialize client
 +	client = kzalloc(sizeof(struct surface_dtx_client), GFP_KERNEL);
-+	if (!client) {
++	if (!client)
 +		return -ENOMEM;
-+	}
 +
 +	spin_lock_init(&client->buffer_lock);
 +	client->buffer_head = 0;
@@ -508,37 +507,32 @@ index 000000000000..4b924de6ab09
 +	size_t read = 0;
 +	int status = 0;
 +
-+	if (count != 0 && count < sizeof(struct surface_dtx_event)) {
++	if (count != 0 && count < sizeof(struct surface_dtx_event))
 +		return -EINVAL;
-+	}
 +
-+	if (!ddev->active) {
++	if (!ddev->active)
 +		return -ENODEV;
-+	}
 +
 +	// check availability
-+	if (client->buffer_head == client->buffer_tail){
-+		if (file->f_flags & O_NONBLOCK) {
++	if (client->buffer_head == client->buffer_tail) {
++		if (file->f_flags & O_NONBLOCK)
 +			return -EAGAIN;
-+		}
 +
 +		status = wait_event_interruptible(ddev->waitq,
 +				client->buffer_head != client->buffer_tail ||
 +				!ddev->active);
-+		if (status) {
++		if (status)
 +			return status;
-+		}
 +
-+		if (!ddev->active) {
++		if (!ddev->active)
 +			return -ENODEV;
-+		}
 +	}
 +
 +	// copy events one by one
 +	while (read + sizeof(struct surface_dtx_event) <= count) {
 +		spin_lock_irq(&client->buffer_lock);
 +
-+		if(client->buffer_head == client->buffer_tail) {
++		if (client->buffer_head == client->buffer_tail) {
 +			spin_unlock_irq(&client->buffer_lock);
 +			break;
 +		}
@@ -549,9 +543,8 @@ index 000000000000..4b924de6ab09
 +		spin_unlock_irq(&client->buffer_lock);
 +
 +		// copy to userspace
-+		if(copy_to_user(buf, &event, sizeof(struct surface_dtx_event))) {
++		if (copy_to_user(buf, &event, sizeof(struct surface_dtx_event)))
 +			return -EFAULT;
-+		}
 +
 +		read += sizeof(struct surface_dtx_event);
 +	}
@@ -566,15 +559,13 @@ index 000000000000..4b924de6ab09
 +
 +	poll_wait(file, &client->ddev->waitq, pt);
 +
-+	if (client->ddev->active) {
++	if (client->ddev->active)
 +		mask = EPOLLOUT | EPOLLWRNORM;
-+	} else {
++	else
 +		mask = EPOLLHUP | EPOLLERR;
-+	}
 +
-+	if (client->buffer_head != client->buffer_tail) {
++	if (client->buffer_head != client->buffer_tail)
 +		mask |= EPOLLIN | EPOLLRDNORM;
-+	}
 +
 +	return mask;
 +}
@@ -593,9 +584,8 @@ index 000000000000..4b924de6ab09
 +	int status;
 +
 +	status = mutex_lock_interruptible(&ddev->mutex);
-+	if (status) {
++	if (status)
 +		return status;
-+	}
 +
 +	if (!ddev->active) {
 +		mutex_unlock(&ddev->mutex);
@@ -689,9 +679,8 @@ index 000000000000..4b924de6ab09
 +
 +	// get operation mode
 +	opmode = surface_sam_query_opmpde();
-+	if (opmode < 0) {
++	if (opmode < 0)
 +		printk(DTX_ERR "EC request failed with error %d\n", opmode);
-+	}
 +
 +	// send DTX event
 +	event.type = 0x11;
@@ -703,7 +692,7 @@ index 000000000000..4b924de6ab09
 +
 +	// send SW_TABLET_MODE event
 +	spin_lock(&ddev->input_lock);
-+	input_report_switch(ddev->input_dev, SW_TABLET_MODE, opmode == 0x00);
++	input_report_switch(ddev->input_dev, SW_TABLET_MODE, opmode != DTX_OPMODE_LAPTOP);
 +	input_sync(ddev->input_dev);
 +	spin_unlock(&ddev->input_lock);
 +}
@@ -753,14 +742,12 @@ index 000000000000..4b924de6ab09
 +	int status;
 +
 +	status = surface_sam_ssh_set_event_handler(SAM_EVENT_DTX_RQID, surface_dtx_evt_dtx, ddev);
-+	if (status) {
++	if (status)
 +		goto err_handler;
-+	}
 +
 +	status = surface_sam_ssh_enable_event_source(SAM_EVENT_DTX_TC, 0x01, SAM_EVENT_DTX_RQID);
-+	if (status) {
++	if (status)
 +		goto err_source;
-+	}
 +
 +	return 0;
 +
@@ -783,9 +770,8 @@ index 000000000000..4b924de6ab09
 +	int status;
 +
 +	input_dev = input_allocate_device();
-+	if (!input_dev) {
++	if (!input_dev)
 +		return ERR_PTR(-ENOMEM);
-+	}
 +
 +	input_dev->name = DTX_INPUT_NAME;
 +	input_dev->dev.parent = &pdev->dev;
@@ -801,7 +787,7 @@ index 000000000000..4b924de6ab09
 +		return ERR_PTR(status);
 +	}
 +
-+	input_report_switch(input_dev, SW_TABLET_MODE, status == 0x00);
++	input_report_switch(input_dev, SW_TABLET_MODE, status != DTX_OPMODE_LAPTOP);
 +
 +	status = input_register_device(input_dev);
 +	if (status) {
@@ -821,14 +807,12 @@ index 000000000000..4b924de6ab09
 +
 +	// link to ec
 +	status = surface_sam_ssh_consumer_register(&pdev->dev);
-+	if (status) {
++	if (status)
 +		return status == -ENXIO ? -EPROBE_DEFER : status;
-+	}
 +
 +	input_dev = surface_dtx_register_inputdev(pdev);
-+	if (IS_ERR(input_dev)) {
++	if (IS_ERR(input_dev))
 +		return PTR_ERR(input_dev);
-+	}
 +
 +	// initialize device
 +	mutex_lock(&ddev->mutex);
@@ -845,15 +829,13 @@ index 000000000000..4b924de6ab09
 +	mutex_unlock(&ddev->mutex);
 +
 +	status = misc_register(&ddev->mdev);
-+	if (status) {
++	if (status)
 +		goto err_register;
-+	}
 +
 +	// enable events
 +	status = surface_dtx_events_setup(ddev);
-+	if (status) {
++	if (status)
 +		goto err_events_setup;
-+	}
 +
 +	return 0;
 +
@@ -921,10 +903,11 @@ index 000000000000..4b924de6ab09
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_hps.c b/drivers/platform/x86/surface_sam/surface_sam_hps.c
 new file mode 100644
-index 000000000000..3b123bd3dcfe
+index 0000000000000..4fba5ee75a66f
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_hps.c
 @@ -0,0 +1,1110 @@
++// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Surface dGPU hot-plug system driver.
 + * Supports explicit setting of the dGPU power-state on the Surface Book 2 and
@@ -994,7 +977,8 @@ index 000000000000..3b123bd3dcfe
 +	SHPS_DGPU_POWER_UNKNOWN  = 2,
 +};
 +
-+static const char* shps_dgpu_power_str(enum shps_dgpu_power power) {
++static const char *shps_dgpu_power_str(enum shps_dgpu_power power)
++{
 +	if (power == SHPS_DGPU_POWER_OFF)
 +		return "off";
 +	else if (power == SHPS_DGPU_POWER_ON)
@@ -1023,7 +1007,7 @@ index 000000000000..3b123bd3dcfe
 +#define SHPS_STATE_BIT_WAKE_ENABLED	2	/* wakeup via base-presence GPIO enabled */
 +
 +
-+#define SHPS_DGPU_PARAM_PERM		(S_IRUGO | S_IWUSR)
++#define SHPS_DGPU_PARAM_PERM		0644
 +
 +enum shps_dgpu_power_mp {
 +	SHPS_DGPU_MP_POWER_OFF  = SHPS_DGPU_POWER_OFF,
@@ -1040,13 +1024,11 @@ index 000000000000..3b123bd3dcfe
 +	int status;
 +
 +	status = kstrtoint(val, 0, &power);
-+	if (status) {
++	if (status)
 +		return status;
-+	}
 +
-+	if (power < __SHPS_DGPU_MP_POWER_START || power > __SHPS_DGPU_MP_POWER_END) {
++	if (power < __SHPS_DGPU_MP_POWER_START || power > __SHPS_DGPU_MP_POWER_END)
 +		return -EINVAL;
-+	}
 +
 +	return param_set_int(val, kp);
 +}
@@ -1087,18 +1069,18 @@ index 000000000000..3b123bd3dcfe
 +	return surface_sam_ssh_rqst(&rqst, NULL);
 +}
 +
-+inline static int shps_dtx_latch_lock(void)
++static inline int shps_dtx_latch_lock(void)
 +{
 +	return dtx_cmd_simple(SAM_DTX_CID_LATCH_LOCK);
 +}
 +
-+inline static int shps_dtx_latch_unlock(void)
++static inline int shps_dtx_latch_unlock(void)
 +{
 +	return dtx_cmd_simple(SAM_DTX_CID_LATCH_UNLOCK);
 +}
 +
 +
-+static int shps_dgpu_dsm_get_pci_addr(struct platform_device *pdev, const char* entry)
++static int shps_dgpu_dsm_get_pci_addr(struct platform_device *pdev, const char *entry)
 +{
 +	acpi_handle handle = ACPI_HANDLE(&pdev->dev);
 +	union acpi_object *result;
@@ -1152,7 +1134,7 @@ index 000000000000..3b123bd3dcfe
 +	return bus << 8 | PCI_DEVFN(dev, fun);
 +}
 +
-+static struct pci_dev *shps_dgpu_dsm_get_pci_dev(struct platform_device *pdev, const char* entry)
++static struct pci_dev *shps_dgpu_dsm_get_pci_dev(struct platform_device *pdev, const char *entry)
 +{
 +	struct pci_dev *dev;
 +	int addr;
@@ -1203,7 +1185,7 @@ index 000000000000..3b123bd3dcfe
 +	param.integer.value = power == SHPS_DGPU_POWER_ON;
 +
 +	result = acpi_evaluate_dsm_typed(handle, &SHPS_DSM_UUID, SHPS_DSM_REVISION,
-+	                                 SHPS_DSM_GPU_POWER, &param, ACPI_TYPE_BUFFER);
++					 SHPS_DSM_GPU_POWER, &param, ACPI_TYPE_BUFFER);
 +
 +	if (IS_ERR_OR_NULL(result))
 +		return result ? PTR_ERR(result) : -EIO;
@@ -1388,20 +1370,23 @@ index 000000000000..3b123bd3dcfe
 +		if (status)
 +			shps_dtx_latch_unlock();
 +
-+		return status;
 +	} else {
 +		status = shps_dgpu_rp_set_power(pdev, power);
 +		if (status)
 +			return status;
 +
-+		return shps_dtx_latch_unlock();
++		status = shps_dtx_latch_unlock();
 +	}
++
++	return status;
 +}
 +
 +
 +static int shps_dgpu_is_present(struct platform_device *pdev)
 +{
-+	struct shps_driver_data *drvdata = platform_get_drvdata(pdev);
++	struct shps_driver_data *drvdata;
++
++	drvdata = platform_get_drvdata(pdev);
 +	return gpiod_get_value_cansleep(drvdata->gpio_dgpu_presence);
 +}
 +
@@ -1629,9 +1614,8 @@ index 000000000000..3b123bd3dcfe
 +	struct shps_driver_data *drvdata = platform_get_drvdata(pdev);
 +	int status = 0;
 +
-+	if (test_and_clear_bit(SHPS_STATE_BIT_WAKE_ENABLED, &drvdata->state)) {
++	if (test_and_clear_bit(SHPS_STATE_BIT_WAKE_ENABLED, &drvdata->state))
 +		status = disable_irq_wake(drvdata->irq_base_presence);
-+	}
 +
 +	return status;
 +}
@@ -1903,15 +1887,13 @@ index 000000000000..3b123bd3dcfe
 +
 +	// link to SSH
 +	status = surface_sam_ssh_consumer_register(&pdev->dev);
-+	if (status) {
++	if (status)
 +		return status == -ENXIO ? -EPROBE_DEFER : status;
-+	}
 +
 +	// link to SAN
 +	status = surface_sam_san_consumer_register(&pdev->dev, 0);
-+	if (status) {
++	if (status)
 +		return status == -ENXIO ? -EPROBE_DEFER : status;
-+	}
 +
 +	status = acpi_dev_add_driver_gpios(shps_dev, shps_acpi_gpios);
 +	if (status)
@@ -2020,7 +2002,7 @@ index 000000000000..3b123bd3dcfe
 +};
 +MODULE_DEVICE_TABLE(acpi, shps_acpi_match);
 +
-+struct platform_driver surface_sam_hps = {
++static struct platform_driver surface_sam_hps = {
 +	.probe = shps_probe,
 +	.remove = shps_remove,
 +	.shutdown = shps_shutdown,
@@ -2037,10 +2019,11 @@ index 000000000000..3b123bd3dcfe
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_san.c b/drivers/platform/x86/surface_sam/surface_sam_san.c
 new file mode 100644
-index 000000000000..aa0cfc4262be
+index 0000000000000..63478945e6b26
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_san.c
-@@ -0,0 +1,901 @@
+@@ -0,0 +1,883 @@
++// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Surface ACPI Notify (SAN) and ACPI integration driver for SAM.
 + * Translates communication from ACPI to SSH and back.
@@ -2063,7 +2046,7 @@ index 000000000000..aa0cfc4262be
 +
 +static const guid_t SAN_DSM_UUID =
 +	GUID_INIT(0x93b666c5, 0x70c6, 0x469f, 0xa2, 0x15, 0x3d,
-+	          0x48, 0x7c, 0x91, 0xab, 0x3c);
++		  0x48, 0x7c, 0x91, 0xab, 0x3c);
 +
 +#define SAM_EVENT_DELAY_PWR_ADAPTER	msecs_to_jiffies(5000)
 +#define SAM_EVENT_DELAY_PWR_BST		msecs_to_jiffies(2500)
@@ -2245,11 +2228,10 @@ index 000000000000..aa0cfc4262be
 +
 +	dev_dbg(dev, "notify power event 0x%02x\n", event);
 +	obj = acpi_evaluate_dsm_typed(san, &SAN_DSM_UUID, SAN_DSM_REVISION,
-+	                              (u8) event, NULL, ACPI_TYPE_BUFFER);
++				      (u8) event, NULL, ACPI_TYPE_BUFFER);
 +
-+	if (IS_ERR_OR_NULL(obj)) {
++	if (IS_ERR_OR_NULL(obj))
 +		return obj ? PTR_ERR(obj) : -ENXIO;
-+	}
 +
 +	if (obj->buffer.length != 1 || obj->buffer.pointer[0] != 0) {
 +		dev_err(dev, "got unexpected result from _DSM\n");
@@ -2270,12 +2252,11 @@ index 000000000000..aa0cfc4262be
 +	param.integer.value = iid;
 +
 +	obj = acpi_evaluate_dsm_typed(san, &SAN_DSM_UUID, SAN_DSM_REVISION,
-+	                              SAN_DSM_FN_NOTIFY_SENSOR_TRIP_POINT,
++				      SAN_DSM_FN_NOTIFY_SENSOR_TRIP_POINT,
 +				      &param, ACPI_TYPE_BUFFER);
 +
-+	if (IS_ERR_OR_NULL(obj)) {
++	if (IS_ERR_OR_NULL(obj))
 +		return obj ? PTR_ERR(obj) : -ENXIO;
-+	}
 +
 +	if (obj->buffer.length != 1 || obj->buffer.pointer[0] != 0) {
 +		dev_err(dev, "got unexpected result from _DSM\n");
@@ -2287,7 +2268,7 @@ index 000000000000..aa0cfc4262be
 +}
 +
 +
-+inline static int san_evt_power_adapter(struct device *dev, struct surface_sam_ssh_event *event)
++static inline int san_evt_power_adapter(struct device *dev, struct surface_sam_ssh_event *event)
 +{
 +	int status;
 +
@@ -2319,16 +2300,15 @@ index 000000000000..aa0cfc4262be
 +	return 0;
 +}
 +
-+inline static int san_evt_power_bix(struct device *dev, struct surface_sam_ssh_event *event)
++static inline int san_evt_power_bix(struct device *dev, struct surface_sam_ssh_event *event)
 +{
 +	enum san_pwr_event evcode;
 +	int status;
 +
-+	if (event->iid == 0x02) {
++	if (event->iid == 0x02)
 +		evcode = SAN_PWR_EVENT_BAT2_INFO;
-+	} else {
++	else
 +		evcode = SAN_PWR_EVENT_BAT1_INFO;
-+	}
 +
 +	status = san_acpi_notify_power_event(dev, evcode);
 +	if (status) {
@@ -2339,16 +2319,15 @@ index 000000000000..aa0cfc4262be
 +	return 0;
 +}
 +
-+inline static int san_evt_power_bst(struct device *dev, struct surface_sam_ssh_event *event)
++static inline int san_evt_power_bst(struct device *dev, struct surface_sam_ssh_event *event)
 +{
 +	enum san_pwr_event evcode;
 +	int status;
 +
-+	if (event->iid == 0x02) {
++	if (event->iid == 0x02)
 +		evcode = SAN_PWR_EVENT_BAT2_STAT;
-+	} else {
++	else
 +		evcode = SAN_PWR_EVENT_BAT1_STAT;
-+	}
 +
 +	status = san_acpi_notify_power_event(dev, evcode);
 +	if (status) {
@@ -2414,7 +2393,7 @@ index 000000000000..aa0cfc4262be
 +}
 +
 +
-+inline static int san_evt_thermal_notify(struct device *dev, struct surface_sam_ssh_event *event)
++static inline int san_evt_thermal_notify(struct device *dev, struct surface_sam_ssh_event *event)
 +{
 +	int status;
 +
@@ -2499,9 +2478,8 @@ index 000000000000..aa0cfc4262be
 +	int status = 0;
 +	int try;
 +
-+	if (!gsb_rqst) {
++	if (!gsb_rqst)
 +		return AE_OK;
-+	}
 +
 +	rqst.tc  = gsb_rqst->tc;
 +	rqst.cid = gsb_rqst->cid;
@@ -2515,17 +2493,16 @@ index 000000000000..aa0cfc4262be
 +	result.len  = 0;
 +	result.data = kzalloc(result.cap, GFP_KERNEL);
 +
-+	if (!result.data) {
++	if (!result.data)
 +		return AE_NO_MEMORY;
-+	}
 +
 +	for (try = 0; try < SAN_RQST_RETRY; try++) {
-+		if (try) {
-+			dev_warn(ctx->dev, SAN_RQST_TAG "IO error occured, trying again\n");
-+		}
++		if (try)
++			dev_warn(ctx->dev, SAN_RQST_TAG "IO error occurred, trying again\n");
 +
 +		status = surface_sam_ssh_rqst(&rqst, &result);
-+		if (status != -EIO) break;
++		if (status != -EIO)
++			break;
 +	}
 +
 +	if (rqst.tc == 0x11 && rqst.cid == 0x0D && status == -EPERM) {
@@ -2577,9 +2554,8 @@ index 000000000000..aa0cfc4262be
 +	struct surface_sam_san_rqsg rqsg = {};
 +	int status;
 +
-+	if (!gsb_rqsg) {
++	if (!gsb_rqsg)
 +		return AE_OK;
-+	}
 +
 +	rqsg.tc  = gsb_rqsg->tc;
 +	rqsg.cid = gsb_rqsg->cid;
@@ -2740,22 +2716,19 @@ index 000000000000..aa0cfc4262be
 +	u32 max_links = 0;
 +	int status;
 +
-+	if (!cons) {
++	if (!cons)
 +		return 0;
-+	}
 +
 +	// count links
-+	for (con = cons; con->path; ++con) {
++	for (con = cons; con->path; ++con)
 +		max_links += 1;
-+	}
 +
 +	// allocate
-+	links = kzalloc(max_links * sizeof(struct san_consumer_link), GFP_KERNEL);
++	links = kcalloc(max_links, sizeof(struct san_consumer_link), GFP_KERNEL);
 +	link = &links[0];
 +
-+	if (!links) {
++	if (!links)
 +		return -ENOMEM;
-+	}
 +
 +	// create links
 +	for (con = cons; con->path; ++con) {
@@ -2770,9 +2743,8 @@ index 000000000000..aa0cfc4262be
 +		}
 +
 +		status = acpi_bus_get_device(handle, &adev);
-+		if (status) {
++		if (status)
 +			goto cleanup;
-+		}
 +
 +		link->link = device_link_add(&adev->dev, &pdev->dev, con->flags);
 +		if (!(link->link)) {
@@ -2791,25 +2763,23 @@ index 000000000000..aa0cfc4262be
 +
 +cleanup:
 +	for (link = link - 1; link >= links; --link) {
-+		if (link->properties->flags & DL_FLAG_STATELESS) {
++		if (link->properties->flags & DL_FLAG_STATELESS)
 +			device_link_del(link->link);
-+		}
 +	}
 +
 +	return status;
 +}
 +
-+static void san_consumers_unlink(struct san_consumers *consumers) {
++static void san_consumers_unlink(struct san_consumers *consumers)
++{
 +	u32 i;
 +
-+	if (!consumers) {
++	if (!consumers)
 +		return;
-+	}
 +
 +	for (i = 0; i < consumers->num; ++i) {
-+		if (consumers->links[i].properties->flags & DL_FLAG_STATELESS) {
++		if (consumers->links[i].properties->flags & DL_FLAG_STATELESS)
 +			device_link_del(consumers->links[i].link);
-+		}
 +	}
 +
 +	kfree(consumers->links);
@@ -2832,22 +2802,19 @@ index 000000000000..aa0cfc4262be
 +	 * consumer to set up a device_link.
 +	 */
 +	status = surface_sam_ssh_consumer_register(&pdev->dev);
-+	if (status) {
++	if (status)
 +		return status == -ENXIO ? -EPROBE_DEFER : status;
-+	}
 +
 +	drvdata = kzalloc(sizeof(struct san_drvdata), GFP_KERNEL);
-+	if (!drvdata) {
++	if (!drvdata)
 +		return -ENOMEM;
-+	}
 +
 +	drvdata->opreg_ctx.dev = &pdev->dev;
 +
 +	cons = acpi_device_get_match_data(&pdev->dev);
 +	status = san_consumers_link(pdev, cons, &drvdata->consumers);
-+	if (status) {
++	if (status)
 +		goto err_consumers;
-+	}
 +
 +	platform_set_drvdata(pdev, drvdata);
 +
@@ -2862,21 +2829,18 @@ index 000000000000..aa0cfc4262be
 +	}
 +
 +	status = san_enable_events(pdev);
-+	if (status) {
++	if (status)
 +		goto err_enable_events;
-+	}
 +
 +	mutex_lock(&rqsg_if.lock);
-+	if (!rqsg_if.san_dev) {
++	if (!rqsg_if.san_dev)
 +		rqsg_if.san_dev = &pdev->dev;
-+	} else {
++	else
 +		status = -EBUSY;
-+	}
 +	mutex_unlock(&rqsg_if.lock);
 +
-+	if (status) {
++	if (status)
 +		goto err_install_dev;
-+	}
 +
 +	acpi_walk_dep_device_list(san);
 +	return 0;
@@ -2923,7 +2887,7 @@ index 000000000000..aa0cfc4262be
 +};
 +
 +static const struct acpi_device_id surface_sam_san_match[] = {
-+	{ "MSHW0091", (long unsigned int) san_mshw0091_consumers },
++	{ "MSHW0091", (unsigned long) san_mshw0091_consumers },
 +	{ },
 +};
 +MODULE_DEVICE_TABLE(acpi, surface_sam_san_match);
@@ -2944,10 +2908,11 @@ index 000000000000..aa0cfc4262be
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_san.h b/drivers/platform/x86/surface_sam/surface_sam_san.h
 new file mode 100644
-index 000000000000..1ea8713db367
+index 0000000000000..85b6d65699472
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_san.h
-@@ -0,0 +1,29 @@
+@@ -0,0 +1,30 @@
++/* SPDX-License-Identifier: GPL-2.0 */
 +/*
 + * Interface for Surface ACPI/Notify (SAN).
 + *
@@ -2967,7 +2932,7 @@ index 000000000000..1ea8713db367
 +	u8 tc;				// target category
 +	u8 cid;				// command ID
 +	u8 iid;				// instance ID
-+	u8 cdl;				// command data length (lenght of payload)
++	u8 cdl;				// command data length (length of payload)
 +	u8 *pld;			// pointer to payload of length cdl
 +};
 +
@@ -2979,10 +2944,11 @@ index 000000000000..1ea8713db367
 +#endif /* _SURFACE_SAM_SAN_H */
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid.c b/drivers/platform/x86/surface_sam/surface_sam_sid.c
 new file mode 100644
-index 000000000000..f64dcd590494
+index 0000000000000..fb49d0e00808e
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_sid.c
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,137 @@
++// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Surface Integration Driver.
 + * MFD driver to provide device/model dependent functionality.
@@ -2996,14 +2962,16 @@ index 000000000000..f64dcd590494
 +
 +
 +static const struct mfd_cell sid_devs_sp4[] = {
-+	{ .name = "surface_sam_sid_gpelid", .id = -1 },
++	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
++	{ .name = "surface_sam_sid_perfmode", .id = -1 },
 +	{ },
 +};
 +
 +static const struct mfd_cell sid_devs_sp7[] = {
-+	{ .name = "surface_sam_sid_gpelid",  .id = -1 },
-+	{ .name = "surface_sam_sid_ac",      .id = -1 },
-+	{ .name = "surface_sam_sid_battery", .id = -1 },
++	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
++	{ .name = "surface_sam_sid_ac",       .id = -1 },
++	{ .name = "surface_sam_sid_battery",  .id = -1 },
++	{ .name = "surface_sam_sid_perfmode", .id = -1 },
 +	{ },
 +};
 +
@@ -3029,10 +2997,11 @@ index 000000000000..f64dcd590494
 +};
 +
 +static const struct mfd_cell sid_devs_sl3_13[] = {
-+	{ .name = "surface_sam_sid_gpelid",  .id = -1 },
-+	{ .name = "surface_sam_sid_vhf",     .id = -1 },
-+	{ .name = "surface_sam_sid_ac",      .id = -1 },
-+	{ .name = "surface_sam_sid_battery", .id = -1 },
++	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
++	{ .name = "surface_sam_sid_vhf",      .id = -1 },
++	{ .name = "surface_sam_sid_ac",       .id = -1 },
++	{ .name = "surface_sam_sid_battery",  .id = -1 },
++	{ .name = "surface_sam_sid_perfmode", .id = -1 },
 +	{ },
 +};
 +
@@ -3044,14 +3013,30 @@ index 000000000000..f64dcd590494
 +};
 +
 +static const struct acpi_device_id surface_sam_sid_match[] = {
-+	{ "MSHW0081", (unsigned long)sid_devs_sp4 },	/* Surface Pro 4, 5, and 6 */
-+	{ "MSHW0116", (unsigned long)sid_devs_sp7 },	/* Surface Pro 7 */
-+	{ "MSHW0080", (unsigned long)sid_devs_sb1 },	/* Surface Book 1 */
-+	{ "MSHW0107", (unsigned long)sid_devs_sb2 },	/* Surface Book 2 */
-+	{ "MSHW0086", (unsigned long)sid_devs_sl1 },	/* Surface Laptop 1 */
-+	{ "MSHW0112", (unsigned long)sid_devs_sl2 },	/* Surface Laptop 2 */
-+	{ "MSHW0114", (unsigned long)sid_devs_sl3_13 },	/* Surface Laptop 3 (13") */
-+	{ "MSHW0110", (unsigned long)sid_devs_sl3_15 },	/* Surface Laptop 3 (15") */
++	/* Surface Pro 4, 5, and 6 */
++	{ "MSHW0081", (unsigned long)sid_devs_sp4 },
++
++	/* Surface Pro 7 */
++	{ "MSHW0116", (unsigned long)sid_devs_sp7 },
++
++	/* Surface Book 1 */
++	{ "MSHW0080", (unsigned long)sid_devs_sb1 },
++
++	/* Surface Book 2 */
++	{ "MSHW0107", (unsigned long)sid_devs_sb2 },
++
++	/* Surface Laptop 1 */
++	{ "MSHW0086", (unsigned long)sid_devs_sl1 },
++
++	/* Surface Laptop 2 */
++	{ "MSHW0112", (unsigned long)sid_devs_sl2 },
++
++	/* Surface Laptop 3 (13") */
++	{ "MSHW0114", (unsigned long)sid_devs_sl3_13 },
++
++	/* Surface Laptop 3 (15") */
++	{ "MSHW0110", (unsigned long)sid_devs_sl3_15 },
++
 +	{ },
 +};
 +MODULE_DEVICE_TABLE(acpi, surface_sam_sid_match);
@@ -3102,10 +3087,11 @@ index 000000000000..f64dcd590494
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c b/drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c
 new file mode 100644
-index 000000000000..ce32ebf4d94d
+index 0000000000000..286411701d369
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c
-@@ -0,0 +1,219 @@
+@@ -0,0 +1,224 @@
++// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Surface Lid driver to enable wakeup from suspend via the lid.
 + */
@@ -3246,25 +3232,29 @@ index 000000000000..ce32ebf4d94d
 +
 +static int surface_sam_sid_gpelid_suspend(struct device *dev)
 +{
-+	const struct sid_lid_device *ldev = dev_get_drvdata(dev);
++	const struct sid_lid_device *ldev;
++
++	ldev = dev_get_drvdata(dev);
 +	return sid_lid_enable_wakeup(ldev, true);
 +}
 +
 +static int surface_sam_sid_gpelid_resume(struct device *dev)
 +{
-+	const struct sid_lid_device *ldev = dev_get_drvdata(dev);
++	const struct sid_lid_device *ldev;
++
++	ldev = dev_get_drvdata(dev);
 +	return sid_lid_enable_wakeup(ldev, false);
 +}
 +
 +static SIMPLE_DEV_PM_OPS(surface_sam_sid_gpelid_pm,
-+                         surface_sam_sid_gpelid_suspend,
-+                         surface_sam_sid_gpelid_resume);
++			 surface_sam_sid_gpelid_suspend,
++			 surface_sam_sid_gpelid_resume);
 +
 +
 +static int surface_sam_sid_gpelid_probe(struct platform_device *pdev)
 +{
 +	const struct dmi_system_id *match;
-+        struct sid_lid_device *dev;
++	struct sid_lid_device *dev;
 +	acpi_handle lid_handle;
 +	int status;
 +
@@ -3272,9 +3262,9 @@ index 000000000000..ce32ebf4d94d
 +	if (!match)
 +		return -ENODEV;
 +
-+        dev = match->driver_data;
-+        if (!dev)
-+                return -ENODEV;
++	dev = match->driver_data;
++	if (!dev)
++		return -ENODEV;
 +
 +	status = acpi_get_handle(NULL, (acpi_string)dev->acpi_path, &lid_handle);
 +	if (status)
@@ -3291,11 +3281,11 @@ index 000000000000..ce32ebf4d94d
 +	status = sid_lid_enable_wakeup(dev, false);
 +	if (status) {
 +		acpi_disable_gpe(NULL, dev->gpe_number);
-+                return status;
-+        }
++		return status;
++	}
 +
-+        platform_set_drvdata(pdev, dev);
-+        return 0;
++	platform_set_drvdata(pdev, dev);
++	return 0;
 +}
 +
 +static int surface_sam_sid_gpelid_remove(struct platform_device *pdev)
@@ -3304,10 +3294,10 @@ index 000000000000..ce32ebf4d94d
 +
 +	/* restore default behavior without this module */
 +	sid_lid_enable_wakeup(dev, false);
-+        acpi_disable_gpe(NULL, dev->gpe_number);
++	acpi_disable_gpe(NULL, dev->gpe_number);
 +
-+        platform_set_drvdata(pdev, NULL);
-+        return 0;
++	platform_set_drvdata(pdev, NULL);
++	return 0;
 +}
 +
 +static struct platform_driver surface_sam_sid_gpelid = {
@@ -3327,10 +3317,11 @@ index 000000000000..ce32ebf4d94d
 +MODULE_ALIAS("platform:surface_sam_sid_gpelid");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_perfmode.c b/drivers/platform/x86/surface_sam/surface_sam_sid_perfmode.c
 new file mode 100644
-index 000000000000..880a2567cf1b
+index 0000000000000..f74e2b51604d0
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_sid_perfmode.c
-@@ -0,0 +1,225 @@
+@@ -0,0 +1,216 @@
++// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Surface Performance Mode Driver.
 + * Allows to change cooling capabilities based on user preference.
@@ -3344,7 +3335,7 @@ index 000000000000..880a2567cf1b
 +#include "surface_sam_ssh.h"
 +
 +
-+#define SID_PARAM_PERM		(S_IRUGO | S_IWUSR)
++#define SID_PARAM_PERM		0644
 +
 +enum sam_perf_mode {
 +	SAM_PERF_MODE_NORMAL   = 1,
@@ -3390,13 +3381,11 @@ index 000000000000..880a2567cf1b
 +	};
 +
 +	status = surface_sam_ssh_rqst(&rqst, &result);
-+	if (status) {
++	if (status)
 +		return status;
-+	}
 +
-+	if (result.len != 8) {
++	if (result.len != 8)
 +		return -EFAULT;
-+	}
 +
 +	return get_unaligned_le32(&result.data[0]);
 +}
@@ -3415,9 +3404,8 @@ index 000000000000..880a2567cf1b
 +		.pld = payload,
 +	};
 +
-+	if (perf_mode < __SAM_PERF_MODE__START || perf_mode > __SAM_PERF_MODE__END) {
++	if (perf_mode < __SAM_PERF_MODE__START || perf_mode > __SAM_PERF_MODE__END)
 +		return -EINVAL;
-+	}
 +
 +	put_unaligned_le32(perf_mode, &rqst.pld[0]);
 +	return surface_sam_ssh_rqst(&rqst, NULL);
@@ -3430,13 +3418,11 @@ index 000000000000..880a2567cf1b
 +	int status;
 +
 +	status = kstrtoint(val, 0, &perf_mode);
-+	if (status) {
++	if (status)
 +		return status;
-+	}
 +
-+	if (perf_mode < __SID_PARAM_PERF_MODE__START || perf_mode > __SID_PARAM_PERF_MODE__END) {
++	if (perf_mode < __SID_PARAM_PERF_MODE__START || perf_mode > __SID_PARAM_PERF_MODE__END)
 +		return -EINVAL;
-+	}
 +
 +	return param_set_int(val, kp);
 +}
@@ -3470,20 +3456,18 @@ index 000000000000..880a2567cf1b
 +}
 +
 +static ssize_t perf_mode_store(struct device *dev, struct device_attribute *attr,
-+                               const char *data, size_t count)
++			       const char *data, size_t count)
 +{
 +	int perf_mode;
 +	int status;
 +
 +	status = kstrtoint(data, 0, &perf_mode);
-+	if (status) {
++	if (status)
 +		return status;
-+	}
 +
 +	status = surface_sam_perf_mode_set(perf_mode);
-+	if (status) {
++	if (status)
 +		return status;
-+	}
 +
 +	// TODO: Should we notify ACPI here?
 +	//
@@ -3510,23 +3494,20 @@ index 000000000000..880a2567cf1b
 +
 +	// link to ec
 +	status = surface_sam_ssh_consumer_register(&pdev->dev);
-+	if (status) {
++	if (status)
 +		return status == -ENXIO ? -EPROBE_DEFER : status;
-+	}
 +
 +	// set initial perf_mode
 +	if (param_perf_mode_init != SID_PARAM_PERF_MODE_AS_IS) {
 +		status = surface_sam_perf_mode_set(param_perf_mode_init);
-+		if (status) {
++		if (status)
 +			return status;
-+		}
 +	}
 +
 +	// register perf_mode attribute
 +	status = sysfs_create_file(&pdev->dev.kobj, &dev_attr_perf_mode.attr);
-+	if (status) {
++	if (status)
 +		goto err_sysfs;
-+	}
 +
 +	return 0;
 +
@@ -3558,10 +3539,11 @@ index 000000000000..880a2567cf1b
 +MODULE_ALIAS("platform:surface_sam_sid_perfmode");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_power.c b/drivers/platform/x86/surface_sam/surface_sam_sid_power.c
 new file mode 100644
-index 000000000000..1f2c88eda394
+index 0000000000000..eb925bdda8837
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_sid_power.c
-@@ -0,0 +1,1259 @@
+@@ -0,0 +1,1264 @@
++// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Surface SID Battery/AC Driver.
 + * Provides support for the battery and AC on 7th generation Surface devices.
@@ -3895,7 +3877,7 @@ index 000000000000..1f2c88eda394
 +struct spwr_subsystem {
 +	struct mutex lock;
 +
-+	unsigned refcount;
++	unsigned int refcount;
 +	struct spwr_ac_device *ac;
 +	struct spwr_battery_device *battery[__SPWR_NUM_BAT];
 +};
@@ -3951,18 +3933,18 @@ index 000000000000..1f2c88eda394
 +static int spwr_battery_unregister(struct spwr_battery_device *bat);
 +
 +
-+inline static bool spwr_battery_present(struct spwr_battery_device *bat)
++static inline bool spwr_battery_present(struct spwr_battery_device *bat)
 +{
 +	return bat->sta & SAM_BATTERY_STA_PRESENT;
 +}
 +
 +
-+inline static int spwr_battery_load_sta(struct spwr_battery_device *bat)
++static inline int spwr_battery_load_sta(struct spwr_battery_device *bat)
 +{
 +	return sam_psy_get_sta(bat->id + 1, &bat->sta);
 +}
 +
-+inline static int spwr_battery_load_bix(struct spwr_battery_device *bat)
++static inline int spwr_battery_load_bix(struct spwr_battery_device *bat)
 +{
 +	if (!spwr_battery_present(bat))
 +		return 0;
@@ -3970,7 +3952,7 @@ index 000000000000..1f2c88eda394
 +	return sam_psy_get_bix(bat->id + 1, &bat->bix);
 +}
 +
-+inline static int spwr_battery_load_bst(struct spwr_battery_device *bat)
++static inline int spwr_battery_load_bst(struct spwr_battery_device *bat)
 +{
 +	if (!spwr_battery_present(bat))
 +		return 0;
@@ -3979,13 +3961,13 @@ index 000000000000..1f2c88eda394
 +}
 +
 +
-+inline static int spwr_battery_set_alarm_unlocked(struct spwr_battery_device *bat, u32 value)
++static inline int spwr_battery_set_alarm_unlocked(struct spwr_battery_device *bat, u32 value)
 +{
 +	bat->alarm = value;
 +	return sam_psy_set_btp(bat->id + 1, bat->alarm);
 +}
 +
-+inline static int spwr_battery_set_alarm(struct spwr_battery_device *bat, u32 value)
++static inline int spwr_battery_set_alarm(struct spwr_battery_device *bat, u32 value)
 +{
 +	int status;
 +
@@ -3996,7 +3978,7 @@ index 000000000000..1f2c88eda394
 +	return status;
 +}
 +
-+inline static int spwr_battery_update_bst_unlocked(struct spwr_battery_device *bat, bool cached)
++static inline int spwr_battery_update_bst_unlocked(struct spwr_battery_device *bat, bool cached)
 +{
 +	unsigned long cache_deadline = bat->timestamp + msecs_to_jiffies(cache_time);
 +	int status;
@@ -4027,7 +4009,7 @@ index 000000000000..1f2c88eda394
 +	return status;
 +}
 +
-+inline static int spwr_battery_update_bix_unlocked(struct spwr_battery_device *bat)
++static inline int spwr_battery_update_bix_unlocked(struct spwr_battery_device *bat)
 +{
 +	int status;
 +
@@ -4058,7 +4040,7 @@ index 000000000000..1f2c88eda394
 +	return status;
 +}
 +
-+inline static int spwr_ac_update_unlocked(struct spwr_ac_device *ac)
++static inline int spwr_ac_update_unlocked(struct spwr_ac_device *ac)
 +{
 +	return sam_psy_get_psrc(0x00, &ac->state);
 +}
@@ -4236,7 +4218,7 @@ index 000000000000..1f2c88eda394
 +}
 +
 +
-+inline static int spwr_battery_prop_status(struct spwr_battery_device *bat)
++static inline int spwr_battery_prop_status(struct spwr_battery_device *bat)
 +{
 +	if (bat->bst.state & SAM_BATTERY_STATE_DISCHARGING)
 +		return POWER_SUPPLY_STATUS_DISCHARGING;
@@ -4253,7 +4235,7 @@ index 000000000000..1f2c88eda394
 +	return POWER_SUPPLY_STATUS_UNKNOWN;
 +}
 +
-+inline static int spwr_battery_prop_technology(struct spwr_battery_device *bat)
++static inline int spwr_battery_prop_technology(struct spwr_battery_device *bat)
 +{
 +	if (!strcasecmp("NiCd", bat->bix.type))
 +		return POWER_SUPPLY_TECHNOLOGY_NiCd;
@@ -4273,7 +4255,7 @@ index 000000000000..1f2c88eda394
 +	return POWER_SUPPLY_TECHNOLOGY_UNKNOWN;
 +}
 +
-+inline static int spwr_battery_prop_capacity(struct spwr_battery_device *bat)
++static inline int spwr_battery_prop_capacity(struct spwr_battery_device *bat)
 +{
 +	if (bat->bst.remaining_cap && bat->bix.last_full_charge_cap)
 +		return bat->bst.remaining_cap * 100 / bat->bix.last_full_charge_cap;
@@ -4281,7 +4263,7 @@ index 000000000000..1f2c88eda394
 +		return 0;
 +}
 +
-+inline static int spwr_battery_prop_capacity_level(struct spwr_battery_device *bat)
++static inline int spwr_battery_prop_capacity_level(struct spwr_battery_device *bat)
 +{
 +	if (bat->bst.state & SAM_BATTERY_STATE_CRITICAL)
 +		return POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL;
@@ -4463,14 +4445,12 @@ index 000000000000..1f2c88eda394
 +	int status;
 +
 +	status = surface_sam_ssh_set_event_handler(SAM_PWR_RQID, spwr_handle_event, NULL);
-+	if (status) {
++	if (status)
 +		goto err_handler;
-+	}
 +
 +	status = surface_sam_ssh_enable_event_source(SAM_PWR_TC, 0x01, SAM_PWR_RQID);
-+	if (status) {
++	if (status)
 +		goto err_source;
-+	}
 +
 +	return 0;
 +
@@ -4675,7 +4655,7 @@ index 000000000000..1f2c88eda394
 +	int status;
 +
 +	if (bat->id < 0 || bat->id >= __SPWR_NUM_BAT)
-+		return -EINVAL ;
++		return -EINVAL;
 +
 +	mutex_lock(&spwr_subsystem.lock);
 +	if (spwr_subsystem.battery[bat->id] != bat) {
@@ -4704,7 +4684,9 @@ index 000000000000..1f2c88eda394
 +#ifdef CONFIG_PM_SLEEP
 +static int surface_sam_sid_battery_resume(struct device *dev)
 +{
-+	struct spwr_battery_device *bat = dev_get_drvdata(dev);
++	struct spwr_battery_device *bat;
++
++	bat = dev_get_drvdata(dev);
 +	return spwr_battery_recheck(bat);
 +}
 +#else
@@ -4733,7 +4715,9 @@ index 000000000000..1f2c88eda394
 +
 +static int surface_sam_sid_battery_remove(struct platform_device *pdev)
 +{
-+	struct spwr_battery_device *bat = platform_get_drvdata(pdev);
++	struct spwr_battery_device *bat;
++
++	bat = platform_get_drvdata(pdev);
 +	return spwr_battery_unregister(bat);
 +}
 +
@@ -4776,7 +4760,9 @@ index 000000000000..1f2c88eda394
 +
 +static int surface_sam_sid_ac_remove(struct platform_device *pdev)
 +{
-+	struct spwr_ac_device *ac = platform_get_drvdata(pdev);
++	struct spwr_ac_device *ac;
++
++	ac = platform_get_drvdata(pdev);
 +	return spwr_ac_unregister(ac);
 +}
 +
@@ -4823,10 +4809,11 @@ index 000000000000..1f2c88eda394
 +MODULE_ALIAS("platform:surface_sam_sid_battery");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_vhf.c b/drivers/platform/x86/surface_sam/surface_sam_sid_vhf.c
 new file mode 100644
-index 000000000000..dc5be3a14a8c
+index 0000000000000..9cf912a441717
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_sid_vhf.c
-@@ -0,0 +1,440 @@
+@@ -0,0 +1,428 @@
++// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Microsofs Surface HID (VHF) driver for HID input events via SAM.
 + * Used for keyboard input events on the 7th generation Surface Laptops.
@@ -4950,19 +4937,18 @@ index 000000000000..dc5be3a14a8c
 +		.pri = 0x02,
 +		.snc = 0x01,
 +		.cdl = sizeof(struct surface_sam_sid_vhf_meta_rqst),
-+		.pld = (u8*)&resp.rqst,
++		.pld = (u8 *)&resp.rqst,
 +	};
 +
 +	struct surface_sam_ssh_buf result = {
 +		.cap  = sizeof(struct surface_sam_sid_vhf_meta_resp),
 +		.len  = 0,
-+		.data = (u8*)&resp,
++		.data = (u8 *)&resp,
 +	};
 +
 +	status = surface_sam_ssh_rqst(&rqst, &result);
-+	if (status) {
++	if (status)
 +		return status;
-+	}
 +
 +	*meta = resp.data.meta;
 +
@@ -4990,20 +4976,19 @@ index 000000000000..dc5be3a14a8c
 +		.pri = 0x02,
 +		.snc = 0x01,
 +		.cdl = sizeof(struct surface_sam_sid_vhf_meta_rqst),
-+		.pld = (u8*)&resp.rqst,
++		.pld = (u8 *)&resp.rqst,
 +	};
 +
 +	struct surface_sam_ssh_buf result = {
 +		.cap  = sizeof(struct surface_sam_sid_vhf_meta_resp),
 +		.len  = 0,
-+		.data = (u8*)&resp,
++		.data = (u8 *)&resp,
 +	};
 +
 +	// first fetch 00 to get the total length
 +	status = surface_sam_ssh_rqst(&rqst, &result);
-+	if (status) {
++	if (status)
 +		return status;
-+	}
 +
 +	len = resp.data.info.hid_len;
 +
@@ -5100,8 +5085,8 @@ index 000000000000..dc5be3a14a8c
 +	rqst.pri = SURFACE_SAM_PRIORITY_HIGH;
 +	rqst.iid = 0x00; // windows tends to distinguish iids, but EC will take it
 +	rqst.cid = cid;
-+	rqst.snc = HID_REQ_GET_REPORT == reqtype ? 0x01 : 0x00;
-+	rqst.cdl = HID_REQ_GET_REPORT == reqtype ? 0x01 : len;
++	rqst.snc = reqtype == HID_REQ_GET_REPORT ? 0x01 : 0x00;
++	rqst.cdl = reqtype == HID_REQ_GET_REPORT ? 0x01 : len;
 +	rqst.pld = buf;
 +
 +	result.cap = len;
@@ -5113,13 +5098,11 @@ index 000000000000..dc5be3a14a8c
 +	status = surface_sam_ssh_rqst(&rqst, &result);
 +	hid_dbg(hid, "%s: status %i\n", __func__, status);
 +
-+	if (status) {
++	if (status)
 +		return status;
-+	}
 +
-+	if (result.len > 0) {
++	if (result.len > 0)
 +		print_hex_dump_debug("response:", DUMP_PREFIX_OFFSET, 16, 1, result.data, result.len, false);
-+	}
 +
 +	return result.len;
 +}
@@ -5139,9 +5122,8 @@ index 000000000000..dc5be3a14a8c
 +	struct hid_device *hid;
 +
 +	hid = hid_allocate_device();
-+	if (IS_ERR(hid)) {
++	if (IS_ERR(hid))
 +		return hid;
-+	}
 +
 +	hid->dev.parent = &pdev->dev;
 +
@@ -5161,13 +5143,11 @@ index 000000000000..dc5be3a14a8c
 +	struct sid_vhf_evtctx *ctx = (struct sid_vhf_evtctx *)data;
 +
 +	// skip if HID hasn't started yet
-+	if (!test_bit(VHF_HID_STARTED, &ctx->flags)) {
++	if (!test_bit(VHF_HID_STARTED, &ctx->flags))
 +		return 0;
-+	}
 +
-+	if (event->tc == SAM_EVENT_SID_VHF_TC && (event->cid == 0x00 || event->cid == 0x03 || event->cid == 0x04)) {
++	if (event->tc == SAM_EVENT_SID_VHF_TC && (event->cid == 0x00 || event->cid == 0x03 || event->cid == 0x04))
 +		return hid_input_report(ctx->hid, HID_INPUT_REPORT, event->pld, event->len, 1);
-+	}
 +
 +	dev_warn(ctx->dev, "unsupported event (tc = %d, cid = %d)\n", event->tc, event->cid);
 +	return 0;
@@ -5182,19 +5162,16 @@ index 000000000000..dc5be3a14a8c
 +
 +	// add device link to EC
 +	status = surface_sam_ssh_consumer_register(&pdev->dev);
-+	if (status) {
++	if (status)
 +		return status == -ENXIO ? -EPROBE_DEFER : status;
-+	}
 +
 +	drvdata = kzalloc(sizeof(struct sid_vhf_drvdata), GFP_KERNEL);
-+	if (!drvdata) {
++	if (!drvdata)
 +		return -ENOMEM;
-+	}
 +
 +	status = vhf_get_metadata(0x00, &meta);
-+	if (status) {
++	if (status)
 +		goto err_create_hid;
-+	}
 +
 +	hid = sid_vhf_create_hid_device(pdev, &meta);
 +	if (IS_ERR(hid)) {
@@ -5211,19 +5188,16 @@ index 000000000000..dc5be3a14a8c
 +			SAM_EVENT_SID_VHF_RQID,
 +			sid_vhf_event_handler,
 +			&drvdata->event_ctx);
-+	if (status) {
++	if (status)
 +		goto err_event_handler;
-+	}
 +
 +	status = surface_sam_ssh_enable_event_source(SAM_EVENT_SID_VHF_TC, 0x01, SAM_EVENT_SID_VHF_RQID);
-+	if (status) {
++	if (status)
 +		goto err_event_source;
-+	}
 +
 +	status = hid_add_device(hid);
-+	if (status) {
++	if (status)
 +		goto err_add_hid;
-+	}
 +
 +	return 0;
 +
@@ -5269,10 +5243,11 @@ index 000000000000..dc5be3a14a8c
 +MODULE_ALIAS("platform:surface_sam_sid_vhf");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_ssh.c b/drivers/platform/x86/surface_sam/surface_sam_ssh.c
 new file mode 100644
-index 000000000000..34905cf29a51
+index 0000000000000..988be7c2d2863
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_ssh.c
-@@ -0,0 +1,1773 @@
+@@ -0,0 +1,1744 @@
++// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Surface Serial Hub (SSH) driver for communication with the Surface/System
 + * Aggregator Module.
@@ -5500,7 +5475,7 @@ index 000000000000..34905cf29a51
 +};
 +
 +
-+inline static struct sam_ssh_ec *surface_sam_ssh_acquire(void)
++static inline struct sam_ssh_ec *surface_sam_ssh_acquire(void)
 +{
 +	struct sam_ssh_ec *ec = &ssh_ec;
 +
@@ -5508,12 +5483,12 @@ index 000000000000..34905cf29a51
 +	return ec;
 +}
 +
-+inline static void surface_sam_ssh_release(struct sam_ssh_ec *ec)
++static inline void surface_sam_ssh_release(struct sam_ssh_ec *ec)
 +{
 +	mutex_unlock(&ec->lock);
 +}
 +
-+inline static struct sam_ssh_ec *surface_sam_ssh_acquire_init(void)
++static inline struct sam_ssh_ec *surface_sam_ssh_acquire_init(void)
 +{
 +	struct sam_ssh_ec *ec = surface_sam_ssh_acquire();
 +
@@ -5532,14 +5507,12 @@ index 000000000000..34905cf29a51
 +	struct device_link *link;
 +
 +	ec = surface_sam_ssh_acquire_init();
-+	if (!ec) {
++	if (!ec)
 +		return -ENXIO;
-+	}
 +
 +	link = device_link_add(consumer, &ec->serdev->dev, flags);
-+	if (!link) {
++	if (!link)
 +		return -EFAULT;
-+	}
 +
 +	surface_sam_ssh_release(ec);
 +	return 0;
@@ -5547,12 +5520,15 @@ index 000000000000..34905cf29a51
 +EXPORT_SYMBOL_GPL(surface_sam_ssh_consumer_register);
 +
 +
-+inline static u16 sam_rqid_to_rqst(u16 rqid) {
++static inline u16 sam_rqid_to_rqst(u16 rqid)
++{
 +	return rqid << SURFACE_SAM_SSH_RQID_EVENT_BITS;
 +}
 +
-+inline static bool sam_rqid_is_event(u16 rqid) {
++static inline bool sam_rqid_is_event(u16 rqid)
++{
 +	const u16 mask = (1 << SURFACE_SAM_SSH_RQID_EVENT_BITS) - 1;
++
 +	return rqid != 0 && (rqid | mask) == mask;
 +}
 +
@@ -5580,16 +5556,15 @@ index 000000000000..34905cf29a51
 +	int status;
 +
 +	// only allow RQIDs that lie within event spectrum
-+	if (!sam_rqid_is_event(rqid)) {
++	if (!sam_rqid_is_event(rqid))
 +		return -EINVAL;
-+	}
 +
 +	status = surface_sam_ssh_rqst(&rqst, &result);
 +
 +	if (buf[0] != 0x00) {
-+		printk(KERN_WARNING SSH_RQST_TAG_FULL
-+		       "unexpected result while enabling event source: 0x%02x\n",
-+		       buf[0]);
++		pr_warn(SSH_RQST_TAG_FULL
++			"unexpected result while enabling event source: 0x%02x\n",
++			buf[0]);
 +	}
 +
 +	return status;
@@ -5621,16 +5596,15 @@ index 000000000000..34905cf29a51
 +	int status;
 +
 +	// only allow RQIDs that lie within event spectrum
-+	if (!sam_rqid_is_event(rqid)) {
++	if (!sam_rqid_is_event(rqid))
 +		return -EINVAL;
-+	}
 +
 +	status = surface_sam_ssh_rqst(&rqst, &result);
 +
 +	if (buf[0] != 0x00) {
-+		printk(KERN_WARNING SSH_RQST_TAG_FULL
-+		       "unexpected result while disabling event source: 0x%02x\n",
-+		       buf[0]);
++		pr_warn(SSH_RQST_TAG_FULL
++			"unexpected result while disabling event source: 0x%02x\n",
++			buf[0]);
 +	}
 +
 +	return status;
@@ -5650,18 +5624,15 @@ index 000000000000..34905cf29a51
 +	struct sam_ssh_ec *ec;
 +	unsigned long flags;
 +
-+	if (!sam_rqid_is_event(rqid)) {
++	if (!sam_rqid_is_event(rqid))
 +		return -EINVAL;
-+	}
 +
 +	ec = surface_sam_ssh_acquire_init();
-+	if (!ec) {
++	if (!ec)
 +		return -ENXIO;
-+	}
 +
-+	if (!delay) {
++	if (!delay)
 +		delay = sam_event_default_delay;
-+	}
 +
 +	spin_lock_irqsave(&ec->events.lock, flags);
 +	// check if we already have a handler
@@ -5687,14 +5658,12 @@ index 000000000000..34905cf29a51
 +	struct sam_ssh_ec *ec;
 +	unsigned long flags;
 +
-+	if (!sam_rqid_is_event(rqid)) {
++	if (!sam_rqid_is_event(rqid))
 +		return -EINVAL;
-+	}
 +
 +	ec = surface_sam_ssh_acquire_init();
-+	if (!ec) {
++	if (!ec)
 +		return -ENXIO;
-+	}
 +
 +	spin_lock_irqsave(&ec->events.lock, flags);
 +
@@ -5717,24 +5686,24 @@ index 000000000000..34905cf29a51
 +EXPORT_SYMBOL_GPL(surface_sam_ssh_remove_event_handler);
 +
 +
-+inline static u16 ssh_crc(const u8 *buf, size_t size)
++static inline u16 ssh_crc(const u8 *buf, size_t size)
 +{
 +	return crc_ccitt_false(0xffff, buf, size);
 +}
 +
-+inline static void ssh_write_u16(struct ssh_writer *writer, u16 in)
++static inline void ssh_write_u16(struct ssh_writer *writer, u16 in)
 +{
 +	put_unaligned_le16(in, writer->ptr);
 +	writer->ptr += 2;
 +}
 +
-+inline static void ssh_write_crc(struct ssh_writer *writer,
++static inline void ssh_write_crc(struct ssh_writer *writer,
 +				 const u8 *buf, size_t size)
 +{
 +	ssh_write_u16(writer, ssh_crc(buf, size));
 +}
 +
-+inline static void ssh_write_syn(struct ssh_writer *writer)
++static inline void ssh_write_syn(struct ssh_writer *writer)
 +{
 +	u8 *w = writer->ptr;
 +
@@ -5744,7 +5713,7 @@ index 000000000000..34905cf29a51
 +	writer->ptr = w;
 +}
 +
-+inline static void ssh_write_ter(struct ssh_writer *writer)
++static inline void ssh_write_ter(struct ssh_writer *writer)
 +{
 +	u8 *w = writer->ptr;
 +
@@ -5754,13 +5723,13 @@ index 000000000000..34905cf29a51
 +	writer->ptr = w;
 +}
 +
-+inline static void ssh_write_buf(struct ssh_writer *writer,
++static inline void ssh_write_buf(struct ssh_writer *writer,
 +				 u8 *in, size_t len)
 +{
 +	writer->ptr = memcpy(writer->ptr, in, len) + len;
 +}
 +
-+inline static void ssh_write_hdr(struct ssh_writer *writer,
++static inline void ssh_write_hdr(struct ssh_writer *writer,
 +				 const struct surface_sam_ssh_rqst *rqst,
 +				 struct sam_ssh_ec *ec)
 +{
@@ -5777,7 +5746,7 @@ index 000000000000..34905cf29a51
 +	ssh_write_crc(writer, begin, writer->ptr - begin);
 +}
 +
-+inline static void ssh_write_cmd(struct ssh_writer *writer,
++static inline void ssh_write_cmd(struct ssh_writer *writer,
 +				 const struct surface_sam_ssh_rqst *rqst,
 +				 struct sam_ssh_ec *ec)
 +{
@@ -5803,7 +5772,7 @@ index 000000000000..34905cf29a51
 +	ssh_write_crc(writer, begin, writer->ptr - begin);
 +}
 +
-+inline static void ssh_write_ack(struct ssh_writer *writer, u8 seq)
++static inline void ssh_write_ack(struct ssh_writer *writer, u8 seq)
 +{
 +	struct ssh_frame_ctrl *ack = (struct ssh_frame_ctrl *)writer->ptr;
 +	u8 *begin = writer->ptr;
@@ -5818,12 +5787,12 @@ index 000000000000..34905cf29a51
 +	ssh_write_crc(writer, begin, writer->ptr - begin);
 +}
 +
-+inline static void ssh_writer_reset(struct ssh_writer *writer)
++static inline void ssh_writer_reset(struct ssh_writer *writer)
 +{
 +	writer->ptr = writer->data;
 +}
 +
-+inline static int ssh_writer_flush(struct sam_ssh_ec *ec)
++static inline int ssh_writer_flush(struct sam_ssh_ec *ec)
 +{
 +	struct ssh_writer *writer = &ec->writer;
 +	struct serdev_device *serdev = ec->serdev;
@@ -5833,13 +5802,13 @@ index 000000000000..34905cf29a51
 +
 +	dev_dbg(&ec->serdev->dev, "sending message\n");
 +	print_hex_dump_debug("send: ", DUMP_PREFIX_OFFSET, 16, 1,
-+	                     writer->data, writer->ptr - writer->data, false);
++			     writer->data, writer->ptr - writer->data, false);
 +
 +	status = serdev_device_write(serdev, writer->data, len, SSH_WRITE_TIMEOUT);
 +	return status >= 0 ? 0 : status;
 +}
 +
-+inline static void ssh_write_msg_cmd(struct sam_ssh_ec *ec,
++static inline void ssh_write_msg_cmd(struct sam_ssh_ec *ec,
 +				     const struct surface_sam_ssh_rqst *rqst)
 +{
 +	ssh_writer_reset(&ec->writer);
@@ -5848,7 +5817,7 @@ index 000000000000..34905cf29a51
 +	ssh_write_cmd(&ec->writer, rqst, ec);
 +}
 +
-+inline static void ssh_write_msg_ack(struct sam_ssh_ec *ec, u8 seq)
++static inline void ssh_write_msg_ack(struct sam_ssh_ec *ec, u8 seq)
 +{
 +	ssh_writer_reset(&ec->writer);
 +	ssh_write_syn(&ec->writer);
@@ -5856,7 +5825,7 @@ index 000000000000..34905cf29a51
 +	ssh_write_ter(&ec->writer);
 +}
 +
-+inline static void ssh_receiver_restart(struct sam_ssh_ec *ec,
++static inline void ssh_receiver_restart(struct sam_ssh_ec *ec,
 +					const struct surface_sam_ssh_rqst *rqst)
 +{
 +	unsigned long flags;
@@ -5871,7 +5840,7 @@ index 000000000000..34905cf29a51
 +	spin_unlock_irqrestore(&ec->receiver.lock, flags);
 +}
 +
-+inline static void ssh_receiver_discard(struct sam_ssh_ec *ec)
++static inline void ssh_receiver_discard(struct sam_ssh_ec *ec)
 +{
 +	unsigned long flags;
 +
@@ -5904,18 +5873,16 @@ index 000000000000..34905cf29a51
 +	// send command, try to get an ack response
 +	for (try = 0; try < SSH_NUM_RETRY; try++) {
 +		status = ssh_writer_flush(ec);
-+		if (status) {
++		if (status)
 +			goto out;
-+		}
 +
 +		rem = wait_for_completion_timeout(&ec->receiver.signal, SSH_READ_TIMEOUT);
 +		if (rem) {
 +			// completion assures valid packet, thus ignore returned length
 +			(void) !kfifo_out(&ec->receiver.fifo, &packet, sizeof(packet));
 +
-+			if (packet.type == SSH_FRAME_TYPE_ACK) {
++			if (packet.type == SSH_FRAME_TYPE_ACK)
 +				break;
-+			}
 +		}
 +	}
 +
@@ -5954,9 +5921,8 @@ index 000000000000..34905cf29a51
 +		if (packet.type == SSH_FRAME_TYPE_CMD) {
 +			ssh_write_msg_ack(ec, packet.seq);
 +			status = ssh_writer_flush(ec);
-+			if (status) {
++			if (status)
 +				goto out;
-+			}
 +		}
 +	}
 +
@@ -5972,7 +5938,7 @@ index 000000000000..34905cf29a51
 +
 +	ec = surface_sam_ssh_acquire_init();
 +	if (!ec) {
-+		printk(KERN_WARNING SSH_RQST_TAG_FULL "embedded controller is uninitialized\n");
++		pr_warn(SSH_RQST_TAG_FULL "embedded controller is uninitialized\n");
 +		return -ENXIO;
 +	}
 +
@@ -6011,14 +5977,15 @@ index 000000000000..34905cf29a51
 +		result.data = buf,
 +	};
 +
-+	int status = surface_sam_ssh_rqst_unlocked(ec, &rqst, &result);
-+	if (status) {
++	int status;
++
++	status = surface_sam_ssh_rqst_unlocked(ec, &rqst, &result);
++	if (status)
 +		return status;
-+	}
 +
 +	if (buf[0] != 0x00) {
 +		dev_warn(&ec->serdev->dev,
-+		         "unexpected result while trying to resume EC: 0x%02x\n",
++			 "unexpected result while trying to resume EC: 0x%02x\n",
 +			 buf[0]);
 +	}
 +
@@ -6045,14 +6012,15 @@ index 000000000000..34905cf29a51
 +		result.data = buf,
 +	};
 +
-+	int status = surface_sam_ssh_rqst_unlocked(ec, &rqst, &result);
-+	if (status) {
++	int status;
++
++	status = surface_sam_ssh_rqst_unlocked(ec, &rqst, &result);
++	if (status)
 +		return status;
-+	}
 +
 +	if (buf[0] != 0x00) {
 +		dev_warn(&ec->serdev->dev,
-+		         "unexpected result while trying to suspend EC: 0x%02x\n",
++			 "unexpected result while trying to suspend EC: 0x%02x\n",
 +			 buf[0]);
 +	}
 +
@@ -6060,19 +6028,21 @@ index 000000000000..34905cf29a51
 +}
 +
 +
-+inline static bool ssh_is_valid_syn(const u8 *ptr)
++static inline bool ssh_is_valid_syn(const u8 *ptr)
 +{
 +	return ptr[0] == 0xaa && ptr[1] == 0x55;
 +}
 +
-+inline static bool ssh_is_valid_ter(const u8 *ptr)
++static inline bool ssh_is_valid_ter(const u8 *ptr)
 +{
 +	return ptr[0] == 0xff && ptr[1] == 0xff;
 +}
 +
-+inline static bool ssh_is_valid_crc(const u8 *begin, const u8 *end)
++static inline bool ssh_is_valid_crc(const u8 *begin, const u8 *end)
 +{
-+	u16 crc = ssh_crc(begin, end - begin);
++	u16 crc;
++
++	crc = ssh_crc(begin, end - begin);
 +	return (end[0] == (crc & 0xff)) && (end[1] == (crc >> 8));
 +}
 +
@@ -6099,7 +6069,7 @@ index 000000000000..34905cf29a51
 +
 +	dev_dbg(&ec->serdev->dev, "sending message\n");
 +	print_hex_dump_debug("send: ", DUMP_PREFIX_OFFSET, 16, 1,
-+	                     buf, SSH_MSG_LEN_CTRL, false);
++			     buf, SSH_MSG_LEN_CTRL, false);
 +
 +	status = serdev_device_write(ec->serdev, buf, SSH_MSG_LEN_CTRL, SSH_WRITE_TIMEOUT);
 +	return status >= 0 ? 0 : status;
@@ -6118,19 +6088,17 @@ index 000000000000..34905cf29a51
 +	ec = work->ec;
 +	dev = &ec->serdev->dev;
 +
-+	// make sure we load a fresh ec state
++	/* make sure we load a fresh ec state */
 +	smp_mb();
 +
 +	if (ec->state == SSH_EC_INITIALIZED) {
 +		status = surface_sam_ssh_send_ack(ec, work->seq);
-+		if (status) {
++		if (status)
 +			dev_err(dev, SSH_EVENT_TAG "failed to send ACK: %d\n", status);
-+		}
 +	}
 +
-+	if (refcount_dec_and_test(&work->refcount)) {
++	if (refcount_dec_and_test(&work->refcount))
 +		kfree(work);
-+	}
 +}
 +
 +static void surface_sam_ssh_event_work_evt_handler(struct work_struct *_work)
@@ -6163,24 +6131,20 @@ index 000000000000..34905cf29a51
 +	 * guaranteed to be valid at least until this function returns.
 +	 */
 +
-+	if (handler) {
++	if (handler)
 +		status = handler(event, handler_data);
-+	} else {
++	else
 +		dev_warn(dev, SSH_EVENT_TAG "unhandled event (rqid: %04x)\n", event->rqid);
-+	}
 +
-+	if (status) {
++	if (status)
 +		dev_err(dev, SSH_EVENT_TAG "error handling event: %d\n", status);
-+	}
 +
-+	if (refcount_dec_and_test(&work->refcount)) {
++	if (refcount_dec_and_test(&work->refcount))
 +		kfree(work);
-+	}
 +}
 +
 +static void ssh_handle_event(struct sam_ssh_ec *ec, const u8 *buf)
 +{
-+	struct device *dev = &ec->serdev->dev;
 +	const struct ssh_frame_ctrl *ctrl;
 +	const struct ssh_frame_cmd *cmd;
 +	struct ssh_event_work *work;
@@ -6197,10 +6161,8 @@ index 000000000000..34905cf29a51
 +	pld_len = ctrl->len - SSH_BYTELEN_CMDFRAME;
 +
 +	work = kzalloc(sizeof(struct ssh_event_work) + pld_len, GFP_ATOMIC);
-+	if (!work) {
-+		dev_warn(dev, SSH_EVENT_TAG "failed to allocate memory, dropping event\n");
++	if (!work)
 +		return;
-+	}
 +
 +	refcount_set(&work->refcount, 1);
 +	work->ec         = ec;
@@ -6211,7 +6173,7 @@ index 000000000000..34905cf29a51
 +	work->event.iid  = cmd->iid;
 +	work->event.pri  = cmd->pri_in;
 +	work->event.len  = pld_len;
-+	work->event.pld  = ((u8*) work) + sizeof(struct ssh_event_work);
++	work->event.pld  = ((u8 *)work) + sizeof(struct ssh_event_work);
 +
 +	memcpy(work->event.pld, buf + SSH_FRAME_OFFS_CMD_PLD, pld_len);
 +
@@ -6255,9 +6217,8 @@ index 000000000000..34905cf29a51
 +	ctrl = (const struct ssh_frame_ctrl *)(ctrl_begin);
 +
 +	// actual length check
-+	if (size < SSH_MSG_LEN_CTRL) {
++	if (size < SSH_MSG_LEN_CTRL)
 +		return 0;			// need more bytes
-+	}
 +
 +	// validate TERM
 +	if (!ssh_is_valid_ter(buf + SSH_FRAME_OFFS_TERM)) {
@@ -6332,9 +6293,8 @@ index 000000000000..34905cf29a51
 +	cmd  = (const struct ssh_frame_cmd  *)(cmd_begin);
 +
 +	// we need at least a full control frame
-+	if (size < (SSH_BYTELEN_SYNC + SSH_BYTELEN_CTRL + SSH_BYTELEN_CRC)) {
++	if (size < (SSH_BYTELEN_SYNC + SSH_BYTELEN_CTRL + SSH_BYTELEN_CRC))
 +		return 0;		// need more bytes
-+	}
 +
 +	// validate control-frame CRC
 +	if (!ssh_is_valid_crc(ctrl_begin, ctrl_end)) {
@@ -6348,9 +6308,8 @@ index 000000000000..34905cf29a51
 +
 +	// actual length check (ctrl->len contains command-frame but not crc)
 +	msg_len = SSH_MSG_LEN_CMD_BASE + ctrl->len;
-+	if (size < msg_len) {
++	if (size < msg_len)
 +		return 0;			// need more bytes
-+	}
 +
 +	cmd_end = cmd_begin + ctrl->len;
 +
@@ -6421,9 +6380,8 @@ index 000000000000..34905cf29a51
 +	struct ssh_frame_ctrl *ctrl;
 +
 +	// we need at least a control frame to check what to do
-+	if (size < (SSH_BYTELEN_SYNC + SSH_BYTELEN_CTRL)) {
++	if (size < (SSH_BYTELEN_SYNC + SSH_BYTELEN_CTRL))
 +		return 0;		// need more bytes
-+	}
 +
 +	// make sure we're actually at the start of a new message
 +	if (!ssh_is_valid_syn(buf)) {
@@ -6431,7 +6389,7 @@ index 000000000000..34905cf29a51
 +		return size;		// discard everything
 +	}
 +
-+	// handle individual message types seperately
++	// handle individual message types separately
 +	ctrl = (struct ssh_frame_ctrl *)(buf + SSH_FRAME_OFFS_CTRL);
 +
 +	switch (ctrl->type) {
@@ -6477,7 +6435,8 @@ index 000000000000..34905cf29a51
 +	while (offs < rcv->eval_buf.len) {
 +		n = rcv->eval_buf.len - offs;
 +		n = ssh_eval_buf(ec, rcv->eval_buf.ptr + offs, n);
-+		if (n <= 0) break;	// need more bytes
++		if (n <= 0)
++			break;	// need more bytes
 +
 +		offs += n;
 +	}
@@ -6511,11 +6470,10 @@ index 000000000000..34905cf29a51
 +} __packed;
 +
 +static ssize_t rqst_read(struct file *f, struct kobject *kobj, struct bin_attribute *attr,
-+                         char *buf, loff_t offs, size_t count)
++			 char *buf, loff_t offs, size_t count)
 +{
-+	if (offs < 0 || count + offs > SURFACE_SAM_SSH_MAX_RQST_RESPONSE) {
++	if (offs < 0 || count + offs > SURFACE_SAM_SSH_MAX_RQST_RESPONSE)
 +		return -EINVAL;
-+	}
 +
 +	memcpy(buf, sam_ssh_debug_rqst_buf_sysfs + offs, count);
 +	return count;
@@ -6530,20 +6488,17 @@ index 000000000000..34905cf29a51
 +	int status;
 +
 +	// check basic write constriants
-+	if (offs != 0 || count > SURFACE_SAM_SSH_MAX_RQST_PAYLOAD + sizeof(struct sysfs_rqst)) {
++	if (offs != 0 || count > SURFACE_SAM_SSH_MAX_RQST_PAYLOAD + sizeof(struct sysfs_rqst))
 +		return -EINVAL;
-+	}
 +
-+	if (count < sizeof(struct sysfs_rqst)) {
++	if (count < sizeof(struct sysfs_rqst))
 +		return -EINVAL;
-+	}
 +
 +	input = (struct sysfs_rqst *)buf;
 +
 +	// payload length should be consistent with data provided
-+	if (input->cdl + sizeof(struct sysfs_rqst) != count) {
++	if (input->cdl + sizeof(struct sysfs_rqst) != count)
 +		return -EINVAL;
-+	}
 +
 +	rqst.tc  = input->tc;
 +	rqst.cid = input->cid;
@@ -6559,9 +6514,8 @@ index 000000000000..34905cf29a51
 +	result.data = sam_ssh_debug_rqst_buf_res;
 +
 +	status = surface_sam_ssh_rqst(&rqst, &result);
-+	if (status) {
++	if (status)
 +		return status;
-+	}
 +
 +	sam_ssh_debug_rqst_buf_sysfs[0] = result.len;
 +	memcpy(sam_ssh_debug_rqst_buf_sysfs + 1, result.data, result.len);
@@ -6574,24 +6528,24 @@ index 000000000000..34905cf29a51
 +static const BIN_ATTR_RW(rqst, SURFACE_SAM_SSH_MAX_RQST_RESPONSE + 1);
 +
 +
-+int surface_sam_ssh_sysfs_register(struct device *dev)
++static int surface_sam_ssh_sysfs_register(struct device *dev)
 +{
 +	return sysfs_create_bin_file(&dev->kobj, &bin_attr_rqst);
 +}
 +
-+void surface_sam_ssh_sysfs_unregister(struct device *dev)
++static void surface_sam_ssh_sysfs_unregister(struct device *dev)
 +{
 +	sysfs_remove_bin_file(&dev->kobj, &bin_attr_rqst);
 +}
 +
 +#else	/* CONFIG_SURFACE_ACPI_SSH_DEBUG_DEVICE */
 +
-+int surface_sam_ssh_sysfs_register(struct device *dev)
++static int surface_sam_ssh_sysfs_register(struct device *dev)
 +{
 +	return 0;
 +}
 +
-+void surface_sam_ssh_sysfs_unregister(struct device *dev)
++static void surface_sam_ssh_sysfs_unregister(struct device *dev)
 +{
 +}
 +
@@ -6649,14 +6603,12 @@ index 000000000000..34905cf29a51
 +	struct acpi_resource_uart_serialbus *uart;
 +	int status = 0;
 +
-+	if (resource->type != ACPI_RESOURCE_TYPE_SERIAL_BUS) {
++	if (resource->type != ACPI_RESOURCE_TYPE_SERIAL_BUS)
 +		return AE_OK;
-+	}
 +
 +	serial = &resource->data.common_serial_bus;
-+	if (serial->type != ACPI_RESOURCE_SERIAL_TYPE_UART) {
++	if (serial->type != ACPI_RESOURCE_SERIAL_TYPE_UART)
 +		return AE_OK;
-+	}
 +
 +	uart = &resource->data.uart_serial_bus;
 +
@@ -6664,9 +6616,8 @@ index 000000000000..34905cf29a51
 +	serdev_device_set_baudrate(serdev, uart->default_baud_rate);
 +
 +	// serdev currently only supports RTSCTS flow control
-+	if (uart->flow_control & SSH_SUPPORTED_FLOW_CONTROL_MASK) {
++	if (uart->flow_control & SSH_SUPPORTED_FLOW_CONTROL_MASK)
 +		dev_warn(&serdev->dev, "unsupported flow control (value: 0x%02x)\n", uart->flow_control);
-+	}
 +
 +	// set RTSCTS flow control
 +	serdev_device_set_flow_control(serdev, uart->flow_control & ACPI_UART_FLOW_CONTROL_HW);
@@ -6772,8 +6723,8 @@ index 000000000000..34905cf29a51
 +};
 +
 +
-+int surface_sam_ssh_sysfs_register(struct device *dev);
-+void surface_sam_ssh_sysfs_unregister(struct device *dev);
++static int surface_sam_ssh_sysfs_register(struct device *dev);
++static void surface_sam_ssh_sysfs_unregister(struct device *dev);
 +
 +static int surface_sam_ssh_probe(struct serdev_device *serdev)
 +{
@@ -6863,30 +6814,26 @@ index 000000000000..34905cf29a51
 +
 +	serdev_device_set_drvdata(serdev, ec);
 +
-+	// ensure everything is properly set-up before we open the device
++	/* ensure everything is properly set-up before we open the device */
 +	smp_mb();
 +
 +	serdev_device_set_client_ops(serdev, &ssh_device_ops);
 +	status = serdev_device_open(serdev);
-+	if (status) {
++	if (status)
 +		goto err_open;
-+	}
 +
 +	status = acpi_walk_resources(ssh, METHOD_NAME__CRS,
-+	                             ssh_setup_from_resource, serdev);
-+	if (ACPI_FAILURE(status)) {
++				     ssh_setup_from_resource, serdev);
++	if (ACPI_FAILURE(status))
 +		goto err_devinit;
-+	}
 +
 +	status = surface_sam_ssh_ec_resume(ec);
-+	if (status) {
++	if (status)
 +		goto err_devinit;
-+	}
 +
 +	status = surface_sam_ssh_sysfs_register(&serdev->dev);
-+	if (status) {
++	if (status)
 +		goto err_devinit;
-+	}
 +
 +	surface_sam_ssh_release(ec);
 +
@@ -6932,18 +6879,16 @@ index 000000000000..34905cf29a51
 +	int status;
 +
 +	ec = surface_sam_ssh_acquire_init();
-+	if (!ec) {
++	if (!ec)
 +		return;
-+	}
 +
 +	free_irq(ec->irq, serdev);
 +	surface_sam_ssh_sysfs_unregister(&serdev->dev);
 +
 +	// suspend EC and disable events
 +	status = surface_sam_ssh_ec_suspend(ec);
-+	if (status) {
++	if (status)
 +		dev_err(&serdev->dev, "failed to suspend EC: %d\n", status);
-+	}
 +
 +	// make sure all events (received up to now) have been properly handled
 +	flush_workqueue(ec->events.queue_ack);
@@ -6953,14 +6898,14 @@ index 000000000000..34905cf29a51
 +	spin_lock_irqsave(&ec->events.lock, flags);
 +	memset(ec->events.handler, 0,
 +	       sizeof(struct ssh_event_handler)
-+	        * SAM_NUM_EVENT_TYPES);
++		* SAM_NUM_EVENT_TYPES);
 +	spin_unlock_irqrestore(&ec->events.lock, flags);
 +
 +	// set device to deinitialized state
 +	ec->state  = SSH_EC_UNINITIALIZED;
 +	ec->serdev = NULL;
 +
-+	// ensure state and serdev get set before continuing
++	/* ensure state and serdev get set before continuing */
 +	smp_mb();
 +
 +	/*
@@ -6973,9 +6918,9 @@ index 000000000000..34905cf29a51
 +	serdev_device_close(serdev);
 +
 +	/*
-+         * Only at this point, no new events can be received. Destroying the
-+         * workqueue here flushes all remaining events. Those events will be
-+         * silently ignored and neither ACKed nor any handler gets called.
++	 * Only at this point, no new events can be received. Destroying the
++	 * workqueue here flushes all remaining events. Those events will be
++	 * silently ignored and neither ACKed nor any handler gets called.
 +	 */
 +	destroy_workqueue(ec->events.queue_ack);
 +	destroy_workqueue(ec->events.queue_evt);
@@ -7048,10 +6993,11 @@ index 000000000000..34905cf29a51
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_ssh.h b/drivers/platform/x86/surface_sam/surface_sam_ssh.h
 new file mode 100644
-index 000000000000..714bba6a9457
+index 0000000000000..435b5c7bac9a2
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_ssh.h
-@@ -0,0 +1,97 @@
+@@ -0,0 +1,98 @@
++/* SPDX-License-Identifier: GPL-2.0 */
 +/*
 + * Interface for Surface Serial Hub (SSH).
 + *
@@ -7111,7 +7057,7 @@ index 000000000000..714bba6a9457
 +	u8 iid;				// instance ID
 +	u8 pri;				// priority
 +	u8 snc;				// expect response flag
-+	u8 cdl;				// command data length (lenght of payload)
++	u8 cdl;				// command data length (length of payload)
 +	u8 *pld;			// pointer to payload of length cdl
 +};
 +
@@ -7151,12 +7097,13 @@ index 000000000000..714bba6a9457
 +#endif /* _SURFACE_SAM_SSH_H */
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_vhf.c b/drivers/platform/x86/surface_sam/surface_sam_vhf.c
 new file mode 100644
-index 000000000000..0ed0ebbdb3cb
+index 0000000000000..a00763805eca3
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_vhf.c
-@@ -0,0 +1,276 @@
+@@ -0,0 +1,270 @@
++// SPDX-License-Identifier: GPL-2.0
 +/*
-+ * Virtual HID Framwork (VHF) driver for input events via SAM.
++ * Virtual HID Framework (VHF) driver for input events via SAM.
 + * Used for keyboard input events on the Surface Laptops.
 + */
 +
@@ -7309,9 +7256,8 @@ index 000000000000..0ed0ebbdb3cb
 +	struct hid_device *hid;
 +
 +	hid = hid_allocate_device();
-+	if (IS_ERR(hid)) {
++	if (IS_ERR(hid))
 +		return hid;
-+	}
 +
 +	hid->dev.parent = &pdev->dev;
 +
@@ -7330,9 +7276,8 @@ index 000000000000..0ed0ebbdb3cb
 +{
 +	struct vhf_evtctx *ctx = (struct vhf_evtctx *)data;
 +
-+	if (event->tc == 0x08 && (event->cid == 0x03 || event->cid == 0x04)) {
++	if (event->tc == 0x08 && (event->cid == 0x03 || event->cid == 0x04))
 +		return hid_input_report(ctx->hid, HID_INPUT_REPORT, event->pld, event->len, 1);
-+	}
 +
 +	dev_warn(ctx->dev, "unsupported event (tc = %d, cid = %d)\n", event->tc, event->cid);
 +	return 0;
@@ -7346,14 +7291,12 @@ index 000000000000..0ed0ebbdb3cb
 +
 +	// add device link to EC
 +	status = surface_sam_ssh_consumer_register(&pdev->dev);
-+	if (status) {
++	if (status)
 +		return status == -ENXIO ? -EPROBE_DEFER : status;
-+	}
 +
 +	drvdata = kzalloc(sizeof(struct vhf_drvdata), GFP_KERNEL);
-+	if (!drvdata) {
++	if (!drvdata)
 +		return -ENOMEM;
-+	}
 +
 +	hid = vhf_create_hid_device(pdev);
 +	if (IS_ERR(hid)) {
@@ -7362,9 +7305,8 @@ index 000000000000..0ed0ebbdb3cb
 +	}
 +
 +	status = hid_add_device(hid);
-+	if (status) {
++	if (status)
 +		goto err_add_hid;
-+	}
 +
 +	drvdata->event_ctx.dev = &pdev->dev;
 +	drvdata->event_ctx.hid = hid;
@@ -7373,16 +7315,14 @@ index 000000000000..0ed0ebbdb3cb
 +
 +	status = surface_sam_ssh_set_event_handler(
 +			SAM_EVENT_VHF_RQID,
-+	                vhf_event_handler,
++			vhf_event_handler,
 +			&drvdata->event_ctx);
-+	if (status) {
++	if (status)
 +		goto err_add_hid;
-+	}
 +
 +	status = surface_sam_ssh_enable_event_source(SAM_EVENT_VHF_TC, 0x01, SAM_EVENT_VHF_RQID);
-+	if (status) {
++	if (status)
 +		goto err_event_source;
-+	}
 +
 +	return 0;
 +
@@ -7432,7 +7372,7 @@ index 000000000000..0ed0ebbdb3cb
 +MODULE_DESCRIPTION("Virtual HID Framework Driver for 5th Generation Surface Devices");
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/tty/serdev/core.c b/drivers/tty/serdev/core.c
-index a9719858c950..ce5309d00280 100644
+index a9719858c950b..ce5309d002805 100644
 --- a/drivers/tty/serdev/core.c
 +++ b/drivers/tty/serdev/core.c
 @@ -552,16 +552,97 @@ static int of_serdev_register_devices(struct serdev_controller *ctrl)
@@ -7587,5 +7527,5 @@ index a9719858c950..ce5309d00280 100644
  	if (!ctrl->serdev)
  		return -ENODEV;
 -- 
-2.25.0
+2.26.2
 
