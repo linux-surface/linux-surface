@@ -1,16 +1,16 @@
-From c94bc5af045defd9f41bbbd5edc0ef24b38b0b84 Mon Sep 17 00:00:00 2001
-From: sebanc <22224731+sebanc@users.noreply.github.com>
-Date: Mon, 4 Nov 2019 09:30:57 +0100
+From af949f1c932cf9b54161c8dda9e0a96372a5850e Mon Sep 17 00:00:00 2001
+From: kitakar5525 <34676735+kitakar5525@users.noreply.github.com>
+Date: Thu, 20 Feb 2020 16:51:11 +0900
 Subject: [PATCH 6/7] wifi
 
 ---
- .../net/wireless/marvell/mwifiex/cfg80211.c   | 26 +++++++
- drivers/net/wireless/marvell/mwifiex/pcie.c   | 74 ++++++++++---------
- .../net/wireless/marvell/mwifiex/sta_cmd.c    | 26 +------
- 3 files changed, 67 insertions(+), 59 deletions(-)
+ .../net/wireless/marvell/mwifiex/cfg80211.c   | 26 ++++++
+ drivers/net/wireless/marvell/mwifiex/pcie.c   | 84 +++++++++++--------
+ .../net/wireless/marvell/mwifiex/sta_cmd.c    | 31 ++-----
+ 3 files changed, 84 insertions(+), 57 deletions(-)
 
 diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
-index d89684168500..108d7ac6a0dd 100644
+index d896841685008..108d7ac6a0dd9 100644
 --- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
 +++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
 @@ -25,6 +25,11 @@
@@ -54,10 +54,17 @@ index d89684168500..108d7ac6a0dd 100644
  }
  
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
-index fc1706d0647d..b3380ed75431 100644
+index fc1706d0647d7..b51c5e3571426 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie.c
 +++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
-@@ -149,35 +149,38 @@ static bool mwifiex_pcie_ok_to_access_hw(struct mwifiex_adapter *adapter)
+@@ -146,38 +146,45 @@ static bool mwifiex_pcie_ok_to_access_hw(struct mwifiex_adapter *adapter)
+  *
+  * If already not suspended, this function allocates and sends a host
+  * sleep activate request to the firmware and turns off the traffic.
++ *
++ * XXX: ignoring all the above comment and just removes the card to
++ * fix S0ix and "AP scanning (sometimes) not working after suspend".
++ * Required code is extracted from mwifiex_pcie_remove().
   */
  static int mwifiex_pcie_suspend(struct device *dev)
  {
@@ -87,9 +94,6 @@ index fc1706d0647d..b3380ed75431 100644
 +		ret = mwifiex_read_reg(adapter, reg->fw_status, &fw_status);
 +	else
 +		fw_status = -1;
-+
-+	if (fw_status == FIRMWARE_READY_PCIE && !adapter->mfg_mode) {
-+		mwifiex_deauthenticate_all(adapter);
  
 -	/* Enable the Host Sleep */
 -	if (!mwifiex_enable_hs(adapter)) {
@@ -99,9 +103,12 @@ index fc1706d0647d..b3380ed75431 100644
 -		mwifiex_disable_wake(adapter);
 -		return -EFAULT;
 -	}
-+		priv = mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_ANY);
++	if (fw_status == FIRMWARE_READY_PCIE && !adapter->mfg_mode) {
++		mwifiex_deauthenticate_all(adapter);
  
 -	flush_workqueue(adapter->workqueue);
++		priv = mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_ANY);
++
 +		mwifiex_disable_auto_ds(priv);
  
 -	/* Indicate device suspended */
@@ -114,7 +121,13 @@ index fc1706d0647d..b3380ed75431 100644
  
  	return 0;
  }
-@@ -192,28 +195,29 @@ static int mwifiex_pcie_suspend(struct device *dev)
+@@ -189,31 +196,35 @@ static int mwifiex_pcie_suspend(struct device *dev)
+  *
+  * If already not resumed, this function turns on the traffic and
+  * sends a host sleep cancel request to the firmware.
++ *
++ * XXX: ignoring all the above comment and probes the card that was
++ * removed on suspend. Required code is extracted from mwifiex_pcie_probe().
   */
  static int mwifiex_pcie_resume(struct device *dev)
  {
@@ -160,36 +173,41 @@ index fc1706d0647d..b3380ed75431 100644
  
  	return 0;
  }
-@@ -267,6 +271,8 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
- 		return -1;
- 	}
+@@ -229,8 +240,13 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
+ 					const struct pci_device_id *ent)
+ {
+ 	struct pcie_service_card *card;
++	struct pci_dev *parent_pdev = pci_upstream_bridge(pdev);
+ 	int ret;
  
-+	pdev->bus->self->bridge_d3 = false;
++	/* disable bridge_d3 to fix driver crashing after suspend on gen4+
++	 * Surface devices */
++	parent_pdev->bridge_d3 = false;
 +
- 	return 0;
- }
+ 	pr_debug("info: vendor=0x%4.04X device=0x%4.04X rev=%d\n",
+ 		 pdev->vendor, pdev->device, pdev->revision);
  
 diff --git a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
-index 4ed10cf82f9a..977b57c0908f 100644
+index 4ed10cf82f9a4..410bef3d6a6eb 100644
 --- a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
 +++ b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
-@@ -2265,14 +2265,13 @@ int mwifiex_sta_prepare_cmd(struct mwifiex_private *priv, uint16_t cmd_no,
- int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
- {
+@@ -2254,7 +2254,6 @@ int mwifiex_sta_prepare_cmd(struct mwifiex_private *priv, uint16_t cmd_no,
+  *      - Function init (for first interface only)
+  *      - Read MAC address (for first interface only)
+  *      - Reconfigure Tx buffer size (for first interface only)
+- *      - Enable auto deep sleep (for first interface only)
+  *      - Get Tx rate
+  *      - Get Tx power
+  *      - Set IBSS coalescing status
+@@ -2267,7 +2266,6 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
  	struct mwifiex_adapter *adapter = priv->adapter;
--	int ret;
+ 	int ret;
  	struct mwifiex_ds_11n_amsdu_aggr_ctrl amsdu_aggr_ctrl;
 -	struct mwifiex_ds_auto_ds auto_ds;
  	enum state_11d_t state_11d;
  	struct mwifiex_ds_11n_tx_cfg tx_cfg;
  	u8 sdio_sp_rx_aggr_enable;
- 	u16 packet_aggr_enable;
- 	int data;
-+	int ret;
- 
- 	if (first_sta) {
- 		if (priv->adapter->iface_type == MWIFIEX_PCIE) {
-@@ -2339,17 +2338,6 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
+@@ -2339,16 +2337,10 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
  		if (ret)
  			return -1;
  
@@ -203,11 +221,14 @@ index 4ed10cf82f9a..977b57c0908f 100644
 -			if (ret)
 -				return -1;
 -		}
--
++		/* Not enabling ps_mode (IEEE power_save) by default. Enabling
++		 * this causes connection instability, especially on 5GHz APs
++		 * and eventually causes "firmware wakeup failed". Therefore,
++		 * the relevant code was removed from here. */
+ 
  		if (drcs) {
  			adapter->drcs_enabled = true;
- 			if (ISSUPP_DRCS_ENABLED(adapter->fw_cap_info))
-@@ -2395,18 +2383,6 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
+@@ -2395,17 +2387,10 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
  	if (ret)
  		return -1;
  
@@ -222,10 +243,13 @@ index 4ed10cf82f9a..977b57c0908f 100644
 -		if (ret)
 -			return -1;
 -	}
--
++	/* Not enabling auto deep sleep (auto_ds) by default. Enabling
++	 * this reportedly causes "suspend/resume fails when not connected
++	 * to an Access Point." Therefore, the relevant code was removed
++	 * from here. */
+ 
  	if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
  		/* Send cmd to FW to enable/disable 11D function */
- 		state_11d = ENABLE_11D;
 -- 
-2.26.0
+2.26.2
 

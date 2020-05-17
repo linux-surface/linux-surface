@@ -1,4 +1,4 @@
-From 2458faf694596f3fc8bead2deee2651953f9192e Mon Sep 17 00:00:00 2001
+From 1a6a1057a25d6c46fb7da9e59d1ee4a930a56121 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Mon, 27 Jan 2020 21:16:20 +0100
 Subject: [PATCH 7/7] ipts
@@ -8,7 +8,7 @@ Subject: [PATCH 7/7] ipts
  drivers/input/touchscreen/Makefile            |   1 +
  drivers/input/touchscreen/ipts/Kconfig        |  16 ++
  drivers/input/touchscreen/ipts/Makefile       |  17 ++
- drivers/input/touchscreen/ipts/context.h      |  61 ++++
+ drivers/input/touchscreen/ipts/context.h      |  60 ++++
  drivers/input/touchscreen/ipts/control.c      |  94 +++++++
  drivers/input/touchscreen/ipts/control.h      |  18 ++
  drivers/input/touchscreen/ipts/data.c         | 107 +++++++
@@ -36,12 +36,12 @@ Subject: [PATCH 7/7] ipts
  drivers/input/touchscreen/ipts/resources.h    |  11 +
  drivers/input/touchscreen/ipts/singletouch.c  |  64 +++++
  drivers/input/touchscreen/ipts/singletouch.h  |  14 +
- drivers/input/touchscreen/ipts/stylus.c       | 191 +++++++++++++
+ drivers/input/touchscreen/ipts/stylus.c       | 179 ++++++++++++
  drivers/input/touchscreen/ipts/stylus.h       |  14 +
  drivers/misc/mei/hw-me-regs.h                 |   2 +
  drivers/misc/mei/pci-me.c                     |   2 +
  include/uapi/linux/input.h                    |   1 +
- 37 files changed, 1735 insertions(+)
+ 37 files changed, 1722 insertions(+)
  create mode 100644 drivers/input/touchscreen/ipts/Kconfig
  create mode 100644 drivers/input/touchscreen/ipts/Makefile
  create mode 100644 drivers/input/touchscreen/ipts/context.h
@@ -76,7 +76,7 @@ Subject: [PATCH 7/7] ipts
  create mode 100644 drivers/input/touchscreen/ipts/stylus.h
 
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
-index c071f7c407b6..028ff55d779d 100644
+index c071f7c407b61..028ff55d779d0 100644
 --- a/drivers/input/touchscreen/Kconfig
 +++ b/drivers/input/touchscreen/Kconfig
 @@ -1310,4 +1310,6 @@ config TOUCHSCREEN_IQS5XX
@@ -87,7 +87,7 @@ index c071f7c407b6..028ff55d779d 100644
 +
  endif
 diff --git a/drivers/input/touchscreen/Makefile b/drivers/input/touchscreen/Makefile
-index 94c6162409b3..864f0e092ab6 100644
+index 94c6162409b37..864f0e092ab67 100644
 --- a/drivers/input/touchscreen/Makefile
 +++ b/drivers/input/touchscreen/Makefile
 @@ -45,6 +45,7 @@ obj-$(CONFIG_TOUCHSCREEN_EXC3000)	+= exc3000.o
@@ -100,7 +100,7 @@ index 94c6162409b3..864f0e092ab6 100644
  obj-$(CONFIG_TOUCHSCREEN_INEXIO)	+= inexio.o
 diff --git a/drivers/input/touchscreen/ipts/Kconfig b/drivers/input/touchscreen/ipts/Kconfig
 new file mode 100644
-index 000000000000..d3c530dafa94
+index 0000000000000..d3c530dafa948
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/Kconfig
 @@ -0,0 +1,16 @@
@@ -122,7 +122,7 @@ index 000000000000..d3c530dafa94
 +	  module will be called ipts.
 diff --git a/drivers/input/touchscreen/ipts/Makefile b/drivers/input/touchscreen/ipts/Makefile
 new file mode 100644
-index 000000000000..0f7c904e7317
+index 0000000000000..0f7c904e73171
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/Makefile
 @@ -0,0 +1,17 @@
@@ -145,10 +145,10 @@ index 000000000000..0f7c904e7317
 +ipts-objs += stylus.o
 diff --git a/drivers/input/touchscreen/ipts/context.h b/drivers/input/touchscreen/ipts/context.h
 new file mode 100644
-index 000000000000..13ea03b6482e
+index 0000000000000..ab26552579a5c
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/context.h
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,60 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +
 +#ifndef _IPTS_CONTEXT_H_
@@ -206,13 +206,12 @@ index 000000000000..13ea03b6482e
 +
 +	struct input_dev *stylus;
 +	struct input_dev *singletouch;
-+	u16 stylus_tool;
 +};
 +
 +#endif /* _IPTS_CONTEXT_H_ */
 diff --git a/drivers/input/touchscreen/ipts/control.c b/drivers/input/touchscreen/ipts/control.c
 new file mode 100644
-index 000000000000..9179eca66558
+index 0000000000000..9179eca665585
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/control.c
 @@ -0,0 +1,94 @@
@@ -312,7 +311,7 @@ index 000000000000..9179eca66558
 +}
 diff --git a/drivers/input/touchscreen/ipts/control.h b/drivers/input/touchscreen/ipts/control.h
 new file mode 100644
-index 000000000000..e57609c85d62
+index 0000000000000..e57609c85d62a
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/control.h
 @@ -0,0 +1,18 @@
@@ -336,7 +335,7 @@ index 000000000000..e57609c85d62
 +#endif /* _IPTS_CONTROL_H_ */
 diff --git a/drivers/input/touchscreen/ipts/data.c b/drivers/input/touchscreen/ipts/data.c
 new file mode 100644
-index 000000000000..568bf04f7ea6
+index 0000000000000..568bf04f7ea6e
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/data.c
 @@ -0,0 +1,107 @@
@@ -449,7 +448,7 @@ index 000000000000..568bf04f7ea6
 +}
 diff --git a/drivers/input/touchscreen/ipts/data.h b/drivers/input/touchscreen/ipts/data.h
 new file mode 100644
-index 000000000000..fa72c1be0945
+index 0000000000000..fa72c1be09451
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/data.h
 @@ -0,0 +1,12 @@
@@ -467,7 +466,7 @@ index 000000000000..fa72c1be0945
 +#endif /* _IPTS_DATA_H_ */
 diff --git a/drivers/input/touchscreen/ipts/hid.c b/drivers/input/touchscreen/ipts/hid.c
 new file mode 100644
-index 000000000000..2642990b8c42
+index 0000000000000..2642990b8c420
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/hid.c
 @@ -0,0 +1,38 @@
@@ -511,7 +510,7 @@ index 000000000000..2642990b8c42
 +}
 diff --git a/drivers/input/touchscreen/ipts/hid.h b/drivers/input/touchscreen/ipts/hid.h
 new file mode 100644
-index 000000000000..e6cf38fce454
+index 0000000000000..e6cf38fce4541
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/hid.h
 @@ -0,0 +1,13 @@
@@ -530,7 +529,7 @@ index 000000000000..e6cf38fce454
 +#endif /* _IPTS_HID_H_ */
 diff --git a/drivers/input/touchscreen/ipts/init.c b/drivers/input/touchscreen/ipts/init.c
 new file mode 100644
-index 000000000000..fb70d55542af
+index 0000000000000..fb70d55542af7
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/init.c
 @@ -0,0 +1,93 @@
@@ -629,7 +628,7 @@ index 000000000000..fb70d55542af
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/input/touchscreen/ipts/math.c b/drivers/input/touchscreen/ipts/math.c
 new file mode 100644
-index 000000000000..df956e5447e0
+index 0000000000000..df956e5447e03
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/math.c
 @@ -0,0 +1,103 @@
@@ -738,7 +737,7 @@ index 000000000000..df956e5447e0
 +}
 diff --git a/drivers/input/touchscreen/ipts/math.h b/drivers/input/touchscreen/ipts/math.h
 new file mode 100644
-index 000000000000..8e831074ab60
+index 0000000000000..8e831074ab60b
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/math.h
 @@ -0,0 +1,21 @@
@@ -765,7 +764,7 @@ index 000000000000..8e831074ab60
 +#endif /* _IPTS_MATH_H_ */
 diff --git a/drivers/input/touchscreen/ipts/params.c b/drivers/input/touchscreen/ipts/params.c
 new file mode 100644
-index 000000000000..6aa3f5cf1d76
+index 0000000000000..6aa3f5cf1d762
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/params.c
 @@ -0,0 +1,27 @@
@@ -798,7 +797,7 @@ index 000000000000..6aa3f5cf1d76
 +);
 diff --git a/drivers/input/touchscreen/ipts/params.h b/drivers/input/touchscreen/ipts/params.h
 new file mode 100644
-index 000000000000..1f992a3bc21b
+index 0000000000000..1f992a3bc21b9
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/params.h
 @@ -0,0 +1,15 @@
@@ -819,7 +818,7 @@ index 000000000000..1f992a3bc21b
 +#endif /* _IPTS_PARAMS_H_ */
 diff --git a/drivers/input/touchscreen/ipts/payload.c b/drivers/input/touchscreen/ipts/payload.c
 new file mode 100644
-index 000000000000..3572ddc0f2fb
+index 0000000000000..3572ddc0f2fb0
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/payload.c
 @@ -0,0 +1,52 @@
@@ -877,7 +876,7 @@ index 000000000000..3572ddc0f2fb
 +}
 diff --git a/drivers/input/touchscreen/ipts/payload.h b/drivers/input/touchscreen/ipts/payload.h
 new file mode 100644
-index 000000000000..6603714bb6fd
+index 0000000000000..6603714bb6fd0
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/payload.h
 @@ -0,0 +1,14 @@
@@ -897,7 +896,7 @@ index 000000000000..6603714bb6fd
 +#endif /* _IPTS_PAYLOAD_H_ */
 diff --git a/drivers/input/touchscreen/ipts/protocol/commands.h b/drivers/input/touchscreen/ipts/protocol/commands.h
 new file mode 100644
-index 000000000000..2533dfb13584
+index 0000000000000..2533dfb13584a
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/protocol/commands.h
 @@ -0,0 +1,61 @@
@@ -964,7 +963,7 @@ index 000000000000..2533dfb13584
 +#endif /* _IPTS_PROTOCOL_COMMANDS_H_ */
 diff --git a/drivers/input/touchscreen/ipts/protocol/data.h b/drivers/input/touchscreen/ipts/protocol/data.h
 new file mode 100644
-index 000000000000..148e0545b2e4
+index 0000000000000..148e0545b2e4e
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/protocol/data.h
 @@ -0,0 +1,30 @@
@@ -1000,7 +999,7 @@ index 000000000000..148e0545b2e4
 +#endif /* _IPTS_PROTOCOL_DATA_H_ */
 diff --git a/drivers/input/touchscreen/ipts/protocol/events.h b/drivers/input/touchscreen/ipts/protocol/events.h
 new file mode 100644
-index 000000000000..f8b771f90bd2
+index 0000000000000..f8b771f90bd2b
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/protocol/events.h
 @@ -0,0 +1,29 @@
@@ -1035,7 +1034,7 @@ index 000000000000..f8b771f90bd2
 +#endif /* _IPTS_PROTOCOL_EVENTS_H_ */
 diff --git a/drivers/input/touchscreen/ipts/protocol/feedback.h b/drivers/input/touchscreen/ipts/protocol/feedback.h
 new file mode 100644
-index 000000000000..8b3d8b689ee8
+index 0000000000000..8b3d8b689ee83
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/protocol/feedback.h
 @@ -0,0 +1,30 @@
@@ -1071,7 +1070,7 @@ index 000000000000..8b3d8b689ee8
 +#endif /* _IPTS_PROTOCOL_FEEDBACK_H_ */
 diff --git a/drivers/input/touchscreen/ipts/protocol/payload.h b/drivers/input/touchscreen/ipts/protocol/payload.h
 new file mode 100644
-index 000000000000..f46da4ea81f2
+index 0000000000000..f46da4ea81f25
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/protocol/payload.h
 @@ -0,0 +1,47 @@
@@ -1124,7 +1123,7 @@ index 000000000000..f46da4ea81f2
 +#endif /* _IPTS_PROTOCOL_PAYLOAD_H_ */
 diff --git a/drivers/input/touchscreen/ipts/protocol/responses.h b/drivers/input/touchscreen/ipts/protocol/responses.h
 new file mode 100644
-index 000000000000..27153d82a5d6
+index 0000000000000..27153d82a5d67
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/protocol/responses.h
 @@ -0,0 +1,62 @@
@@ -1192,7 +1191,7 @@ index 000000000000..27153d82a5d6
 +#endif /* _IPTS_PROTOCOL_RESPONSES_H_ */
 diff --git a/drivers/input/touchscreen/ipts/protocol/singletouch.h b/drivers/input/touchscreen/ipts/protocol/singletouch.h
 new file mode 100644
-index 000000000000..bf9912ee2af4
+index 0000000000000..bf9912ee2af4c
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/protocol/singletouch.h
 @@ -0,0 +1,17 @@
@@ -1215,7 +1214,7 @@ index 000000000000..bf9912ee2af4
 +#endif /* _IPTS_PROTOCOL_SINGLETOUCH_H_ */
 diff --git a/drivers/input/touchscreen/ipts/protocol/stylus.h b/drivers/input/touchscreen/ipts/protocol/stylus.h
 new file mode 100644
-index 000000000000..950850b365df
+index 0000000000000..950850b365dfb
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/protocol/stylus.h
 @@ -0,0 +1,52 @@
@@ -1273,7 +1272,7 @@ index 000000000000..950850b365df
 +#endif /* _IPTS_PAYLOAD_STYLUS_H_ */
 diff --git a/drivers/input/touchscreen/ipts/receiver.c b/drivers/input/touchscreen/ipts/receiver.c
 new file mode 100644
-index 000000000000..ab283994c3e5
+index 0000000000000..ab283994c3e5f
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/receiver.c
 @@ -0,0 +1,265 @@
@@ -1544,7 +1543,7 @@ index 000000000000..ab283994c3e5
 +}
 diff --git a/drivers/input/touchscreen/ipts/receiver.h b/drivers/input/touchscreen/ipts/receiver.h
 new file mode 100644
-index 000000000000..4d413a0abd4c
+index 0000000000000..4d413a0abd4c5
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/receiver.h
 @@ -0,0 +1,8 @@
@@ -1558,7 +1557,7 @@ index 000000000000..4d413a0abd4c
 +#endif /* _IPTS_RECEIVER_H_ */
 diff --git a/drivers/input/touchscreen/ipts/resources.c b/drivers/input/touchscreen/ipts/resources.c
 new file mode 100644
-index 000000000000..704db9fdd3fd
+index 0000000000000..704db9fdd3fd4
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/resources.c
 @@ -0,0 +1,131 @@
@@ -1695,7 +1694,7 @@ index 000000000000..704db9fdd3fd
 +}
 diff --git a/drivers/input/touchscreen/ipts/resources.h b/drivers/input/touchscreen/ipts/resources.h
 new file mode 100644
-index 000000000000..cf9807b0dbe6
+index 0000000000000..cf9807b0dbe62
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/resources.h
 @@ -0,0 +1,11 @@
@@ -1712,7 +1711,7 @@ index 000000000000..cf9807b0dbe6
 +#endif /* _IPTS_RESOURCES_H_ */
 diff --git a/drivers/input/touchscreen/ipts/singletouch.c b/drivers/input/touchscreen/ipts/singletouch.c
 new file mode 100644
-index 000000000000..ed70444f649c
+index 0000000000000..ed70444f649c4
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/singletouch.c
 @@ -0,0 +1,64 @@
@@ -1782,7 +1781,7 @@ index 000000000000..ed70444f649c
 +}
 diff --git a/drivers/input/touchscreen/ipts/singletouch.h b/drivers/input/touchscreen/ipts/singletouch.h
 new file mode 100644
-index 000000000000..53207497a462
+index 0000000000000..53207497a4628
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/singletouch.h
 @@ -0,0 +1,14 @@
@@ -1802,10 +1801,10 @@ index 000000000000..53207497a462
 +#endif /* _IPTS_SINGLETOUCH_H_ */
 diff --git a/drivers/input/touchscreen/ipts/stylus.c b/drivers/input/touchscreen/ipts/stylus.c
 new file mode 100644
-index 000000000000..dbb4fe0bf559
+index 0000000000000..987fa756fec33
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/stylus.c
-@@ -0,0 +1,191 @@
+@@ -0,0 +1,179 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
 +#include <linux/input.h>
@@ -1819,7 +1818,6 @@ index 000000000000..dbb4fe0bf559
 +static void ipts_stylus_handle_stylus_data(struct ipts_context *ipts,
 +		struct ipts_stylus_report_data *data)
 +{
-+	u16 tool;
 +	u8 prox = data->mode & IPTS_STYLUS_REPORT_MODE_PROX;
 +	u8 touch = data->mode & IPTS_STYLUS_REPORT_MODE_TOUCH;
 +	u8 button = data->mode & IPTS_STYLUS_REPORT_MODE_BUTTON;
@@ -1835,20 +1833,9 @@ index 000000000000..dbb4fe0bf559
 +				data->azimuth, &tx, &ty);
 +	}
 +
-+	if (prox && rubber)
-+		tool = BTN_TOOL_RUBBER;
-+	else
-+		tool = BTN_TOOL_PEN;
-+
-+	// Fake proximity out to switch tools
-+	if (ipts->stylus_tool != tool) {
-+		input_report_key(ipts->stylus, ipts->stylus_tool, 0);
-+		input_sync(ipts->stylus);
-+		ipts->stylus_tool = tool;
-+	}
-+
 +	input_report_key(ipts->stylus, BTN_TOUCH, touch);
-+	input_report_key(ipts->stylus, ipts->stylus_tool, prox);
++	input_report_key(ipts->stylus, BTN_TOOL_PEN, prox && !rubber);
++	input_report_key(ipts->stylus, BTN_TOOL_RUBBER, prox && rubber);
 +	input_report_key(ipts->stylus, BTN_STYLUS, button);
 +
 +	input_report_abs(ipts->stylus, ABS_X, data->x);
@@ -1999,7 +1986,7 @@ index 000000000000..dbb4fe0bf559
 +}
 diff --git a/drivers/input/touchscreen/ipts/stylus.h b/drivers/input/touchscreen/ipts/stylus.h
 new file mode 100644
-index 000000000000..5b93add1eac2
+index 0000000000000..5b93add1eac2d
 --- /dev/null
 +++ b/drivers/input/touchscreen/ipts/stylus.h
 @@ -0,0 +1,14 @@
@@ -2018,7 +2005,7 @@ index 000000000000..5b93add1eac2
 +
 +#endif /* _IPTS_STYLUS_H_ */
 diff --git a/drivers/misc/mei/hw-me-regs.h b/drivers/misc/mei/hw-me-regs.h
-index 5213eacc8b86..ad78fa7d72fd 100644
+index 5213eacc8b861..ad78fa7d72fd4 100644
 --- a/drivers/misc/mei/hw-me-regs.h
 +++ b/drivers/misc/mei/hw-me-regs.h
 @@ -59,6 +59,7 @@
@@ -2038,7 +2025,7 @@ index 5213eacc8b86..ad78fa7d72fd 100644
  #define MEI_DEV_ID_JSP_N      0x4DE0  /* Jasper Lake Point N */
  
 diff --git a/drivers/misc/mei/pci-me.c b/drivers/misc/mei/pci-me.c
-index 90ee4484a80a..01fee37dd4a4 100644
+index 0dd2922aa06d8..8f00f6b1bafed 100644
 --- a/drivers/misc/mei/pci-me.c
 +++ b/drivers/misc/mei/pci-me.c
 @@ -77,6 +77,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
@@ -2048,7 +2035,7 @@ index 90ee4484a80a..01fee37dd4a4 100644
 +	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT_4, MEI_ME_PCH8_CFG)},
  	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT_H, MEI_ME_PCH8_SPS_CFG)},
  	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT_H_2, MEI_ME_PCH8_SPS_CFG)},
- 	{MEI_PCI_DEVICE(MEI_DEV_ID_LBG, MEI_ME_PCH12_CFG)},
+ 	{MEI_PCI_DEVICE(MEI_DEV_ID_LBG, MEI_ME_PCH12_SPS_CFG)},
 @@ -103,6 +104,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
  	{MEI_PCI_DEVICE(MEI_DEV_ID_CMP_H_3, MEI_ME_PCH8_CFG)},
  
@@ -2058,7 +2045,7 @@ index 90ee4484a80a..01fee37dd4a4 100644
  	{MEI_PCI_DEVICE(MEI_DEV_ID_TGP_LP, MEI_ME_PCH15_CFG)},
  
 diff --git a/include/uapi/linux/input.h b/include/uapi/linux/input.h
-index 9a61c28ed3ae..47fc20975245 100644
+index 9a61c28ed3ae4..47fc20975245d 100644
 --- a/include/uapi/linux/input.h
 +++ b/include/uapi/linux/input.h
 @@ -271,6 +271,7 @@ struct input_mask {
@@ -2070,5 +2057,5 @@ index 9a61c28ed3ae..47fc20975245 100644
  /*
   * MT_TOOL types
 -- 
-2.26.0
+2.26.2
 
