@@ -9,6 +9,7 @@ Follow the instructions below to install the latest kernel.
 * Surface Book 2
 * Surface 3
 * Surface Go
+* Surface Go 2
 * Surface Laptop
 * Surface Laptop 2
 * Surface Laptop 3
