@@ -85,9 +85,8 @@ Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-power.patch
 Patch1:     %{surface_source}/%{kernel_patches}/0002-surface3-spi.patch
 Patch2:     %{surface_source}/%{kernel_patches}/0003-surface3-oemb.patch
 Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-sam.patch
-Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-lte.patch
-Patch5:     %{surface_source}/%{kernel_patches}/0006-wifi.patch
-Patch6:     %{surface_source}/%{kernel_patches}/0007-ipts.patch
+Patch4:     %{surface_source}/%{kernel_patches}/0006-wifi.patch
+Patch5:     %{surface_source}/%{kernel_patches}/0007-ipts.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
