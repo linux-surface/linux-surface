@@ -2,7 +2,7 @@
 # Maintainer: Jan Alexander Steffens (heftig) <jan.steffens@gmail.com>
 
 pkgbase=linux-surface
-pkgver=5.6.15.arch1
+pkgver=5.7.2.arch1
 pkgrel=1
 pkgdesc='Linux'
 _fullver=${pkgver%.*}-${pkgver##*.}
@@ -11,7 +11,8 @@ url="https://git.archlinux.org/linux.git/log/?h=$_srctag"
 arch=(x86_64)
 license=(GPL2)
 makedepends=(
-  kmod bc libelf
+  bc kmod libelf pahole
+  # ignoring deps for docs because we don't build docs package
   git
 )
 options=('!strip')
@@ -21,27 +22,25 @@ source=(
   config         # the main kernel config file
 
   surface.config # surface specific options
-  0001-surface3-power.patch
-  0002-surface3-spi.patch
-  0003-surface3-oemb.patch
-  0004-surface-sam.patch
-  0006-wifi.patch
-  0007-ipts.patch
+  0001-surface3-spi.patch
+  0002-surface3-oemb.patch
+  0003-surface-sam.patch
+  0005-wifi.patch
+  0006-ipts.patch
 )
 validpgpkeys=(
   'ABAF11C65A2970B130ABE3C479BE3E4300411886'  # Linus Torvalds
   '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
   'A2FF3A36AAA56654109064AB19802F8B0D70FC30'  # Jan Alexander Steffens (heftig)
 )
-sha256sums=('6e190f6d8fff48bba6a73c6b05146332c033270ecf109fd53f4f937f6845f058'
-            '2a157fdbf3a6396e985db9ae5d11870a786717dca31de78cad09c06eb28761ff'
+sha256sums=('9f64776121263e3e6bd8dd7a371d6d2cca5d193b2c3e19cb6e7904c374fb8b28'
+            '623601ed9d7879dd9dba1cd50fc8051f9db508b49b4fc0c47c5a9eb9165fc04e'
             '4662d1c8c5557e7531cfd4175809e832aa2d96771454f9631f5c09c2c40eb881'
-            '88b50f2d504f9080dc7b8f544a30f757cd8b3525605aa3ad64904888ad21a330'
-            'ca0ed93378bfddf5319d9a3b901f5abd9cd56927857cdc1171f2dae000b9f026'
-            '7365718848f3a05ed6473d36c165b1cc4384789de9eae0173a8e377ca5791d38'
-            '2be257472d1cdfdcb7d482b0075b5d500fc2a4e5cad4e37f4fcba99e239b9110'
-            '5b3f709288267d79f627293c6e1b108365f90d38d4c39c4ca23e46d64d5d0623'
-            '6d4510907639f60194dc013eef3d3e35637a8595a696dd4d901399b3774b0877')
+            '645897cd692128a4338cc86555e8f957cffbf84bab9b9081815d5eda5d610a7f'
+            'e0a3036827179ef8eb38cc0a3f1e6bcaf6967982c0a95d22580d8b436da68b68'
+            '2f87e1711201c9b238aa76c461a54922e3b2184b3ed8acec1c10b10842ebb055'
+            'c97918839115231aa23191d5e8da72e15d999d657c341a5c452b36ab55dc40d1'
+            '3f8d02b2ed5691db073f5b096ea5095e1caef5271216523b5caf0c2445d0257c')
 
 
 export KBUILD_BUILD_HOST=archlinux
@@ -76,12 +75,12 @@ prepare() {
   make olddefconfig
 
   make -s kernelrelease > version
-  echo "Prepared %s version %s" "$pkgbase" "$(<version)"
+  echo "Prepared $pkgbase version $(<version)"
 }
 
 build() {
   cd $_srcname
-  make bzImage modules
+  make all
 }
 
 _package() {
@@ -106,13 +105,13 @@ _package() {
   echo "Installing boot image..."
   # systemd expects to find the kernel here to allow hibernation
   # https://github.com/systemd/systemd/commit/edda44605f06a41fb86b7ab8128dcf99161d2344
-  install -Dm644 "$image_name" "$modulesdir/vmlinuz"
+  install -Dm644 "$(make -s image_name)" "$modulesdir/vmlinuz"
 
   # Used by mkinitcpio to name the kernel
   echo "$pkgbase" | install -Dm644 /dev/stdin "$modulesdir/pkgbase"
 
   echo "Installing modules..."
-  make INSTALL_MOD_PATH="$pkgdir/usr" modules_install
+  make INSTALL_MOD_PATH="$pkgdir/usr" INSTALL_MOD_STRIP=1 modules_install
 
   # remove build and source links
   rm "$modulesdir"/{source,build}
@@ -187,6 +186,9 @@ _package-headers() {
         strip -v $STRIP_SHARED "$file" ;;
     esac
   done < <(find "$builddir" -type f -perm -u+x ! -name vmlinux -print0)
+
+  echo "Stripping vmlinux..."
+  strip -v $STRIP_STATIC "$builddir/vmlinux"
 
   echo "Adding symlink..."
   mkdir -p "$pkgdir/usr/src"
