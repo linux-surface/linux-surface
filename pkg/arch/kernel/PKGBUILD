@@ -11,7 +11,8 @@ url="https://git.archlinux.org/linux.git/log/?h=$_srctag"
 arch=(x86_64)
 license=(GPL2)
 makedepends=(
-  bc kmod libelf pahole
+  bc kmod libelf
+  # we don't need `pahole` as deps because we disable `CONFIG_DEBUG_INFO`
   # ignoring deps for docs because we don't build docs package
   git
 )
@@ -22,6 +23,7 @@ source=(
   config         # the main kernel config file
 
   surface.config # surface specific options
+  arch.config # config changes for linux-surface kernel
   0001-surface3-spi.patch
   0002-surface3-oemb.patch
   0003-surface-sam.patch
@@ -36,6 +38,7 @@ validpgpkeys=(
 sha256sums=('9f64776121263e3e6bd8dd7a371d6d2cca5d193b2c3e19cb6e7904c374fb8b28'
             '623601ed9d7879dd9dba1cd50fc8051f9db508b49b4fc0c47c5a9eb9165fc04e'
             '4662d1c8c5557e7531cfd4175809e832aa2d96771454f9631f5c09c2c40eb881'
+            '8dbaa21d2c03621b0c5d96c4fbcc7a839bea5a34a5f2279a409c3b404756e753'
             '645897cd692128a4338cc86555e8f957cffbf84bab9b9081815d5eda5d610a7f'
             'e0a3036827179ef8eb38cc0a3f1e6bcaf6967982c0a95d22580d8b436da68b68'
             '2f87e1711201c9b238aa76c461a54922e3b2184b3ed8acec1c10b10842ebb055'
@@ -71,7 +74,7 @@ prepare() {
   echo "Setting config..."
   # cp ../config .config
   # merge the two configs together
-  ./scripts/kconfig/merge_config.sh -m ../config ../surface.config
+  ./scripts/kconfig/merge_config.sh -m ../config ../surface.config ../arch.config
   make olddefconfig
 
   make -s kernelrelease > version
