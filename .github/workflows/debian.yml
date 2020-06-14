@@ -43,15 +43,21 @@ jobs:
 
         cd linux
 
-        # apply surface build patches
+        # apply surface build/packaging patches
         for PATCH in ../*.patch; do
-          git am ${PATCH}
+          patch -p1 < ${PATCH}
         done
+
+        git add .
+        git commit --allow-empty -m "Apply linux-surface packaging patches"
 
         # apply surface patches
         for PATCH in ../../../../patches/${KERNEL_VERSION%.*}/*.patch; do
-          git am ${PATCH}
+          patch -p1 < ${PATCH}
         done
+
+        git add .
+        git commit --allow-empty -m "Apply linux-surface patches"
 
     - name: Configure
       run: |
