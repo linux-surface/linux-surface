@@ -10,6 +10,8 @@ env:
   KERNEL_VERSION: 4.19.128
   KDEB_PKGVERSION: 4.19.128-1
   LOCALVERSION: -surface-lts
+  MAINLINE_REPO: git://git.launchpad.net/~ubuntu-kernel-test/ubuntu/+source/linux/+git/mainline-crack
+  MAINLINE_BRANCH: cod/mainline
 
 jobs:
   build:
@@ -31,37 +33,20 @@ jobs:
       run: |
         cd pkg/debian/kernel-lts
 
-        # get ubuntu build patches (for config)
-        SOURCE_URL="https://kernel.ubuntu.com/~kernel-ppa/mainline/v$KERNEL_VERSION"
-        SOURCE_LIST="$SOURCE_URL/SOURCES"
+        # get ubuntu mainline source
+        # see https://kernel.ubuntu.com/~kernel-ppa/mainline
+        git clone "$MAINLINE_REPO" --branch "$MAINLINE_BRANCH/v$KERNEL_VERSION" --depth 1 linux
 
-        mkdir -p "ubuntu"
-        wget "$SOURCE_LIST" -O "ubuntu/SOURCES"
-        SOURCE_FILES="$(tail -n +2 "ubuntu/SOURCES")"
-
-        for f in $SOURCE_FILES; do
-          wget "$SOURCE_URL/$f" -O "ubuntu/$f"
-        done
-
-        # download kernel sources
-        wget https://cdn.kernel.org/pub/linux/kernel/v${KERNEL_VERSION%%.*}.x/linux-$KERNEL_VERSION.tar.xz
-        tar xf linux-$KERNEL_VERSION.tar.xz
-
-        mv linux-$KERNEL_VERSION linux && cd linux
-
-        # apply ubuntu build patches
-        for PATCH in ../ubuntu/*.patch; do
-          patch -p1 < ${PATCH}
-        done
+        cd linux
 
         # apply surface build patches
         for PATCH in ../*.patch; do
-          patch -p1 < ${PATCH}
+          git am ${PATCH}
         done
 
         # apply surface patches
         for PATCH in ../../../../patches/${KERNEL_VERSION%.*}/*.patch; do
-          patch -p1 < ${PATCH}
+          git am ${PATCH}
         done
 
     - name: Configure
