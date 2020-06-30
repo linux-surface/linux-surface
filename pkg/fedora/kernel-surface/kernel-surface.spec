@@ -20,11 +20,9 @@
 # Definitions that get automatically generated from the ones above
 #
 
-%global fedora_ver %(echo %{?dist} | cut -d'.' -f2)
-
-%global kernel_tag %{kernel_tag_%{fedora_ver}}
-%global kernel_release %{kernel_release_%{fedora_ver}}
-%global fedora_title %{fedora_title_%{fedora_ver}}
+%global kernel_tag %{kernel_tag_fc%{fedora}}
+%global kernel_release %{kernel_release_fc%{fedora}}
+%global fedora_title %{fedora_title_fc%{fedora}}
 
 %global kernel_version %(echo %{kernel_tag} | cut -d'-' -f2)
 %global kernel_majorver %(echo %{kernel_version} | cut -d'.' -f1-2)
