@@ -2,7 +2,7 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc32 kernel-5.6.19-300.fc32
+%global kernel_tag_fc32 kernel-5.7.6-201.fc32
 %global kernel_tag_fc31 kernel-5.6.19-200.fc31
 
 %global kernel_release_fc32 1
@@ -79,12 +79,24 @@ Source21:   %{sb_key}
 Source100:  mod-sign.sh
 Source101:  parallel_xz.sh
 
+%if %{fedora} == 32
+
+Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-spi.patch
+Patch1:     %{surface_source}/%{kernel_patches}/0002-surface3-oemb.patch
+Patch2:     %{surface_source}/%{kernel_patches}/0003-surface-sam.patch
+Patch3:     %{surface_source}/%{kernel_patches}/0005-wifi.patch
+Patch4:     %{surface_source}/%{kernel_patches}/0006-ipts.patch
+
+%else
+
 Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-power.patch
 Patch1:     %{surface_source}/%{kernel_patches}/0002-surface3-spi.patch
 Patch2:     %{surface_source}/%{kernel_patches}/0003-surface3-oemb.patch
 Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-sam.patch
 Patch4:     %{surface_source}/%{kernel_patches}/0006-wifi.patch
 Patch5:     %{surface_source}/%{kernel_patches}/0007-ipts.patch
+
+%endif
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
@@ -209,7 +221,9 @@ if [ -s Module.markers ]; then
 fi
 
 # then drop all but the needed Makefiles/Kconfig files
-rm -rf %{kernel_modpath}/build/Documentation
+%if %{fedora} == 31
+	rm -rf %{kernel_modpath}/build/Documentation
+%endif
 rm -rf %{kernel_modpath}/build/scripts
 rm -rf %{kernel_modpath}/build/include
 cp .config %{kernel_modpath}/build
