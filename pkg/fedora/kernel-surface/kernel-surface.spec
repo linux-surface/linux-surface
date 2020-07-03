@@ -2,8 +2,8 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc32 kernel-5.7.6-201.fc32
-%global kernel_tag_fc31 kernel-5.6.19-200.fc31
+%global kernel_tag_fc32 kernel-5.7.7-200.fc32
+%global kernel_tag_fc31 kernel-5.7.7-100.fc31
 
 %global kernel_release_fc32 1
 %global kernel_release_fc31 1
@@ -11,7 +11,7 @@
 %global fedora_title_fc32 32 (Thirty Two)
 %global fedora_title_fc31 31 (Thirty One)
 
-%global ls_patches_commit 291e86a8f7a99fc8f28281e4742a7d7fdd6b8ea7
+%global ls_patches_commit 05746ccc772fd4f65ef6661bd8bdaf70fb3a1079
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -79,24 +79,11 @@ Source21:   %{sb_key}
 Source100:  mod-sign.sh
 Source101:  parallel_xz.sh
 
-%if %{fedora} == 32
-
 Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-spi.patch
 Patch1:     %{surface_source}/%{kernel_patches}/0002-surface3-oemb.patch
 Patch2:     %{surface_source}/%{kernel_patches}/0003-surface-sam.patch
-Patch3:     %{surface_source}/%{kernel_patches}/0005-wifi.patch
-Patch4:     %{surface_source}/%{kernel_patches}/0006-ipts.patch
-
-%else
-
-Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-power.patch
-Patch1:     %{surface_source}/%{kernel_patches}/0002-surface3-spi.patch
-Patch2:     %{surface_source}/%{kernel_patches}/0003-surface3-oemb.patch
-Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-sam.patch
-Patch4:     %{surface_source}/%{kernel_patches}/0006-wifi.patch
-Patch5:     %{surface_source}/%{kernel_patches}/0007-ipts.patch
-
-%endif
+Patch3:     %{surface_source}/%{kernel_patches}/0004-wifi.patch
+Patch4:     %{surface_source}/%{kernel_patches}/0005-ipts.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
@@ -221,9 +208,6 @@ if [ -s Module.markers ]; then
 fi
 
 # then drop all but the needed Makefiles/Kconfig files
-%if %{fedora} == 31
-	rm -rf %{kernel_modpath}/build/Documentation
-%endif
 rm -rf %{kernel_modpath}/build/scripts
 rm -rf %{kernel_modpath}/build/include
 cp .config %{kernel_modpath}/build
