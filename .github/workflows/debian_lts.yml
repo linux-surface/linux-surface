@@ -8,7 +8,7 @@ name: Debian LTS
 env:
   GPG_KEY_ID: 56C464BAAC421453
   KERNEL_VERSION: 4.19.131
-  KDEB_PKGVERSION: 4.19.131-1
+  KERNEL_REVISION: 1
   LOCALVERSION: -surface-lts
   MAINLINE_REPO: git://git.launchpad.net/~ubuntu-kernel-test/ubuntu/+source/linux/+git/mainline-crack
   MAINLINE_BRANCH: cod/mainline
@@ -71,6 +71,9 @@ jobs:
           ../ubuntu.config                                    \
           ../../../../configs/surface-${KERNEL_VERSION%.*}.config
 
+        # set revision
+        echo "$KERNEL_REVISION" > .version
+
     - name: Setup secureboot certificate
       env:
         SB_KEY: ${{ secrets.SURFACE_SB_KEY }}
@@ -83,15 +86,23 @@ jobs:
         echo "$SB_KEY" | base64 -d > debian/kernel-lts/linux/keys/MOK.key
         cp keys/surface.crt debian/kernel-lts/linux/keys/MOK.crt
 
-    - name: Build
+    - name: Build kernel
       run: |
         cd pkg/debian/kernel-lts/linux
         make bindeb-pkg -j2
 
+    - name: Build meta-package
+      run: |
+        cd pkg/debian/meta
+        ./mkdebian.sh $(make -C ../kernel-lts/linux -s kernelrelease) ${KERNEL_REVISION}
+        dpkg-buildpkg -b
+
     - name: Prepare release
       run: |
         mkdir release
+        rm pkg/debian/kernel-lts/linux-libc-dev*.deb
         mv pkg/debian/kernel-lts/*.deb release
+        mv pkg/debian/*.deb release
 
     - name: Sign packages
       env:
