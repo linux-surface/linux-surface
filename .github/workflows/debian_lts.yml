@@ -12,6 +12,7 @@ env:
   LOCALVERSION: -surface-lts
   MAINLINE_REPO: git://git.launchpad.net/~ubuntu-kernel-test/ubuntu/+source/linux/+git/mainline-crack
   MAINLINE_BRANCH: cod/mainline
+  TZ: UTC
 
 jobs:
   build:
@@ -25,6 +26,8 @@ jobs:
     - name: Install build dependencies
       run: |
         sed 's/^deb /deb-src /' /etc/apt/sources.list >> /etc/apt/sources.list
+        ln -snf /usr/share/zoneinfo/$TZ /etc/localtime
+        echo $TZ > /etc/timezone
         apt-get -y update
         apt-get -y install build-essential fakeroot rsync git wget python3-debian dpkg-sig lz4 sbsigntool
         apt-get -y build-dep linux
