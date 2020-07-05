@@ -2,18 +2,19 @@
 
 kernelrelease="${1}"
 pkgrevision="${2}"
+suffix="${3:+-${3}}"
 
 distribution="unstable"
 debarch="amd64"
 debcompat="10"
-sourcename="linux-surface"
+sourcename="linux-surface${suffix}"
 maintainer="surfacebot <surfacebot@users.noreply.github.com>"
 pkgversion="${kernelrelease}-${pkgrevision}"
 
-image_pkgname="linux-image-surface"
+image_pkgname="linux-image-surface${suffix}"
 image_pkgname_actual="linux-image-${kernelrelease}"
 
-headers_pkgname="linux-headers-surface"
+headers_pkgname="linux-headers-surface${suffix}"
 headers_pkgname_actual="linux-headers-${kernelrelease}"
 
 
