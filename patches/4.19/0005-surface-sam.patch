@@ -1,4 +1,4 @@
-From dee763e9f3fe65a7448085c14f21dc961a1ca525 Mon Sep 17 00:00:00 2001
+From b060f8f79b2425879cd27b4cadacea68765e5a82 Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:15:40 +0200
 Subject: [PATCH 5/8] surface-sam
@@ -11,20 +11,22 @@ Subject: [PATCH 5/8] surface-sam
  drivers/platform/x86/surface_sam/Kconfig      |  164 +
  drivers/platform/x86/surface_sam/Makefile     |   15 +
  .../x86/surface_sam/surface_sam_dtx.c         |  590 ++
- .../x86/surface_sam/surface_sam_hps.c         | 1281 +++++
+ .../x86/surface_sam/surface_sam_hps.c         | 1297 +++++
  .../x86/surface_sam/surface_sam_san.c         |  913 +++
  .../x86/surface_sam/surface_sam_san.h         |   30 +
- .../x86/surface_sam/surface_sam_sid.c         |  147 +
- .../x86/surface_sam/surface_sam_sid_gpelid.c  |  224 +
+ .../x86/surface_sam/surface_sam_sid.c         |  262 +
+ .../x86/surface_sam/surface_sam_sid_gpelid.c  |  232 +
  .../surface_sam/surface_sam_sid_perfmode.c    |  216 +
- .../x86/surface_sam/surface_sam_sid_power.c   | 1146 ++++
- .../x86/surface_sam/surface_sam_sid_vhf.c     |  420 ++
+ .../x86/surface_sam/surface_sam_sid_power.c   | 1154 ++++
+ .../x86/surface_sam/surface_sam_sid_power.h   |   15 +
+ .../x86/surface_sam/surface_sam_sid_vhf.c     |  432 ++
+ .../x86/surface_sam/surface_sam_sid_vhf.h     |   13 +
  .../x86/surface_sam/surface_sam_ssh.c         | 5115 +++++++++++++++++
  .../x86/surface_sam/surface_sam_ssh.h         |  482 ++
  .../x86/surface_sam/surface_sam_ssh_trace.h   |  536 ++
  .../x86/surface_sam/surface_sam_vhf.c         |  261 +
  drivers/tty/serdev/core.c                     |  110 +-
- 20 files changed, 11652 insertions(+), 29 deletions(-)
+ 22 files changed, 11839 insertions(+), 29 deletions(-)
  create mode 100644 drivers/platform/x86/surface_sam/Kconfig
  create mode 100644 drivers/platform/x86/surface_sam/Makefile
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_dtx.c
@@ -35,7 +37,9 @@ Subject: [PATCH 5/8] surface-sam
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_sid_perfmode.c
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_sid_power.c
+ create mode 100644 drivers/platform/x86/surface_sam/surface_sam_sid_power.h
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_sid_vhf.c
+ create mode 100644 drivers/platform/x86/surface_sam/surface_sam_sid_vhf.h
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_ssh.c
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_ssh.h
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_ssh_trace.h
@@ -918,10 +922,10 @@ index 0000000000000..88dba7bced3a4
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_hps.c b/drivers/platform/x86/surface_sam/surface_sam_hps.c
 new file mode 100644
-index 0000000000000..f945c2ec6d0c8
+index 0000000000000..40f39f29113c5
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_hps.c
-@@ -0,0 +1,1281 @@
+@@ -0,0 +1,1297 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface dGPU hot-plug system driver.
@@ -2118,9 +2122,25 @@ index 0000000000000..f945c2ec6d0c8
 +			goto err_post_notification;
 +	}
 +
++	// initialize power target
++	status = shps_dgpu_rp_get_power(pdev);
++	if (status < 0)
++		goto err_pwrtgt;
++
++	if (status)
++		set_bit(SHPS_STATE_BIT_PWRTGT, &drvdata->state);
++	else
++		clear_bit(SHPS_STATE_BIT_PWRTGT, &drvdata->state);
++
 +	device_init_wakeup(&pdev->dev, true);
 +	return 0;
 +
++err_pwrtgt:
++	if (param_dgpu_power_exit != SHPS_DGPU_MP_POWER_ASIS) {
++		status = shps_dgpu_set_power(pdev, param_dgpu_power_exit);
++		if (status)
++			dev_err(&pdev->dev, "failed to set dGPU power state: %d\n", status);
++	}
 +err_post_notification:
 +	if (detected_traits.notification_method == SHPS_NOTIFICATION_METHOD_SGCP) {
 +		shps_remove_sgcp_notification(pdev);
@@ -3160,10 +3180,10 @@ index 0000000000000..2b9dee159bbbc
 +#endif /* _SURFACE_SAM_SAN_H */
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid.c b/drivers/platform/x86/surface_sam/surface_sam_sid.c
 new file mode 100644
-index 0000000000000..53c90d8924e28
+index 0000000000000..0dae6569b4265
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_sid.c
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,262 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface Integration Driver.
@@ -3175,6 +3195,50 @@ index 0000000000000..53c90d8924e28
 +#include <linux/module.h>
 +#include <linux/platform_device.h>
 +#include <linux/mfd/core.h>
++
++#include "surface_sam_sid_power.h"
++#include "surface_sam_sid_vhf.h"
++
++
++struct ssam_battery_properties ssam_battery_props_bat1 = {
++	.registry = SSAM_EVENT_REGISTRY_SAM,
++	.num      = 0,
++	.channel  = 1,
++	.instance = 1,
++};
++
++struct ssam_battery_properties ssam_battery_props_bat2_sb3 = {
++	.registry = SSAM_EVENT_REGISTRY_KIP,
++	.num      = 1,
++	.channel  = 2,
++	.instance = 1,
++};
++
++
++static const struct ssam_hid_properties ssam_hid_props_sl3 = {
++	.registry = SSAM_EVENT_REGISTRY_REG,	// TODO: needs confirmation
++	.instance = 0,
++};
++
++static const struct ssam_hid_properties ssam_hid_props_sb3_keyboard = {
++	.registry = SSAM_EVENT_REGISTRY_REG,
++	.instance = 1,
++};
++
++static const struct ssam_hid_properties ssam_hid_props_sb3_touchpad = {
++	.registry = SSAM_EVENT_REGISTRY_REG,
++	.instance = 3,
++};
++
++static const struct ssam_hid_properties ssam_hid_props_sb3_iid5 = {
++	.registry = SSAM_EVENT_REGISTRY_REG,
++	.instance = 5,
++};
++
++static const struct ssam_hid_properties ssam_hid_props_sb3_iid6 = {
++	.registry = SSAM_EVENT_REGISTRY_REG,
++	.instance = 6,
++};
 +
 +
 +static const struct mfd_cell sid_devs_sp4[] = {
@@ -3191,9 +3255,14 @@ index 0000000000000..53c90d8924e28
 +
 +static const struct mfd_cell sid_devs_sp7[] = {
 +	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
-+	{ .name = "surface_sam_sid_ac",       .id = -1 },
-+	{ .name = "surface_sam_sid_battery",  .id = -1 },
 +	{ .name = "surface_sam_sid_perfmode", .id = -1 },
++	{ .name = "surface_sam_sid_ac",       .id = -1 },
++	{
++		.name = "surface_sam_sid_battery",
++		.id = -1,
++		.platform_data = &ssam_battery_props_bat1,
++		.pdata_size = sizeof(struct ssam_battery_properties),
++	},
 +	{ },
 +};
 +
@@ -3205,6 +3274,49 @@ index 0000000000000..53c90d8924e28
 +static const struct mfd_cell sid_devs_sb2[] = {
 +	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
 +	{ .name = "surface_sam_sid_perfmode", .id = -1 },
++	{ },
++};
++
++static const struct mfd_cell sid_devs_sb3[] = {
++	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
++	{ .name = "surface_sam_sid_perfmode", .id = -1 },
++	{ .name = "surface_sam_sid_ac",       .id = -1 },
++	{
++		.name = "surface_sam_sid_battery",
++		.id = 1,
++		.platform_data = &ssam_battery_props_bat1,
++		.pdata_size = sizeof(struct ssam_battery_properties),
++	},
++	{
++		.name = "surface_sam_sid_battery",
++		.id = 2,
++		.platform_data = &ssam_battery_props_bat2_sb3,
++		.pdata_size = sizeof(struct ssam_battery_properties),
++	},
++	{
++		.name = "surface_sam_sid_vhf",
++		.id = 1,
++		.platform_data = (void *)&ssam_hid_props_sb3_keyboard,
++		.pdata_size = sizeof(struct ssam_hid_properties),
++	},
++	{
++		.name = "surface_sam_sid_vhf",
++		.id = 3,
++		.platform_data = (void *)&ssam_hid_props_sb3_touchpad,
++		.pdata_size = sizeof(struct ssam_hid_properties),
++	},
++	{
++		.name = "surface_sam_sid_vhf",
++		.id = 5,
++		.platform_data = (void *)&ssam_hid_props_sb3_iid5,
++		.pdata_size = sizeof(struct ssam_hid_properties),
++	},
++	{
++		.name = "surface_sam_sid_vhf",
++		.id = 6,
++		.platform_data = (void *)&ssam_hid_props_sb3_iid6,
++		.pdata_size = sizeof(struct ssam_hid_properties),
++	},
 +	{ },
 +};
 +
@@ -3220,18 +3332,38 @@ index 0000000000000..53c90d8924e28
 +
 +static const struct mfd_cell sid_devs_sl3_13[] = {
 +	{ .name = "surface_sam_sid_gpelid",   .id = -1 },
-+	{ .name = "surface_sam_sid_vhf",      .id = -1 },
-+	{ .name = "surface_sam_sid_ac",       .id = -1 },
-+	{ .name = "surface_sam_sid_battery",  .id = -1 },
 +	{ .name = "surface_sam_sid_perfmode", .id = -1 },
++	{ .name = "surface_sam_sid_ac",       .id = -1 },
++	{
++		.name = "surface_sam_sid_battery",
++		.id = -1,
++		.platform_data = &ssam_battery_props_bat1,
++		.pdata_size = sizeof(struct ssam_battery_properties),
++	},
++	{
++		.name = "surface_sam_sid_vhf",
++		.id = -1,
++		.platform_data = (void *)&ssam_hid_props_sl3,
++		.pdata_size = sizeof(struct ssam_hid_properties),
++	},
 +	{ },
 +};
 +
 +static const struct mfd_cell sid_devs_sl3_15[] = {
-+	{ .name = "surface_sam_sid_vhf",      .id = -1 },
-+	{ .name = "surface_sam_sid_ac",       .id = -1 },
-+	{ .name = "surface_sam_sid_battery",  .id = -1 },
 +	{ .name = "surface_sam_sid_perfmode", .id = -1 },
++	{ .name = "surface_sam_sid_ac",       .id = -1 },
++	{
++		.name = "surface_sam_sid_battery",
++		.id = -1,
++		.platform_data = &ssam_battery_props_bat1,
++		.pdata_size = sizeof(struct ssam_battery_properties),
++	},
++	{
++		.name = "surface_sam_sid_vhf",
++		.id = -1,
++		.platform_data = (void *)&ssam_hid_props_sl3,
++		.pdata_size = sizeof(struct ssam_hid_properties),
++	},
 +	{ },
 +};
 +
@@ -3250,6 +3382,9 @@ index 0000000000000..53c90d8924e28
 +
 +	/* Surface Book 2 */
 +	{ "MSHW0107", (unsigned long)sid_devs_sb2 },
++
++	/* Surface Book 3 */
++	{ "MSHW0117", (unsigned long)sid_devs_sb3 },
 +
 +	/* Surface Laptop 1 */
 +	{ "MSHW0086", (unsigned long)sid_devs_sl1 },
@@ -3313,10 +3448,10 @@ index 0000000000000..53c90d8924e28
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c b/drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c
 new file mode 100644
-index 0000000000000..798184bfd8573
+index 0000000000000..f0cee43c859b4
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_sid_gpelid.c
-@@ -0,0 +1,224 @@
+@@ -0,0 +1,232 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface Lid driver to enable wakeup from suspend via the lid.
@@ -3414,6 +3549,14 @@ index 0000000000000..798184bfd8573
 +			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book 2"),
 +		},
 +		.driver_data = (void *)&lid_device_l17,
++	},
++	{
++		.ident = "Surface Book 3",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book 3"),
++		},
++		.driver_data = (void *)&lid_device_l4D,
 +	},
 +	{
 +		.ident = "Surface Laptop 1",
@@ -3765,10 +3908,10 @@ index 0000000000000..2e11efb166f2b
 +MODULE_ALIAS("platform:surface_sam_sid_perfmode");
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_power.c b/drivers/platform/x86/surface_sam/surface_sam_sid_power.c
 new file mode 100644
-index 0000000000000..d7844d52ddb6f
+index 0000000000000..1d945c0a911a4
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_sid_power.c
-@@ -0,0 +1,1146 @@
+@@ -0,0 +1,1154 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface SID Battery/AC Driver.
@@ -3784,6 +3927,7 @@ index 0000000000000..d7844d52ddb6f
 +#include <linux/workqueue.h>
 +
 +#include "surface_sam_ssh.h"
++#include "surface_sam_sid_power.h"
 +
 +#define SPWR_WARN	KERN_WARNING KBUILD_MODNAME ": "
 +#define SPWR_DEBUG	KERN_DEBUG KBUILD_MODNAME ": "
@@ -3873,15 +4017,15 @@ index 0000000000000..d7844d52ddb6f
 +
 +
 +/* Get battery status (_STA) */
-+static int sam_psy_get_sta(u8 iid, u32 *sta)
++static int sam_psy_get_sta(u8 channel, u8 instance, u32 *sta)
 +{
 +	struct surface_sam_ssh_rqst rqst;
 +	struct surface_sam_ssh_buf result;
 +
 +	rqst.tc  = SAM_PWR_TC;
 +	rqst.cid = SAM_RQST_PWR_CID_STA;
-+	rqst.iid = iid;
-+	rqst.chn = 0x01;
++	rqst.iid = instance;
++	rqst.chn = channel;
 +	rqst.snc = 0x01;
 +	rqst.cdl = 0x00;
 +	rqst.pld = NULL;
@@ -3894,15 +4038,15 @@ index 0000000000000..d7844d52ddb6f
 +}
 +
 +/* Get battery static information (_BIX) */
-+static int sam_psy_get_bix(u8 iid, struct spwr_bix *bix)
++static int sam_psy_get_bix(u8 channel, u8 instance, struct spwr_bix *bix)
 +{
 +	struct surface_sam_ssh_rqst rqst;
 +	struct surface_sam_ssh_buf result;
 +
 +	rqst.tc  = SAM_PWR_TC;
 +	rqst.cid = SAM_RQST_PWR_CID_BIX;
-+	rqst.iid = iid;
-+	rqst.chn = 0x01;
++	rqst.iid = instance;
++	rqst.chn = channel;
 +	rqst.snc = 0x01;
 +	rqst.cdl = 0x00;
 +	rqst.pld = NULL;
@@ -3915,15 +4059,15 @@ index 0000000000000..d7844d52ddb6f
 +}
 +
 +/* Get battery dynamic information (_BST) */
-+static int sam_psy_get_bst(u8 iid, struct spwr_bst *bst)
++static int sam_psy_get_bst(u8 channel, u8 instance, struct spwr_bst *bst)
 +{
 +	struct surface_sam_ssh_rqst rqst;
 +	struct surface_sam_ssh_buf result;
 +
 +	rqst.tc  = SAM_PWR_TC;
 +	rqst.cid = SAM_RQST_PWR_CID_BST;
-+	rqst.iid = iid;
-+	rqst.chn = 0x01;
++	rqst.iid = instance;
++	rqst.chn = channel;
 +	rqst.snc = 0x01;
 +	rqst.cdl = 0x00;
 +	rqst.pld = NULL;
@@ -3936,14 +4080,14 @@ index 0000000000000..d7844d52ddb6f
 +}
 +
 +/* Set battery trip point (_BTP) */
-+static int sam_psy_set_btp(u8 iid, u32 btp)
++static int sam_psy_set_btp(u8 channel, u8 instance, u32 btp)
 +{
 +	struct surface_sam_ssh_rqst rqst;
 +
 +	rqst.tc  = SAM_PWR_TC;
 +	rqst.cid = SAM_RQST_PWR_CID_BTP;
-+	rqst.iid = iid;
-+	rqst.chn = 0x01;
++	rqst.iid = instance;
++	rqst.chn = channel;
 +	rqst.snc = 0x00;
 +	rqst.cdl = sizeof(u32);
 +	rqst.pld = (u8 *)&btp;
@@ -3952,15 +4096,15 @@ index 0000000000000..d7844d52ddb6f
 +}
 +
 +/* Get platform power soruce for battery (DPTF PSRC) */
-+static int sam_psy_get_psrc(u8 iid, u32 *psrc)
++static int sam_psy_get_psrc(u8 channel, u8 instance, u32 *psrc)
 +{
 +	struct surface_sam_ssh_rqst rqst;
 +	struct surface_sam_ssh_buf result;
 +
 +	rqst.tc  = SAM_PWR_TC;
 +	rqst.cid = SAM_RQST_PWR_CID_PSRC;
-+	rqst.iid = iid;
-+	rqst.chn = 0x01;
++	rqst.iid = instance;
++	rqst.chn = channel;
 +	rqst.snc = 0x01;
 +	rqst.cdl = 0x00;
 +	rqst.pld = NULL;
@@ -3974,15 +4118,15 @@ index 0000000000000..d7844d52ddb6f
 +
 +/* Get maximum platform power for battery (DPTF PMAX) */
 +__always_unused
-+static int sam_psy_get_pmax(u8 iid, u32 *pmax)
++static int sam_psy_get_pmax(u8 channel, u8 instance, u32 *pmax)
 +{
 +	struct surface_sam_ssh_rqst rqst;
 +	struct surface_sam_ssh_buf result;
 +
 +	rqst.tc  = SAM_PWR_TC;
 +	rqst.cid = SAM_RQST_PWR_CID_PMAX;
-+	rqst.iid = iid;
-+	rqst.chn = 0x01;
++	rqst.iid = instance;
++	rqst.chn = channel;
 +	rqst.snc = 0x01;
 +	rqst.cdl = 0x00;
 +	rqst.pld = NULL;
@@ -3996,15 +4140,15 @@ index 0000000000000..d7844d52ddb6f
 +
 +/* Get adapter rating (DPTF ARTG) */
 +__always_unused
-+static int sam_psy_get_artg(u8 iid, u32 *artg)
++static int sam_psy_get_artg(u8 channel, u8 instance, u32 *artg)
 +{
 +	struct surface_sam_ssh_rqst rqst;
 +	struct surface_sam_ssh_buf result;
 +
 +	rqst.tc  = SAM_PWR_TC;
 +	rqst.cid = SAM_RQST_PWR_CID_ARTG;
-+	rqst.iid = iid;
-+	rqst.chn = 0x01;
++	rqst.iid = instance;
++	rqst.chn = channel;
 +	rqst.snc = 0x01;
 +	rqst.cdl = 0x00;
 +	rqst.pld = NULL;
@@ -4018,15 +4162,15 @@ index 0000000000000..d7844d52ddb6f
 +
 +/* Unknown (DPTF PSOC) */
 +__always_unused
-+static int sam_psy_get_psoc(u8 iid, u32 *psoc)
++static int sam_psy_get_psoc(u8 channel, u8 instance, u32 *psoc)
 +{
 +	struct surface_sam_ssh_rqst rqst;
 +	struct surface_sam_ssh_buf result;
 +
 +	rqst.tc  = SAM_PWR_TC;
 +	rqst.cid = SAM_RQST_PWR_CID_PSOC;
-+	rqst.iid = iid;
-+	rqst.chn = 0x01;
++	rqst.iid = instance;
++	rqst.chn = channel;
 +	rqst.snc = 0x01;
 +	rqst.cdl = 0x00;
 +	rqst.pld = NULL;
@@ -4040,14 +4184,14 @@ index 0000000000000..d7844d52ddb6f
 +
 +/* Unknown (DPTF CHGI/ INT3403 SPPC) */
 +__always_unused
-+static int sam_psy_set_chgi(u8 iid, u32 chgi)
++static int sam_psy_set_chgi(u8 channel, u8 instance, u32 chgi)
 +{
 +	struct surface_sam_ssh_rqst rqst;
 +
 +	rqst.tc  = SAM_PWR_TC;
 +	rqst.cid = SAM_RQST_PWR_CID_CHGI;
-+	rqst.iid = iid;
-+	rqst.chn = 0x01;
++	rqst.iid = instance;
++	rqst.chn = channel;
 +	rqst.snc = 0x00;
 +	rqst.cdl = sizeof(u32);
 +	rqst.pld = (u8 *)&chgi;
@@ -4060,11 +4204,9 @@ index 0000000000000..d7844d52ddb6f
 + * Common Power-Subsystem Interface.
 + */
 +
-+#define SPWR_BAT_SINGLE		PLATFORM_DEVID_NONE
-+
 +struct spwr_battery_device {
 +	struct platform_device *pdev;
-+	u8 iid;
++	const struct ssam_battery_properties *p;
 +
 +	char name[32];
 +	struct power_supply *psy;
@@ -4138,7 +4280,9 @@ index 0000000000000..d7844d52ddb6f
 +};
 +
 +
-+static int spwr_battery_register(struct spwr_battery_device *bat, struct platform_device *pdev, int iid);
++static int spwr_battery_register(struct spwr_battery_device *bat,
++				 struct platform_device *pdev,
++				 const struct ssam_battery_properties *p);
 +
 +static void spwr_battery_unregister(struct spwr_battery_device *bat);
 +
@@ -4151,7 +4295,7 @@ index 0000000000000..d7844d52ddb6f
 +
 +static inline int spwr_battery_load_sta(struct spwr_battery_device *bat)
 +{
-+	return sam_psy_get_sta(bat->iid, &bat->sta);
++	return sam_psy_get_sta(bat->p->channel, bat->p->instance, &bat->sta);
 +}
 +
 +static inline int spwr_battery_load_bix(struct spwr_battery_device *bat)
@@ -4159,7 +4303,7 @@ index 0000000000000..d7844d52ddb6f
 +	if (!spwr_battery_present(bat))
 +		return 0;
 +
-+	return sam_psy_get_bix(bat->iid, &bat->bix);
++	return sam_psy_get_bix(bat->p->channel, bat->p->instance, &bat->bix);
 +}
 +
 +static inline int spwr_battery_load_bst(struct spwr_battery_device *bat)
@@ -4167,14 +4311,14 @@ index 0000000000000..d7844d52ddb6f
 +	if (!spwr_battery_present(bat))
 +		return 0;
 +
-+	return sam_psy_get_bst(bat->iid, &bat->bst);
++	return sam_psy_get_bst(bat->p->channel, bat->p->instance, &bat->bst);
 +}
 +
 +
 +static inline int spwr_battery_set_alarm_unlocked(struct spwr_battery_device *bat, u32 value)
 +{
 +	bat->alarm = value;
-+	return sam_psy_set_btp(bat->iid, bat->alarm);
++	return sam_psy_set_btp(bat->p->channel, bat->p->instance, bat->alarm);
 +}
 +
 +static inline int spwr_battery_set_alarm(struct spwr_battery_device *bat, u32 value)
@@ -4252,7 +4396,7 @@ index 0000000000000..d7844d52ddb6f
 +
 +static inline int spwr_ac_update_unlocked(struct spwr_ac_device *ac)
 +{
-+	return sam_psy_get_psrc(0x00, &ac->state);
++	return sam_psy_get_psrc(0x01, 0x01, &ac->state);
 +}
 +
 +static int spwr_ac_update(struct spwr_ac_device *ac)
@@ -4287,7 +4431,7 @@ index 0000000000000..d7844d52ddb6f
 +	// if the unit has changed, re-add the battery
 +	if (unit != bat->bix.power_unit) {
 +		spwr_battery_unregister(bat);
-+		status = spwr_battery_register(bat, bat->pdev, bat->iid);
++		status = spwr_battery_register(bat, bat->pdev, bat->p);
 +	}
 +
 +	return status;
@@ -4348,16 +4492,20 @@ index 0000000000000..d7844d52ddb6f
 +	struct spwr_battery_device *bat = container_of(nb, struct spwr_battery_device, notif.base);
 +	int status;
 +
-+	dev_dbg(&bat->pdev->dev, "power event (cid = 0x%02x)\n", event->command_id);
++	dev_dbg(&bat->pdev->dev, "power event (cid = 0x%02x, iid = %d, chn = %d)\n",
++		event->command_id, event->instance_id, event->channel);
 +
-+	// handled here because adapter has IID = 0
++	// handled here, needs to be handled for all channels/instances
 +	if (event->command_id == SAM_EVENT_PWR_CID_ADAPTER) {
 +		status = spwr_notify_adapter_bat(bat);
 +		return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
 +	}
 +
-+	// check for the correct battery IID
-+	if (event->instance_id != bat->iid)
++	// check for the correct channel and instance ID
++	if (event->channel != bat->p->channel)
++		return 0;
++
++	if (event->instance_id != bat->p->instance)
 +		return 0;
 +
 +	switch (event->command_id) {
@@ -4381,7 +4529,8 @@ index 0000000000000..d7844d52ddb6f
 +	struct spwr_ac_device *ac = container_of(nb, struct spwr_ac_device, notif.base);
 +	int status;
 +
-+	dev_dbg(&ac->pdev->dev, "power event (cid = 0x%02x)\n", event->command_id);
++	dev_dbg(&ac->pdev->dev, "power event (cid = 0x%02x, iid = %d, chn = %d)\n",
++		event->command_id, event->instance_id, event->channel);
 +
 +	// AC has IID = 0
 +	if (event->instance_id != 0)
@@ -4641,7 +4790,7 @@ index 0000000000000..d7844d52ddb6f
 +	int status;
 +
 +	// make sure the device is there and functioning properly
-+	status = sam_psy_get_sta(0x00, &sta);
++	status = sam_psy_get_sta(0x01, 0x01, &sta);
 +	if (status)
 +		return status;
 +
@@ -4695,17 +4844,19 @@ index 0000000000000..d7844d52ddb6f
 +	return 0;
 +}
 +
-+static int spwr_battery_register(struct spwr_battery_device *bat, struct platform_device *pdev, int iid)
++static int spwr_battery_register(struct spwr_battery_device *bat,
++				 struct platform_device *pdev,
++				 const struct ssam_battery_properties *p)
 +{
 +	struct power_supply_config psy_cfg = {};
 +	u32 sta;
 +	int status;
 +
 +	bat->pdev = pdev;
-+	bat->iid = iid != SPWR_BAT_SINGLE ? iid : 1;
++	bat->p = p;
 +
 +	// make sure the device is there and functioning properly
-+	status = sam_psy_get_sta(bat->iid, &sta);
++	status = sam_psy_get_sta(bat->p->channel, bat->p->instance, &sta);
 +	if (status)
 +		return status;
 +
@@ -4722,7 +4873,7 @@ index 0000000000000..d7844d52ddb6f
 +			return status;
 +	}
 +
-+	snprintf(bat->name, ARRAY_SIZE(bat->name), "BAT%d", bat->iid - 1);
++	snprintf(bat->name, ARRAY_SIZE(bat->name), "BAT%d", bat->p->num);
 +	bat->psy_desc.name = bat->name;
 +	bat->psy_desc.type = POWER_SUPPLY_TYPE_BATTERY;
 +
@@ -4749,7 +4900,7 @@ index 0000000000000..d7844d52ddb6f
 +
 +	bat->notif.base.priority = 1;
 +	bat->notif.base.fn = spwr_notify_bat;
-+	bat->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
++	bat->notif.event.reg = p->registry;
 +	bat->notif.event.id.target_category = SSAM_SSH_TC_BAT;
 +	bat->notif.event.id.instance = 0;
 +	bat->notif.event.flags = SSAM_EVENT_SEQUENCED;
@@ -4803,8 +4954,8 @@ index 0000000000000..d7844d52ddb6f
 +
 +static int surface_sam_sid_battery_probe(struct platform_device *pdev)
 +{
-+	int status;
 +	struct spwr_battery_device *bat;
++	int status;
 +
 +	// link to ec
 +	status = surface_sam_ssh_consumer_register(&pdev->dev);
@@ -4816,7 +4967,7 @@ index 0000000000000..d7844d52ddb6f
 +		return -ENOMEM;
 +
 +	platform_set_drvdata(pdev, bat);
-+	return spwr_battery_register(bat, pdev, pdev->id);
++	return spwr_battery_register(bat, pdev, pdev->dev.platform_data);
 +}
 +
 +static int surface_sam_sid_battery_remove(struct platform_device *pdev)
@@ -4915,12 +5066,33 @@ index 0000000000000..d7844d52ddb6f
 +MODULE_LICENSE("GPL");
 +MODULE_ALIAS("platform:surface_sam_sid_ac");
 +MODULE_ALIAS("platform:surface_sam_sid_battery");
+diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_power.h b/drivers/platform/x86/surface_sam/surface_sam_sid_power.h
+new file mode 100644
+index 0000000000000..2e8f212086e12
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/surface_sam_sid_power.h
+@@ -0,0 +1,15 @@
++#ifndef _SURFACE_SAM_SID_POWER_H
++#define _SURFACE_SAM_SID_POWER_H
++
++#include <linux/types.h>
++#include "surface_sam_ssh.h"
++
++
++struct ssam_battery_properties {
++	struct ssam_event_registry registry;
++	u8 num;
++	u8 channel;
++	u8 instance;
++};
++
++#endif /* _SURFACE_SAM_SID_POWER_H */
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_vhf.c b/drivers/platform/x86/surface_sam/surface_sam_sid_vhf.c
 new file mode 100644
-index 0000000000000..5feb882cf74e8
+index 0000000000000..474221097eaf1
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_sid_vhf.c
-@@ -0,0 +1,420 @@
+@@ -0,0 +1,432 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Microsofs Surface HID (VHF) driver for HID input events via SAM.
@@ -4934,6 +5106,7 @@ index 0000000000000..5feb882cf74e8
 +#include <linux/types.h>
 +
 +#include "surface_sam_ssh.h"
++#include "surface_sam_sid_vhf.h"
 +
 +#define SID_VHF_INPUT_NAME	"Microsoft Surface HID"
 +
@@ -4942,6 +5115,7 @@ index 0000000000000..5feb882cf74e8
 +#define VHF_HID_STARTED		0
 +
 +struct sid_vhf {
++	const struct ssam_hid_properties *p;
 +	struct platform_device *dev;
 +	struct hid_device *hid;
 +	struct ssam_event_notifier notif;
@@ -5120,10 +5294,11 @@ index 0000000000000..5feb882cf74e8
 +
 +static int sid_vhf_hid_parse(struct hid_device *hid)
 +{
++	struct sid_vhf *vhf = dev_get_drvdata(hid->dev.parent);
 +	int ret = 0, size;
 +	u8 *buf;
 +
-+	ret = vhf_get_hid_descriptor(hid, 0x00, &buf, &size);
++	ret = vhf_get_hid_descriptor(hid, vhf->p->instance, &buf, &size);
 +	if (ret != 0) {
 +		hid_err(hid, "Failed to read HID descriptor from device: %d\n", ret);
 +		return -EIO;
@@ -5141,6 +5316,7 @@ index 0000000000000..5feb882cf74e8
 +		reportnum, u8 *buf, size_t len, unsigned char rtype, int
 +		reqtype)
 +{
++	struct sid_vhf *vhf = dev_get_drvdata(hid->dev.parent);
 +	int status;
 +	u8 cid;
 +	struct surface_sam_ssh_rqst rqst = {};
@@ -5183,7 +5359,7 @@ index 0000000000000..5feb882cf74e8
 +
 +	rqst.tc  = SAM_EVENT_SID_VHF_TC;
 +	rqst.chn = 0x02;
-+	rqst.iid = 0x00; // windows tends to distinguish iids, but EC will take it
++	rqst.iid = vhf->p->instance;
 +	rqst.cid = cid;
 +	rqst.snc = reqtype == HID_REQ_GET_REPORT ? 0x01 : 0x00;
 +	rqst.cdl = reqtype == HID_REQ_GET_REPORT ? 0x01 : len;
@@ -5246,6 +5422,12 @@ index 0000000000000..5feb882cf74e8
 +	if (event->target_category != SSAM_SSH_TC_HID)
 +		return 0;
 +
++	if (event->channel != 0x02)
++		return 0;
++
++	if (event->instance_id != vhf->p->instance)
++		return 0;
++
 +	if (event->command_id != 0x00 && event->command_id != 0x03 && event->command_id != 0x04)
 +		return 0;
 +
@@ -5259,6 +5441,7 @@ index 0000000000000..5feb882cf74e8
 +
 +static int surface_sam_sid_vhf_probe(struct platform_device *pdev)
 +{
++	const struct ssam_hid_properties *p = pdev->dev.platform_data;
 +	struct sid_vhf *vhf;
 +	struct vhf_device_metadata meta = {};
 +	struct hid_device *hid;
@@ -5273,7 +5456,7 @@ index 0000000000000..5feb882cf74e8
 +	if (!vhf)
 +		return -ENOMEM;
 +
-+	status = vhf_get_metadata(0x00, &meta);
++	status = vhf_get_metadata(p->instance, &meta);
 +	if (status)
 +		goto err_create_hid;
 +
@@ -5283,14 +5466,15 @@ index 0000000000000..5feb882cf74e8
 +		goto err_create_hid;
 +	}
 +
++	vhf->p = pdev->dev.platform_data;
 +	vhf->dev = pdev;
 +	vhf->hid = hid;
 +
 +	vhf->notif.base.priority = 1;
 +	vhf->notif.base.fn = sid_vhf_event_handler;
-+	vhf->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
++	vhf->notif.event.reg = p->registry;
 +	vhf->notif.event.id.target_category = SSAM_SSH_TC_HID;
-+	vhf->notif.event.id.instance = 0;
++	vhf->notif.event.id.instance = p->instance;
 +	vhf->notif.event.flags = 0;
 +
 +	platform_set_drvdata(pdev, vhf);
@@ -5341,9 +5525,28 @@ index 0000000000000..5feb882cf74e8
 +MODULE_DESCRIPTION("Driver for HID devices connected via Surface SAM");
 +MODULE_LICENSE("GPL");
 +MODULE_ALIAS("platform:surface_sam_sid_vhf");
+diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid_vhf.h b/drivers/platform/x86/surface_sam/surface_sam_sid_vhf.h
+new file mode 100644
+index 0000000000000..eb55485ccb119
+--- /dev/null
++++ b/drivers/platform/x86/surface_sam/surface_sam_sid_vhf.h
+@@ -0,0 +1,13 @@
++#ifndef _SURFACE_SAM_SID_VHF_H
++#define _SURFACE_SAM_SID_VHF_H
++
++#include <linux/types.h>
++#include "surface_sam_ssh.h"
++
++
++struct ssam_hid_properties {
++	struct ssam_event_registry registry;
++	u8 instance;
++};
++
++#endif /* _SURFACE_SAM_SID_VHF_H */
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_ssh.c b/drivers/platform/x86/surface_sam/surface_sam_ssh.c
 new file mode 100644
-index 0000000000000..87f4f5d95cc4a
+index 0000000000000..ecc49e139eb8e
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_ssh.c
 @@ -0,0 +1,5115 @@
@@ -9422,7 +9625,7 @@ index 0000000000000..87f4f5d95cc4a
 +		rtl_err(rtl, "rsp: response buffer too small,"
 +			" capacity: %u bytes, got: %zu bytes\n",
 +			r->resp.capacity, data->len);
-+		status = -ENOSPC;
++		r->resp.status = -ENOSPC;
 +		return;
 +	}
 +
