@@ -1,4 +1,4 @@
-From cbedf5104e92f1eff5a8c30a2416674266b5b7b8 Mon Sep 17 00:00:00 2001
+From 9fe067a9be3ad6e688acd4f4e1452a6c876e4401 Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:11:08 +0200
 Subject: [PATCH 4/6] surface-sam
@@ -14,19 +14,19 @@ Subject: [PATCH 4/6] surface-sam
  .../x86/surface_sam/surface_sam_hps.c         | 1297 +++++
  .../x86/surface_sam/surface_sam_san.c         |  913 +++
  .../x86/surface_sam/surface_sam_san.h         |   30 +
- .../x86/surface_sam/surface_sam_sid.c         |  262 +
+ .../x86/surface_sam/surface_sam_sid.c         |  281 +
  .../x86/surface_sam/surface_sam_sid_gpelid.c  |  232 +
  .../surface_sam/surface_sam_sid_perfmode.c    |  216 +
  .../x86/surface_sam/surface_sam_sid_power.c   | 1154 ++++
  .../x86/surface_sam/surface_sam_sid_power.h   |   15 +
  .../x86/surface_sam/surface_sam_sid_vhf.c     |  432 ++
  .../x86/surface_sam/surface_sam_sid_vhf.h     |   13 +
- .../x86/surface_sam/surface_sam_ssh.c         | 5114 +++++++++++++++++
+ .../x86/surface_sam/surface_sam_ssh.c         | 5111 +++++++++++++++++
  .../x86/surface_sam/surface_sam_ssh.h         |  488 ++
  .../x86/surface_sam/surface_sam_ssh_trace.h   |  536 ++
  .../x86/surface_sam/surface_sam_vhf.c         |  261 +
  drivers/tty/serdev/core.c                     |  111 +-
- 22 files changed, 11855 insertions(+), 16 deletions(-)
+ 22 files changed, 11871 insertions(+), 16 deletions(-)
  create mode 100644 drivers/platform/x86/surface_sam/Kconfig
  create mode 100644 drivers/platform/x86/surface_sam/Makefile
  create mode 100644 drivers/platform/x86/surface_sam/surface_sam_dtx.c
@@ -3170,10 +3170,10 @@ index 0000000000000..2b9dee159bbbc
 +#endif /* _SURFACE_SAM_SAN_H */
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_sid.c b/drivers/platform/x86/surface_sam/surface_sam_sid.c
 new file mode 100644
-index 0000000000000..0dae6569b4265
+index 0000000000000..caa2e6446b5f4
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_sid.c
-@@ -0,0 +1,262 @@
+@@ -0,0 +1,281 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface Integration Driver.
@@ -3205,27 +3205,22 @@ index 0000000000000..0dae6569b4265
 +};
 +
 +
-+static const struct ssam_hid_properties ssam_hid_props_sl3 = {
-+	.registry = SSAM_EVENT_REGISTRY_REG,	// TODO: needs confirmation
-+	.instance = 0,
-+};
-+
-+static const struct ssam_hid_properties ssam_hid_props_sb3_keyboard = {
++static const struct ssam_hid_properties ssam_hid_props_keyboard = {
 +	.registry = SSAM_EVENT_REGISTRY_REG,
 +	.instance = 1,
 +};
 +
-+static const struct ssam_hid_properties ssam_hid_props_sb3_touchpad = {
++static const struct ssam_hid_properties ssam_hid_props_touchpad = {
 +	.registry = SSAM_EVENT_REGISTRY_REG,
 +	.instance = 3,
 +};
 +
-+static const struct ssam_hid_properties ssam_hid_props_sb3_iid5 = {
++static const struct ssam_hid_properties ssam_hid_props_iid5 = {
 +	.registry = SSAM_EVENT_REGISTRY_REG,
 +	.instance = 5,
 +};
 +
-+static const struct ssam_hid_properties ssam_hid_props_sb3_iid6 = {
++static const struct ssam_hid_properties ssam_hid_props_iid6 = {
 +	.registry = SSAM_EVENT_REGISTRY_REG,
 +	.instance = 6,
 +};
@@ -3286,25 +3281,25 @@ index 0000000000000..0dae6569b4265
 +	{
 +		.name = "surface_sam_sid_vhf",
 +		.id = 1,
-+		.platform_data = (void *)&ssam_hid_props_sb3_keyboard,
++		.platform_data = (void *)&ssam_hid_props_keyboard,
 +		.pdata_size = sizeof(struct ssam_hid_properties),
 +	},
 +	{
 +		.name = "surface_sam_sid_vhf",
 +		.id = 3,
-+		.platform_data = (void *)&ssam_hid_props_sb3_touchpad,
++		.platform_data = (void *)&ssam_hid_props_touchpad,
 +		.pdata_size = sizeof(struct ssam_hid_properties),
 +	},
 +	{
 +		.name = "surface_sam_sid_vhf",
 +		.id = 5,
-+		.platform_data = (void *)&ssam_hid_props_sb3_iid5,
++		.platform_data = (void *)&ssam_hid_props_iid5,
 +		.pdata_size = sizeof(struct ssam_hid_properties),
 +	},
 +	{
 +		.name = "surface_sam_sid_vhf",
 +		.id = 6,
-+		.platform_data = (void *)&ssam_hid_props_sb3_iid6,
++		.platform_data = (void *)&ssam_hid_props_iid6,
 +		.pdata_size = sizeof(struct ssam_hid_properties),
 +	},
 +	{ },
@@ -3332,8 +3327,20 @@ index 0000000000000..0dae6569b4265
 +	},
 +	{
 +		.name = "surface_sam_sid_vhf",
-+		.id = -1,
-+		.platform_data = (void *)&ssam_hid_props_sl3,
++		.id = 1,
++		.platform_data = (void *)&ssam_hid_props_keyboard,
++		.pdata_size = sizeof(struct ssam_hid_properties),
++	},
++	{
++		.name = "surface_sam_sid_vhf",
++		.id = 3,
++		.platform_data = (void *)&ssam_hid_props_touchpad,
++		.pdata_size = sizeof(struct ssam_hid_properties),
++	},
++	{
++		.name = "surface_sam_sid_vhf",
++		.id = 5,
++		.platform_data = (void *)&ssam_hid_props_iid5,
 +		.pdata_size = sizeof(struct ssam_hid_properties),
 +	},
 +	{ },
@@ -3350,8 +3357,20 @@ index 0000000000000..0dae6569b4265
 +	},
 +	{
 +		.name = "surface_sam_sid_vhf",
-+		.id = -1,
-+		.platform_data = (void *)&ssam_hid_props_sl3,
++		.id = 1,
++		.platform_data = (void *)&ssam_hid_props_keyboard,
++		.pdata_size = sizeof(struct ssam_hid_properties),
++	},
++	{
++		.name = "surface_sam_sid_vhf",
++		.id = 3,
++		.platform_data = (void *)&ssam_hid_props_touchpad,
++		.pdata_size = sizeof(struct ssam_hid_properties),
++	},
++	{
++		.name = "surface_sam_sid_vhf",
++		.id = 5,
++		.platform_data = (void *)&ssam_hid_props_iid5,
 +		.pdata_size = sizeof(struct ssam_hid_properties),
 +	},
 +	{ },
@@ -5536,10 +5555,10 @@ index 0000000000000..eb55485ccb119
 +#endif /* _SURFACE_SAM_SID_VHF_H */
 diff --git a/drivers/platform/x86/surface_sam/surface_sam_ssh.c b/drivers/platform/x86/surface_sam/surface_sam_ssh.c
 new file mode 100644
-index 0000000000000..8f2c9b2182dc0
+index 0000000000000..9f44bdfbc4fd7
 --- /dev/null
 +++ b/drivers/platform/x86/surface_sam/surface_sam_ssh.c
-@@ -0,0 +1,5114 @@
+@@ -0,0 +1,5111 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface Serial Hub (SSH) driver for communication with the Surface/System
@@ -6899,10 +6918,8 @@ index 0000000000000..8f2c9b2182dc0
 +		 * If we are cancelling or completing this packet, ignore it.
 +		 * It's going to be removed from this queue shortly.
 +		 */
-+		if (test_bit(SSH_PACKET_SF_LOCKED_BIT, &p->state)) {
-+			spin_unlock(&ptl->queue.lock);
++		if (test_bit(SSH_PACKET_SF_LOCKED_BIT, &p->state))
 +			continue;
-+		}
 +
 +		/*
 +		 * Packets should be ordered non-blocking/to-be-resent first.
@@ -6910,7 +6927,6 @@ index 0000000000000..8f2c9b2182dc0
 +		 * process any following packet either and abort.
 +		 */
 +		if (!ssh_ptl_tx_can_process(p)) {
-+			spin_unlock(&ptl->queue.lock);
 +			packet = ERR_PTR(-EBUSY);
 +			break;
 +		}
@@ -8894,7 +8910,7 @@ index 0000000000000..8f2c9b2182dc0
 +
 +	packet_args.type = SSH_PACKET_TY_BLOCKING;
 +	if (!(flags & SSAM_REQUEST_UNSEQUENCED))
-+		packet_args.type = SSH_PACKET_TY_SEQUENCED;
++		packet_args.type |= SSH_PACKET_TY_SEQUENCED;
 +
 +	packet_args.priority = SSH_PACKET_PRIORITY(DATA, 0);
 +	packet_args.ops = &ssh_rtl_packet_ops;
