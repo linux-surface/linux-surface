@@ -1,0 +1,97 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Fri, 22 Jun 2018 17:27:00 +0100
+Subject: android: Enable building ashmem and binder as modules
+Bug-Debian: https://bugs.debian.org/901492
+
+We want to enable use of the Android ashmem and binder drivers to
+support Anbox, but they should not be built-in as that would waste
+resources and increase security attack surface on systems that don't
+need them.
+
+- Add a MODULE_LICENSE declaration to ashmem
+- Change the Makefiles to build each driver as an object with the
+  "_linux" suffix (which is what Anbox expects)
+- Change config symbol types to tristate
+
+---
+Index: linux/drivers/android/Kconfig
+===================================================================
+--- linux.orig/drivers/android/Kconfig
++++ linux/drivers/android/Kconfig
+@@ -9,7 +9,7 @@ config ANDROID
+ if ANDROID
+ 
+ config ANDROID_BINDER_IPC
+-	bool "Android Binder IPC Driver"
++	tristate "Android Binder IPC Driver"
+ 	depends on MMU
+ 	default n
+ 	---help---
+Index: linux/drivers/android/Makefile
+===================================================================
+--- linux.orig/drivers/android/Makefile
++++ linux/drivers/android/Makefile
+@@ -1,4 +1,5 @@
+ ccflags-y += -I$(src)			# needed for trace events
+ 
+-obj-$(CONFIG_ANDROID_BINDER_IPC)	+= binder.o binder_alloc.o
+-obj-$(CONFIG_ANDROID_BINDER_IPC_SELFTEST) += binder_alloc_selftest.o
++obj-$(CONFIG_ANDROID_BINDER_IPC)	+= binder_linux.o
++binder_linux-y := binder.o binder_alloc.o
++binder_linux-$(CONFIG_ANDROID_BINDER_IPC_SELFTEST) += binder_alloc_selftest.o
+Index: linux/drivers/staging/android/Kconfig
+===================================================================
+--- linux.orig/drivers/staging/android/Kconfig
++++ linux/drivers/staging/android/Kconfig
+@@ -3,7 +3,7 @@ menu "Android"
+ if ANDROID
+ 
+ config ASHMEM
+-	bool "Enable the Anonymous Shared Memory Subsystem"
++	tristate "Enable the Anonymous Shared Memory Subsystem"
+ 	default n
+ 	depends on SHMEM
+ 	help
+Index: linux/drivers/staging/android/Makefile
+===================================================================
+--- linux.orig/drivers/staging/android/Makefile
++++ linux/drivers/staging/android/Makefile
+@@ -2,5 +2,6 @@ ccflags-y += -I$(src)			# needed for tra
+ 
+ obj-y					+= ion/
+ 
+-obj-$(CONFIG_ASHMEM)			+= ashmem.o
++obj-$(CONFIG_ASHMEM)			+= ashmem_linux.o
++ashmem_linux-y += ashmem.o
+ obj-$(CONFIG_ANDROID_VSOC)		+= vsoc.o
+Index: linux/drivers/staging/android/ashmem.c
+===================================================================
+--- linux.orig/drivers/staging/android/ashmem.c
++++ linux/drivers/staging/android/ashmem.c
+@@ -24,6 +24,7 @@
+ #include <linux/bitops.h>
+ #include <linux/mutex.h>
+ #include <linux/shmem_fs.h>
++#include <linux/module.h>
+ #include "ashmem.h"
+ 
+ #define ASHMEM_NAME_PREFIX "dev/ashmem/"
+@@ -924,3 +925,5 @@ out:
+ 	return ret;
+ }
+ device_initcall(ashmem_init);
++
++MODULE_LICENSE("GPL v2");
+Index: linux/drivers/android/binder_alloc.c
+===================================================================
+--- linux.orig/drivers/android/binder_alloc.c
++++ linux/drivers/android/binder_alloc.c
+@@ -44,7 +44,7 @@ enum {
+ };
+ static uint32_t binder_alloc_debug_mask = BINDER_DEBUG_USER_ERROR;
+ 
+-module_param_named(debug_mask, binder_alloc_debug_mask,
++module_param_named(alloc_debug_mask, binder_alloc_debug_mask,
+ 		   uint, 0644);
+ 
+ #define binder_alloc_debug(mask, x...) \

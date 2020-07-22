@@ -1,0 +1,162 @@
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Tue, 26 Jun 2018 16:59:01 +0100
+Subject: Export symbols needed by Android drivers
+Bug-Debian: https://bugs.debian.org/901492
+
+We want to enable use of the Android ashmem and binder drivers to
+support Anbox, but they should not be built-in as that would waste
+resources and increase security attack surface on systems that don't
+need them.
+
+Export the currently un-exported symbols they depend on.
+
+---
+Index: linux/fs/file.c
+===================================================================
+--- linux.orig/fs/file.c
++++ linux/fs/file.c
+@@ -409,6 +409,7 @@ struct files_struct *get_files_struct(st
+ 
+ 	return files;
+ }
++EXPORT_SYMBOL_GPL(get_files_struct);
+ 
+ void put_files_struct(struct files_struct *files)
+ {
+@@ -421,6 +422,7 @@ void put_files_struct(struct files_struc
+ 		kmem_cache_free(files_cachep, files);
+ 	}
+ }
++EXPORT_SYMBOL_GPL(put_files_struct);
+ 
+ void reset_files_struct(struct files_struct *files)
+ {
+@@ -534,6 +536,7 @@ out:
+ 	spin_unlock(&files->file_lock);
+ 	return error;
+ }
++EXPORT_SYMBOL_GPL(__alloc_fd);
+ 
+ static int alloc_fd(unsigned start, unsigned flags)
+ {
+@@ -607,6 +610,7 @@ void __fd_install(struct files_struct *f
+ 	rcu_assign_pointer(fdt->fd[fd], file);
+ 	rcu_read_unlock_sched();
+ }
++EXPORT_SYMBOL_GPL(__fd_install);
+ 
+ void fd_install(unsigned int fd, struct file *file)
+ {
+Index: linux/kernel/fork.c
+===================================================================
+--- linux.orig/kernel/fork.c
++++ linux/kernel/fork.c
+@@ -1048,6 +1048,7 @@ void mmput_async(struct mm_struct *mm)
+ 		schedule_work(&mm->async_put_work);
+ 	}
+ }
++EXPORT_SYMBOL_GPL(mmput_async);
+ #endif
+ 
+ /**
+Index: linux/kernel/signal.c
+===================================================================
+--- linux.orig/kernel/signal.c
++++ linux/kernel/signal.c
+@@ -1353,6 +1353,7 @@ struct sighand_struct *__lock_task_sigha
+ 
+ 	return sighand;
+ }
++EXPORT_SYMBOL_GPL(__lock_task_sighand);
+ 
+ /*
+  * send signal info to all the members of a group
+Index: linux/mm/memory.c
+===================================================================
+--- linux.orig/mm/memory.c
++++ linux/mm/memory.c
+@@ -1611,6 +1611,7 @@ void zap_page_range(struct vm_area_struc
+ 	mmu_notifier_invalidate_range_end(mm, start, end);
+ 	tlb_finish_mmu(&tlb, start, end);
+ }
++EXPORT_SYMBOL_GPL(zap_page_range);
+ 
+ /**
+  * zap_page_range_single - remove user pages in a given range
+Index: linux/mm/shmem.c
+===================================================================
+--- linux.orig/mm/shmem.c
++++ linux/mm/shmem.c
+@@ -4039,6 +4039,7 @@ int shmem_zero_setup(struct vm_area_stru
+ 
+ 	return 0;
+ }
++EXPORT_SYMBOL_GPL(shmem_zero_setup);
+ 
+ /**
+  * shmem_read_mapping_page_gfp - read into page cache, using specified page allocation flags.
+Index: linux/mm/vmalloc.c
+===================================================================
+--- linux.orig/mm/vmalloc.c
++++ linux/mm/vmalloc.c
+@@ -1299,6 +1299,7 @@ int map_kernel_range_noflush(unsigned lo
+ {
+ 	return vmap_page_range_noflush(addr, addr + size, prot, pages);
+ }
++EXPORT_SYMBOL_GPL(map_kernel_range_noflush);
+ 
+ /**
+  * unmap_kernel_range_noflush - unmap kernel VM area
+@@ -1439,6 +1440,7 @@ struct vm_struct *get_vm_area(unsigned l
+ 				  NUMA_NO_NODE, GFP_KERNEL,
+ 				  __builtin_return_address(0));
+ }
++EXPORT_SYMBOL_GPL(get_vm_area);
+ 
+ struct vm_struct *get_vm_area_caller(unsigned long size, unsigned long flags,
+ 				const void *caller)
+Index: linux/security/security.c
+===================================================================
+--- linux.orig/security/security.c
++++ linux/security/security.c
+@@ -236,24 +236,28 @@ int security_binder_set_context_mgr(stru
+ {
+ 	return call_int_hook(binder_set_context_mgr, 0, mgr);
+ }
++EXPORT_SYMBOL_GPL(security_binder_set_context_mgr);
+ 
+ int security_binder_transaction(struct task_struct *from,
+ 				struct task_struct *to)
+ {
+ 	return call_int_hook(binder_transaction, 0, from, to);
+ }
++EXPORT_SYMBOL_GPL(security_binder_transaction);
+ 
+ int security_binder_transfer_binder(struct task_struct *from,
+ 				    struct task_struct *to)
+ {
+ 	return call_int_hook(binder_transfer_binder, 0, from, to);
+ }
++EXPORT_SYMBOL_GPL(security_binder_transfer_binder);
+ 
+ int security_binder_transfer_file(struct task_struct *from,
+ 				  struct task_struct *to, struct file *file)
+ {
+ 	return call_int_hook(binder_transfer_file, 0, from, to, file);
+ }
++EXPORT_SYMBOL_GPL(security_binder_transfer_file);
+ 
+ int security_ptrace_access_check(struct task_struct *child, unsigned int mode)
+ {
+Index: linux/kernel/sched/core.c
+===================================================================
+--- linux.orig/kernel/sched/core.c
++++ linux/kernel/sched/core.c
+@@ -3973,6 +3973,7 @@ int can_nice(const struct task_struct *p
+ 	return (nice_rlim <= task_rlimit(p, RLIMIT_NICE) ||
+ 		capable(CAP_SYS_NICE));
+ }
++EXPORT_SYMBOL_GPL(can_nice);
+ 
+ #ifdef __ARCH_WANT_SYS_NICE
+ 
