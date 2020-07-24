@@ -1,0 +1,63 @@
+From 4522b91327647286e77ed42decfd787682b59d26 Mon Sep 17 00:00:00 2001
+From: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Date: Sun, 5 Jul 2020 14:56:20 +0300
+Subject: [PATCH 2/8] surface3-touchscreen-dma-fix
+
+---
+ drivers/dma/dw/core.c | 12 ------------
+ 1 file changed, 12 deletions(-)
+
+diff --git a/drivers/dma/dw/core.c b/drivers/dma/dw/core.c
+index 055d83b6cb68..acf64302a2b2 100644
+--- a/drivers/dma/dw/core.c
++++ b/drivers/dma/dw/core.c
+@@ -180,9 +180,6 @@ static void dwc_initialize(struct dw_dma_chan *dwc)
+ {
+ 	struct dw_dma *dw = to_dw_dma(dwc->chan.device);
+ 
+-	if (test_bit(DW_DMA_IS_INITIALIZED, &dwc->flags))
+-		return;
+-
+ 	if (dw->pdata->is_idma32)
+ 		dwc_initialize_chan_idma32(dwc);
+ 	else
+@@ -191,8 +188,6 @@ static void dwc_initialize(struct dw_dma_chan *dwc)
+ 	/* Enable interrupts */
+ 	channel_set_bit(dw, MASK.XFER, dwc->mask);
+ 	channel_set_bit(dw, MASK.ERROR, dwc->mask);
+-
+-	set_bit(DW_DMA_IS_INITIALIZED, &dwc->flags);
+ }
+ 
+ /*----------------------------------------------------------------------*/
+@@ -1091,8 +1086,6 @@ static void idma32_fifo_partition(struct dw_dma *dw)
+ 
+ static void dw_dma_off(struct dw_dma *dw)
+ {
+-	unsigned int i;
+-
+ 	dma_writel(dw, CFG, 0);
+ 
+ 	channel_clear_bit(dw, MASK.XFER, dw->all_chan_mask);
+@@ -1103,9 +1096,6 @@ static void dw_dma_off(struct dw_dma *dw)
+ 
+ 	while (dma_readl(dw, CFG) & DW_CFG_DMA_EN)
+ 		cpu_relax();
+-
+-	for (i = 0; i < dw->dma.chancnt; i++)
+-		clear_bit(DW_DMA_IS_INITIALIZED, &dw->chan[i].flags);
+ }
+ 
+ static void dw_dma_on(struct dw_dma *dw)
+@@ -1170,8 +1160,6 @@ static void dwc_free_chan_resources(struct dma_chan *chan)
+ 	/* Clear custom channel configuration */
+ 	memset(&dwc->dws, 0, sizeof(struct dw_dma_slave));
+ 
+-	clear_bit(DW_DMA_IS_INITIALIZED, &dwc->flags);
+-
+ 	/* Disable interrupts */
+ 	channel_clear_bit(dw, MASK.XFER, dwc->mask);
+ 	channel_clear_bit(dw, MASK.BLOCK, dwc->mask);
+-- 
+2.27.0
+
