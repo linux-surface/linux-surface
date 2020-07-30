@@ -11,7 +11,7 @@
 %global fedora_title_fc32 32 (Thirty Two)
 %global fedora_title_fc31 31 (Thirty One)
 
-%global ls_patches_commit 36bf7dd80eeeda3fe56699f22b07d89850bb3280
+%global ls_patches_commit 8fb0a8e62ab8f7349da5cd4f61fafdc778dc7fb5
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -79,9 +79,9 @@ Source21:   %{sb_key}
 Source100:  mod-sign.sh
 Source101:  parallel_xz.sh
 
-Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-spi.patch
-Patch1:     %{surface_source}/%{kernel_patches}/0002-surface3-oemb.patch
-Patch2:     %{surface_source}/%{kernel_patches}/0003-surface-sam.patch
+Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-oemb.patch
+Patch1:     %{surface_source}/%{kernel_patches}/0002-surface-sam.patch
+Patch2:     %{surface_source}/%{kernel_patches}/0003-surface-sam-over-hid.patch
 Patch3:     %{surface_source}/%{kernel_patches}/0004-wifi.patch
 Patch4:     %{surface_source}/%{kernel_patches}/0005-ipts.patch
 
