@@ -2,8 +2,8 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc32 kernel-5.7.12-200.fc32
-%global kernel_tag_fc31 kernel-5.7.12-100.fc31
+%global kernel_tag_fc32 kernel-5.7.15-200.fc32
+%global kernel_tag_fc31 kernel-5.7.15-100.fc31
 
 %global kernel_release_fc32 1
 %global kernel_release_fc31 1
