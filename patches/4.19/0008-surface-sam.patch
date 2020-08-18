@@ -1,4 +1,4 @@
-From 79253929affbf21d8c4b085e8b62de72dc30f8fe Mon Sep 17 00:00:00 2001
+From a4b7ecf94d88bff17296438e13ddf67b4f54dc93 Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:15:40 +0200
 Subject: [PATCH 08/10] surface-sam
@@ -37,8 +37,11 @@ Subject: [PATCH 08/10] surface-sam
  drivers/misc/surface_sam/ssh_request_layer.c  | 1074 ++++++++++
  drivers/misc/surface_sam/ssh_request_layer.h  |   91 +
  drivers/tty/serdev/core.c                     |  111 +-
+ include/linux/mod_devicetable.h               |   17 +
  include/linux/surface_aggregator_module.h     |  892 +++++++++
- 34 files changed, 13411 insertions(+), 29 deletions(-)
+ scripts/mod/devicetable-offsets.c             |    7 +
+ scripts/mod/file2alias.c                      |   21 +
+ 37 files changed, 13456 insertions(+), 29 deletions(-)
  create mode 100644 drivers/misc/surface_sam/Kconfig
  create mode 100644 drivers/misc/surface_sam/Makefile
  create mode 100644 drivers/misc/surface_sam/bus.c
@@ -12884,6 +12887,32 @@ index c66a04d24f1d3..1b18d12d217f8 100644
  
  	if (!ctrl->serdev)
  		return -ENODEV;
+diff --git a/include/linux/mod_devicetable.h b/include/linux/mod_devicetable.h
+index 610cdf8082f2e..69f4527315e71 100644
+--- a/include/linux/mod_devicetable.h
++++ b/include/linux/mod_devicetable.h
+@@ -768,4 +768,21 @@ struct typec_device_id {
+ 	kernel_ulong_t driver_data;
+ };
+ 
++/* Surface System Aggregator Module */
++
++#define SSAM_MATCH_CHANNEL	0x1
++#define SSAM_MATCH_INSTANCE	0x2
++#define SSAM_MATCH_FUNCTION	0x4
++
++struct ssam_device_id {
++	__u8 match_flags;
++
++	__u8 category;
++	__u8 channel;
++	__u8 instance;
++	__u8 function;
++
++	kernel_ulong_t driver_data;
++};
++
+ #endif /* LINUX_MOD_DEVICETABLE_H */
 diff --git a/include/linux/surface_aggregator_module.h b/include/linux/surface_aggregator_module.h
 new file mode 100644
 index 0000000000000..81e54e5c8f9e9
@@ -13782,6 +13811,62 @@ index 0000000000000..81e54e5c8f9e9
 +}
 +
 +#endif /* _SURFACE_AGGREGATOR_MODULE_H */
+diff --git a/scripts/mod/devicetable-offsets.c b/scripts/mod/devicetable-offsets.c
+index 293004499b4db..13acbf55c6fd9 100644
+--- a/scripts/mod/devicetable-offsets.c
++++ b/scripts/mod/devicetable-offsets.c
+@@ -225,5 +225,12 @@ int main(void)
+ 	DEVID_FIELD(typec_device_id, svid);
+ 	DEVID_FIELD(typec_device_id, mode);
+ 
++	DEVID(ssam_device_id);
++	DEVID_FIELD(ssam_device_id, match_flags);
++	DEVID_FIELD(ssam_device_id, category);
++	DEVID_FIELD(ssam_device_id, channel);
++	DEVID_FIELD(ssam_device_id, instance);
++	DEVID_FIELD(ssam_device_id, function);
++
+ 	return 0;
+ }
+diff --git a/scripts/mod/file2alias.c b/scripts/mod/file2alias.c
+index 7f40b6aab689b..76e3b1d7db453 100644
+--- a/scripts/mod/file2alias.c
++++ b/scripts/mod/file2alias.c
+@@ -1276,6 +1276,26 @@ static int do_typec_entry(const char *filename, void *symval, char *alias)
+ 	return 1;
+ }
+ 
++/* Looks like: ssam:cNtNiNfN
++ *
++ * N is exactly 2 digits, where each is an upper-case hex digit.
++ */
++static int do_ssam_entry(const char *filename, void *symval, char *alias)
++{
++	DEF_FIELD(symval, ssam_device_id, match_flags);
++	DEF_FIELD(symval, ssam_device_id, category);
++	DEF_FIELD(symval, ssam_device_id, channel);
++	DEF_FIELD(symval, ssam_device_id, instance);
++	DEF_FIELD(symval, ssam_device_id, function);
++
++	sprintf(alias, "ssam:c%02X", category);
++	ADD(alias, "t", match_flags & SSAM_MATCH_CHANNEL, channel);
++	ADD(alias, "i", match_flags & SSAM_MATCH_INSTANCE, instance);
++	ADD(alias, "f", match_flags & SSAM_MATCH_FUNCTION, function);
++
++	return 1;
++}
++
+ /* Does namelen bytes of name exactly match the symbol? */
+ static bool sym_is(const char *name, unsigned namelen, const char *symbol)
+ {
+@@ -1346,6 +1366,7 @@ static const struct devtable devtable[] = {
+ 	{"fslmc", SIZE_fsl_mc_device_id, do_fsl_mc_entry},
+ 	{"tbsvc", SIZE_tb_service_id, do_tbsvc_entry},
+ 	{"typec", SIZE_typec_device_id, do_typec_entry},
++	{"ssam", SIZE_ssam_device_id, do_ssam_entry},
+ };
+ 
+ /* Create MODULE_ALIAS() statements.
 -- 
 2.28.0
 
