@@ -80,10 +80,11 @@ Source100:  mod-sign.sh
 Source101:  parallel_xz.sh
 
 Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-oemb.patch
-Patch1:     %{surface_source}/%{kernel_patches}/0002-surface-sam.patch
-Patch2:     %{surface_source}/%{kernel_patches}/0003-surface-sam-over-hid.patch
-Patch3:     %{surface_source}/%{kernel_patches}/0004-wifi.patch
-Patch4:     %{surface_source}/%{kernel_patches}/0005-ipts.patch
+Patch1:     %{surface_source}/%{kernel_patches}/0002-wifi.patch
+Patch2:     %{surface_source}/%{kernel_patches}/0003-ipts.patch
+Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-sam.patch
+Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam-over-hid.patch
+Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-gpe.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
