@@ -49,6 +49,9 @@ License:    GPLv2
 URL:        https://github.com/linux-surface/linux-surface
 
 Provides: installonlypkg(kernel-surface)
+Provides: kernel-uname-r = %{kernel_name}
+Provides: kernel-core-uname-r = %{kernel_name}
+Provides: kernel-modules-uname-r = %{kernel_name}
 
 Requires(pre): coreutils, systemd >= 203-2, /usr/bin/kernel-install
 Requires(pre): dracut >= 027
@@ -101,6 +104,7 @@ Microsoft Surface.
 Summary: Development package for building kernel modules for kernel-surface
 AutoReqProv: no
 Provides: installonlypkg(kernel-surface)
+Provides: kernel-devel-uname-r = %{kernel_name}
 
 %description devel
 This package provides kernel headers and makefiles sufficient to build modules
