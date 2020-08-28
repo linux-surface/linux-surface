@@ -1,13 +1,15 @@
-From 586dd640656e93b154045fd351d311858988b8bb Mon Sep 17 00:00:00 2001
+From f94e254ee1e8e1819e2a03be4a65adce30db70a5 Mon Sep 17 00:00:00 2001
 From: kitakar5525 <34676735+kitakar5525@users.noreply.github.com>
 Date: Thu, 20 Feb 2020 16:51:11 +0900
 Subject: [PATCH 07/10] wifi
 
 ---
  .../net/wireless/marvell/mwifiex/cfg80211.c   | 26 ++++++
+ drivers/net/wireless/marvell/mwifiex/fw.h     |  2 +-
  drivers/net/wireless/marvell/mwifiex/pcie.c   | 86 +++++++++++--------
  .../net/wireless/marvell/mwifiex/sta_cmd.c    | 31 ++-----
- 3 files changed, 83 insertions(+), 60 deletions(-)
+ .../wireless/marvell/mwifiex/sta_cmdresp.c    |  4 +-
+ 5 files changed, 86 insertions(+), 63 deletions(-)
 
 diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
 index 650191db25cbe..dd487fc9c1a1e 100644
@@ -53,6 +55,19 @@ index 650191db25cbe..dd487fc9c1a1e 100644
  	return mwifiex_drv_set_power(priv, &ps_mode);
  }
  
+diff --git a/drivers/net/wireless/marvell/mwifiex/fw.h b/drivers/net/wireless/marvell/mwifiex/fw.h
+index 1fb76d2f5d3fd..8b9d0809daf62 100644
+--- a/drivers/net/wireless/marvell/mwifiex/fw.h
++++ b/drivers/net/wireless/marvell/mwifiex/fw.h
+@@ -953,7 +953,7 @@ struct mwifiex_tkip_param {
+ struct mwifiex_aes_param {
+ 	u8 pn[WPA_PN_SIZE];
+ 	__le16 key_len;
+-	u8 key[WLAN_KEY_LEN_CCMP];
++	u8 key[WLAN_KEY_LEN_CCMP_256];
+ } __packed;
+ 
+ struct mwifiex_wapi_param {
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
 index 991b9cc180006..2464f536192cb 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie.c
@@ -253,6 +268,28 @@ index 4ed10cf82f9a4..410bef3d6a6eb 100644
  
  	if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
  		/* Send cmd to FW to enable/disable 11D function */
+diff --git a/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c b/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c
+index 797c2e9783943..7003767eef423 100644
+--- a/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c
++++ b/drivers/net/wireless/marvell/mwifiex/sta_cmdresp.c
+@@ -620,7 +620,7 @@ static int mwifiex_ret_802_11_key_material_v2(struct mwifiex_private *priv,
+ 	key_v2 = &resp->params.key_material_v2;
+ 
+ 	len = le16_to_cpu(key_v2->key_param_set.key_params.aes.key_len);
+-	if (len > WLAN_KEY_LEN_CCMP)
++	if (len > sizeof(key_v2->key_param_set.key_params.aes.key))
+ 		return -EINVAL;
+ 
+ 	if (le16_to_cpu(key_v2->action) == HostCmd_ACT_GEN_SET) {
+@@ -636,7 +636,7 @@ static int mwifiex_ret_802_11_key_material_v2(struct mwifiex_private *priv,
+ 		return 0;
+ 
+ 	memset(priv->aes_key_v2.key_param_set.key_params.aes.key, 0,
+-	       WLAN_KEY_LEN_CCMP);
++	       sizeof(key_v2->key_param_set.key_params.aes.key));
+ 	priv->aes_key_v2.key_param_set.key_params.aes.key_len =
+ 				cpu_to_le16(len);
+ 	memcpy(priv->aes_key_v2.key_param_set.key_params.aes.key,
 -- 
 2.28.0
 
