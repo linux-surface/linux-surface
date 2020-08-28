@@ -1,9 +1,11 @@
-From 4f77fe77c8d5ef41a9592912f266916437433a3d Mon Sep 17 00:00:00 2001
+From a5d350e1206e570a6483ae77f4b7cd2d0af62225 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH 4/6] surface-sam
 
 ---
+ Documentation/driver-api/index.rst            |    1 +
+ Documentation/driver-api/ssam/index.rst       |   69 +
  drivers/misc/Kconfig                          |    1 +
  drivers/misc/Makefile                         |    1 +
  drivers/misc/surface_sam/Kconfig              |   46 +
@@ -12,33 +14,34 @@ Subject: [PATCH 4/6] surface-sam
  drivers/misc/surface_sam/bus.h                |   14 +
  drivers/misc/surface_sam/clients/Kconfig      |  121 +
  drivers/misc/surface_sam/clients/Makefile     |   11 +
- .../surface_sam/clients/surface_sam_debugfs.c |  270 +++
- .../clients/surface_sam_device_hub.c          |  582 +++++
- .../surface_sam/clients/surface_sam_dtx.c     |  582 +++++
- .../surface_sam/clients/surface_sam_hps.c     | 1287 ++++++++++
+ .../surface_sam/clients/surface_sam_debugfs.c |  270 ++
+ .../clients/surface_sam_device_hub.c          |  582 ++++
+ .../surface_sam/clients/surface_sam_dtx.c     |  582 ++++
+ .../surface_sam/clients/surface_sam_hps.c     | 1287 +++++++++
  .../surface_sam/clients/surface_sam_san.c     |  930 +++++++
  .../surface_sam/clients/surface_sam_san.h     |   30 +
  .../clients/surface_sam_sid_perfmode.c        |  194 ++
- .../clients/surface_sam_sid_power.c           | 1112 +++++++++
- .../surface_sam/clients/surface_sam_sid_vhf.c |  430 ++++
- .../surface_sam/clients/surface_sam_vhf.c     |  266 +++
- drivers/misc/surface_sam/controller.c         | 2126 +++++++++++++++++
- drivers/misc/surface_sam/controller.h         |  266 +++
- drivers/misc/surface_sam/core.c               |  557 +++++
- drivers/misc/surface_sam/ssam_trace.h         |  588 +++++
- drivers/misc/surface_sam/ssh_msgb.h           |  132 +
- drivers/misc/surface_sam/ssh_packet_layer.c   | 1780 ++++++++++++++
+ .../clients/surface_sam_sid_power.c           | 1112 ++++++++
+ .../surface_sam/clients/surface_sam_sid_vhf.c |  500 ++++
+ .../surface_sam/clients/surface_sam_vhf.c     |  336 +++
+ drivers/misc/surface_sam/controller.c         | 2384 +++++++++++++++++
+ drivers/misc/surface_sam/controller.h         |  275 ++
+ drivers/misc/surface_sam/core.c               |  764 ++++++
+ drivers/misc/surface_sam/ssam_trace.h         |  619 +++++
+ drivers/misc/surface_sam/ssh_msgb.h           |  196 ++
+ drivers/misc/surface_sam/ssh_packet_layer.c   | 1780 ++++++++++++
  drivers/misc/surface_sam/ssh_packet_layer.h   |  125 +
- drivers/misc/surface_sam/ssh_parser.c         |  132 +
- drivers/misc/surface_sam/ssh_parser.h         |   83 +
- drivers/misc/surface_sam/ssh_protocol.h       |   65 +
- drivers/misc/surface_sam/ssh_request_layer.c  | 1099 +++++++++
+ drivers/misc/surface_sam/ssh_parser.c         |  215 ++
+ drivers/misc/surface_sam/ssh_parser.h         |  151 ++
+ drivers/misc/surface_sam/ssh_protocol.h       |  102 +
+ drivers/misc/surface_sam/ssh_request_layer.c  | 1100 ++++++++
  drivers/misc/surface_sam/ssh_request_layer.h  |   93 +
  include/linux/mod_devicetable.h               |   17 +
- include/linux/surface_aggregator_module.h     |  960 ++++++++
+ include/linux/surface_aggregator_module.h     | 1006 +++++++
  scripts/mod/devicetable-offsets.c             |    7 +
  scripts/mod/file2alias.c                      |   22 +
- 34 files changed, 14337 insertions(+)
+ 36 files changed, 15351 insertions(+)
+ create mode 100644 Documentation/driver-api/ssam/index.rst
  create mode 100644 drivers/misc/surface_sam/Kconfig
  create mode 100644 drivers/misc/surface_sam/Makefile
  create mode 100644 drivers/misc/surface_sam/bus.c
@@ -69,6 +72,93 @@ Subject: [PATCH 4/6] surface-sam
  create mode 100644 drivers/misc/surface_sam/ssh_request_layer.h
  create mode 100644 include/linux/surface_aggregator_module.h
 
+diff --git a/Documentation/driver-api/index.rst b/Documentation/driver-api/index.rst
+index d4e78cb3ef4d5..5728d81c06626 100644
+--- a/Documentation/driver-api/index.rst
++++ b/Documentation/driver-api/index.rst
+@@ -97,6 +97,7 @@ available subsections can be seen below.
+    serial/index
+    sm501
+    smsc_ece1099
++   ssam/indx
+    switchtec
+    sync_file
+    vfio-mediated-device
+diff --git a/Documentation/driver-api/ssam/index.rst b/Documentation/driver-api/ssam/index.rst
+new file mode 100644
+index 0000000000000..582ddaa91f2a6
+--- /dev/null
++++ b/Documentation/driver-api/ssam/index.rst
+@@ -0,0 +1,69 @@
++.. SPDX-License-Identifier: GPL-2.0
++
++Surface System Aggregator Module (SSAM)
++=======================================
++
++The Surface System Aggregator Module ...
++
++API
++---
++
++.. kernel-doc:: drivers/misc/surface_sam/bus.c
++    :export:
++
++.. kernel-doc:: drivers/misc/surface_sam/controller.c
++    :export:
++
++.. kernel-doc:: drivers/misc/surface_sam/core.c
++    :export:
++
++.. kernel-doc:: drivers/misc/surface_sam/ssh_packet_layer.c
++    :export:
++
++.. kernel-doc:: include/linux/surface_aggregator_module.h
++
++
++Internal
++--------
++
++.. kernel-doc:: drivers/misc/surface_sam/bus.c
++    :internal:
++
++.. kernel-doc:: drivers/misc/surface_sam/controller.h
++    :internal:
++
++.. kernel-doc:: drivers/misc/surface_sam/controller.c
++    :internal:
++
++.. kernel-doc:: drivers/misc/surface_sam/core.c
++    :internal:
++
++.. kernel-doc:: drivers/misc/surface_sam/ssh_msgb.h
++    :internal:
++
++.. kernel-doc:: drivers/misc/surface_sam/ssh_packet_layer.h
++    :internal:
++
++.. kernel-doc:: drivers/misc/surface_sam/ssh_packet_layer.c
++    :internal:
++
++.. kernel-doc:: drivers/misc/surface_sam/ssh_parser.h
++    :internal:
++
++.. kernel-doc:: drivers/misc/surface_sam/ssh_parser.c
++    :internal:
++
++.. kernel-doc:: drivers/misc/surface_sam/ssh_protocol.h
++    :internal:
++
++.. kernel-doc:: drivers/misc/surface_sam/ssh_request_layer.h
++    :internal:
++
++.. kernel-doc:: drivers/misc/surface_sam/ssh_request_layer.c
++    :internal:
++
++
++Internal trace helpers
++----------------------
++
++.. kernel-doc:: drivers/misc/surface_sam/ssam_trace.h
 diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
 index 99e151475d8f1..34e0536b63aef 100644
 --- a/drivers/misc/Kconfig
@@ -162,7 +252,7 @@ index 0000000000000..0a07dd2297874
 +surface_sam_ssh-objs += bus.o
 diff --git a/drivers/misc/surface_sam/bus.c b/drivers/misc/surface_sam/bus.c
 new file mode 100644
-index 0000000000000..4080b984c05e8
+index 0000000000000..e2b1dbad3f190
 --- /dev/null
 +++ b/drivers/misc/surface_sam/bus.c
 @@ -0,0 +1,394 @@
@@ -219,7 +309,7 @@ index 0000000000000..4080b984c05e8
 +
 +
 +/**
-+ * ssam_device_alloc - Allocate and initialize a SSAM client device.
++ * ssam_device_alloc() - Allocate and initialize a SSAM client device.
 + * @ctrl: The controller under which the device should be added.
 + * @uid:  The UID of the device to be added.
 + *
@@ -251,12 +341,12 @@ index 0000000000000..4080b984c05e8
 +EXPORT_SYMBOL_GPL(ssam_device_alloc);
 +
 +/**
-+ * ssam_device_add - Add a SSAM client device.
++ * ssam_device_add() - Add a SSAM client device.
 + * @sdev: The SSAM client device to be added.
 + *
 + * Added client devices must be guaranteed to always have a valid and active
-+ * controller. Thus, this function will fail with ``-ENXIO`` if the controller
-+ * of the device has not been initialized yet, has been suspended, or has been
++ * controller. Thus, this function will fail with %-ENXIO if the controller of
++ * the device has not been initialized yet, has been suspended, or has been
 + * shut down.
 + *
 + * The caller of this function should ensure that the corresponding call to
@@ -309,7 +399,7 @@ index 0000000000000..4080b984c05e8
 +EXPORT_SYMBOL_GPL(ssam_device_add);
 +
 +/**
-+ * ssam_device_remove - Remove a SSAM client device.
++ * ssam_device_remove() - Remove a SSAM client device.
 + * @sdev: The device to remove.
 + *
 + * Removes and unregisters the provided SSAM client device.
@@ -322,7 +412,7 @@ index 0000000000000..4080b984c05e8
 +
 +
 +/**
-+ * ssam_device_id_compatible - Check if a device ID matches a UID.
++ * ssam_device_id_compatible() - Check if a device ID matches a UID.
 + * @id:  The device ID as potential match.
 + * @uid: The device UID matching against.
 + *
@@ -349,7 +439,7 @@ index 0000000000000..4080b984c05e8
 +}
 +
 +/**
-+ * ssam_device_id_is_null - Check if a device ID is null.
++ * ssam_device_id_is_null() - Check if a device ID is null.
 + * @id: The device ID to check.
 + *
 + * Check if a given device ID is null, i.e. all zeros. Used to check for the
@@ -366,12 +456,12 @@ index 0000000000000..4080b984c05e8
 +}
 +
 +/**
-+ * ssam_device_id_match - Find the matching ID table entry for the given UID.
++ * ssam_device_id_match() - Find the matching ID table entry for the given UID.
 + * @table: The table to search in.
 + * @uid:   The UID to matched against the individual table entries.
 + *
 + * Find the first match for the provided device UID in the provided ID table
-+ * and return it. Returns NULL if no match could be found.
++ * and return it. Returns %NULL if no match could be found.
 + */
 +const struct ssam_device_id *ssam_device_id_match(
 +		const struct ssam_device_id *table,
@@ -388,14 +478,14 @@ index 0000000000000..4080b984c05e8
 +EXPORT_SYMBOL_GPL(ssam_device_id_match);
 +
 +/**
-+ * ssam_device_get_match - Find and return the ID matching the device in the
++ * ssam_device_get_match() - Find and return the ID matching the device in the
 + * ID table of the bound driver.
 + * @dev: The device for which to get the matching ID table entry.
 + *
 + * Find the fist match for the UID of the device in the ID table of the
-+ * currently bound driver and return it. Returns NULL if the device does not
++ * currently bound driver and return it. Returns %NULL if the device does not
 + * have a driver bound to it, the driver does not have match_table (i.e. it is
-+ * NULL), or there is no match in the driver's match_table.
++ * %NULL), or there is no match in the driver's match_table.
 + *
 + * This function essentially calls ssam_device_id_match() with the ID table of
 + * the bound device driver and the UID of the device.
@@ -417,15 +507,15 @@ index 0000000000000..4080b984c05e8
 +EXPORT_SYMBOL_GPL(ssam_device_get_match);
 +
 +/**
-+ * ssam_device_get_match_data - Find the ID matching the device in hte
++ * ssam_device_get_match_data() - Find the ID matching the device in hte
 + * ID table of the bound driver and return its ``driver_data`` member.
 + * @dev: The device for which to get the match data.
 + *
 + * Find the fist match for the UID of the device in the ID table of the
-+ * corresponding driver and return its driver_data. Returns NULL if the device
-+ * does not have a driver bound to it, the driver does not have match_table
-+ * (i.e. it is NULL), there is no match in the driver's match_table, or the
-+ * match does not have any driver_data.
++ * corresponding driver and return its driver_data. Returns %NULL if the
++ * device does not have a driver bound to it, the driver does not have
++ * match_table (i.e. it is %NULL), there is no match in the driver's
++ * match_table, or the match does not have any driver_data.
 + *
 + * This function essentially calls ssam_device_get_match() and, if any match
 + * could be found, returns its &ssam_device_id.driver_data member.
@@ -481,7 +571,7 @@ index 0000000000000..4080b984c05e8
 +
 +
 +/**
-+ * __ssam_device_driver_register - Register a SSAM device driver.
++ * __ssam_device_driver_register() - Register a SSAM device driver.
 + * @sdrv:  The driver to register.
 + * @owner: The module owning the provided driver.
 + *
@@ -523,7 +613,7 @@ index 0000000000000..4080b984c05e8
 +}
 +
 +/**
-+ * ssam_controller_remove_clients - Remove SSAM client devices registered as
++ * ssam_controller_remove_clients() - Remove SSAM client devices registered as
 + * direct children under the given controller.
 + * @ctrl: The controller to remove all direct clients for.
 + *
@@ -546,7 +636,7 @@ index 0000000000000..4080b984c05e8
 +
 +
 +/**
-+ * ssam_bus_register - Register and set-up the SSAM client device bus.
++ * ssam_bus_register() - Register and set-up the SSAM client device bus.
 + */
 +int ssam_bus_register(void)
 +{
@@ -554,7 +644,7 @@ index 0000000000000..4080b984c05e8
 +}
 +
 +/**
-+ * ssam_bus_unregister - Unregister the SSAM client device bus.
++ * ssam_bus_unregister() - Unregister the SSAM client device bus.
 + */
 +void ssam_bus_unregister(void)
 +{
@@ -5761,10 +5851,10 @@ index 0000000000000..d6559a251fa8b
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_sam/clients/surface_sam_sid_vhf.c b/drivers/misc/surface_sam/clients/surface_sam_sid_vhf.c
 new file mode 100644
-index 0000000000000..84e40305a268b
+index 0000000000000..baf8b53e7f990
 --- /dev/null
 +++ b/drivers/misc/surface_sam/clients/surface_sam_sid_vhf.c
-@@ -0,0 +1,430 @@
+@@ -0,0 +1,500 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Microsofs Surface HID (VHF) driver for HID input events via SAM.
@@ -6099,6 +6189,75 @@ index 0000000000000..84e40305a268b
 +	return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
 +}
 +
++
++#ifdef CONFIG_PM
++
++static int surface_sam_sid_vhf_suspend(struct device *dev)
++{
++	struct sid_vhf *vhf = dev_get_drvdata(dev);
++
++	if (vhf->hid->driver && vhf->hid->driver->suspend)
++		return vhf->hid->driver->suspend(vhf->hid, PMSG_SUSPEND);
++
++	return 0;
++}
++
++static int surface_sam_sid_vhf_resume(struct device *dev)
++{
++	struct sid_vhf *vhf = dev_get_drvdata(dev);
++
++	if (vhf->hid->driver && vhf->hid->driver->resume)
++		return vhf->hid->driver->resume(vhf->hid);
++
++	return 0;
++}
++
++static int surface_sam_sid_vhf_freeze(struct device *dev)
++{
++	struct sid_vhf *vhf = dev_get_drvdata(dev);
++
++	if (vhf->hid->driver && vhf->hid->driver->suspend)
++		return vhf->hid->driver->suspend(vhf->hid, PMSG_FREEZE);
++
++	return 0;
++}
++
++static int surface_sam_sid_vhf_poweroff(struct device *dev)
++{
++	struct sid_vhf *vhf = dev_get_drvdata(dev);
++
++	if (vhf->hid->driver && vhf->hid->driver->suspend)
++		return vhf->hid->driver->suspend(vhf->hid, PMSG_HIBERNATE);
++
++	return 0;
++}
++
++static int surface_sam_sid_vhf_restore(struct device *dev)
++{
++	struct sid_vhf *vhf = dev_get_drvdata(dev);
++
++	if (vhf->hid->driver && vhf->hid->driver->reset_resume)
++		return vhf->hid->driver->reset_resume(vhf->hid);
++
++	return 0;
++}
++
++struct dev_pm_ops surface_sam_sid_vhf_pm_ops = {
++	.freeze   = surface_sam_sid_vhf_freeze,
++	.thaw     = surface_sam_sid_vhf_resume,
++	.suspend  = surface_sam_sid_vhf_suspend,
++	.resume   = surface_sam_sid_vhf_resume,
++	.poweroff = surface_sam_sid_vhf_poweroff,
++	.restore  = surface_sam_sid_vhf_restore,
++};
++
++#else /* CONFIG_PM */
++
++struct dev_pm_ops surface_sam_sid_vhf_pm_ops = { };
++
++#endif /* CONFIG_PM */
++
++
 +static int surface_sam_sid_vhf_probe(struct ssam_device *sdev)
 +{
 +	const struct sid_vhf_properties *p;
@@ -6187,6 +6346,7 @@ index 0000000000000..84e40305a268b
 +	.match_table = surface_sam_sid_vhf_match,
 +	.driver = {
 +		.name = "surface_sam_sid_vhf",
++		.pm = &surface_sam_sid_vhf_pm_ops,
 +		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 +	},
 +};
@@ -6197,10 +6357,10 @@ index 0000000000000..84e40305a268b
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_sam/clients/surface_sam_vhf.c b/drivers/misc/surface_sam/clients/surface_sam_vhf.c
 new file mode 100644
-index 0000000000000..95e730a86fb0c
+index 0000000000000..3b7f08f7d028d
 --- /dev/null
 +++ b/drivers/misc/surface_sam/clients/surface_sam_vhf.c
-@@ -0,0 +1,266 @@
+@@ -0,0 +1,336 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Virtual HID Framework (VHF) driver for input events via SAM.
@@ -6381,6 +6541,75 @@ index 0000000000000..95e730a86fb0c
 +	return 0;
 +}
 +
++
++#ifdef CONFIG_PM
++
++static int surface_sam_vhf_suspend(struct device *dev)
++{
++	struct vhf_drvdata *d = dev_get_drvdata(dev);
++
++	if (d->hid->driver && d->hid->driver->suspend)
++		return d->hid->driver->suspend(d->hid, PMSG_SUSPEND);
++
++	return 0;
++}
++
++static int surface_sam_vhf_resume(struct device *dev)
++{
++	struct vhf_drvdata *d = dev_get_drvdata(dev);
++
++	if (d->hid->driver && d->hid->driver->resume)
++		return d->hid->driver->resume(d->hid);
++
++	return 0;
++}
++
++static int surface_sam_vhf_freeze(struct device *dev)
++{
++	struct vhf_drvdata *d = dev_get_drvdata(dev);
++
++	if (d->hid->driver && d->hid->driver->suspend)
++		return d->hid->driver->suspend(d->hid, PMSG_FREEZE);
++
++	return 0;
++}
++
++static int surface_sam_vhf_poweroff(struct device *dev)
++{
++	struct vhf_drvdata *d = dev_get_drvdata(dev);
++
++	if (d->hid->driver && d->hid->driver->suspend)
++		return d->hid->driver->suspend(d->hid, PMSG_HIBERNATE);
++
++	return 0;
++}
++
++static int surface_sam_vhf_restore(struct device *dev)
++{
++	struct vhf_drvdata *d = dev_get_drvdata(dev);
++
++	if (d->hid->driver && d->hid->driver->reset_resume)
++		return d->hid->driver->reset_resume(d->hid);
++
++	return 0;
++}
++
++struct dev_pm_ops surface_sam_vhf_pm_ops = {
++	.freeze   = surface_sam_vhf_freeze,
++	.thaw     = surface_sam_vhf_resume,
++	.suspend  = surface_sam_vhf_suspend,
++	.resume   = surface_sam_vhf_resume,
++	.poweroff = surface_sam_vhf_poweroff,
++	.restore  = surface_sam_vhf_restore,
++};
++
++#else /* CONFIG_PM */
++
++struct dev_pm_ops surface_sam_vhf_pm_ops = { };
++
++#endif /* CONFIG_PM */
++
++
 +static int surface_sam_vhf_probe(struct platform_device *pdev)
 +{
 +	struct ssam_controller *ctrl;
@@ -6459,6 +6688,7 @@ index 0000000000000..95e730a86fb0c
 +	.driver = {
 +		.name = "surface_sam_vhf",
 +		.acpi_match_table = surface_sam_vhf_match,
++		.pm = &surface_sam_vhf_pm_ops,
 +		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 +	},
 +};
@@ -6469,10 +6699,10 @@ index 0000000000000..95e730a86fb0c
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_sam/controller.c b/drivers/misc/surface_sam/controller.c
 new file mode 100644
-index 0000000000000..32a599a8acac7
+index 0000000000000..5cbb54a2d54f2
 --- /dev/null
 +++ b/drivers/misc/surface_sam/controller.c
-@@ -0,0 +1,2126 @@
+@@ -0,0 +1,2384 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
 +#include <linux/acpi.h>
@@ -6505,7 +6735,7 @@ index 0000000000000..32a599a8acac7
 +/* -- Safe counters. -------------------------------------------------------- */
 +
 +/**
-+ * ssh_seq_reset - Reset/initialize sequence ID counter.
++ * ssh_seq_reset() - Reset/initialize sequence ID counter.
 + * @c: The counter to reset.
 + */
 +static inline void ssh_seq_reset(struct ssh_seq_counter *c)
@@ -6514,7 +6744,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssh_seq_next - Get next sequence ID.
++ * ssh_seq_next() - Get next sequence ID.
 + * @c: The counter providing the sequence IDs.
 + */
 +static inline u8 ssh_seq_next(struct ssh_seq_counter *c)
@@ -6532,7 +6762,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssh_rqid_reset - Reset/initialize request ID counter.
++ * ssh_rqid_reset() - Reset/initialize request ID counter.
 + * @c: The counter to reset.
 + */
 +static inline void ssh_rqid_reset(struct ssh_rqid_counter *c)
@@ -6541,7 +6771,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssh_rqid_next - Get next request ID.
++ * ssh_rqid_next() - Get next request ID.
 + * @c: The counter providing the request IDs.
 + */
 +static inline u16 ssh_rqid_next(struct ssh_rqid_counter *c)
@@ -6570,7 +6800,7 @@ index 0000000000000..32a599a8acac7
 + */
 +
 +/**
-+ * ssam_nfblk_call_chain - Call event notifier callbacks of the given chain.
++ * ssam_nfblk_call_chain() - Call event notifier callbacks of the given chain.
 + * @nh:    The notifier head for which the notifier callbacks should be called.
 + * @event: The event data provided to the callbacks.
 + *
@@ -6607,13 +6837,16 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * __ssam_nfblk_insert - Insert a new notifier block into the given notifier
++ * __ssam_nfblk_insert() - Insert a new notifier block into the given notifier
 + * list.
 + * @nh: The notifier head into which the block should be inserted.
 + * @nb: The notifier block to add.
 + *
 + * Note: This function must be synchronized by the caller with respect to other
 + * insert and/or remove calls.
++ *
++ * Return: Returns zero on success, %-EINVAL if the notifier block has already
++ * been registered.
 + */
 +static int __ssam_nfblk_insert(struct ssam_nf_head *nh, struct ssam_notifier_block *nb)
 +{
@@ -6638,34 +6871,78 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * __ssam_nfblk_remove - Remove a notifier block from the given notifier list.
-+ * @nh: The notifier head from which the block should be removed.
-+ * @nb: The notifier block to remove.
++ * __ssam_nfblk_find_link() - Find a notifier block link on the given list.
++ * @nh: The notifier head on wich the search should be conducted.
++ * @nb: The notifier block to search for.
 + *
-+ * Note: This function must be synchronized by the caller with respect to other
-+ * insert and/or remove calls. On success, the caller _must_ ensure SRCU
-+ * synchronization by calling `synchronize_srcu(&nh->srcu)` after leaving the
-+ * critical section, to ensure that the removed notifier block is not in use any
-+ * more.
++ * Note: This function must be synchronized by the caller with respect to
++ * insert and/or remove calls.
++ *
++ * Returns a pointer to the pointer pointing to the given notifier block from
++ * the previous node in the list, or %NULL if the given notifier block is not
++ * contained in the notifier list.
 + */
-+static int __ssam_nfblk_remove(struct ssam_nf_head *nh, struct ssam_notifier_block *nb)
++static struct ssam_notifier_block **__ssam_nfblk_find_link(
++		struct ssam_nf_head *nh, struct ssam_notifier_block *nb)
 +{
 +	struct ssam_notifier_block **link = &nh->head;
 +
 +	while ((*link) != NULL) {
-+		if ((*link) == nb) {
-+			rcu_assign_pointer(*link, nb->next);
-+			return 0;
-+		}
++		if ((*link) == nb)
++			return link;
 +
 +		link = &((*link)->next);
 +	}
 +
-+	return -ENOENT;
++	return NULL;
 +}
 +
 +/**
-+ * ssam_nf_head_init - Initialize the given notifier head.
++ * __ssam_nfblk_erase() - Erase a notifier block link in the given notifier
++ * list.
++ * @link: The link to be erased.
++ *
++ * Note: This function must be synchronized by the caller with respect to other
++ * insert and/or remove/erase/find calls. The caller _must_ ensure SRCU
++ * synchronization by calling `synchronize_srcu(&nh->srcu)` after leaving the
++ * critical section, to ensure that the removed notifier block is not in use any
++ * more.
++ */
++static void __ssam_nfblk_erase(struct ssam_notifier_block **link)
++{
++	rcu_assign_pointer(*link, (*link)->next);
++}
++
++
++/**
++ * __ssam_nfblk_remove() - Remove a notifier block from the given notifier list.
++ * @nh: The notifier head from which the block should be removed.
++ * @nb: The notifier block to remove.
++ *
++ * Note: This function must be synchronized by the caller with respect to
++ * other insert and/or remove calls. On success, the caller *must* ensure SRCU
++ * synchronization by calling synchronize_srcu() with ``nh->srcu`` after
++ * leaving the critical section, to ensure that the removed notifier block is
++ * not in use any more.
++ *
++ * Return: Returns zero on success, %-ENOENT if the specified notifier block
++ * could not be found on the notifier list.
++ */
++static int __ssam_nfblk_remove(struct ssam_nf_head *nh,
++			       struct ssam_notifier_block *nb)
++{
++	struct ssam_notifier_block **link;
++
++	link = __ssam_nfblk_find_link(nh, nb);
++	if (!link)
++		return -ENOENT;
++
++	__ssam_nfblk_erase(link);
++	return 0;
++}
++
++/**
++ * ssam_nf_head_init() - Initialize the given notifier head.
 + * @nh: The notifier head to initialize.
 + */
 +static int ssam_nf_head_init(struct ssam_nf_head *nh)
@@ -6681,7 +6958,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_nf_head_destroy - Deinitialize the given notifier head.
++ * ssam_nf_head_destroy() - Deinitialize the given notifier head.
 + * @nh: The notifier head to deinitialize.
 + */
 +static void ssam_nf_head_destroy(struct ssam_nf_head *nh)
@@ -6693,7 +6970,8 @@ index 0000000000000..32a599a8acac7
 +/* -- Event/notification registry. ------------------------------------------ */
 +
 +/**
-+ * ssam_nf_refcount_key - Key used for event activation reference counting.
++ * struct ssam_nf_refcount_key - Key used for event activation reference
++ * counting.
 + * @reg: The registry via which the event is enabled/disabled.
 + * @id:  The ID uniquely describing the event.
 + */
@@ -6703,29 +6981,39 @@ index 0000000000000..32a599a8acac7
 +};
 +
 +/**
-+ * ssam_nf_refcount_entry - RB-tree entry for referecnce counting event
++ * struct ssam_nf_refcount_entry - RB-tree entry for referecnce counting event
 + * activations.
 + * @node:     The node of this entry in the rb-tree.
 + * @key:      The key of the event.
 + * @refcount: The reference-count of the event.
++ * @flags:    The flags used when enabling the event.
 + */
 +struct ssam_nf_refcount_entry {
 +	struct rb_node node;
 +	struct ssam_nf_refcount_key key;
 +	int refcount;
++	u8 flags;
 +};
 +
 +
 +/**
-+ * ssam_nf_refcount_inc - Increment reference-/activation-count of the given
++ * ssam_nf_refcount_inc() - Increment reference-/activation-count of the given
 + * event.
 + * @nf:  The notifier system reference.
 + * @reg: The registry used to enable/disable the event.
 + * @id:  The event ID.
++ *
++ * Increments the reference-/activation-count associated with the specified
++ * event type/ID, allocating a new entry for this event ID if necessary. A
++ * newly allocated entry will have a refcount of one.
++ *
++ * Return: Returns the refcount entry on success. Returns ``ERR_PTR(-ENOSPC)``
++ * if there have already been %INT_MAX events of the specified ID and type
++ * registered, or ``ERR_PTR(-ENOMEM)`` if the entry could not be allocated.
 + */
-+static int ssam_nf_refcount_inc(struct ssam_nf *nf,
-+				struct ssam_event_registry reg,
-+				struct ssam_event_id id)
++static struct ssam_nf_refcount_entry *ssam_nf_refcount_inc(
++		struct ssam_nf *nf, struct ssam_event_registry reg,
++		struct ssam_event_id id)
 +{
 +	struct ssam_nf_refcount_entry *entry;
 +	struct ssam_nf_refcount_key key;
@@ -6741,19 +7029,21 @@ index 0000000000000..32a599a8acac7
 +		parent = *link;
 +
 +		cmp = memcmp(&key, &entry->key, sizeof(key));
-+		if (cmp < 0)
++		if (cmp < 0) {
 +			link = &(*link)->rb_left;
-+		else if (cmp > 0)
++		} else if (cmp > 0) {
 +			link = &(*link)->rb_right;
-+		else if (entry->refcount < INT_MAX)
-+			return ++entry->refcount;
-+		else
-+			return -ENOSPC;
++		} else if (entry->refcount < INT_MAX) {
++			entry->refcount++;
++			return entry;
++		} else {
++			return ERR_PTR(-ENOSPC);
++		}
 +	}
 +
 +	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
 +	if (!entry)
-+		return -ENOMEM;
++		return ERR_PTR(-ENOMEM);
 +
 +	entry->key = key;
 +	entry->refcount = 1;
@@ -6761,24 +7051,31 @@ index 0000000000000..32a599a8acac7
 +	rb_link_node(&entry->node, parent, link);
 +	rb_insert_color(&entry->node, &nf->refcount);
 +
-+	return entry->refcount;
++	return entry;
 +}
 +
 +/**
-+ * ssam_nf_refcount_dec - Decrement reference-/activation-count of the given
++ * ssam_nf_refcount_dec() - Decrement reference-/activation-count of the given
 + * event.
 + * @nf:  The notifier system reference.
 + * @reg: The registry used to enable/disable the event.
 + * @id:  The event ID.
++ *
++ * Decrements the reference-/activation-count of the specified event,
++ * returning its entry. If the returned entry has a refcount of zero, the
++ * caller is responsible for freeing it using kfree().
++ *
++ * Return: Returns the refcount entry on success or %NULL if the entry has not
++ * been found.
 + */
-+static int ssam_nf_refcount_dec(struct ssam_nf *nf,
-+				struct ssam_event_registry reg,
-+				struct ssam_event_id id)
++static struct ssam_nf_refcount_entry *ssam_nf_refcount_dec(
++		struct ssam_nf *nf, struct ssam_event_registry reg,
++		struct ssam_event_id id)
 +{
 +	struct ssam_nf_refcount_entry *entry;
 +	struct ssam_nf_refcount_key key;
 +	struct rb_node *node = nf->refcount.rb_node;
-+	int cmp, rc;
++	int cmp;
 +
 +	key.reg = reg;
 +	key.id = id;
@@ -6792,22 +7089,19 @@ index 0000000000000..32a599a8acac7
 +		} else if (cmp > 0) {
 +			node = node->rb_right;
 +		} else {
-+			rc = --entry->refcount;
-+
-+			if (rc == 0) {
++			entry->refcount--;
++			if (entry->refcount == 0)
 +				rb_erase(&entry->node, &nf->refcount);
-+				kfree(entry);
-+			}
 +
-+			return rc;
++			return entry;
 +		}
 +	}
 +
-+	return -ENOENT;
++	return NULL;
 +}
 +
 +/**
-+ * ssam_nf_refcount_empty - Test if the notification system has any
++ * ssam_nf_refcount_empty() - Test if the notification system has any
 + * enabled/active events.
 + * @nf: The notification system.
 + */
@@ -6817,7 +7111,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_nf_call - Call notification callbacks for the provided event.
++ * ssam_nf_call() - Call notification callbacks for the provided event.
 + * @nf:    The notifier system
 + * @dev:   The associated device, only used for logging.
 + * @rqid:  The request ID of the event.
@@ -6866,7 +7160,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_nf_init - Initialize the notifier system.
++ * ssam_nf_init() - Initialize the notifier system.
 + * @nf: The notifier system to initialize.
 + */
 +static int ssam_nf_init(struct ssam_nf *nf)
@@ -6891,7 +7185,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_nf_destroy - Deinitialize the notifier system.
++ * ssam_nf_destroy() - Deinitialize the notifier system.
 + * @nf: The notifier system to deinitialize.
 + */
 +static void ssam_nf_destroy(struct ssam_nf *nf)
@@ -6921,7 +7215,7 @@ index 0000000000000..32a599a8acac7
 +static struct kmem_cache *ssam_event_item_cache;
 +
 +/**
-+ * ssam_event_item_cache_init - Initialize the event item cache.
++ * ssam_event_item_cache_init() - Initialize the event item cache.
 + */
 +int ssam_event_item_cache_init(void)
 +{
@@ -6939,7 +7233,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_event_item_cache_destroy - Deinitialize the event item cache.
++ * ssam_event_item_cache_destroy() - Deinitialize the event item cache.
 + */
 +void ssam_event_item_cache_destroy(void)
 +{
@@ -6958,7 +7252,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_event_item_free - Free the provided event item.
++ * ssam_event_item_free() - Free the provided event item.
 + * @item: The event item to free.
 + */
 +static inline void ssam_event_item_free(struct ssam_event_item *item)
@@ -6968,7 +7262,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_event_item_alloc - Allocate an event item with the given payload size.
++ * ssam_event_item_alloc() - Allocate an event item with the given payload size.
 + * @len:   The event payload length.
 + * @flags: The flags used for allocation.
 + *
@@ -7004,7 +7298,7 @@ index 0000000000000..32a599a8acac7
 +
 +
 +/**
-+ * ssam_event_queue_push - Push an event item to the event queue.
++ * ssam_event_queue_push() - Push an event item to the event queue.
 + * @q:    The event queue.
 + * @item: The item to add.
 + */
@@ -7017,10 +7311,10 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_event_queue_pop - Pop the next event item from the event queue.
++ * ssam_event_queue_pop() - Pop the next event item from the event queue.
 + * @q: The event queue.
 + *
-+ * Returns and removes the next event item from the queue. Returns NULL If
++ * Returns and removes the next event item from the queue. Returns %NULL If
 + * there is no event item left.
 + */
 +static struct ssam_event_item *ssam_event_queue_pop(struct ssam_event_queue *q)
@@ -7037,7 +7331,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_event_queue_is_empty - Check if the event queue is empty.
++ * ssam_event_queue_is_empty() - Check if the event queue is empty.
 + * @q: The event queue.
 + */
 +static bool ssam_event_queue_is_empty(struct ssam_event_queue *q)
@@ -7052,14 +7346,14 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_cplt_get_event_queue - Get the event queue for the given parameters.
++ * ssam_cplt_get_event_queue() - Get the event queue for the given parameters.
 + * @cplt: The completion system on which to look for the queue.
 + * @tid:  The target ID of the queue.
 + * @rqid: The request ID representing the event ID for which to get the queue.
 + *
 + * Returns the event queue corresponding to the event type described by the
 + * given parameters. If the request ID does not represent an event, this
-+ * function returns NULL. If the target ID is not supported, this function
++ * function returns %NULL. If the target ID is not supported, this function
 + * will fall back to the default target ID (tid=1).
 + */
 +static struct ssam_event_queue *ssam_cplt_get_event_queue(
@@ -7082,7 +7376,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_cplt_submit - Submit a work item to the compeltion system workqueue.
++ * ssam_cplt_submit() - Submit a work item to the compeltion system workqueue.
 + * @cplt: The completion system.
 + * @work: The work item to submit.
 + */
@@ -7093,7 +7387,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_cplt_submit_event - Submit an event to the completion system.
++ * ssam_cplt_submit_event() - Submit an event to the completion system.
 + * @cplt: The completion system.
 + * @item: The event item to submit.
 + *
@@ -7116,7 +7410,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_cplt_flush - Flush the completion system.
++ * ssam_cplt_flush() - Flush the completion system.
 + * @cplt: The completion system.
 + *
 + * Flush the completion system by waiting until all currently submitted work
@@ -7164,7 +7458,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_event_queue_init - Initialize an event queue.
++ * ssam_event_queue_init() - Initialize an event queue.
 + * @cplt: The completion system on which the queue resides.
 + * @evq:  The event queue to initialize.
 + */
@@ -7178,7 +7472,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_cplt_init - Initialize completion system.
++ * ssam_cplt_init() - Initialize completion system.
 + * @cplt: The completion system to initialize.
 + * @dev:  The device used for logging.
 + */
@@ -7208,7 +7502,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_cplt_destroy - Deinitialize the completion system.
++ * ssam_cplt_destroy() - Deinitialize the completion system.
 + * @cplt: The completion system to deinitialize.
 + *
 + * Deinitialize the given completion system and ensure that all pending, i.e.
@@ -7230,7 +7524,7 @@ index 0000000000000..32a599a8acac7
 +/* -- Main SSAM device structures. ------------------------------------------ */
 +
 +/**
-+ * ssam_controller_device - Return the &struct device associated with this
++ * ssam_controller_device() - Return the &struct device associated with this
 + * controller.
 + * @c: The controller for which to get the device.
 + */
@@ -7249,10 +7543,10 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_controller_get - Increment reference count of controller.
++ * ssam_controller_get() - Increment reference count of controller.
 + * @c: The controller.
 + *
-+ * Returns the controller, i.e. ``c``.
++ * Return: Returns the controller provided as input.
 + */
 +struct ssam_controller *ssam_controller_get(struct ssam_controller *c)
 +{
@@ -7262,7 +7556,7 @@ index 0000000000000..32a599a8acac7
 +EXPORT_SYMBOL_GPL(ssam_controller_get);
 +
 +/**
-+ * ssam_controller_put - Decrement reference count of controller.
++ * ssam_controller_put() - Decrement reference count of controller.
 + * @c: The controller.
 + */
 +void ssam_controller_put(struct ssam_controller *c)
@@ -7273,7 +7567,7 @@ index 0000000000000..32a599a8acac7
 +
 +
 +/**
-+ * ssam_controller_statelock - Lock the controller against state transitions.
++ * ssam_controller_statelock() - Lock the controller against state transitions.
 + * @c: The controller to lock.
 + *
 + * Lock the controller against state transitions. Holding this lock guarantees
@@ -7296,7 +7590,7 @@ index 0000000000000..32a599a8acac7
 +EXPORT_SYMBOL_GPL(ssam_controller_statelock);
 +
 +/**
-+ * ssam_controller_stateunlock - Unlock controller state transitions.
++ * ssam_controller_stateunlock() - Unlock controller state transitions.
 + * @c: The controller to unlock.
 + *
 + * See ssam_controller_statelock() for the corresponding lock function.
@@ -7308,7 +7602,7 @@ index 0000000000000..32a599a8acac7
 +EXPORT_SYMBOL_GPL(ssam_controller_stateunlock);
 +
 +/**
-+ * ssam_controller_lock - Acquire the main controller lock.
++ * ssam_controller_lock() - Acquire the main controller lock.
 + * @c: The controller to lock.
 + *
 + * This lock must be held for any state transitions, including transition to
@@ -7323,7 +7617,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/*
-+ * ssam_controller_unlock - Release the main controller lock.
++ * ssam_controller_unlock() - Release the main controller lock.
 + * @c: The controller to unlock.
 + *
 + * See ssam_controller_lock() for the corresponding lock function.
@@ -7370,7 +7664,7 @@ index 0000000000000..32a599a8acac7
 +		0x89, 0xfc, 0xf6, 0xaa, 0xae, 0x7e, 0xd5, 0xb5);
 +
 +/**
-+ * ssam_device_caps_load_from_acpi - Load controller capabilities from _DSM.
++ * ssam_device_caps_load_from_acpi() - Load controller capabilities from _DSM.
 + * @handle: The handle of the ACPI controller/SSH device.
 + * @caps:   Where to store the capabilities in.
 + *
@@ -7419,7 +7713,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_controller_init - Initialize SSAM controller.
++ * ssam_controller_init() - Initialize SSAM controller.
 + * @ctrl:   The controller to initialize.
 + * @serdev: The serial device representing the underlying data transport.
 + *
@@ -7469,7 +7763,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_controller_start - Start the receiver and transmitter threads of the
++ * ssam_controller_start() - Start the receiver and transmitter threads of the
 + * controller.
 + * @ctrl: The controller.
 + *
@@ -7499,12 +7793,12 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_controller_shutdown - Shut down the controller.
++ * ssam_controller_shutdown() - Shut down the controller.
 + * @ctrl: The controller.
 + *
 + * Shuts down the controller by flushing all pending requests and stopping the
 + * transmitter and receiver threads. All requests submitted after this call
-+ * will fail with -ESHUTDOWN. While it is discouraged to do so, this function
++ * will fail with %-ESHUTDOWN. While it is discouraged to do so, this function
 + * is safe to use in parallel with ongoing request submission.
 + *
 + * In the course of this shutdown procedure, all currently registered
@@ -7557,7 +7851,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_controller_destroy - Destroy the controller and free its resources.
++ * ssam_controller_destroy() - Destroy the controller and free its resources.
 + * @ctrl: The controller.
 + *
 + * Ensures that all resources associated with the controller get freed. This
@@ -7587,7 +7881,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_controller_suspend - Suspend the controller.
++ * ssam_controller_suspend() - Suspend the controller.
 + * @ctrl: The controller to suspend.
 + *
 + * Marks the controller as suspended. Note that display-off and D0-exit
@@ -7596,8 +7890,8 @@ index 0000000000000..32a599a8acac7
 + *
 + * See ssam_controller_resume() for the corresponding resume function.
 + *
-+ * Returns ``-EINVAL`` if the controller is currently not in the "started"
-+ * state.
++ * Return: Returns %-EINVAL if the controller is currently not in the
++ * "started" state.
 + */
 +int ssam_controller_suspend(struct ssam_controller *ctrl)
 +{
@@ -7616,7 +7910,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_controller_resume - Resume the controller from suspend.
++ * ssam_controller_resume() - Resume the controller from suspend.
 + * @ctrl: The controller to resume.
 + *
 + * Resume the controller from the suspended state it was put into via
@@ -7624,7 +7918,7 @@ index 0000000000000..32a599a8acac7
 + * D0-entry notifications. If required, those have to be sent manually after
 + * this call.
 + *
-+ * Returns ``-EINVAL`` if the controller is currently not suspended.
++ * Return: Returns %-EINVAL if the controller is currently not suspended.
 + */
 +int ssam_controller_resume(struct ssam_controller *ctrl)
 +{
@@ -7646,21 +7940,24 @@ index 0000000000000..32a599a8acac7
 +/* -- Top-level request interface ------------------------------------------- */
 +
 +/**
-+ * ssam_request_write_data - Construct and write SAM request message to buffer.
++ * ssam_request_write_data() - Construct and write SAM request message to
++ * buffer.
 + * @buf:  The buffer to write the data to.
 + * @ctrl: The controller via which the request will be sent.
-+ * @spec: The request data/specification.
++ * @spec: The request data and specification.
 + *
 + * Constructs a SAM/SSH request message and writes it to the provided buffer.
 + * The request and transport counters, specifically RQID and SEQ, will be set
 + * in this call. These counters are obtained from the controller. It is thus
 + * only valid to send the resulting message via the controller specified here.
 + *
-+ * Returns the number of bytes used in the buffer on success. Returns -EINVAL
-+ * if the payload length provided in the request specification is too large
-+ * (larger than %SSH_COMMAND_MAX_PAYLOAD_SIZE) or if the provided buffer is
-+ * too small. For calculation of the required buffer size, refer to the
-+ * SSH_COMMAND_MESSAGE_LENGTH() macro.
++ * For calculation of the required buffer size, refer to the
++ * ``SSH_COMMAND_MESSAGE_LENGTH()`` macro.
++ *
++ * Return: Returns the number of bytes used in the buffer on success. Returns
++ * %-EINVAL if the payload length provided in the request specification is too
++ * large (larger than %SSH_COMMAND_MAX_PAYLOAD_SIZE) or if the provided buffer
++ * is too small.
 + */
 +ssize_t ssam_request_write_data(struct ssam_span *buf,
 +				struct ssam_controller *ctrl,
@@ -7736,7 +8033,7 @@ index 0000000000000..32a599a8acac7
 +
 +
 +/**
-+ * ssam_request_sync_alloc - Allocate a synchronous request.
++ * ssam_request_sync_alloc() - Allocate a synchronous request.
 + * @payload_len: The length of the request payload.
 + * @flags:       Flags used for allocation.
 + * @rqst:        Where to store the pointer to the allocated request.
@@ -7770,7 +8067,7 @@ index 0000000000000..32a599a8acac7
 +EXPORT_SYMBOL_GPL(ssam_request_sync_alloc);
 +
 +/**
-+ * ssam_request_sync_free - Free a synchronous request.
++ * ssam_request_sync_free() - Free a synchronous request.
 + * @rqst: The request to free.
 + *
 + * Free a synchronous request and its corresponding buffer allocated with
@@ -7791,7 +8088,7 @@ index 0000000000000..32a599a8acac7
 +EXPORT_SYMBOL_GPL(ssam_request_sync_free);
 +
 +/**
-+ * ssam_request_sync_init - Initialize a synchronous request struct.
++ * ssam_request_sync_init() - Initialize a synchronous request struct.
 + * @rqst:  The request to initialize.
 + * @flags: The request flags.
 + *
@@ -7811,12 +8108,12 @@ index 0000000000000..32a599a8acac7
 +EXPORT_SYMBOL_GPL(ssam_request_sync_init);
 +
 +/**
-+ * ssam_request_sync_submit - Submit a synchronous request.
++ * ssam_request_sync_submit() - Submit a synchronous request.
 + * @ctrl: The controller with which to submit the request.
 + * @rqst: The request to submit.
 + *
 + * Submit a synchronous request. The request has to be initialized and
-+ * properly set up, including response buffer (may be NULL if no response is
++ * properly set up, including response buffer (may be %NULL if no response is
 + * expected) and command message data. This function does not wait for the
 + * request to be completed.
 + *
@@ -7860,7 +8157,7 @@ index 0000000000000..32a599a8acac7
 +EXPORT_SYMBOL_GPL(ssam_request_sync_submit);
 +
 +/**
-+ * ssam_request_sync - Execute a synchronous request.
++ * ssam_request_sync() - Execute a synchronous request.
 + * @ctrl: The controller via which the request will be submitted.
 + * @spec: The request specification and payload.
 + * @rsp:  The response buffer.
@@ -7909,7 +8206,7 @@ index 0000000000000..32a599a8acac7
 +EXPORT_SYMBOL_GPL(ssam_request_sync);
 +
 +/**
-+ * ssam_request_sync_with_buffer - Execute a synchronous request with the
++ * ssam_request_sync_with_buffer() - Execute a synchronous request with the
 + * provided buffer as backend for the message buffer.
 + * @ctrl: The controller via which the request will be submitted.
 + * @spec: The request specification and payload.
@@ -7919,7 +8216,7 @@ index 0000000000000..32a599a8acac7
 + * Allocates a synchronous request struct on the stack, fully initializes it
 + * using the provided buffer as message data buffer, submits it, and then
 + * waits for its completion before returning its staus. The
-+ * SSH_COMMAND_MESSAGE_LENGTH() macro can be used to compute the required
++ * ``SSH_COMMAND_MESSAGE_LENGTH()`` macro can be used to compute the required
 + * message buffer size.
 + *
 + * This function does essentially the same as ssam_request_sync(), but instead
@@ -8000,7 +8297,7 @@ index 0000000000000..32a599a8acac7
 +});
 +
 +/**
-+ * ssam_ssh_event_enable - Enable SSH event.
++ * ssam_ssh_event_enable() - Enable SSH event.
 + * @ctrl:  The controller for which to enable the event.
 + * @reg:   The event registry describing what request to use for enabling and
 + *         disabling the event.
@@ -8011,8 +8308,8 @@ index 0000000000000..32a599a8acac7
 + * not handle referecnce counting for enable/disable of events. If an event
 + * has already been enabled, the EC will ignore this request.
 + *
-+ * Returns the status of the executed SAM request or -EPROTO if the request
-+ * response indicates a failure.
++ * Return: Returns the status of the executed SAM request or %-EPROTO if the
++ * request response indicates a failure.
 + */
 +static int ssam_ssh_event_enable(struct ssam_controller *ctrl,
 +				 struct ssam_event_registry reg,
@@ -8067,7 +8364,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_ssh_event_disable - Disable SSH event.
++ * ssam_ssh_event_disable() - Disable SSH event.
 + * @ctrl:  The controller for which to disable the event.
 + * @reg:   The event registry describing what request to use for enabling and
 + *         disabling the event (must be same as used when enabling the event).
@@ -8078,8 +8375,8 @@ index 0000000000000..32a599a8acac7
 + * not handle reference counting for enable/disable of events. If an event has
 + * already been disabled, the EC will ignore this request.
 + *
-+ * Returns the status of the executed SAM request or -EPROTO if the request
-+ * response indicates a failure.
++ * Return: Returns the status of the executed SAM request or %-EPROTO if the
++ * request response indicates a failure.
 + */
 +static int ssam_ssh_event_disable(struct ssam_controller *ctrl,
 +				  struct ssam_event_registry reg,
@@ -8136,7 +8433,7 @@ index 0000000000000..32a599a8acac7
 +/* -- Wrappers for internal SAM requests. ----------------------------------- */
 +
 +/**
-+ * ssam_log_firmware_version - Log SAM/EC firmware version to kernel log.
++ * ssam_log_firmware_version() - Log SAM/EC firmware version to kernel log.
 + * @ctrl: The controller.
 + */
 +int ssam_log_firmware_version(struct ssam_controller *ctrl)
@@ -8159,7 +8456,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_ctrl_notif_display_off - Notify EC that the display has been turned
++ * ssam_ctrl_notif_display_off() - Notify EC that the display has been turned
 + * off.
 + * @ctrl: The controller.
 + *
@@ -8181,9 +8478,9 @@ index 0000000000000..32a599a8acac7
 + *
 + * Use ssam_ctrl_notif_display_on() to reverse the effects of this function.
 + *
-+ * Returns the status of the executed SAM command, zero on success or if no
-+ * request has been executed, or -EPROTO if an unexpected response has been
-+ * received.
++ * Return: Returns the status of the executed SAM command, zero on success or
++ * if no request has been executed, or %-EPROTO if an unexpected response has
++ * been received.
 + */
 +int ssam_ctrl_notif_display_off(struct ssam_controller *ctrl)
 +{
@@ -8209,7 +8506,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_ctrl_notif_display_on - Notify EC that the display has been turned on.
++ * ssam_ctrl_notif_display_on() - Notify EC that the display has been turned on.
 + * @ctrl: The controller.
 + *
 + * Notify the EC that the display has been turned back on and the driver has
@@ -8223,9 +8520,9 @@ index 0000000000000..32a599a8acac7
 + *
 + * See ssam_ctrl_notif_display_off() for more details.
 + *
-+ * Returns the status of the executed SAM command, zero on success or if no
-+ * request has been executed, or -EPROTO if an unexpected response has been
-+ * received.
++ * Return: Returns the status of the executed SAM command, zero on success or
++ * if no request has been executed, or %-EPROTO if an unexpected response has
++ * been received.
 + */
 +int ssam_ctrl_notif_display_on(struct ssam_controller *ctrl)
 +{
@@ -8251,7 +8548,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_ctrl_notif_d0_exit - Notify EC that the driver/device exits the D0
++ * ssam_ctrl_notif_d0_exit() - Notify EC that the driver/device exits the D0
 + * power state.
 + * @ctrl: The controller
 + *
@@ -8265,9 +8562,9 @@ index 0000000000000..32a599a8acac7
 + *
 + * Use ssam_ctrl_notif_d0_entry() to reverse the effects of this function.
 + *
-+ * Returns the status of the executed SAM command, zero on success or if no
-+ * request has been executed, or -EPROTO if an unexpected response has been
-+ * received.
++ * Return: Returns the status of the executed SAM command, zero on success or
++ * if no request has been executed, or %-EPROTO if an unexpected response has
++ * been received.
 + */
 +int ssam_ctrl_notif_d0_exit(struct ssam_controller *ctrl)
 +{
@@ -8293,7 +8590,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_ctrl_notif_d0_entry - Notify EC that the driver/device enters the D0
++ * ssam_ctrl_notif_d0_entry() - Notify EC that the driver/device enters the D0
 + * power state.
 + * @ctrl: The controller
 + *
@@ -8307,9 +8604,9 @@ index 0000000000000..32a599a8acac7
 + *
 + * See ssam_ctrl_notif_d0_exit() for more details.
 + *
-+ * Returns the status of the executed SAM command, zero on success or if no
-+ * request has been executed, or -EPROTO if an unexpected response has been
-+ * received.
++ * Return: Returns the status of the executed SAM command, zero on success or
++ * if no request has been executed, or %-EPROTO if an unexpected response has
++ * been received.
 + */
 +int ssam_ctrl_notif_d0_entry(struct ssam_controller *ctrl)
 +{
@@ -8338,21 +8635,29 @@ index 0000000000000..32a599a8acac7
 +/* -- Top-level event registry interface. ----------------------------------- */
 +
 +/**
-+ * ssam_notifier_register - Register an event notifier.
++ * ssam_notifier_register() - Register an event notifier.
 + * @ctrl: The controller to register the notifier on.
 + * @n:    The event notifier to register.
 + *
 + * Register an event notifier and increment the usage counter of the
 + * associated SAM event. If the event was previously not enabled, it will be
 + * enabled during this call.
++ *
++ * Return: Returns zero on success, %-ENOSPC if there have already been
++ * %INT_MAX notifiers for the event ID/type associated with the notifier block
++ * registered, %-ENOMEM if the corresponding event entry could not be
++ * allocated. If this is the first time that a notifier block is registered
++ * for the specific associated event, returns the status of the event enable
++ * EC command.
 + */
 +int ssam_notifier_register(struct ssam_controller *ctrl,
 +			   struct ssam_event_notifier *n)
 +{
 +	u16 rqid = ssh_tc_to_rqid(n->event.id.target_category);
++	struct ssam_nf_refcount_entry *entry;
 +	struct ssam_nf_head *nf_head;
 +	struct ssam_nf *nf;
-+	int rc, status;
++	int status;
 +
 +	if (!ssh_rqid_is_event(rqid))
 +		return -EINVAL;
@@ -8362,33 +8667,45 @@ index 0000000000000..32a599a8acac7
 +
 +	mutex_lock(&nf->lock);
 +
-+	rc = ssam_nf_refcount_inc(nf, n->event.reg, n->event.id);
-+	if (rc < 0) {
++	entry = ssam_nf_refcount_inc(nf, n->event.reg, n->event.id);
++	if (IS_ERR(entry)) {
 +		mutex_unlock(&nf->lock);
-+		return rc;
++		return PTR_ERR(entry);
 +	}
 +
 +	ssam_dbg(ctrl, "enabling event (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x,"
 +		 " rc: %d)\n", n->event.reg.target_category,
-+		 n->event.id.target_category, n->event.id.instance, rc);
++		 n->event.id.target_category, n->event.id.instance,
++		 entry->refcount);
 +
 +	status = __ssam_nfblk_insert(nf_head, &n->base);
 +	if (status) {
-+		ssam_nf_refcount_dec(nf, n->event.reg, n->event.id);
++		entry = ssam_nf_refcount_dec(nf, n->event.reg, n->event.id);
++		if (entry->refcount == 0)
++			kfree(entry);
++
 +		mutex_unlock(&nf->lock);
 +		return status;
 +	}
 +
-+	if (rc == 1) {
++	if (entry->refcount == 1) {
 +		status = ssam_ssh_event_enable(ctrl, n->event.reg, n->event.id,
 +					       n->event.flags);
 +		if (status) {
 +			__ssam_nfblk_remove(nf_head, &n->base);
-+			ssam_nf_refcount_dec(nf, n->event.reg, n->event.id);
++			kfree(ssam_nf_refcount_dec(nf, n->event.reg, n->event.id));
 +			mutex_unlock(&nf->lock);
 +			synchronize_srcu(&nf_head->srcu);
 +			return status;
 +		}
++
++		entry->flags = n->event.flags;
++
++	} else if (entry->flags != n->event.flags) {
++		ssam_warn(ctrl, "inconsistent flags when enabling event: got 0x%02x,"
++			  " expected 0x%02x (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x)",
++			  n->event.flags, entry->flags, n->event.reg.target_category,
++			  n->event.id.target_category, n->event.id.instance);
 +	}
 +
 +	mutex_unlock(&nf->lock);
@@ -8398,21 +8715,28 @@ index 0000000000000..32a599a8acac7
 +EXPORT_SYMBOL_GPL(ssam_notifier_register);
 +
 +/**
-+ * ssam_notifier_unregister - Unregister an event notifier.
++ * ssam_notifier_unregister() - Unregister an event notifier.
 + * @ctrl: The controller the notifier has been registered on.
 + * @n:    The event notifier to unregister.
 + *
 + * Unregister an event notifier and decrement the usage counter of the
 + * associated SAM event. If the usage counter reaches zero, the event will be
 + * disabled.
++ *
++ * Return: Returns zero on success, %-ENOENT if the given notifier block has
++ * not been registered on the controller. If the given notifier block was the
++ * last one associated with its specific event, returns the status of the
++ * event disable EC command.
 + */
 +int ssam_notifier_unregister(struct ssam_controller *ctrl,
 +			     struct ssam_event_notifier *n)
 +{
 +	u16 rqid = ssh_tc_to_rqid(n->event.id.target_category);
++	struct ssam_notifier_block **link;
++	struct ssam_nf_refcount_entry *entry;
 +	struct ssam_nf_head *nf_head;
 +	struct ssam_nf *nf;
-+	int rc, status = 0;
++	int status = 0;
 +
 +	if (!ssh_rqid_is_event(rqid))
 +		return -EINVAL;
@@ -8422,22 +8746,37 @@ index 0000000000000..32a599a8acac7
 +
 +	mutex_lock(&nf->lock);
 +
-+	rc = ssam_nf_refcount_dec(nf, n->event.reg, n->event.id);
-+	if (rc < 0) {
++	link = __ssam_nfblk_find_link(nf_head, &n->base);
++	if (!link) {
 +		mutex_unlock(&nf->lock);
-+		return rc;
++		return -ENOENT;
++	}
++
++	entry = ssam_nf_refcount_dec(nf, n->event.reg, n->event.id);
++	if (WARN_ON(!entry)) {
++		mutex_unlock(&nf->lock);
++		return -ENOENT;
 +	}
 +
 +	ssam_dbg(ctrl, "disabling event (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x,"
 +		 " rc: %d)\n", n->event.reg.target_category,
-+		 n->event.id.target_category, n->event.id.instance, rc);
++		 n->event.id.target_category, n->event.id.instance,
++		 entry->refcount);
 +
-+	if (rc == 0) {
-+		status = ssam_ssh_event_disable(ctrl, n->event.reg, n->event.id,
-+						n->event.flags);
++	if (entry->flags != n->event.flags) {
++		ssam_warn(ctrl, "inconsistent flags when enabling event: got 0x%02x,"
++			  " expected 0x%02x (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x)",
++			  n->event.flags, entry->flags, n->event.reg.target_category,
++			  n->event.id.target_category, n->event.id.instance);
 +	}
 +
-+	__ssam_nfblk_remove(nf_head, &n->base);
++	if (entry->refcount == 0) {
++		status = ssam_ssh_event_disable(ctrl, n->event.reg, n->event.id,
++						n->event.flags);
++		kfree(entry);
++	}
++
++	__ssam_nfblk_erase(link);
 +	mutex_unlock(&nf->lock);
 +	synchronize_srcu(&nf_head->srcu);
 +
@@ -8446,7 +8785,90 @@ index 0000000000000..32a599a8acac7
 +EXPORT_SYMBOL_GPL(ssam_notifier_unregister);
 +
 +/**
-+ * ssam_notifier_empty - Check if there are any registered notifiers.
++ * ssam_notifier_disable_registered() - Disable events for all registered
++ * notifiers.
++ * @ctrl: The controller for which to disable the notifiers/events.
++ *
++ * Disables events for all currently registered notifiers. In case of an error
++ * (EC command failing), all previously disabled events will be restored and
++ * the error code returned.
++ *
++ * This function is intended to disable all events prior to hibenration entry.
++ * See ssam_notifier_restore_registered() to restore/re-enable all events
++ * disabled with this fucntion.
++ *
++ * Note that this function will not disable events for notifiers registered
++ * after calling this function. It should thus be made sure that no new
++ * notifiers are going to be added after this call and before the corresponding
++ * call to ssam_notifier_restore_registered().
++ *
++ * Returns zero on success. In case of failure returns the error code returned
++ * by the failed EC command to disable an event.
++ */
++int ssam_notifier_disable_registered(struct ssam_controller *ctrl)
++{
++	struct ssam_nf *nf = &ctrl->cplt.event.notif;
++	struct rb_node *n;
++	int status;
++
++	mutex_lock(&nf->lock);
++	for (n = rb_first(&nf->refcount); n != NULL; n = rb_next(n)) {
++		struct ssam_nf_refcount_entry *e;
++
++		e = rb_entry(n, struct ssam_nf_refcount_entry, node);
++		status = ssam_ssh_event_disable(ctrl, e->key.reg,
++						e->key.id, e->flags);
++		if (status)
++			goto err;
++	}
++	mutex_unlock(&nf->lock);
++
++	return 0;
++
++err:
++	for (n = rb_prev(n); n != NULL; n = rb_prev(n)) {
++		struct ssam_nf_refcount_entry *e;
++
++		e = rb_entry(n, struct ssam_nf_refcount_entry, node);
++		ssam_ssh_event_enable(ctrl, e->key.reg, e->key.id, e->flags);
++	}
++	mutex_unlock(&nf->lock);
++
++	return status;
++}
++
++/**
++ * ssam_notifier_restore_registered() - Restore/re-enable events for all
++ * registered notifiers.
++ * @ctrl: The controller for which to restore the notifiers/events.
++ *
++ * Restores/re-enables all events for which notifiers have been registered on
++ * the given controller. In case of a failure, the error is logged and the
++ * function continues to try and enable the remaining events.
++ *
++ * This function is intended to restore/re-enable all registered events after
++ * hibernation. See ssam_notifier_disable_registered() for the counter part
++ * disabling the events and more details.
++ */
++void ssam_notifier_restore_registered(struct ssam_controller *ctrl)
++{
++	struct ssam_nf *nf = &ctrl->cplt.event.notif;
++	struct rb_node *n;
++
++	mutex_lock(&nf->lock);
++	for (n = rb_first(&nf->refcount); n != NULL; n = rb_next(n)) {
++		struct ssam_nf_refcount_entry *e;
++
++		e = rb_entry(n, struct ssam_nf_refcount_entry, node);
++
++		// ignore errors, will get logged in call
++		ssam_ssh_event_enable(ctrl, e->key.reg, e->key.id, e->flags);
++	}
++	mutex_unlock(&nf->lock);
++}
++
++/**
++ * ssam_notifier_empty() - Check if there are any registered notifiers.
 + * @ctrl: The controller to check on.
 + *
 + * Return true if there are currently no notifiers registered on the
@@ -8465,7 +8887,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_notifier_unregister_all - Unregister all currently registered
++ * ssam_notifier_unregister_all() - Unregister all currently registered
 + * notifiers.
 + * @ctrl: The controller to unregister the notifiers on.
 + *
@@ -8476,13 +8898,13 @@ index 0000000000000..32a599a8acac7
 +static void ssam_notifier_unregister_all(struct ssam_controller *ctrl)
 +{
 +	struct ssam_nf *nf = &ctrl->cplt.event.notif;
-+	struct ssam_nf_refcount_entry *pos, *n;
++	struct ssam_nf_refcount_entry *e, *n;
 +
 +	mutex_lock(&nf->lock);
-+	rbtree_postorder_for_each_entry_safe(pos, n, &nf->refcount, node) {
++	rbtree_postorder_for_each_entry_safe(e, n, &nf->refcount, node) {
 +		// ignore errors, will get logged in call
-+		ssam_ssh_event_disable(ctrl, pos->key.reg, pos->key.id, 0);
-+		kfree(pos);
++		ssam_ssh_event_disable(ctrl, e->key.reg, e->key.id, e->flags);
++		kfree(e);
 +	}
 +	nf->refcount = RB_ROOT;
 +	mutex_unlock(&nf->lock);
@@ -8522,7 +8944,7 @@ index 0000000000000..32a599a8acac7
 +}
 +
 +/**
-+ * ssam_irq_setup - Set up SAM EC wakeup-GPIO interrupt.
++ * ssam_irq_setup() - Set up SAM EC wakeup-GPIO interrupt.
 + * @ctrl: The controller for which the IRQ should be set up.
 + *
 + * Set up an IRQ for the wakeup-GPIO pin of the SAM EC. This IRQ can be used
@@ -8548,6 +8970,10 @@ index 0000000000000..32a599a8acac7
 + * See also ssam_ctrl_notif_display_off() and ssam_ctrl_notif_display_off()
 + * for functions to transition the EC into and out of the display-off state as
 + * well as more details on it.
++ *
++ * The IRQ is disabled by default and has to be enabled before it can wake up
++ * the device from suspend via ssam_irq_arm_for_wakeup(). On teardown, the IRQ
++ * should be freed via ssam_irq_free().
 + */
 +int ssam_irq_setup(struct ssam_controller *ctrl)
 +{
@@ -8585,11 +9011,12 @@ index 0000000000000..32a599a8acac7
 +		return status;
 +
 +	ctrl->irq.num = irq;
++	disable_irq(ctrl->irq.num);
 +	return 0;
 +}
 +
 +/**
-+ * ssam_irq_free - Free SAM EC wakeup-GPIO interrupt.
++ * ssam_irq_free() - Free SAM EC wakeup-GPIO interrupt.
 + * @ctrl: The controller for which the IRQ should be freed.
 + *
 + * Free the wakeup-GPIO IRQ previously set-up via ssam_irq_setup().
@@ -8599,12 +9026,73 @@ index 0000000000000..32a599a8acac7
 +	free_irq(ctrl->irq.num, ctrl);
 +	ctrl->irq.num = -1;
 +}
++
++/**
++ * ssam_irq_arm_for_wakeup() - Arm the EC IRQ for wakeup, if enabled.
++ * @ctrl: The controller for which the IRQ should be armed.
++ *
++ * Sets up the IRQ so that it can be used to wake the device. Specifically,
++ * this function enables the irq and then, if the device is allowed to wake up
++ * the system, calls enable_irq_wake(). See ssam_irq_disarm_wakeup() for the
++ * corresponding function to disable the IRQ.
++ *
++ * This function is intended to arm the IRQ before entering S2idle suspend.
++ *
++ * Note: calls to ssam_irq_arm_for_wakeup() and ssam_irq_disarm_wakeup() must
++ * be balanced.
++ */
++int ssam_irq_arm_for_wakeup(struct ssam_controller *ctrl)
++{
++	struct device *dev = ssam_controller_device(ctrl);
++	int status;
++
++	enable_irq(ctrl->irq.num);
++	if (device_may_wakeup(dev)) {
++		status = enable_irq_wake(ctrl->irq.num);
++		if (status) {
++			ssam_err(ctrl, "failed to enable wake IRQ: %d\n", status);
++			disable_irq(ctrl->irq.num);
++			return status;
++		}
++
++		ctrl->irq.wakeup_enabled = true;
++	} else {
++		ctrl->irq.wakeup_enabled = false;
++	}
++
++	return 0;
++}
++
++/**
++ * ssam_irq_disarm_wakeup() - Disarm the wakeup IRQ.
++ * @ctrl: The controller for which the IRQ should be disarmed.
++ *
++ * Disarm the IRQ previously set up for wake via ssam_irq_arm_for_wakeup().
++ *
++ * This function is intended to disarm the IRQ after exiting S2idle suspend.
++ *
++ * Note: calls to ssam_irq_arm_for_wakeup() and ssam_irq_disarm_wakeup() must
++ * be balanced.
++ */
++void ssam_irq_disarm_wakeup(struct ssam_controller *ctrl)
++{
++	int status;
++
++	if (ctrl->irq.wakeup_enabled) {
++		status = disable_irq_wake(ctrl->irq.num);
++		if (status)
++			ssam_err(ctrl, "failed to disable wake IRQ: %d\n", status);
++
++		ctrl->irq.wakeup_enabled = false;
++	}
++	disable_irq(ctrl->irq.num);
++}
 diff --git a/drivers/misc/surface_sam/controller.h b/drivers/misc/surface_sam/controller.h
 new file mode 100644
-index 0000000000000..051dfeff41ad7
+index 0000000000000..7f58e2a4b51b2
 --- /dev/null
 +++ b/drivers/misc/surface_sam/controller.h
-@@ -0,0 +1,266 @@
+@@ -0,0 +1,275 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +
 +#ifndef _SSAM_CONTROLLER_H
@@ -8683,6 +9171,7 @@ index 0000000000000..051dfeff41ad7
 + * struct ssam_event_item - Struct for event queuing and completion.
 + * @node:     The node in the queue.
 + * @rqid:     The request ID of the event.
++ * @ops:      Instance specific functions.
 + * @ops.free: Callback for freeing this event item.
 + * @event:    Actual event data.
 + */
@@ -8726,6 +9215,7 @@ index 0000000000000..051dfeff41ad7
 + *                for logging.
 + * @wq:           The &struct workqueue_struct on which all completion work
 + *                items are queued.
++ * @event:        Event completion management.
 + * @event.target: Array of &struct ssam_event_target, one for each target.
 + * @event.notif:  Notifier callbacks and event activation reference counting.
 + */
@@ -8780,8 +9270,10 @@ index 0000000000000..051dfeff41ad7
 + * @state: Controller state.
 + * @rtl:   Request transport layer for SSH I/O.
 + * @cplt:  Completion system for SSH/SSAM events and asynchronous requests.
++ * @counter:      Safe SSH message ID counters.
 + * @counter.seq:  Sequence ID counter.
 + * @counter.rqid: Request ID counter.
++ * @irq:          Wakeup IRQ resources.
 + * @irq.num:      The wakeup IRQ number.
 + * @irq.wakeup_enabled: Whether wakeup by IRQ is enabled during suspend.
 + * @caps: The controller device capabilities.
@@ -8818,7 +9310,7 @@ index 0000000000000..051dfeff41ad7
 +
 +
 +/**
-+ * ssam_controller_receive_buf - Provide input-data to the controller.
++ * ssam_controller_receive_buf() - Provide input-data to the controller.
 + * @ctrl: The controller.
 + * @buf:  The input buffer.
 + * @n:    The number of bytes in the input buffer.
@@ -8837,7 +9329,7 @@ index 0000000000000..051dfeff41ad7
 +}
 +
 +/**
-+ * ssam_controller_write_wakeup - Notify the controller that the underlying
++ * ssam_controller_write_wakeup() - Notify the controller that the underlying
 + * device has space avaliable for data to be written.
 + * @ctrl: The controller.
 + */
@@ -8852,8 +9344,13 @@ index 0000000000000..051dfeff41ad7
 +void ssam_controller_shutdown(struct ssam_controller *ctrl);
 +void ssam_controller_destroy(struct ssam_controller *ctrl);
 +
++int ssam_notifier_disable_registered(struct ssam_controller *ctrl);
++void ssam_notifier_restore_registered(struct ssam_controller *ctrl);
++
 +int ssam_irq_setup(struct ssam_controller *ctrl);
 +void ssam_irq_free(struct ssam_controller *ctrl);
++int ssam_irq_arm_for_wakeup(struct ssam_controller *ctrl);
++void ssam_irq_disarm_wakeup(struct ssam_controller *ctrl);
 +
 +void ssam_controller_lock(struct ssam_controller *c);
 +void ssam_controller_unlock(struct ssam_controller *c);
@@ -8873,10 +9370,10 @@ index 0000000000000..051dfeff41ad7
 +#endif /* _SSAM_CONTROLLER_H */
 diff --git a/drivers/misc/surface_sam/core.c b/drivers/misc/surface_sam/core.c
 new file mode 100644
-index 0000000000000..8d5f37d32ef90
+index 0000000000000..db1019c90b114
 --- /dev/null
 +++ b/drivers/misc/surface_sam/core.c
-@@ -0,0 +1,557 @@
+@@ -0,0 +1,764 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface Serial Hub (SSH) driver for communication with the Surface/System
@@ -8899,6 +9396,203 @@ index 0000000000000..8d5f37d32ef90
 +
 +#define CREATE_TRACE_POINTS
 +#include "ssam_trace.h"
++
++
++/* -- Static controller reference. ------------------------------------------ */
++
++/*
++ * Main controller reference. The corresponding lock must be held while
++ * accessing (reading/writing) the reference.
++ */
++static struct ssam_controller *__ssam_controller;
++static DEFINE_SPINLOCK(__ssam_controller_lock);
++
++/**
++ * ssam_get_controller() - Get reference to SSAM controller.
++ *
++ * Returns a reference to the SSAM controller of the system or %NULL if there
++ * is none, it hasn't been set up yet, or it has already been unregistered.
++ * This function automatically increments the reference count of the
++ * controller, thus the calling party must ensure that ssam_controller_put()
++ * is called when it doesn't need the controller any more.
++ */
++struct ssam_controller *ssam_get_controller(void)
++{
++	struct ssam_controller *ctrl;
++
++	spin_lock(&__ssam_controller_lock);
++
++	ctrl = __ssam_controller;
++	if (!ctrl)
++		goto out;
++
++	if (WARN_ON(!kref_get_unless_zero(&ctrl->kref)))
++		ctrl = NULL;
++
++out:
++	spin_unlock(&__ssam_controller_lock);
++	return ctrl;
++}
++EXPORT_SYMBOL_GPL(ssam_get_controller);
++
++/**
++ * ssam_try_set_controller() - Try to set the main controller reference.
++ * @ctrl: The controller to which the reference should point.
++ *
++ * Set the main controller reference to the given pointer if the reference
++ * hasn't been set already.
++ *
++ * Return: Returns zero on success or %-EBUSY if the reference has already
++ * been set.
++ */
++static int ssam_try_set_controller(struct ssam_controller *ctrl)
++{
++	int status = 0;
++
++	spin_lock(&__ssam_controller_lock);
++	if (!__ssam_controller)
++		__ssam_controller = ctrl;
++	else
++		status = -EBUSY;
++	spin_unlock(&__ssam_controller_lock);
++
++	return status;
++}
++
++/**
++ * ssam_clear_controller() - Remove/clear the main controller reference.
++ *
++ * Clears the main controller reference, i.e. sets it to %NULL. This function
++ * should be called before the controller is shut down.
++ */
++static void ssam_clear_controller(void)
++{
++	spin_lock(&__ssam_controller_lock);
++	__ssam_controller = NULL;
++	spin_unlock(&__ssam_controller_lock);
++}
++
++
++/**
++ * ssam_client_link() - Link an arbitrary client device to the controller.
++ * @c: The controller to link to.
++ * @client: The client device.
++ *
++ * Link an arbitrary client device to the controller by creating a device link
++ * between it as consumer and the controller device as provider. This function
++ * can be used for non-SSAM devices (or SSAM devices not registered as child
++ * under the controller) to guarantee that the controller is valid for as long
++ * as the driver of the client device is bound, and that proper suspend and
++ * resume ordering is guaranteed.
++ *
++ * The device link does not have to be destructed manually. It is removed
++ * automatically once the driver of the client device unbinds.
++ *
++ * Return: Returns zero on success, %-ENXIO if the controller is not ready or
++ * going to be removed soon, or %-ENOMEM if the device link could not be
++ * created for other reasons.
++ */
++int ssam_client_link(struct ssam_controller *c, struct device *client)
++{
++	const u32 flags = DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE_CONSUMER;
++	struct device_link *link;
++	struct device *ctrldev;
++
++	ssam_controller_statelock(c);
++
++	if (READ_ONCE(c->state) != SSAM_CONTROLLER_STARTED) {
++		ssam_controller_stateunlock(c);
++		return -ENXIO;
++	}
++
++	ctrldev = ssam_controller_device(c);
++	if (!ctrldev) {
++		ssam_controller_stateunlock(c);
++		return -ENXIO;
++	}
++
++	link = device_link_add(client, ctrldev, flags);
++	if (!link) {
++		ssam_controller_stateunlock(c);
++		return -ENOMEM;
++	}
++
++	/*
++	 * Return -ENXIO if supplier driver is on its way to be removed. In this
++	 * case, the controller won't be around for much longer and the device
++	 * link is not going to save us any more, as unbinding is already in
++	 * progress.
++	 */
++	if (link->status == DL_STATE_SUPPLIER_UNBIND) {
++		ssam_controller_stateunlock(c);
++		return -ENXIO;
++	}
++
++	ssam_controller_stateunlock(c);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(ssam_client_link);
++
++/**
++ * ssam_client_bind() - Bind an arbitrary client device to the controller.
++ * @client: The client device.
++ * @ctrl: A pointer to where the controller reference should be returned.
++ *
++ * Link an arbitrary client device to the controller by creating a device link
++ * between it as consumer and the main controller device as provider. This
++ * function can be used for non-SSAM devices to guarantee that the controller
++ * returned by this function is valid for as long as the driver of the client
++ * device is bound, and that proper suspend and resume ordering is guaranteed.
++ *
++ * This function does essentially the same as ssam_client_link(), except that
++ * it first fetches the main controller reference, then creates the link, and
++ * finally returns this reference in the @ctrl parameter. Note that this
++ * function does not increment the reference counter of the controller, as,
++ * due to the link, the controller lifetime is assured as long as the driver
++ * of the client device is bound.
++ *
++ * It is not valid to use the controller reference obtained by this method
++ * outside of the driver bound to the client device at the time of calling
++ * this function, without first incrementing the reference count of the
++ * controller via ssam_controller_get(). Even after doing this, care must be
++ * taken that requests are only submitted and notifiers are only
++ * (un-)registered when the controller is active and not suspended. In other
++ * words: The device link only lives as long as the client driver is bound and
++ * any guarantees enforced by this link (e.g. active controller state) can
++ * only be relied upon as long as this link exists and may need to be enforced
++ * in other ways afterwards.
++ *
++ * The created device link does not have to be destructed manually. It is
++ * removed automatically once the driver of the client device unbinds.
++ *
++ * Return: Returns zero on success, %-ENXIO if the controller is not present,
++ * not ready or going to be removed soon, or %-ENOMEM if the device link could
++ * not be created for other reasons.
++ */
++int ssam_client_bind(struct device *client, struct ssam_controller **ctrl)
++{
++	struct ssam_controller *c;
++	int status;
++
++	c = ssam_get_controller();
++	if (!c)
++		return -ENXIO;
++
++	status = ssam_client_link(c, client);
++
++	/*
++	 * Note that we can drop our controller reference in both success and
++	 * failure cases: On success, we have bound the controller lifetime
++	 * inherently to the client driver lifetime, i.e. it the controller is
++	 * now guaranteed to outlive the client driver. On failure, we're not
++	 * going to use the controller any more.
++	 */
++	ssam_controller_put(c);
++
++	*ctrl = status == 0 ? c : NULL;
++	return status;
++}
++EXPORT_SYMBOL_GPL(ssam_client_bind);
 +
 +
 +/* -- Glue layer (serdev_device -> ssam_controller). ------------------------ */
@@ -8992,7 +9686,7 @@ index 0000000000000..8d5f37d32ef90
 +
 +/* -- Power management. ----------------------------------------------------- */
 +
-+static void surface_sam_ssh_shutdown(struct device *dev)
++static void ssam_serial_hub_shutdown(struct device *dev)
 +{
 +	struct ssam_controller *c = dev_get_drvdata(dev);
 +	int status;
@@ -9013,7 +9707,7 @@ index 0000000000000..8d5f37d32ef90
 +		ssam_err(c, "pm: D0-exit notification failed: %d\n", status);
 +}
 +
-+static int surface_sam_ssh_suspend(struct device *dev)
++static int ssam_serial_hub_suspend(struct device *dev)
 +{
 +	struct ssam_controller *c = dev_get_drvdata(dev);
 +	int status;
@@ -9039,17 +9733,9 @@ index 0000000000000..8d5f37d32ef90
 +		goto err_notif;
 +	}
 +
-+	if (device_may_wakeup(dev)) {
-+		status = enable_irq_wake(c->irq.num);
-+		if (status) {
-+			ssam_err(c, "failed to disable wake IRQ: %d\n", status);
-+			goto err_irq;
-+		}
-+
-+		c->irq.wakeup_enabled = true;
-+	} else {
-+		c->irq.wakeup_enabled = false;
-+	}
++	status = ssam_irq_arm_for_wakeup(c);
++	if (status)
++		goto err_irq;
 +
 +	WARN_ON(ssam_controller_suspend(c));
 +	return 0;
@@ -9061,7 +9747,7 @@ index 0000000000000..8d5f37d32ef90
 +	return status;
 +}
 +
-+static int surface_sam_ssh_resume(struct device *dev)
++static int ssam_serial_hub_resume(struct device *dev)
 +{
 +	struct ssam_controller *c = dev_get_drvdata(dev);
 +	int status;
@@ -9078,140 +9764,158 @@ index 0000000000000..8d5f37d32ef90
 +	 * it here.
 +	 */
 +
-+	if (c->irq.wakeup_enabled) {
-+		status = disable_irq_wake(c->irq.num);
-+		if (status)
-+			ssam_err(c, "failed to disable wake IRQ: %d\n", status);
-+
-+		c->irq.wakeup_enabled = false;
-+	}
++	ssam_irq_disarm_wakeup(c);
 +
 +	status = ssam_ctrl_notif_d0_entry(c);
 +	if (status)
-+		ssam_err(c, "pm: display-on notification failed: %d\n", status);
++		ssam_err(c, "pm: D0-entry notification failed: %d\n", status);
 +
 +	status = ssam_ctrl_notif_display_on(c);
 +	if (status)
++		ssam_err(c, "pm: display-on notification failed: %d\n", status);
++
++	return 0;
++}
++
++static int ssam_serial_hub_freeze(struct device *dev)
++{
++	struct ssam_controller *c = dev_get_drvdata(dev);
++	int status;
++
++	/*
++	 * During hibernation image creation, we only have to ensure that the
++	 * EC doesn't send us any events. This is done via the display-off
++	 * and D0-exit notifications. Note that this sets up the wakeup IRQ
++	 * on the EC side, however, we have disabled it by default on our side
++	 * and won't enable it here.
++	 *
++	 * See ssam_serial_hub_poweroff() for more details on the hibernation
++	 * process.
++	 */
++
++	status = ssam_ctrl_notif_display_off(c);
++	if (status) {
++		ssam_err(c, "pm: display-off notification failed: %d\n", status);
++		return status;
++	}
++
++	status = ssam_ctrl_notif_d0_exit(c);
++	if (status) {
++		ssam_err(c, "pm: D0-exit notification failed: %d\n", status);
++		ssam_ctrl_notif_display_on(c);
++		return status;
++	}
++
++	WARN_ON(ssam_controller_suspend(c));
++	return 0;
++}
++
++static int ssam_serial_hub_thaw(struct device *dev)
++{
++	struct ssam_controller *c = dev_get_drvdata(dev);
++	int status;
++
++	WARN_ON(ssam_controller_resume(c));
++
++	status = ssam_ctrl_notif_d0_entry(c);
++	if (status) {
++		ssam_err(c, "pm: D0-exit notification failed: %d\n", status);
++
++		// try to restore as much as possible in case of failure
++		ssam_ctrl_notif_display_on(c);
++		return status;
++	}
++
++	status = ssam_ctrl_notif_display_on(c);
++	if (status)
++		ssam_err(c, "pm: display-on notification failed: %d\n", status);
++
++	return status;
++}
++
++static int ssam_serial_hub_poweroff(struct device *dev)
++{
++	struct ssam_controller *c = dev_get_drvdata(dev);
++	int status;
++
++	/*
++	 * When entering hibernation and powering off the system, the EC, at
++	 * least on some models, may disable events. Without us taking care of
++	 * that, this leads to events not being enabled/restored when the
++	 * system resumes from hibernation, resulting SAM-HID subsystem devices
++	 * (i.e. keyboard, touchpad) not working, AC-plug/AC-unplug events being
++	 * gone, etc.
++	 *
++	 * To avoid these issues, we disable all registered events here (this is
++	 * likely not actually required) and restore them during the drivers PM
++	 * restore callback.
++	 *
++	 * Wakeup from the EC interrupt is not supported during hibernation,
++	 * so don't arm the IRQ here.
++	 */
++
++	status = ssam_notifier_disable_registered(c);
++	if (status) {
++		ssam_err(c, "pm: failed to disable notifiers for hibernation: %d\n",
++			 status);
++		return status;
++	}
++
++	status = ssam_ctrl_notif_display_off(c);
++	if (status) {
++		ssam_err(c, "pm: display-off notification failed: %d\n", status);
++		goto err_dpnf;
++	}
++
++	status = ssam_ctrl_notif_d0_exit(c);
++	if (status) {
++		ssam_err(c, "pm: D0-exit notification failed: %d\n", status);
++		goto err_d0nf;
++	}
++
++	WARN_ON(ssam_controller_suspend(c));
++	return 0;
++
++err_d0nf:
++	ssam_ctrl_notif_display_on(c);
++err_dpnf:
++	ssam_notifier_restore_registered(c);
++	return status;
++}
++
++static int ssam_serial_hub_restore(struct device *dev)
++{
++	struct ssam_controller *c = dev_get_drvdata(dev);
++	int status;
++
++	/*
++	 * Ignore but log errors, try to restore state as much as possible in
++	 * case of failures. See ssam_serial_hub_poweroff() for more details on
++	 * the hibernation process.
++	 */
++
++	WARN_ON(ssam_controller_resume(c));
++
++	status = ssam_ctrl_notif_d0_entry(c);
++	if (status)
 +		ssam_err(c, "pm: D0-entry notification failed: %d\n", status);
 +
++	status = ssam_ctrl_notif_display_on(c);
++	if (status)
++		ssam_err(c, "pm: display-on notification failed: %d\n", status);
++
++	ssam_notifier_restore_registered(c);
 +	return 0;
 +}
 +
-+static SIMPLE_DEV_PM_OPS(surface_sam_ssh_pm_ops, surface_sam_ssh_suspend,
-+			 surface_sam_ssh_resume);
-+
-+
-+/* -- Static controller reference. ------------------------------------------ */
-+
-+static struct ssam_controller *__ssam_controller;
-+static DEFINE_SPINLOCK(__ssam_controller_lock);
-+
-+struct ssam_controller *ssam_get_controller(void)
-+{
-+	struct ssam_controller *ctrl;
-+
-+	spin_lock(&__ssam_controller_lock);
-+
-+	ctrl = __ssam_controller;
-+	if (!ctrl)
-+		goto out;
-+
-+	if (WARN_ON(!kref_get_unless_zero(&ctrl->kref)))
-+		ctrl = NULL;
-+
-+out:
-+	spin_unlock(&__ssam_controller_lock);
-+	return ctrl;
-+}
-+EXPORT_SYMBOL_GPL(ssam_get_controller);
-+
-+static int ssam_try_set_controller(struct ssam_controller *ctrl)
-+{
-+	int status = 0;
-+
-+	spin_lock(&__ssam_controller_lock);
-+	if (!__ssam_controller)
-+		__ssam_controller = ctrl;
-+	else
-+		status = -EBUSY;
-+	spin_unlock(&__ssam_controller_lock);
-+
-+	return status;
-+}
-+
-+static void ssam_clear_controller(void)
-+{
-+	spin_lock(&__ssam_controller_lock);
-+	__ssam_controller = NULL;
-+	spin_unlock(&__ssam_controller_lock);
-+}
-+
-+
-+static int __ssam_client_link(struct ssam_controller *c, struct device *client)
-+{
-+	const u32 flags = DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE_CONSUMER;
-+	struct device_link *link;
-+	struct device *ctrldev;
-+
-+	if (READ_ONCE(c->state) != SSAM_CONTROLLER_STARTED)
-+		return -ENXIO;
-+
-+	ctrldev = ssam_controller_device(c);
-+	if (!ctrldev)
-+		return -ENXIO;
-+
-+	link = device_link_add(client, ctrldev, flags);
-+	if (!link)
-+		return -ENOMEM;
-+
-+	/*
-+	 * Return -ENXIO if supplier driver is on its way to be removed. In this
-+	 * case, the controller won't be around for much longer and the device
-+	 * link is not going to save us any more, as unbinding is already in
-+	 * progress.
-+	 */
-+	if (link->status == DL_STATE_SUPPLIER_UNBIND)
-+		return -ENXIO;
-+
-+	return 0;
-+}
-+
-+int ssam_client_link(struct ssam_controller *ctrl, struct device *client)
-+{
-+	int status;
-+
-+	ssam_controller_statelock(ctrl);
-+	status = __ssam_client_link(ctrl, client);
-+	ssam_controller_stateunlock(ctrl);
-+
-+	return status;
-+}
-+EXPORT_SYMBOL_GPL(ssam_client_link);
-+
-+int ssam_client_bind(struct device *client, struct ssam_controller **ctrl)
-+{
-+	struct ssam_controller *c;
-+	int status;
-+
-+	c = ssam_get_controller();
-+	if (!c)
-+		return -ENXIO;
-+
-+	status = ssam_client_link(c, client);
-+
-+	/*
-+	 * Note that we can drop our controller reference in both success and
-+	 * failure cases: On success, we have bound the controller lifetime
-+	 * inherently to the client driver lifetime, i.e. it the controller is
-+	 * now guaranteed to outlive the client driver. On failure, we're not
-+	 * going to use the controller any more.
-+	 */
-+	ssam_controller_put(c);
-+
-+	*ctrl = status == 0 ? c : NULL;
-+	return status;
-+}
-+EXPORT_SYMBOL_GPL(ssam_client_bind);
++static const struct dev_pm_ops ssam_serial_hub_pm_ops = {
++	.suspend  = ssam_serial_hub_suspend,
++	.resume   = ssam_serial_hub_resume,
++	.freeze   = ssam_serial_hub_freeze,
++	.thaw     = ssam_serial_hub_thaw,
++	.poweroff = ssam_serial_hub_poweroff,
++	.restore  = ssam_serial_hub_restore,
++};
 +
 +
 +/* -- Device/driver setup. -------------------------------------------------- */
@@ -9225,7 +9929,7 @@ index 0000000000000..8d5f37d32ef90
 +	{ },
 +};
 +
-+static int surface_sam_ssh_probe(struct serdev_device *serdev)
++static int ssam_serial_hub_probe(struct serdev_device *serdev)
 +{
 +	struct ssam_controller *ctrl;
 +	acpi_handle *ssh = ACPI_HANDLE(&serdev->dev);
@@ -9284,7 +9988,7 @@ index 0000000000000..8d5f37d32ef90
 +
 +	// finally, set main controller reference
 +	status = ssam_try_set_controller(ctrl);
-+	if (status)
++	if (WARN_ON(status))	// currently, we're the only provider
 +		goto err_initrq;
 +
 +	/*
@@ -9314,7 +10018,7 @@ index 0000000000000..8d5f37d32ef90
 +	return status;
 +}
 +
-+static void surface_sam_ssh_remove(struct serdev_device *serdev)
++static void ssam_serial_hub_remove(struct serdev_device *serdev)
 +{
 +	struct ssam_controller *ctrl = serdev_device_get_drvdata(serdev);
 +	int status;
@@ -9357,20 +10061,20 @@ index 0000000000000..8d5f37d32ef90
 +}
 +
 +
-+static const struct acpi_device_id surface_sam_ssh_match[] = {
++static const struct acpi_device_id ssam_serial_hub_match[] = {
 +	{ "MSHW0084", 0 },
 +	{ },
 +};
-+MODULE_DEVICE_TABLE(acpi, surface_sam_ssh_match);
++MODULE_DEVICE_TABLE(acpi, ssam_serial_hub_match);
 +
-+static struct serdev_device_driver surface_sam_ssh = {
-+	.probe = surface_sam_ssh_probe,
-+	.remove = surface_sam_ssh_remove,
++static struct serdev_device_driver ssam_serial_hub = {
++	.probe = ssam_serial_hub_probe,
++	.remove = ssam_serial_hub_remove,
 +	.driver = {
 +		.name = "surface_sam_ssh",
-+		.acpi_match_table = surface_sam_ssh_match,
-+		.pm = &surface_sam_ssh_pm_ops,
-+		.shutdown = surface_sam_ssh_shutdown,
++		.acpi_match_table = ssam_serial_hub_match,
++		.pm = &ssam_serial_hub_pm_ops,
++		.shutdown = ssam_serial_hub_shutdown,
 +		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 +	},
 +};
@@ -9378,7 +10082,7 @@ index 0000000000000..8d5f37d32ef90
 +
 +/* -- Module setup. --------------------------------------------------------- */
 +
-+static int __init surface_sam_ssh_init(void)
++static int __init ssam_core_init(void)
 +{
 +	int status;
 +
@@ -9394,7 +10098,7 @@ index 0000000000000..8d5f37d32ef90
 +	if (status)
 +		goto err_evitem;
 +
-+	status = serdev_device_driver_register(&surface_sam_ssh);
++	status = serdev_device_driver_register(&ssam_serial_hub);
 +	if (status)
 +		goto err_register;
 +
@@ -9410,9 +10114,9 @@ index 0000000000000..8d5f37d32ef90
 +	return status;
 +}
 +
-+static void __exit surface_sam_ssh_exit(void)
++static void __exit ssam_core_exit(void)
 +{
-+	serdev_device_driver_unregister(&surface_sam_ssh);
++	serdev_device_driver_unregister(&ssam_serial_hub);
 +	ssam_event_item_cache_destroy();
 +	ssh_ctrl_packet_cache_destroy();
 +	ssam_bus_unregister();
@@ -9428,22 +10132,22 @@ index 0000000000000..8d5f37d32ef90
 + * initialize and via that results in a more stable communication, avoiding
 + * such failures.
 + */
-+late_initcall(surface_sam_ssh_init);
-+module_exit(surface_sam_ssh_exit);
++late_initcall(ssam_core_init);
++module_exit(ssam_core_exit);
 +
 +MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 +MODULE_DESCRIPTION("Surface Serial Hub Driver for 5th Generation Surface Devices");
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_sam/ssam_trace.h b/drivers/misc/surface_sam/ssam_trace.h
 new file mode 100644
-index 0000000000000..36c2ef6ee7ac0
+index 0000000000000..7aa05c81ad427
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssam_trace.h
-@@ -0,0 +1,588 @@
+@@ -0,0 +1,619 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +
 +#undef TRACE_SYSTEM
-+#define TRACE_SYSTEM surface_sam_ssh
++#define TRACE_SYSTEM ssam
 +
 +#if !defined(_SURFACE_SAM_SSH_TRACE_H) || defined(TRACE_HEADER_MULTI_READ)
 +#define _SURFACE_SAM_SSH_TRACE_H
@@ -9533,6 +10237,14 @@ index 0000000000000..36c2ef6ee7ac0
 +#ifndef _SURFACE_SAM_SSH_TRACE_HELPERS
 +#define _SURFACE_SAM_SSH_TRACE_HELPERS
 +
++/**
++ * ssam_trace_ptr_uid() - Convert the pointer to a non-pointer UID string.
++ * @ptr: The pointer to convert.
++ * @uid_str: A buffer of length SSAM_PTR_UID_LEN where the UID will be stored.
++ *
++ * Converts the given pointer into a UID string that is safe to be shared
++ * with userspace and logs, i.e. doesn't give away the real memory location.
++ */
 +static inline void ssam_trace_ptr_uid(const void *ptr, char *uid_str)
 +{
 +	char buf[2 * sizeof(void *) + 1];
@@ -9542,6 +10254,13 @@ index 0000000000000..36c2ef6ee7ac0
 +	       SSAM_PTR_UID_LEN);
 +}
 +
++/**
++ * ssam_trace_get_packet_seq() - Read the packet's sequence ID.
++ * @p: The packet.
++ *
++ * Return: Returns the packet's sequence ID (SEQ) field if present, or
++ * %SSAM_SEQ_NOT_APPLICABLE if not (e.g. flush packet).
++ */
 +static inline u16 ssam_trace_get_packet_seq(const struct ssh_packet *p)
 +{
 +	if (!p->data.ptr || p->data.len < SSH_MESSAGE_LENGTH(0))
@@ -9550,6 +10269,14 @@ index 0000000000000..36c2ef6ee7ac0
 +	return p->data.ptr[SSH_MSGOFFSET_FRAME(seq)];
 +}
 +
++/**
++ * ssam_trace_get_request_id() - Read the packet's request ID.
++ * @p: The packet.
++ *
++ * Return: Returns the packet's request ID (RQID) field if the packet
++ * represents a request with command data, or %SSAM_RQID_NOT_APPLICABLE if not
++ * (e.g. flush request, control packet).
++ */
 +static inline u32 ssam_trace_get_request_id(const struct ssh_packet *p)
 +{
 +	if (!p->data.ptr || p->data.len < SSH_COMMAND_MESSAGE_LENGTH(0))
@@ -9558,6 +10285,14 @@ index 0000000000000..36c2ef6ee7ac0
 +	return get_unaligned_le16(&p->data.ptr[SSH_MSGOFFSET_COMMAND(rqid)]);
 +}
 +
++/**
++ * ssam_trace_get_request_tc() - Read the packet's request target category.
++ * @p: The packet.
++ *
++ * Returns the packet's request target category (TC) field if the packet
++ * represents a request with command data, or %SSAM_TC_NOT_APPLICABLE if not
++ * (e.g. flush request, control packet).
++ */
 +static inline u32 ssam_trace_get_request_tc(const struct ssh_packet *p)
 +{
 +	if (!p->data.ptr || p->data.len < SSH_COMMAND_MESSAGE_LENGTH(0))
@@ -10030,10 +10765,10 @@ index 0000000000000..36c2ef6ee7ac0
 +#include <trace/define_trace.h>
 diff --git a/drivers/misc/surface_sam/ssh_msgb.h b/drivers/misc/surface_sam/ssh_msgb.h
 new file mode 100644
-index 0000000000000..d433be547e31c
+index 0000000000000..ae8c3886722f6
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssh_msgb.h
-@@ -0,0 +1,132 @@
+@@ -0,0 +1,196 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +
 +#ifndef _SSAM_SSH_MSGB_H
@@ -10046,12 +10781,28 @@ index 0000000000000..d433be547e31c
 +#include "ssh_protocol.h"
 +
 +
++/**
++ * struct msgbuf - Buffer struct to construct SSH messages.
++ * @begin: Pointer to the beginning of the allocated buffer space.
++ * @end:   Pointer to the end (one past last element) of the allocated buffer
++ *         space.
++ * @ptr:   Pointer to the first free element in the buffer.
++ */
 +struct msgbuf {
 +	u8 *begin;
 +	u8 *end;
 +	u8 *ptr;
 +};
 +
++/**
++ * msgb_init() - Initialize the given message buffer struct.
++ * @msgb: The buffer struct to initialize
++ * @ptr:  Pointer to the underlying memory by which the buffer will be backed.
++ * @cap:  Size of the underlying memory.
++ *
++ * Initialize the given message buffer struct using the provided memory as
++ * backing.
++ */
 +static inline void msgb_init(struct msgbuf *msgb, u8 *ptr, size_t cap)
 +{
 +	msgb->begin = ptr;
@@ -10059,11 +10810,20 @@ index 0000000000000..d433be547e31c
 +	msgb->ptr = ptr;
 +}
 +
++/**
++ * msgb_bytes_used() - Return the current number of bytes used in the buffer.
++ * @msgb: The message buffer.
++ */
 +static inline size_t msgb_bytes_used(const struct msgbuf *msgb)
 +{
 +	return msgb->ptr - msgb->begin;
 +}
 +
++/**
++ * msgb_push_u16() - Push a u16 value to the buffer.
++ * @msgb:  The message buffer.
++ * @value: The value to push to the buffer.
++ */
 +static inline void msgb_push_u16(struct msgbuf *msgb, u16 value)
 +{
 +	if (WARN_ON(msgb->ptr + sizeof(u16) > msgb->end))
@@ -10073,21 +10833,44 @@ index 0000000000000..d433be547e31c
 +	msgb->ptr += sizeof(u16);
 +}
 +
++/**
++ * msgb_push_syn() - Push SSH SYN bytes to the buffer.
++ * @msgb:  The message buffer.
++ */
 +static inline void msgb_push_syn(struct msgbuf *msgb)
 +{
 +	msgb_push_u16(msgb, SSH_MSG_SYN);
 +}
 +
++/**
++ * msgb_push_buf() - Push raw data to the buffer.
++ * @msgb: The message buffer.
++ * @buf:  The data to push to the buffer.
++ * @len:  The length of the data to push to the buffer.
++ */
 +static inline void msgb_push_buf(struct msgbuf *msgb, const u8 *buf, size_t len)
 +{
 +	msgb->ptr = memcpy(msgb->ptr, buf, len) + len;
 +}
 +
++/**
++ * msgb_push_crc() - Compute CRC and push it to the buffer.
++ * @msgb: The message buffer.
++ * @buf:  The data for which the CRC should be computed.
++ * @len:  The length of the data for which the CRC should be computed.
++ */
 +static inline void msgb_push_crc(struct msgbuf *msgb, const u8 *buf, size_t len)
 +{
 +	msgb_push_u16(msgb, ssh_crc(buf, len));
 +}
 +
++/**
++ * msgb_push_frame() - Push a SSH message frame header to the buffer.
++ * @msgb: The message buffer
++ * @ty:   The type of the frame.
++ * @len:  The length of the payload of the frame.
++ * @seq:  The sequence ID of the frame/packet.
++ */
 +static inline void msgb_push_frame(struct msgbuf *msgb, u8 ty, u16 len, u8 seq)
 +{
 +	struct ssh_frame *frame = (struct ssh_frame *)msgb->ptr;
@@ -10104,6 +10887,11 @@ index 0000000000000..d433be547e31c
 +	msgb_push_crc(msgb, begin, msgb->ptr - begin);
 +}
 +
++/**
++ * msgb_push_ack() - Push a SSH ACK frame to the buffer.
++ * @msgb: The message buffer
++ * @seq:  The sequence ID of the frame/packet to be ACKed.
++ */
 +static inline void msgb_push_ack(struct msgbuf *msgb, u8 seq)
 +{
 +	// SYN
@@ -10116,6 +10904,10 @@ index 0000000000000..d433be547e31c
 +	msgb_push_crc(msgb, msgb->ptr, 0);
 +}
 +
++/**
++ * msgb_push_nak() - Push a SSH NAK frame to the buffer.
++ * @msgb: The message buffer
++ */
 +static inline void msgb_push_nak(struct msgbuf *msgb)
 +{
 +	// SYN
@@ -10128,6 +10920,13 @@ index 0000000000000..d433be547e31c
 +	msgb_push_crc(msgb, msgb->ptr, 0);
 +}
 +
++/**
++ * msgb_push_cmd() - Push a SSH command frame with payload to the buffer.
++ * @msgb: The message buffer.
++ * @seq:  The sequence ID (SEQ) of the frame/packet.
++ * @rqid: The request ID (RQID) of the request contained in the frame.
++ * @rqst: The request to wrap in the frame.
++ */
 +static inline void msgb_push_cmd(struct msgbuf *msgb, u8 seq, u16 rqid,
 +				 const struct ssam_request *rqst)
 +{
@@ -10168,7 +10967,7 @@ index 0000000000000..d433be547e31c
 +#endif /* _SSAM_SSH_MSGB_H */
 diff --git a/drivers/misc/surface_sam/ssh_packet_layer.c b/drivers/misc/surface_sam/ssh_packet_layer.c
 new file mode 100644
-index 0000000000000..a25d9785ff20c
+index 0000000000000..1b7d59ec4f433
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssh_packet_layer.c
 @@ -0,0 +1,1780 @@
@@ -10322,26 +11121,25 @@ index 0000000000000..a25d9785ff20c
 + * lock must be acquired before the queue lock.
 + */
 +
-+/**
++/*
 + * Maximum number transmission attempts per sequenced packet in case of
 + * time-outs. Must be smaller than 16.
 + */
 +#define SSH_PTL_MAX_PACKET_TRIES	3
 +
-+/**
++/*
 + * Timeout as ktime_t delta for ACKs. If we have not received an ACK in this
 + * time-frame after starting transmission, the packet will be re-submitted.
 + */
 +#define SSH_PTL_PACKET_TIMEOUT			ms_to_ktime(1000)
 +
-+/**
-+ * Maximum time resolution for timeouts. Currently set to max(2 jiffies, 50ms).
-+ * Should be larger than one jiffy to avoid direct re-scheduling of reaper
-+ * work_struct.
++/*
++ * Maximum time resolution for timeouts. Should be larger than one jiffy to
++ * avoid direct re-scheduling of reaper work_struct.
 + */
 +#define SSH_PTL_PACKET_TIMEOUT_RESOLUTION	ms_to_ktime(max(2000 / HZ, 50))
 +
-+/**
++/*
 + * Maximum number of sequenced packets concurrently waiting for an ACK.
 + * Packets marked as blocking will not be transmitted while this limit is
 + * reached.
@@ -10356,7 +11154,7 @@ index 0000000000000..a25d9785ff20c
 +#ifdef CONFIG_SURFACE_SAM_SSH_ERROR_INJECTION
 +
 +/**
-+ * ssh_ptl_should_drop_ack_packet - error injection hook to drop ACK packets
++ * ssh_ptl_should_drop_ack_packet() - Error injection hook to drop ACK packets.
 + *
 + * Useful to test detection and handling of automated re-transmits by the EC.
 + * Specifically of packets that the EC consideres not-ACKed but the driver
@@ -10372,7 +11170,7 @@ index 0000000000000..a25d9785ff20c
 +ALLOW_ERROR_INJECTION(ssh_ptl_should_drop_ack_packet, TRUE);
 +
 +/**
-+ * ssh_ptl_should_drop_nak_packet - error injection hook to drop NAK packets
++ * ssh_ptl_should_drop_nak_packet() - Error injection hook to drop NAK packets.
 + *
 + * Useful to test/force automated (timeout-based) re-transmit by the EC.
 + * Specifically, packets that have not reached the driver completely/with valid
@@ -10385,8 +11183,8 @@ index 0000000000000..a25d9785ff20c
 +ALLOW_ERROR_INJECTION(ssh_ptl_should_drop_nak_packet, TRUE);
 +
 +/**
-+ * ssh_ptl_should_drop_dsq_packet - error injection hook to drop sequenced data
-+ * packet
++ * ssh_ptl_should_drop_dsq_packet() - Error injection hook to drop sequenced
++ * data packet.
 + *
 + * Useful to test re-transmit timeout of the driver. If the data packet has not
 + * been ACKed after a certain time, the driver should re-transmit the packet up
@@ -10399,8 +11197,8 @@ index 0000000000000..a25d9785ff20c
 +ALLOW_ERROR_INJECTION(ssh_ptl_should_drop_dsq_packet, TRUE);
 +
 +/**
-+ * ssh_ptl_should_fail_write - error injection hook to make serdev_device_write
-+ * fail
++ * ssh_ptl_should_fail_write() - Error injection hook to make
++ * serdev_device_write() fail.
 + *
 + * Hook to simulate errors in serdev_device_write when transmitting packets.
 + */
@@ -10411,8 +11209,8 @@ index 0000000000000..a25d9785ff20c
 +ALLOW_ERROR_INJECTION(ssh_ptl_should_fail_write, ERRNO);
 +
 +/**
-+ * ssh_ptl_should_corrupt_tx_data - error injection hook to simualte invalid
-+ * data being sent to the EC
++ * ssh_ptl_should_corrupt_tx_data() - Error injection hook to simualte invalid
++ * data being sent to the EC.
 + *
 + * Hook to simulate corrupt/invalid data being sent from host (driver) to EC.
 + * Causes the packet data to be actively corrupted by overwriting it with
@@ -10427,8 +11225,8 @@ index 0000000000000..a25d9785ff20c
 +ALLOW_ERROR_INJECTION(ssh_ptl_should_corrupt_tx_data, TRUE);
 +
 +/**
-+ * ssh_ptl_should_corrupt_rx_syn - error injection hook to simulate invalid
-+ * data being sent by the EC
++ * ssh_ptl_should_corrupt_rx_syn() - Error injection hook to simulate invalid
++ * data being sent by the EC.
 + *
 + * Hook to simulate invalid SYN bytes, i.e. an invalid start of messages and
 + * test handling thereof in the driver.
@@ -10440,8 +11238,8 @@ index 0000000000000..a25d9785ff20c
 +ALLOW_ERROR_INJECTION(ssh_ptl_should_corrupt_rx_syn, TRUE);
 +
 +/**
-+ * ssh_ptl_should_corrupt_rx_data - error injection hook to simulate invalid
-+ * data being sent by the EC
++ * ssh_ptl_should_corrupt_rx_data() - Error injection hook to simulate invalid
++ * data being sent by the EC.
 + *
 + * Hook to simulate invalid data/checksum of the message frame and test handling
 + * thereof in the driver.
@@ -11691,7 +12489,7 @@ index 0000000000000..a25d9785ff20c
 +
 +	case SSH_FRAME_TYPE_DATA_SEQ:
 +		ssh_ptl_send_ack(ptl, frame->seq);
-+		/* fallthrough */
++		fallthrough;
 +
 +	case SSH_FRAME_TYPE_DATA_NSQ:
 +		ssh_ptl_rx_dataframe(ptl, frame, &payload);
@@ -11791,16 +12589,17 @@ index 0000000000000..a25d9785ff20c
 +
 +
 +/**
-+ * ssh_ptl_shutdown - shut down the packet transmission layer
-+ * @ptl:     packet transmission layer
++ * ssh_ptl_shutdown() - Shut down the packet transmission layer.
++ * @ptl: The packet transmission layer.
 + *
 + * Shuts down the packet transmission layer, removing and canceling all queued
 + * and pending packets. Packets canceled by this operation will be completed
-+ * with -ESHUTDOWN as status. Receiver and transmitter threads will be stopped.
++ * with %-ESHUTDOWN as status. Receiver and transmitter threads will be
++ * stopped.
 + *
 + * As a result of this function, the transmission layer will be marked as shut
 + * down. Submission of packets after the transmission layer has been shut down
-+ * will fail with -ESHUTDOWN.
++ * will fail with %-ESHUTDOWN.
 + */
 +void ssh_ptl_shutdown(struct ssh_ptl *ptl)
 +{
@@ -12085,10 +12884,10 @@ index 0000000000000..74e5adba888ea
 +#endif /* _SSAM_SSH_PACKET_LAYER_H */
 diff --git a/drivers/misc/surface_sam/ssh_parser.c b/drivers/misc/surface_sam/ssh_parser.c
 new file mode 100644
-index 0000000000000..6958e80f36736
+index 0000000000000..7ba879ca3e243
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssh_parser.c
-@@ -0,0 +1,132 @@
+@@ -0,0 +1,215 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
 +#include <linux/compiler.h>
@@ -12097,6 +12896,16 @@ index 0000000000000..6958e80f36736
 +#include "ssh_protocol.h"
 +
 +
++/**
++ * sshp_validate_crc() - Validate a CRC in raw message data.
++ * @src: The span of data over which the CRC should be computed.
++ * @crc: The pointer to the expected u16 CRC value.
++ *
++ * Computes the CRC of the provided data span (@src), compares it to the CRC
++ * stored at the given address (@crc), and returns the result of this
++ * comparison, i.e. true iff equal. This function is intended to run on raw
++ * input/message data.
++ */
 +static inline bool sshp_validate_crc(const struct ssam_span *src, const u8 *crc)
 +{
 +	u16 actual = ssh_crc(src->ptr, src->len);
@@ -12105,11 +12914,35 @@ index 0000000000000..6958e80f36736
 +	return actual == expected;
 +}
 +
++/**
++ * sshp_starts_with_syn() - Check if the given data starts with SSH SYN bytes.
++ * @src: The data span to check the start of.
++ */
 +static inline bool sshp_starts_with_syn(const struct ssam_span *src)
 +{
 +	return src->len >= 2 && get_unaligned_le16(src->ptr) == SSH_MSG_SYN;
 +}
 +
++/**
++ * sshp_find_syn() - Find SSH SYN bytes in the given data span.
++ * @src: The data span to search in.
++ * @rem: The span (output) indicating the remaining data, starting with SSH
++ *       SYN bytes, if found.
++ *
++ * Search for SSH SYN bytes in the given source span. If found, set the @rem
++ * span to the remaining data, starting with the first SYN bytes and capped by
++ * the source span length, and return ``true``. This function does not copy
++ * any data, but rather only sets pointers to the respecitve start addresses
++ * and length values.
++ *
++ * If no SSH SYN bytes could be found, set the @rem span to the zero-length
++ * span at the end of the source span and return false.
++ *
++ * If partial SSH SYN bytes could be found at the end of the source span, set
++ * the @rem span to cover these partial SYN bytes, capped by the end of the
++ * source span, and return false. This function should then be re-run once
++ * more data is available.
++ */
 +bool sshp_find_syn(const struct ssam_span *src, struct ssam_span *rem)
 +{
 +	size_t i;
@@ -12133,6 +12966,31 @@ index 0000000000000..6958e80f36736
 +	return false;
 +}
 +
++/**
++ * sshp_parse_frame() - Parse SSH frame.
++ * @dev: The device used for logging.
++ * @source: The source to parse from.
++ * @frame: The parsed frame (output).
++ * @payload: The parsed payload (output).
++ * @maxlen: The maximum supported message length.
++ *
++ * Parses and validates a SSH frame, including its payload, from the given
++ * source. Sets the provided @frame pointer to the start of the frame and
++ * writes the limits of the frame payload to the provided @payload span
++ * pointer.
++ *
++ * This function does not copy any data, but rather only validates the message
++ * data and sets pointers (and length values) to indicate the respective parts.
++ *
++ * If no complete SSH frame could be found, the frame pointer will be set to
++ * the %NULL pointer and the payload span will be set to the null span (start
++ * pointer %NULL, size zero).
++ *
++ * Return: Returns zero on success or if the frame is incomplete, %-ENOMSG if
++ * the start of the message is invalid, %-EBADMSG if any (frame-header or
++ * payload) CRC is ivnalid, or %-EMSGSIZE if the SSH message is bigger than
++ * the maximum message length specified in the @maxlen parameter.
++ */
 +int sshp_parse_frame(const struct device *dev, const struct ssam_span *source,
 +		     struct ssh_frame **frame, struct ssam_span *payload,
 +		     size_t maxlen)
@@ -12167,7 +13025,8 @@ index 0000000000000..6958e80f36736
 +	}
 +
 +	// ensure packet does not exceed maximum length
-+	if (unlikely(((struct ssh_frame *)sf.ptr)->len > maxlen)) {
++	sp.len = get_unaligned_le16(&((struct ssh_frame *)sf.ptr)->len);
++	if (unlikely(sp.len + SSH_MESSAGE_LENGTH(0) > maxlen)) {
 +		dev_warn(dev, "rx: parser: frame too large: %u bytes\n",
 +			 ((struct ssh_frame *)sf.ptr)->len);
 +		return -EMSGSIZE;
@@ -12175,7 +13034,6 @@ index 0000000000000..6958e80f36736
 +
 +	// pin down payload
 +	sp.ptr = sf.ptr + sf.len + sizeof(u16);
-+	sp.len = get_unaligned_le16(&((struct ssh_frame *)sf.ptr)->len);
 +
 +	// check for frame + payload length
 +	if (source->len < SSH_MESSAGE_LENGTH(sp.len)) {
@@ -12198,6 +13056,30 @@ index 0000000000000..6958e80f36736
 +	return 0;
 +}
 +
++/**
++ * sshp_parse_command() - Parse SSH command frame payload.
++ * @dev: The device used for logging.
++ * @source: The source to parse from.
++ * @command: The parsed command (output).
++ * @command_data: The parsed command data/payload (output).
++ *
++ * Parses and validates a SSH command frame payload. Sets the @command pointer
++ * to the command header and the @command_data span to the command data (i.e.
++ * payload of the command). This will result in a zero-length span if the
++ * command does not have any associated data/payload. This function does not
++ * check the frame-payload-type field, which should be checked by the caller
++ * before calling this function.
++ *
++ * The @source parameter should be the complete frame payload, e.g. returned
++ * by the sshp_parse_frame() command.
++ *
++ * This function does not copy any data, but rather only validates the frame
++ * payload data and sets pointers (and length values) to indicate the
++ * respective parts.
++ *
++ * Return: Returns zero on success or %-ENOMSG if @source does not represent a
++ * valid command-type frame payload, i.e. is too short.
++ */
 +int sshp_parse_command(const struct device *dev, const struct ssam_span *source,
 +		       struct ssh_command **command,
 +		       struct ssam_span *command_data)
@@ -12223,10 +13105,10 @@ index 0000000000000..6958e80f36736
 +}
 diff --git a/drivers/misc/surface_sam/ssh_parser.h b/drivers/misc/surface_sam/ssh_parser.h
 new file mode 100644
-index 0000000000000..27a684de4503b
+index 0000000000000..4216ac4b45bcf
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssh_parser.h
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,151 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +
 +#ifndef _SURFACE_SAM_SSH_PARSER_H
@@ -12239,13 +13121,27 @@ index 0000000000000..27a684de4503b
 +#include <linux/surface_aggregator_module.h>
 +
 +
++/**
++ * struct sshp_buf - Parser buffer for SSH messages.
++ * @ptr: Pointer to the beginning of the buffer.
++ * @len: Number of bytes used in the buffer.
++ * @cap: Maximum capacity of the buffer.
++ */
 +struct sshp_buf {
 +	u8    *ptr;
 +	size_t len;
 +	size_t cap;
 +};
 +
-+
++/**
++ * sshp_buf_init() - Initialize a SSH parser buffer.
++ * @buf: The buffer to initialize.
++ * @ptr: The memory backing the buffer.
++ * @cap: The length of the memory backing the buffer, i.e. its capacity.
++ *
++ * Initializes the buffer with the given memory as backing and set its used
++ * length to zero.
++ */
 +static inline void sshp_buf_init(struct sshp_buf *buf, u8 *ptr, size_t cap)
 +{
 +	buf->ptr = ptr;
@@ -12253,6 +13149,17 @@ index 0000000000000..27a684de4503b
 +	buf->cap = cap;
 +}
 +
++/**
++ * sshp_buf_alloc() - Allocate and initialize a SSH parser buffer.
++ * @buf:   The buffer to initialize/allocate to.
++ * @cap:   The desired capacity of the buffer.
++ * @flags: The flags used for allocating the memory.
++ *
++ * Allocates @cap bytes and initializes the provided buffer struct with the
++ * allocated memory.
++ *
++ * Return: Returns zero on success and %-ENOMEM if allocation failed.
++ */
 +static inline int sshp_buf_alloc(struct sshp_buf *buf, size_t cap, gfp_t flags)
 +{
 +	u8 *ptr;
@@ -12266,6 +13173,14 @@ index 0000000000000..27a684de4503b
 +
 +}
 +
++/**
++ * sshp_buf_free() - Free a SSH parser buffer.
++ * @buf: The buffer to free.
++ *
++ * Frees a SSH parser buffer by freeing the memory backing it and then
++ * reseting its pointer to %NULL and length and capacity to zero. Intended to
++ * free a buffer previously allocated with sshp_buf_alloc().
++ */
 +static inline void sshp_buf_free(struct sshp_buf *buf)
 +{
 +	kfree(buf->ptr);
@@ -12274,12 +13189,32 @@ index 0000000000000..27a684de4503b
 +	buf->cap = 0;
 +}
 +
++/**
++ * sshp_buf_drop() - Drop data from the beginning of the buffer.
++ * @buf: The buffer to drop data from.
++ * @n:   The number of bytes to drop.
++ *
++ * Drops the first @n bytes from the buffer. Re-aligns any remaining data to
++ * the beginning of the buffer.
++ */
 +static inline void sshp_buf_drop(struct sshp_buf *buf, size_t n)
 +{
 +	memmove(buf->ptr, buf->ptr + n, buf->len - n);
 +	buf->len -= n;
 +}
 +
++/**
++ * sshp_buf_read_from_fifo() - Transfer data from a fifo to the buffer.
++ * @buf:  The buffer to write the data into.
++ * @fifo: The fifo to read the data from.
++ *
++ * Transfers the data contained in the fifo to the buffer, removing it from
++ * the fifo. This function will try to transfer as much data as possible,
++ * limited either by the remaining space in the buffer or by the number of
++ * bytes available in the fifo.
++ *
++ * Returns the number of bytes transfered.
++ */
 +static inline size_t sshp_buf_read_from_fifo(struct sshp_buf *buf,
 +					     struct kfifo *fifo)
 +{
@@ -12291,6 +13226,21 @@ index 0000000000000..27a684de4503b
 +	return n;
 +}
 +
++/**
++ * sshp_buf_span_from() - Initialize a span from the given buffer and offset.
++ * @buf:    The buffer to create the span from.
++ * @offset: The offset in the buffer at which the span should start.
++ * @span:   The span to initialize (output).
++ *
++ * Initializes the provided span to point to the memory at the given offset in
++ * the buffer, with the length of the span being capped by the number of bytes
++ * used in the buffer after the offset (i.e. bytes remaining after the
++ * offset).
++ *
++ * Warning: This function does not validate that @offset is less than or equal
++ * to the number of bytes used in the buffer or the buffer capacity. This must
++ * be guaranteed by the caller.
++ */
 +static inline void sshp_buf_span_from(struct sshp_buf *buf, size_t offset,
 +				      struct ssam_span *span)
 +{
@@ -12312,10 +13262,10 @@ index 0000000000000..27a684de4503b
 +#endif /* _SURFACE_SAM_SSH_PARSER_h */
 diff --git a/drivers/misc/surface_sam/ssh_protocol.h b/drivers/misc/surface_sam/ssh_protocol.h
 new file mode 100644
-index 0000000000000..e2122cd6128fa
+index 0000000000000..2192398b2e12d
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssh_protocol.h
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,102 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +
 +#ifndef _SSAM_SSH_PROTOCOL_H
@@ -12327,6 +13277,8 @@ index 0000000000000..e2122cd6128fa
 +
 +
 +/*
++ * SSH_NUM_EVENTS - The number of reserved event IDs.
++ *
 + * The number of reserved event IDs, used for registering an SSH event
 + * handler. Valid event IDs are numbers below or equal to this value, with
 + * exception of zero, which is not an event ID. Thus, this is also the
@@ -12335,46 +13287,81 @@ index 0000000000000..e2122cd6128fa
 +#define SSH_NUM_EVENTS		34
 +
 +/*
-+ * The number of communication targets used in the protocol.
++ * SSH_NUM_TARGETS - The number of communication targets used in the protocol.
 + */
 +#define SSH_NUM_TARGETS		2
 +
-+/**
-+ * SSH message synchronization (SYN) bytes.
++/*
++ * SSH_MSG_SYN - SSH message synchronization (SYN) bytes as u16.
 + */
 +#define SSH_MSG_SYN		((u16)0x55aa)
 +
 +
++/**
++ * ssh_crc() - Compute CRC for SSH messages.
++ * @buf: The pointer pointing to the data for which the CRC should be computed.
++ * @len: The length of the data for which the CRC should be computed.
++ *
++ * Compute and return the CRC of the provided data, as used for SSH messages.
++ */
 +static inline u16 ssh_crc(const u8 *buf, size_t len)
 +{
 +	return crc_ccitt_false(0xffff, buf, len);
 +}
 +
++/**
++ * ssh_rqid_next_valid() - Return the next valid request ID.
++ * @rqid: The current request ID.
++ *
++ * Compute and return the next valid request ID, following the current request
++ * ID provided to this function. This function skips any request IDs reserved
++ * for events.
++ */
 +static inline u16 ssh_rqid_next_valid(u16 rqid)
 +{
 +	return rqid > 0 ? rqid + 1u : rqid + SSH_NUM_EVENTS + 1u;
 +}
 +
++/**
++ * ssh_rqid_to_event() - Convert request ID to its corresponding event ID.
++ * @rqid: The request ID to convert.
++ */
 +static inline u16 ssh_rqid_to_event(u16 rqid)
 +{
 +	return rqid - 1u;
 +}
 +
++/**
++ * ssh_rqid_is_event() - Check if given request ID is a valid event ID.
++ * @rqid: The request ID to check.
++ */
 +static inline bool ssh_rqid_is_event(u16 rqid)
 +{
 +	return ssh_rqid_to_event(rqid) < SSH_NUM_EVENTS;
 +}
 +
++/**
++ * ssh_tc_to_rqid() - Convert target category to its corresponding request ID.
++ * @tc: The target category to convert.
++ */
 +static inline int ssh_tc_to_rqid(u8 tc)
 +{
 +	return tc;
 +}
 +
++/**
++ * ssh_tid_to_index() - Convert target ID to its corresponding target index.
++ * @tid: The target ID to convert.
++ */
 +static inline u8 ssh_tid_to_index(u8 tid)
 +{
 +	return tid - 1u;
 +}
 +
++/**
++ * ssh_tid_is_valid() - Check if target ID is valid/supported.
++ * @tid: The target ID to check.
++ */
 +static inline bool ssh_tid_is_valid(u8 tid)
 +{
 +	return ssh_tid_to_index(tid) < SSH_NUM_TARGETS;
@@ -12383,10 +13370,10 @@ index 0000000000000..e2122cd6128fa
 +#endif /* _SSAM_SSH_PROTOCOL_H */
 diff --git a/drivers/misc/surface_sam/ssh_request_layer.c b/drivers/misc/surface_sam/ssh_request_layer.c
 new file mode 100644
-index 0000000000000..4ecf286d1dcf2
+index 0000000000000..b61c45b572978
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssh_request_layer.c
-@@ -0,0 +1,1099 @@
+@@ -0,0 +1,1100 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
 +#include <linux/atomic.h>
@@ -12415,7 +13402,8 @@ index 0000000000000..4ecf286d1dcf2
 +#ifdef CONFIG_SURFACE_SAM_SSH_ERROR_INJECTION
 +
 +/**
-+ * ssh_rtl_should_drop_response - error injection hook to drop request responses
++ * ssh_rtl_should_drop_response() - Error injection hook to drop request
++ * responses.
 + *
 + * Useful to cause request transmission timeouts in the driver by dropping the
 + * response to a request.
@@ -13353,7 +14341,7 @@ index 0000000000000..4ecf286d1dcf2
 +};
 +
 +/**
-+ * ssh_rtl_flush - flush the request transmission layer
++ * ssh_rtl_flush() - Flush the request transmission layer.
 + * @rtl:     request transmission layer
 + * @timeout: timeout for the flush operation in jiffies
 + *
@@ -13372,13 +14360,13 @@ index 0000000000000..4ecf286d1dcf2
 + * this function, the request transmission layer is guaranteed to have no
 + * remaining requests when this call returns. The same guarantee does not hold
 + * for the packet layer, on which control packets may still be queued after
-+ * this call. See the documentation of ssh_ptl_flush for more details on
-+ * packet layer flushing.
++ * this call.
 + *
-+ * Return: Zero on success, -ETIMEDOUT if the flush timed out and has been
-+ * canceled as a result of the timeout, or -ESHUTDOWN if the packet and/or
-+ * request transmission layer has been shut down before this call. May also
-+ * return -EINTR if the underlying packet transmission has been interrupted.
++ * Return: Returns zero on success, %-ETIMEDOUT if the flush timed out and has
++ * been canceled as a result of the timeout, or %-ESHUTDOWN if the packet
++ * and/or request transmission layer has been shut down before this call. May
++ * also return %-EINTR if the underlying packet transmission has been
++ * interrupted.
 + */
 +int ssh_rtl_flush(struct ssh_rtl *rtl, unsigned long timeout)
 +{
@@ -13613,10 +14601,10 @@ index 8a84f11bf1246..838b33d7ed17a 100644
  #endif /* LINUX_MOD_DEVICETABLE_H */
 diff --git a/include/linux/surface_aggregator_module.h b/include/linux/surface_aggregator_module.h
 new file mode 100644
-index 0000000000000..1639f51e78cb8
+index 0000000000000..a02d4996a604c
 --- /dev/null
 +++ b/include/linux/surface_aggregator_module.h
-@@ -0,0 +1,960 @@
+@@ -0,0 +1,1006 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Interface for Surface System Aggregator Module (SSAM) via Surface Serial
@@ -13646,17 +14634,24 @@ index 0000000000000..1639f51e78cb8
 +
 +/**
 + * enum ssh_frame_type - Frame types for SSH frames.
-+ * @SSH_FRAME_TYPE_DATA_SEQ: Indicates a data frame, followed by a payload with
-+ *                      the length specified in the ssh_frame.len field. This
-+ *                      frame is sequenced, meaning that an ACK is required.
-+ * @SSH_FRAME_TYPE_DATA_NSQ: Same as SSH_FRAME_TYPE_DATA_SEQ, but unsequenced,
-+ *                      meaning that the message does not have to be ACKed.
-+ * @SSH_FRAME_TYPE_ACK: Indicates an ACK message.
-+ * @SSH_FRAME_TYPE_NAK: Indicates an error response for previously sent
-+ *                      frame. In general, this means that the frame and/or
-+ *                      payload is malformed, e.g. a CRC is wrong. For command-
-+ *                      type payloads, this can also mean that the command is
-+ *                      invalid.
++ *
++ * @SSH_FRAME_TYPE_DATA_SEQ:
++ *	Indicates a data frame, followed by a payload with the length specified
++ *	in the ssh_frame.len field. This frame is sequenced, meaning that an ACK
++ *	is required.
++ *
++ * @SSH_FRAME_TYPE_DATA_NSQ:
++ *	Same as %SSH_FRAME_TYPE_DATA_SEQ, but unsequenced, meaning that the
++ *	message does not have to be ACKed.
++ *
++ * @SSH_FRAME_TYPE_ACK:
++ *	Indicates an ACK message.
++ *
++ * @SSH_FRAME_TYPE_NAK:
++ *	Indicates an error response for previously sent frame. In general, this
++ *	means that the frame and/or payload is malformed, e.g. a CRC is wrong.
++ *	For command-type payloads, this can also mean that the command is
++ *	invalid.
 + */
 +enum ssh_frame_type {
 +	SSH_FRAME_TYPE_DATA_SEQ = 0x80,
@@ -13704,8 +14699,8 @@ index 0000000000000..1639f51e78cb8
 + * @tc:      Command target category.
 + * @tid_out: Output target ID. Should be zero if this an incoming (EC to host)
 + *           message.
-+ * @tid_in:  Input target ID. Should be zero if this is an outgoing (hos to EC)
-+ *           message.
++ * @tid_in:  Input target ID. Should be zero if this is an outgoing (host to
++ *           EC) message.
 + * @iid:     Instance ID.
 + * @rqid:    Request ID. Used to match requests with responses and differentiate
 + *           between responses and events.
@@ -13723,7 +14718,7 @@ index 0000000000000..1639f51e78cb8
 +
 +static_assert(sizeof(struct ssh_command) == 8);
 +
-+/**
++/*
 + * SSH_COMMAND_MAX_PAYLOAD_SIZE - Maximum SSH command payload length in bytes.
 + *
 + * This is the physical maximum length of the protocol. Implementations may
@@ -13751,7 +14746,7 @@ index 0000000000000..1639f51e78cb8
 +
 +static_assert(sizeof(struct ssh_notification_params) == 5);
 +
-+/**
++/*
 + * SSH_MSG_LEN_BASE - Base-length of a SSH message.
 + *
 + * This is the minimum number of bytes required to form a message. The actual
@@ -13759,7 +14754,7 @@ index 0000000000000..1639f51e78cb8
 + */
 +#define SSH_MSG_LEN_BASE	(sizeof(struct ssh_frame) + 3ull * sizeof(u16))
 +
-+/**
++/*
 + * SSH_MSG_LEN_CTRL - Length of a SSH control message.
 + *
 + * This is the length of a SSH control message, which is equal to a SSH
@@ -13769,15 +14764,18 @@ index 0000000000000..1639f51e78cb8
 +
 +/**
 + * SSH_MESSAGE_LENGTH() - Comute lenght of SSH message.
++ * @payload_size: Length of the payload inside the SSH frame.
 + *
-+ * Length of a SSH message with payload of specified size.
++ * Return: Returns the length of a SSH message with payload of specified size.
 + */
 +#define SSH_MESSAGE_LENGTH(payload_size) (SSH_MSG_LEN_BASE + payload_size)
 +
 +/**
 + * SSH_COMMAND_MESSAGE_LENGTH() - Compute length of SSH command message.
++ * @payload_size: Length of the command payload.
 + *
-+ * Length of a SSH command message with command payload of specified size.
++ * Return: Returns the length of a SSH command message with command payload of
++ * specified size.
 + */
 +#define SSH_COMMAND_MESSAGE_LENGTH(payload_size) \
 +	SSH_MESSAGE_LENGTH(sizeof(struct ssh_command) + payload_size)
@@ -13785,8 +14783,10 @@ index 0000000000000..1639f51e78cb8
 +/**
 + * SSH_MSGOFFSET_FRAME() - Compute offset in SSH message to specified field in
 + * frame.
++ * @field: The field for which the offset should be computed.
 + *
-+ * Offset of the specified &struct ssh_frame field in the raw SSH message data.
++ * Return: Returns the offset of the specified &struct ssh_frame field in the
++ * raw SSH message data as.
 + */
 +#define SSH_MSGOFFSET_FRAME(field) \
 +	(sizeof(u16) + offsetof(struct ssh_frame, field))
@@ -13794,18 +14794,19 @@ index 0000000000000..1639f51e78cb8
 +/**
 + * SSH_MSGOFFSET_FRAME() - Compute offset in SSH message to specified field in
 + * command.
++ * @field: The field for which the offset should be computed.
 + *
-+ * Offset of the specified &struct ssh_command field in the raw SSH message
-+ * data.
++ * Return: Returns the offset of the specified &struct ssh_command field in
++ * the raw SSH message data.
 + */
 +#define SSH_MSGOFFSET_COMMAND(field) \
 +	(2ull * sizeof(u16) + sizeof(struct ssh_frame) \
 +		+ offsetof(struct ssh_command, field))
 +
 +/**
-+ * struct ssam_span - reference to a buffer region
-+ * @ptr: pointer to the buffer region
-+ * @len: length of the buffer region
++ * struct ssam_span - Reference to a buffer region.
++ * @ptr: Pointer to the buffer region.
++ * @len: Length of the buffer region.
 + *
 + * A reference to a (non-owned) buffer segment, consisting of pointer and
 + * length. Use of this struct indicates non-owned data, i.e. data of which the
@@ -13819,6 +14820,13 @@ index 0000000000000..1639f51e78cb8
 +
 +/* -- Packet transport layer (ptl). ----------------------------------------- */
 +
++/**
++ * enum ssh_packet_priority - Base priorities for &struct ssh_packet.
++ * @SSH_PACKET_PRIORITY_FLUSH: Base priority for flush packets.
++ * @SSH_PACKET_PRIORITY_DATA:  Base priority for normal data paackets.
++ * @SSH_PACKET_PRIORITY_NAK:   Base priority for NAK packets.
++ * @SSH_PACKET_PRIORITY_ACK:   Base priority for ACK packets.
++ */
 +enum ssh_packet_priority {
 +	SSH_PACKET_PRIORITY_FLUSH = 0,
 +	SSH_PACKET_PRIORITY_DATA  = 0,
@@ -13826,13 +14834,36 @@ index 0000000000000..1639f51e78cb8
 +	SSH_PACKET_PRIORITY_ACK   = 2 << 4,
 +};
 +
++/**
++ * SSH_PACKET_PRIORITY() - Compute packet priority from base priority and
++ * number of tries.
++ * @base: The base priority as suffix of &enum ssh_packet_priority, e.g.
++ *        ``FLUSH``, ``DATA``, ``ACK``, or ``NAK``.
++ * @try:  The number of tries (must be less than 16).
++ *
++ * Compute the combined packet priority. The combined priority is dominated by
++ * the base priority, whereas the number of (re-)tries decides the precedence
++ * of packets with the same base priority, giving higher priority to packets
++ * that already have more tries.
++ *
++ * Return: Returns the computed priority as value fitting inside a &u8. A
++ * higher number means a higher priority.
++ */
 +#define SSH_PACKET_PRIORITY(base, try) \
 +	((SSH_PACKET_PRIORITY_##base) | ((try) & 0x0f))
 +
++/**
++ * ssh_packet_priority_get_try() - Get number of tries from packet priority.
++ * @p: The packet priority.
++ *
++ * Return: Returns the number of tries encoded in the specified packet
++ * priority.
++ */
 +#define ssh_packet_priority_get_try(p) ((p) & 0x0f)
 +
 +
 +enum ssh_packet_flags {
++	/* state flags */
 +	SSH_PACKET_SF_LOCKED_BIT,
 +	SSH_PACKET_SF_QUEUED_BIT,
 +	SSH_PACKET_SF_PENDING_BIT,
@@ -13842,10 +14873,12 @@ index 0000000000000..1639f51e78cb8
 +	SSH_PACKET_SF_CANCELED_BIT,
 +	SSH_PACKET_SF_COMPLETED_BIT,
 +
++	/* type flags */
 +	SSH_PACKET_TY_FLUSH_BIT,
 +	SSH_PACKET_TY_SEQUENCED_BIT,
 +	SSH_PACKET_TY_BLOCKING_BIT,
 +
++	/* mask for state flags */
 +	SSH_PACKET_FLAGS_SF_MASK =
 +		  BIT(SSH_PACKET_SF_LOCKED_BIT)
 +		| BIT(SSH_PACKET_SF_QUEUED_BIT)
@@ -13856,6 +14889,7 @@ index 0000000000000..1639f51e78cb8
 +		| BIT(SSH_PACKET_SF_CANCELED_BIT)
 +		| BIT(SSH_PACKET_SF_COMPLETED_BIT),
 +
++	/* mask for type flags */
 +	SSH_PACKET_FLAGS_TY_MASK =
 +		  BIT(SSH_PACKET_TY_FLUSH_BIT)
 +		| BIT(SSH_PACKET_TY_SEQUENCED_BIT)
@@ -14025,7 +15059,7 @@ index 0000000000000..1639f51e78cb8
 +struct ssam_controller;
 +
 +/**
-+ * struct ssam_event_flags - Flags for enabling/disabling SAM-over-SSH events
++ * enum ssam_event_flags - Flags for enabling/disabling SAM-over-SSH events
 + * @SSAM_EVENT_SEQUENCED: The event will be sent via a sequenced data frame.
 + */
 +enum ssam_event_flags {
@@ -14116,10 +15150,10 @@ index 0000000000000..1639f51e78cb8
 +/**
 + * ssam_request_sync_set_resp - Set response buffer of a synchronous request.
 + * @rqst: The request.
-+ * @rsp:  The response buffer.
++ * @resp: The response buffer.
 + *
 + * Sets the response buffer ot a synchronous request. This buffer will store
-+ * the response of the request after it has been completed. May be NULL if
++ * the response of the request after it has been completed. May be %NULL if
 + * no response is expected.
 + */
 +static inline void ssam_request_sync_set_resp(struct ssam_request_sync *rqst,
@@ -14172,8 +15206,8 @@ index 0000000000000..1639f51e78cb8
 + * macro essentially allocates the request message buffer on the stack and
 + * then calls ssam_request_sync_with_buffer().
 + *
-+ * Note: The ``payload_len`` parameter specifies the maximum payload length,
-+ * used for buffer allocation. The actual payload length may be smaller.
++ * Note: The @payload_len parameter specifies the maximum payload length, used
++ * for buffer allocation. The actual payload length may be smaller.
 + *
 + * Returns the status of the request or any failure during setup.
 + */
