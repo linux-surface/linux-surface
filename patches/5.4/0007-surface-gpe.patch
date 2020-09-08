@@ -1,4 +1,4 @@
-From cc404af53a4525d2a3016f2a710df3fb565f2bb8 Mon Sep 17 00:00:00 2001
+From c94fb1b421f85277460595309e760ae336f22750 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 16 Aug 2020 23:39:56 +0200
 Subject: [PATCH 7/7] surface-gpe
@@ -6,17 +6,17 @@ Subject: [PATCH 7/7] surface-gpe
 ---
  drivers/platform/x86/Kconfig       |   9 +
  drivers/platform/x86/Makefile      |   1 +
- drivers/platform/x86/surface_gpe.c | 302 +++++++++++++++++++++++++++++
- 3 files changed, 312 insertions(+)
+ drivers/platform/x86/surface_gpe.c | 299 +++++++++++++++++++++++++++++
+ 3 files changed, 309 insertions(+)
  create mode 100644 drivers/platform/x86/surface_gpe.c
 
 diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
-index 348c795019fa4..105a238328a2c 100644
+index 5495e3702f656..e0af35fed2d50 100644
 --- a/drivers/platform/x86/Kconfig
 +++ b/drivers/platform/x86/Kconfig
-@@ -1216,6 +1216,15 @@ config SURFACE_3_POWER_OPREGION
- 	  Select this option to enable support for ACPI operation
- 	  region of the Surface 3 battery platform driver.
+@@ -1223,6 +1223,15 @@ config SURFACE_BOOK1_DGPU_SWITCH
+ 	  This driver provides a sysfs switch to set the power-state of the
+ 	  discrete GPU found on the Microsoft Surface Book 1.
  
 +config SURFACE_GPE
 +	tristate "Surface GPE/Lid Driver"
@@ -31,23 +31,23 @@ index 348c795019fa4..105a238328a2c 100644
  	tristate "Intel P-Unit IPC Driver"
  	---help---
 diff --git a/drivers/platform/x86/Makefile b/drivers/platform/x86/Makefile
-index 6dd955ad9bf18..5db303f43bda7 100644
+index b3e0a2c6924b6..c6e934a73a8d1 100644
 --- a/drivers/platform/x86/Makefile
 +++ b/drivers/platform/x86/Makefile
-@@ -86,6 +86,7 @@ obj-$(CONFIG_TOUCHSCREEN_DMI)	+= touchscreen_dmi.o
- obj-$(CONFIG_SURFACE_PRO3_BUTTON)	+= surfacepro3_button.o
+@@ -87,6 +87,7 @@ obj-$(CONFIG_SURFACE_PRO3_BUTTON)	+= surfacepro3_button.o
  obj-$(CONFIG_SURFACE_3_BUTTON)	+= surface3_button.o
  obj-$(CONFIG_SURFACE_3_POWER_OPREGION) += surface3_power.o
+ obj-$(CONFIG_SURFACE_BOOK1_DGPU_SWITCH)	+= sb1_dgpu_sw.o
 +obj-$(CONFIG_SURFACE_GPE)	+= surface_gpe.o
  obj-$(CONFIG_INTEL_PUNIT_IPC)  += intel_punit_ipc.o
  obj-$(CONFIG_INTEL_BXTWC_PMIC_TMU)	+= intel_bxtwc_tmu.o
  obj-$(CONFIG_INTEL_TELEMETRY)	+= intel_telemetry_core.o \
 diff --git a/drivers/platform/x86/surface_gpe.c b/drivers/platform/x86/surface_gpe.c
 new file mode 100644
-index 0000000000000..3031a94cddeb7
+index 0000000000000..4c141fef7a5f4
 --- /dev/null
 +++ b/drivers/platform/x86/surface_gpe.c
-@@ -0,0 +1,302 @@
+@@ -0,0 +1,299 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface GPE/Lid driver to enable wakeup from suspend via the lid by
@@ -282,11 +282,8 @@ index 0000000000000..3031a94cddeb7
 +{
 +	const struct dmi_system_id *match;
 +	const struct surface_lid_device *lid;
-+
 +	struct platform_device *pdev;
 +	int status;
-+
-+	surface_gpe_device = NULL;
 +
 +	match = dmi_first_match(dmi_lid_device_table);
 +	if (!match) {
