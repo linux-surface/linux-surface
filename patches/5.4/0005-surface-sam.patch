@@ -1,4 +1,4 @@
-From 70f01d628089fdbe333ef228c6ac1c1d0f8d126f Mon Sep 17 00:00:00 2001
+From 6196060ec0cacf88b487d5880b3ba70c2cc5d8ae Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:11:08 +0200
 Subject: [PATCH 5/7] surface-sam
@@ -7,11 +7,14 @@ Subject: [PATCH 5/7] surface-sam
  Documentation/driver-api/index.rst            |    1 +
  Documentation/driver-api/ssam/client-api.rst  |   19 +
  Documentation/driver-api/ssam/client.rst      |  381 +++
- Documentation/driver-api/ssam/index.rst       |   20 +
+ .../driver-api/ssam/clients/dbgdev.rst        |  128 +
+ .../driver-api/ssam/clients/index.rst         |   21 +
+ Documentation/driver-api/ssam/clients/san.rst |   44 +
+ Documentation/driver-api/ssam/index.rst       |   21 +
  .../driver-api/ssam/internal-api.rst          |   70 +
  Documentation/driver-api/ssam/internal.rst    |   50 +
  Documentation/driver-api/ssam/overview.rst    |   76 +
- Documentation/driver-api/ssam/ssh.rst         |  297 ++
+ Documentation/driver-api/ssam/ssh.rst         |  343 +++
  drivers/acpi/acpica/dsopcode.c                |    2 +-
  drivers/acpi/acpica/exfield.c                 |   12 +-
  drivers/misc/Kconfig                          |    1 +
@@ -22,11 +25,11 @@ Subject: [PATCH 5/7] surface-sam
  drivers/misc/surface_sam/bus.h                |   14 +
  drivers/misc/surface_sam/clients/Kconfig      |  121 +
  drivers/misc/surface_sam/clients/Makefile     |   11 +
- .../surface_sam/clients/surface_sam_debugfs.c |  265 ++
+ .../surface_sam/clients/surface_sam_debugfs.c |  282 ++
  .../clients/surface_sam_device_hub.c          |  583 ++++
  .../surface_sam/clients/surface_sam_dtx.c     |  583 ++++
  .../surface_sam/clients/surface_sam_hps.c     | 1296 +++++++++
- .../surface_sam/clients/surface_sam_san.c     |  813 ++++++
+ .../surface_sam/clients/surface_sam_san.c     |  841 ++++++
  .../clients/surface_sam_sid_perfmode.c        |  190 ++
  .../clients/surface_sam_sid_power.c           | 1114 ++++++++
  .../surface_sam/clients/surface_sam_sid_vhf.c |  498 ++++
@@ -45,13 +48,16 @@ Subject: [PATCH 5/7] surface-sam
  drivers/misc/surface_sam/ssh_request_layer.h  |  136 +
  drivers/tty/serdev/core.c                     |  111 +-
  include/linux/mod_devicetable.h               |   17 +
- include/linux/surface_acpi_notify.h           |   30 +
+ include/linux/surface_acpi_notify.h           |   39 +
  include/linux/surface_aggregator_module.h     | 1744 ++++++++++++
  scripts/mod/devicetable-offsets.c             |    7 +
  scripts/mod/file2alias.c                      |   22 +
- 45 files changed, 17474 insertions(+), 16 deletions(-)
+ 48 files changed, 17768 insertions(+), 16 deletions(-)
  create mode 100644 Documentation/driver-api/ssam/client-api.rst
  create mode 100644 Documentation/driver-api/ssam/client.rst
+ create mode 100644 Documentation/driver-api/ssam/clients/dbgdev.rst
+ create mode 100644 Documentation/driver-api/ssam/clients/index.rst
+ create mode 100644 Documentation/driver-api/ssam/clients/san.rst
  create mode 100644 Documentation/driver-api/ssam/index.rst
  create mode 100644 Documentation/driver-api/ssam/internal-api.rst
  create mode 100644 Documentation/driver-api/ssam/internal.rst
@@ -88,7 +94,7 @@ Subject: [PATCH 5/7] surface-sam
  create mode 100644 include/linux/surface_aggregator_module.h
 
 diff --git a/Documentation/driver-api/index.rst b/Documentation/driver-api/index.rst
-index 38e638abe3ebc..c6fcff170774e 100644
+index 38e638abe3eb..c6fcff170774 100644
 --- a/Documentation/driver-api/index.rst
 +++ b/Documentation/driver-api/index.rst
 @@ -96,6 +96,7 @@ available subsections can be seen below.
@@ -101,7 +107,7 @@ index 38e638abe3ebc..c6fcff170774e 100644
     vfio-mediated-device
 diff --git a/Documentation/driver-api/ssam/client-api.rst b/Documentation/driver-api/ssam/client-api.rst
 new file mode 100644
-index 0000000000000..3d5fc6a4dc953
+index 000000000000..3d5fc6a4dc95
 --- /dev/null
 +++ b/Documentation/driver-api/ssam/client-api.rst
 @@ -0,0 +1,19 @@
@@ -126,7 +132,7 @@ index 0000000000000..3d5fc6a4dc953
 +    :export:
 diff --git a/Documentation/driver-api/ssam/client.rst b/Documentation/driver-api/ssam/client.rst
 new file mode 100644
-index 0000000000000..fa0aa032a9488
+index 000000000000..fa0aa032a948
 --- /dev/null
 +++ b/Documentation/driver-api/ssam/client.rst
 @@ -0,0 +1,381 @@
@@ -511,12 +517,223 @@ index 0000000000000..fa0aa032a9488
 +flags are therefore only used on the first registered notifier, however, one
 +should take care that notifiers for a specific event are always registered
 +with the same flag and it is considered a bug to do otherwise.
+diff --git a/Documentation/driver-api/ssam/clients/dbgdev.rst b/Documentation/driver-api/ssam/clients/dbgdev.rst
+new file mode 100644
+index 000000000000..d4d42634f516
+--- /dev/null
++++ b/Documentation/driver-api/ssam/clients/dbgdev.rst
+@@ -0,0 +1,128 @@
++.. SPDX-License-Identifier: GPL-2.0
++
++.. |u8| replace:: :c:type:`u8 <u8>`
++.. |u16| replace:: :c:type:`u16 <u16>`
++.. |ssam_dbgdev_request| replace:: :c:type:`struct ssam_dbgdev_request <ssam_dbgdev_request>`
++.. |ssam_request_flags| replace:: :c:type:`enum ssam_request_flags <ssam_request_flags>`
++
++=======================================
++SSAM Debug Device and DebugFS Interface
++=======================================
++
++The ``surface_sam_debugfs`` module provides a DebugFS interface for the SSAM
++controller to allow for a (more or less) direct connection from userspace to
++the SAM EC. It is intended to be used for development and debugging, and
++therefore should not be used or relied upon in any other way. Note that this
++module is not loaded automatically, but instead must be loaded manually.
++
++The provided interface is accessible through the ``ssam/controller``
++device-file in debugfs, so, if the conventional mount path is being used,
++``/sys/kernel/debug/ssam/controller``. All functionality of this interface
++is provided via IOCTLs.
++
++
++Controller IOCTLs
++=================
++
++The following IOCTLs are provided:
++
++.. flat-table:: Controller IOCTLs
++   :widths: 1 1 1 1 4
++   :header-rows: 1
++
++   * - Type
++     - Number
++     - Direction
++     - Name
++     - Description
++
++   * - ``0xA5``
++     - ``0``
++     - ``R``
++     - ``GETVERSION``
++     - Get DebugFS controller interface version.
++
++   * - ``0xA5``
++     - ``1``
++     - ``WR``
++     - ``REQUEST``
++     - Perform synchronous SAM request.
++
++
++``GETVERSION``
++--------------
++
++Defined as ``_IOR(0xA5, 0, __u32)``.
++
++Gets the current interface version. This should be used to check for changes
++in the interface and determine if certain functionality is available. While
++the interface should under normal circumstances kept backward compatible, as
++this is a debug interface, backwards compatibility is not guaranteed.
++
++The version number follows the semantic versioning scheme, roughly meaning
++that an increment in the highest non-zero version number signals a breaking
++change. It can be decomposed as follows:
++
++.. flat-table:: Version Number Format
++   :widths: 2 1 3
++   :header-rows: 1
++
++   * - Offset (bytes)
++     - Type
++     - Description
++
++   * - ``0``
++     - |u8|
++     - Major
++
++   * - ``1``
++     - |u8|
++     - Minor
++
++   * - ``2``
++     - |u16|
++     - Patch
++
++The interface version is currently ``0.1.0``, i.e. ``0x00010000``.
++
++
++``REQUEST``
++-----------
++
++Defined as ``_IOWR(0xA5, 1, struct ssam_dbgdev_request)``.
++
++Executes a synchronous SAM request. The request specification is passed in
++as argument of type |ssam_dbgdev_request|, which is then written to/modified
++by the IOCTL to return status and result of the request.
++
++Request payload data must be allocated separately and is passed in via the
++``payload.data`` and ``payload.length`` members. If a response is required,
++the response buffer must be allocated by the caller and passed in via the
++``response.data`` member. The ``response.length`` member must be set to the
++capacity of this buffer, or if no response is required, zero. Upon
++completion of the request, the call will write the response to the response
++buffer (if its capacity allows it) and overwrite the length field with the
++actual size of the response, in bytes.
++
++Additionally, if the request has a response, this should be indicated via
++the request flags, as is done with in-kernel requests. Request flags can be
++set via the ``flags`` member and the values correspond to the values found
++in |ssam_request_flags|.
++
++Finally, the status of the request itself is returned in the ``status``
++member (a negative value indicating failure). Note that failure indication
++of the IOCTL is separated from failure indication of the request: The IOCTL
++returns a negative status code if anything failed during setup of the
++request (``-EFAULT``) or if the provided argument or any of its fields are
++invalid (``-EINVAL``). In this case, the status value of the request
++argument may be set, providing more detail on what went wrong (e.g.
++``-ENOMEM`` for out-of-memory), but this value may also be zero. The IOCTL
++will return with a zero status code in case the request has been set up,
++submitted, and completed (i.e. handed back to user-space) successfully from
++inside the IOCTL, but the request ``status`` member may still be negative in
++case the actual execution of the request failed after it has been submitted.
++
++A full definition of the argument struct is provided below:
++
++.. kernel-doc:: drivers/misc/surface_sam/clients/surface_sam_debugfs.c
++   :functions: ssam_dbgdev_request
+diff --git a/Documentation/driver-api/ssam/clients/index.rst b/Documentation/driver-api/ssam/clients/index.rst
+new file mode 100644
+index 000000000000..7cd91fc75e91
+--- /dev/null
++++ b/Documentation/driver-api/ssam/clients/index.rst
+@@ -0,0 +1,21 @@
++.. SPDX-License-Identifier: GPL-2.0
++
++===========================
++Client Driver Documentation
++===========================
++
++This is the documentation for client drivers themselves. Refer to
++:doc:`../client` for documentation on how to write client drivers.
++
++.. toctree::
++   :maxdepth: 1
++
++   dbgdev
++   san
++
++.. only::  subproject and html
++
++   Indices
++   =======
++
++   * :ref:`genindex`
+diff --git a/Documentation/driver-api/ssam/clients/san.rst b/Documentation/driver-api/ssam/clients/san.rst
+new file mode 100644
+index 000000000000..380b89e61955
+--- /dev/null
++++ b/Documentation/driver-api/ssam/clients/san.rst
+@@ -0,0 +1,44 @@
++.. SPDX-License-Identifier: GPL-2.0
++
++.. |san_client_link| replace:: :c:func:`san_client_link`
++.. |san_dgpu_notifier_register| replace:: :c:func:`san_dgpu_notifier_register`
++.. |san_dgpu_notifier_unregister| replace:: :c:func:`san_dgpu_notifier_unregister`
++
++===================
++Surface ACPI Notify
++===================
++
++The Surface ACPI Notify (SAN) device provides the bridge between ACPI and
++SAM controller. Specifically, ACPI code can execute requests and handle
++battery and thermal events via this interface. In addition to this, events
++relating to the discrete GPU (dGPU) of the Surface Book 2 can be sent from
++ACPI code (note: the Surface Book 3 uses a different method for this). The
++only currently known event sent via this interface is a dGPU power-on
++notification. While this driver handles the former part internally, it only
++relays the dGPU events to any other driver interested via its public API and
++does not handle them.
++
++The public interface of this driver is split into two parts: Client
++registration and notifier-block registration.
++
++A client to the SAN interface can be linked as consumer to the SAN device
++via |san_client_link|. This can be used to ensure that the a client
++receiving dGPU events does not miss any events due to the SAN interface not
++being set up as this forces the client driver to unbind once the SAN driver
++is unbound.
++
++Notifier-blocks can be registered by any device for as long as the module is
++loaded, regardless of being linked as client or not. Registration is done
++with |san_dgpu_notifier_register|. If the notifier is not needed any more, it
++should be unregistered via |san_dgpu_notifier_unregister|.
++
++Consult the API documentation below for more details.
++
++
++API Documentation
++=================
++
++.. kernel-doc:: include/linux/surface_acpi_notify.h
++
++.. kernel-doc:: drivers/misc/surface_sam/clients/surface_sam_san.c
++    :export:
 diff --git a/Documentation/driver-api/ssam/index.rst b/Documentation/driver-api/ssam/index.rst
 new file mode 100644
-index 0000000000000..e1274d64db0d2
+index 000000000000..5eff57c1836d
 --- /dev/null
 +++ b/Documentation/driver-api/ssam/index.rst
-@@ -0,0 +1,20 @@
+@@ -0,0 +1,21 @@
 +.. SPDX-License-Identifier: GPL-2.0
 +
 +=======================================
@@ -530,6 +747,7 @@ index 0000000000000..e1274d64db0d2
 +   ssh
 +   client
 +   internal
++   clients/index
 +
 +.. only::  subproject and html
 +
@@ -539,7 +757,7 @@ index 0000000000000..e1274d64db0d2
 +   * :ref:`genindex`
 diff --git a/Documentation/driver-api/ssam/internal-api.rst b/Documentation/driver-api/ssam/internal-api.rst
 new file mode 100644
-index 0000000000000..cd55b6b206e45
+index 000000000000..cd55b6b206e4
 --- /dev/null
 +++ b/Documentation/driver-api/ssam/internal-api.rst
 @@ -0,0 +1,70 @@
@@ -615,7 +833,7 @@ index 0000000000000..cd55b6b206e45
 +.. kernel-doc:: drivers/misc/surface_sam/ssam_trace.h
 diff --git a/Documentation/driver-api/ssam/internal.rst b/Documentation/driver-api/ssam/internal.rst
 new file mode 100644
-index 0000000000000..0504247d87862
+index 000000000000..0504247d8786
 --- /dev/null
 +++ b/Documentation/driver-api/ssam/internal.rst
 @@ -0,0 +1,50 @@
@@ -671,7 +889,7 @@ index 0000000000000..0504247d87862
 +API and interface options for other kernel drivers.
 diff --git a/Documentation/driver-api/ssam/overview.rst b/Documentation/driver-api/ssam/overview.rst
 new file mode 100644
-index 0000000000000..7b7a6d9e8e22b
+index 000000000000..7b7a6d9e8e22
 --- /dev/null
 +++ b/Documentation/driver-api/ssam/overview.rst
 @@ -0,0 +1,76 @@
@@ -753,10 +971,10 @@ index 0000000000000..7b7a6d9e8e22b
 +See :doc:`ssh` for a more technical protocol documentation.
 diff --git a/Documentation/driver-api/ssam/ssh.rst b/Documentation/driver-api/ssam/ssh.rst
 new file mode 100644
-index 0000000000000..2a8a10e219ac5
+index 000000000000..35c903009cf3
 --- /dev/null
 +++ b/Documentation/driver-api/ssam/ssh.rst
-@@ -0,0 +1,297 @@
+@@ -0,0 +1,343 @@
 +.. SPDX-License-Identifier: GPL-2.0
 +
 +.. |u8| replace:: :c:type:`u8 <u8>`
@@ -809,15 +1027,25 @@ index 0000000000000..2a8a10e219ac5
 +(:c:type:`struct ssh_frame <ssh_frame>`). A frame consists of the following
 +fields, packed together and in order:
 +
-+  +--------+-------+--------------------------------------------------+
-+  | Field  | Type  | Description                                      |
-+  +========+=======+==================================================+
-+  | |TYPE| | |u8|  | Type identifier of the frame.                    |
-+  +--------+-------+--------------------------------------------------+
-+  | |LEN|  | |u16| | Length of the payload associated with the frame. |
-+  +--------+-------+--------------------------------------------------+
-+  | |SEQ|  | |u8|  | Sequence ID (see explanation below).             |
-+  +--------+-------+--------------------------------------------------+
++.. flat-table:: SSH Frame
++   :widths: 1 1 4
++   :header-rows: 1
++
++   * - Field
++     - Type
++     - Description
++
++   * - |TYPE|
++     - |u8|
++     - Type identifier of the frame.
++
++   * - |LEN|
++     - |u16|
++     - Length of the payload associated with the frame.
++
++   * - |SEQ|
++     - |u8|
++     - Sequence ID (see explanation below).
 +
 +Each frame structure is followed by a CRC over this structure. The CRC over
 +the frame structure (|TYPE|, |LEN|, and |SEQ| fields) is placed directly
@@ -830,11 +1058,17 @@ index 0000000000000..2a8a10e219ac5
 +
 +Additionally, the following fixed two-byte sequences are used:
 +
-+  +-------+------------------+------------------------+
-+  | Name  | Value            | Description            |
-+  +=======+==================+========================+
-+  | |SYN| | ``[0xAA, 0x55]`` | Synchronization bytes. |
-+  +-------+------------------+------------------------+
++.. flat-table:: SSH Byte Sequences
++   :widths: 1 1 4
++   :header-rows: 1
++
++   * - Name
++     - Value
++     - Description
++
++   * - |SYN|
++     - ``[0xAA, 0x55]``
++     - Synchronization bytes.
 +
 +A message consists of |SYN|, followed by the frame (|TYPE|, |LEN|, |SEQ| and
 +CRC) and, if specified in the frame (i.e. ``LEN > 0``), payload bytes,
@@ -846,17 +1080,29 @@ index 0000000000000..2a8a10e219ac5
 +A frame can have the following types
 +(:c:type:`enum ssh_frame_type <ssh_frame_type>`):
 +
-+  +------------+----------+----------------------------------------------------+
-+  | Name       | Value    | Short Description                                  |
-+  +============+==========+====================================================+
-+  | |NAK|      | ``0x04`` | Sent on error in previously received message.      |
-+  +------------+----------+----------------------------------------------------+
-+  | |ACK|      | ``0x40`` | Sent to acknowledge receival of |DATA| frame.      |
-+  +------------+----------+----------------------------------------------------+
-+  | |DATA_SEQ| | ``0x80`` | Sent to transfer data. Sequenced.                  |
-+  +------------+----------+----------------------------------------------------+
-+  | |DATA_NSQ| | ``0x00`` | Same as |DATA_SEQ|, but does not need to be ACKed. |
-+  +------------+----------+----------------------------------------------------+
++.. flat-table:: SSH Frame Types
++   :widths: 1 1 4
++   :header-rows: 1
++
++   * - Name
++     - Value
++     - Short Description
++
++   * - |NAK|
++     - ``0x04``
++     - Sent on error in previously received message.
++
++   * - |ACK|
++     - ``0x40``
++     - Sent to acknowledge receival of |DATA| frame.
++
++   * - |DATA_SEQ|
++     - ``0x80``
++     - Sent to transfer data. Sequenced.
++
++   * - |DATA_NSQ|
++     - ``0x00``
++     - Same as |DATA_SEQ|, but does not need to be ACKed.
 +
 +Both |NAK|- and |ACK|-type frames are used to control flow of messages and
 +thus do not carry a payload. |DATA_SEQ|- and |DATA_NSQ|-type frames on the
@@ -933,23 +1179,41 @@ index 0000000000000..2a8a10e219ac5
 +``frame.len - sizeof(struct ssh_command)``. The command struct contains the
 +following fields, packed together and in order:
 +
-+  +-------------+-------+----------------------------------------------------+
-+  | Field       | Type  | Description                                        |
-+  +=============+=======+====================================================+
-+  | |TYPE|      | |u8|  | Type of the payload. For commands always ``0x80``. |
-+  +-------------+-------+----------------------------------------------------+
-+  | |TC|        | |u8|  | Target category.                                   |
-+  +-------------+-------+----------------------------------------------------+
-+  | |TID| (out) | |u8|  | Target ID for outgoing (host to EC) commands.      |
-+  +-------------+-------+----------------------------------------------------+
-+  | |TID| (in)  | |u8|  | Target ID for incoming (EC to host) commands.      |
-+  +-------------+-------+----------------------------------------------------+
-+  | |IID|       | |u8|  | Instance ID.                                       |
-+  +-------------+-------+----------------------------------------------------+
-+  | |RQID|      | |u16| | Request ID.                                        |
-+  +-------------+-------+----------------------------------------------------+
-+  | |CID|       | |u8|  | Command ID.                                        |
-+  +-------------+-------+----------------------------------------------------+
++.. flat-table:: SSH Command
++   :widths: 1 1 4
++   :header-rows: 1
++
++   * - Field
++     - Type
++     - Description
++
++   * - |TYPE|
++     - |u8|
++     - Type of the payload. For commands always ``0x80``.
++
++   * - |TC|
++     - |u8|
++     - Target category.
++
++   * - |TID| (out)
++     - |u8|
++     - Target ID for outgoing (host to EC) commands.
++
++   * - |TID| (in)
++     - |u8|
++     - Target ID for incoming (EC to host) commands.
++
++   * - |IID|
++     - |u8|
++     - Instance ID.
++
++   * - |RQID|
++     - |u16|
++     - Request ID.
++
++   * - |CID|
++     - |u8|
++     - Command ID.
 +
 +The command struct and data, in general, does not contain any failure
 +detection mechanism (e.g. CRCs), this is solely done on the frame level.
@@ -1000,9 +1264,9 @@ index 0000000000000..2a8a10e219ac5
 +Furthermore, requests, responses, and events have an associated target ID
 +(``TID``). This target ID is split into output (host to EC) and input (EC to
 +host) fields, with the respecting other field (e.g. output field on incoming
-+messages) set to zero. Two ``TID`` values are known: Primary (0x01) and
-+secondary (0x02). In general, the response to a request should have the same
-+``TID`` value, however, the field (output vs. input) should be used in
++messages) set to zero. Two ``TID`` values are known: Primary (``0x01``) and
++secondary (``0x02``). In general, the response to a request should have the
++same ``TID`` value, however, the field (output vs. input) should be used in
 +accordance to the direction in which the response is sent (i.e. on the input
 +field, as responses are generally sent from the EC to the host).
 +
@@ -1055,7 +1319,7 @@ index 0000000000000..2a8a10e219ac5
 +frames) and at most three pending commands. The limit to synchronous frame
 +transfers seems to be consistent with behavior observed on Windows.
 diff --git a/drivers/acpi/acpica/dsopcode.c b/drivers/acpi/acpica/dsopcode.c
-index 10f32b62608ee..7b2a4987f0507 100644
+index 10f32b62608e..7b2a4987f050 100644
 --- a/drivers/acpi/acpica/dsopcode.c
 +++ b/drivers/acpi/acpica/dsopcode.c
 @@ -123,7 +123,7 @@ acpi_ds_init_buffer_field(u16 aml_opcode,
@@ -1068,7 +1332,7 @@ index 10f32b62608ee..7b2a4987f0507 100644
  		bit_count = (u32) length_desc->integer.value;
  
 diff --git a/drivers/acpi/acpica/exfield.c b/drivers/acpi/acpica/exfield.c
-index d3d2dbfba680c..0b7f617a6e9b1 100644
+index d3d2dbfba680..0b7f617a6e9b 100644
 --- a/drivers/acpi/acpica/exfield.c
 +++ b/drivers/acpi/acpica/exfield.c
 @@ -109,6 +109,7 @@ acpi_ex_read_data_from_field(struct acpi_walk_state *walk_state,
@@ -1100,7 +1364,7 @@ index d3d2dbfba680c..0b7f617a6e9b1 100644
  		buffer_desc = acpi_ut_create_buffer_object(buffer_length);
  		if (!buffer_desc) {
 diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
-index c55b63750757d..ff65acb97b182 100644
+index c55b63750757..ff65acb97b18 100644
 --- a/drivers/misc/Kconfig
 +++ b/drivers/misc/Kconfig
 @@ -481,4 +481,5 @@ source "drivers/misc/cxl/Kconfig"
@@ -1110,7 +1374,7 @@ index c55b63750757d..ff65acb97b182 100644
 +source "drivers/misc/surface_sam/Kconfig"
  endmenu
 diff --git a/drivers/misc/Makefile b/drivers/misc/Makefile
-index c1860d35dc7e2..8086661758597 100644
+index c1860d35dc7e..808666175859 100644
 --- a/drivers/misc/Makefile
 +++ b/drivers/misc/Makefile
 @@ -57,3 +57,4 @@ obj-y				+= cardreader/
@@ -1120,7 +1384,7 @@ index c1860d35dc7e2..8086661758597 100644
 +obj-$(CONFIG_SURFACE_SAM)	+= surface_sam/
 diff --git a/drivers/misc/surface_sam/Kconfig b/drivers/misc/surface_sam/Kconfig
 new file mode 100644
-index 0000000000000..ca560d91e2291
+index 000000000000..ca560d91e229
 --- /dev/null
 +++ b/drivers/misc/surface_sam/Kconfig
 @@ -0,0 +1,46 @@
@@ -1172,7 +1436,7 @@ index 0000000000000..ca560d91e2291
 +source "drivers/misc/surface_sam/clients/Kconfig"
 diff --git a/drivers/misc/surface_sam/Makefile b/drivers/misc/surface_sam/Makefile
 new file mode 100644
-index 0000000000000..0a07dd2297874
+index 000000000000..0a07dd229787
 --- /dev/null
 +++ b/drivers/misc/surface_sam/Makefile
 @@ -0,0 +1,14 @@
@@ -1192,7 +1456,7 @@ index 0000000000000..0a07dd2297874
 +surface_sam_ssh-objs += bus.o
 diff --git a/drivers/misc/surface_sam/bus.c b/drivers/misc/surface_sam/bus.c
 new file mode 100644
-index 0000000000000..6089e7b74f462
+index 000000000000..6089e7b74f46
 --- /dev/null
 +++ b/drivers/misc/surface_sam/bus.c
 @@ -0,0 +1,414 @@
@@ -1612,7 +1876,7 @@ index 0000000000000..6089e7b74f462
 +}
 diff --git a/drivers/misc/surface_sam/bus.h b/drivers/misc/surface_sam/bus.h
 new file mode 100644
-index 0000000000000..8b3ddf2100870
+index 000000000000..8b3ddf210087
 --- /dev/null
 +++ b/drivers/misc/surface_sam/bus.h
 @@ -0,0 +1,14 @@
@@ -1632,7 +1896,7 @@ index 0000000000000..8b3ddf2100870
 +#endif /* _SSAM_BUS_H */
 diff --git a/drivers/misc/surface_sam/clients/Kconfig b/drivers/misc/surface_sam/clients/Kconfig
 new file mode 100644
-index 0000000000000..189bf02e280d7
+index 000000000000..189bf02e280d
 --- /dev/null
 +++ b/drivers/misc/surface_sam/clients/Kconfig
 @@ -0,0 +1,121 @@
@@ -1759,7 +2023,7 @@ index 0000000000000..189bf02e280d7
 +	  If you are not sure, say M here.
 diff --git a/drivers/misc/surface_sam/clients/Makefile b/drivers/misc/surface_sam/clients/Makefile
 new file mode 100644
-index 0000000000000..1db9db2f86252
+index 000000000000..1db9db2f8625
 --- /dev/null
 +++ b/drivers/misc/surface_sam/clients/Makefile
 @@ -0,0 +1,11 @@
@@ -1776,10 +2040,10 @@ index 0000000000000..1db9db2f86252
 +obj-$(CONFIG_SURFACE_SAM_DEVICE_HUB) += surface_sam_device_hub.o
 diff --git a/drivers/misc/surface_sam/clients/surface_sam_debugfs.c b/drivers/misc/surface_sam/clients/surface_sam_debugfs.c
 new file mode 100644
-index 0000000000000..191ae7eb9f996
+index 000000000000..cd1fd24b0582
 --- /dev/null
 +++ b/drivers/misc/surface_sam/clients/surface_sam_debugfs.c
-@@ -0,0 +1,265 @@
+@@ -0,0 +1,282 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
 +#include <linux/debugfs.h>
@@ -1793,9 +2057,26 @@ index 0000000000000..191ae7eb9f996
 +#include <linux/surface_aggregator_module.h>
 +
 +#define SSAM_DBGDEV_NAME	"surface_sam_dbgdev"
-+#define SSAM_DBGDEV_VERS	0x0100
++#define SSAM_DBGDEV_VERS	0x010000
 +
 +
++/**
++ * struct ssam_dbgdev_request - Controller request IOCTL argument.
++ * @target_category: Target category of the SAM request.
++ * @target_id:       Target ID of the SAM request.
++ * @command_id:      Command ID of the SAM request.
++ * @instance_id:     Instance ID of the SAM request.
++ * @flags:           SAM Request flags.
++ * @status:          Request status (output).
++ * @payload:         Request payload (input data).
++ * @payload.data:    Pointer to request payload data.
++ * @payload.length:  Length of request payload data (in bytes).
++ * @response:        Request response (output data).
++ * @response.data:   Pointer to response buffer.
++ * @response.length: On input: Capacity of response buffer (in bytes).
++ *                   On output: Length of request response (number of bytes
++ *                   in the buffer that are actually used).
++ */
 +struct ssam_dbgdev_request {
 +	__u8 target_category;
 +	__u8 target_id;
@@ -1972,7 +2253,7 @@ index 0000000000000..191ae7eb9f996
 +
 +	ddev->ctrl = ctrl;
 +
-+	ddev->dentry_dir = debugfs_create_dir("surface_sam", NULL);
++	ddev->dentry_dir = debugfs_create_dir("ssam", NULL);
 +	if (IS_ERR(ddev->dentry_dir))
 +		return PTR_ERR(ddev->dentry_dir);
 +
@@ -2047,7 +2328,7 @@ index 0000000000000..191ae7eb9f996
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_sam/clients/surface_sam_device_hub.c b/drivers/misc/surface_sam/clients/surface_sam_device_hub.c
 new file mode 100644
-index 0000000000000..7b56d5e6ca1e5
+index 000000000000..7b56d5e6ca1e
 --- /dev/null
 +++ b/drivers/misc/surface_sam/clients/surface_sam_device_hub.c
 @@ -0,0 +1,583 @@
@@ -2636,7 +2917,7 @@ index 0000000000000..7b56d5e6ca1e5
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_sam/clients/surface_sam_dtx.c b/drivers/misc/surface_sam/clients/surface_sam_dtx.c
 new file mode 100644
-index 0000000000000..ff73f54328069
+index 000000000000..ff73f5432806
 --- /dev/null
 +++ b/drivers/misc/surface_sam/clients/surface_sam_dtx.c
 @@ -0,0 +1,583 @@
@@ -3225,7 +3506,7 @@ index 0000000000000..ff73f54328069
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_sam/clients/surface_sam_hps.c b/drivers/misc/surface_sam/clients/surface_sam_hps.c
 new file mode 100644
-index 0000000000000..3a72642d13da5
+index 000000000000..b2232043552a
 --- /dev/null
 +++ b/drivers/misc/surface_sam/clients/surface_sam_hps.c
 @@ -0,0 +1,1296 @@
@@ -4089,7 +4370,7 @@ index 0000000000000..3a72642d13da5
 +{
 +	struct shps_driver_data *drvdata = container_of(nb, struct shps_driver_data, dgpu_nf);
 +	struct platform_device *pdev = drvdata->pdev;
-+	struct ssam_anf_dgpu_event *evt = data;
++	struct san_dgpu_event *evt = data;
 +
 +	if (evt->category == SAM_DGPU_TC && evt->command == SAM_DGPU_CID_POWERON)
 +		return shps_dgpu_powered_on(pdev);
@@ -4342,7 +4623,7 @@ index 0000000000000..3a72642d13da5
 +
 +	if (detected_traits.notification_method == SHPS_NOTIFICATION_METHOD_SAN) {
 +		// link to SAN
-+		status = ssam_anf_client_link(&pdev->dev);
++		status = san_client_link(&pdev->dev);
 +		if (status) {
 +			dev_err(&pdev->dev, "failed to register as SAN client: %d\n", status);
 +			return status == -ENXIO ? -EPROBE_DEFER : status;
@@ -4399,7 +4680,7 @@ index 0000000000000..3a72642d13da5
 +		drvdata->dgpu_nf.priority = 1;
 +		drvdata->dgpu_nf.notifier_call = shps_dgpu_handle_rqsg;
 +
-+		status = ssam_anf_dgpu_notifier_register(&drvdata->dgpu_nf);
++		status = san_dgpu_notifier_register(&drvdata->dgpu_nf);
 +		if (status) {
 +			dev_err(&pdev->dev, "unable to register SAN notification handler (%d)\n", status);
 +			goto err_devlink;
@@ -4447,7 +4728,7 @@ index 0000000000000..3a72642d13da5
 +	if (detected_traits.notification_method == SHPS_NOTIFICATION_METHOD_SGCP) {
 +		shps_remove_sgcp_notification(pdev);
 +	} else if (detected_traits.notification_method == SHPS_NOTIFICATION_METHOD_SAN) {
-+		ssam_anf_dgpu_notifier_unregister(&drvdata->dgpu_nf);
++		san_dgpu_notifier_unregister(&drvdata->dgpu_nf);
 +	}
 +err_devlink:
 +	device_remove_groups(&pdev->dev, shps_power_groups);
@@ -4482,7 +4763,7 @@ index 0000000000000..3a72642d13da5
 +	if (drvdata->hardware_traits.notification_method == SHPS_NOTIFICATION_METHOD_SGCP) {
 +		shps_remove_sgcp_notification(pdev);
 +	} else if (drvdata->hardware_traits.notification_method == SHPS_NOTIFICATION_METHOD_SAN) {
-+		ssam_anf_dgpu_notifier_unregister(&drvdata->dgpu_nf);
++		san_dgpu_notifier_unregister(&drvdata->dgpu_nf);
 +	}
 +	device_remove_groups(&pdev->dev, shps_power_groups);
 +	shps_gpios_remove_irq(pdev);
@@ -4527,10 +4808,10 @@ index 0000000000000..3a72642d13da5
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_sam/clients/surface_sam_san.c b/drivers/misc/surface_sam/clients/surface_sam_san.c
 new file mode 100644
-index 0000000000000..ff3b59bcae554
+index 000000000000..59f2370be8c5
 --- /dev/null
 +++ b/drivers/misc/surface_sam/clients/surface_sam_san.c
-@@ -0,0 +1,813 @@
+@@ -0,0 +1,841 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface ACPI Notify (SAN) and ACPI integration driver for SAM.
@@ -4592,7 +4873,23 @@ index 0000000000000..ff3b59bcae554
 +	return status;
 +}
 +
-+int ssam_anf_client_link(struct device *client)
++/**
++ * san_client_link() - Link client as consumer to SAN device.
++ * @client: The client to link.
++ *
++ * Sets up a device link between the provided client device as consumer and
++ * the SAN device as provider. This function can be used to ensure that the
++ * SAN interface has been set up and will be set up for as long as the driver
++ * of the client device is bound. This guarantees that, during that time, all
++ * dGPU events will be received by any registered notifier.
++ *
++ * The link will be automatically removed once the client device's driver is
++ * unbound.
++ *
++ * Return: Returns zero on succes, %-ENXIO if the SAN interface has not been
++ * set up yet, and %-ENOMEM if device link creation failed.
++ */
++int san_client_link(struct device *client)
 +{
 +	const u32 flags = DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE_CONSUMER;
 +	struct device_link *link;
@@ -4618,21 +4915,33 @@ index 0000000000000..ff3b59bcae554
 +	up_read(&san_rqsg_if.lock);
 +	return 0;
 +}
-+EXPORT_SYMBOL_GPL(ssam_anf_client_link);
++EXPORT_SYMBOL_GPL(san_client_link);
 +
-+int ssam_anf_dgpu_notifier_register(struct notifier_block *nb)
++/**
++ * san_dgpu_notifier_register() - Register a SAN dGPU notifier.
++ * @nb: The notifier-block to register.
++ *
++ * Registers a SAN dGPU notifier, receiving any new SAN dGPU events sent from
++ * ACPI. The registered notifier will be called with &struct san_dgpu_event
++ * as notifier data and the command ID of that event as notifier action.
++ */
++int san_dgpu_notifier_register(struct notifier_block *nb)
 +{
 +	return blocking_notifier_chain_register(&san_rqsg_if.nh, nb);
 +}
-+EXPORT_SYMBOL_GPL(ssam_anf_dgpu_notifier_register);
++EXPORT_SYMBOL_GPL(san_dgpu_notifier_register);
 +
-+int ssam_anf_dgpu_notifier_unregister(struct notifier_block *nb)
++/**
++ * san_dgpu_notifier_unregister() - Unregister a SAN dGPU notifier.
++ * @nb: The notifier-block to unregister.
++ */
++int san_dgpu_notifier_unregister(struct notifier_block *nb)
 +{
 +	return blocking_notifier_chain_unregister(&san_rqsg_if.nh, nb);
 +}
-+EXPORT_SYMBOL_GPL(ssam_anf_dgpu_notifier_unregister);
++EXPORT_SYMBOL_GPL(san_dgpu_notifier_unregister);
 +
-+static int san_dgpu_notifier_call(struct ssam_anf_dgpu_event *evt)
++static int san_dgpu_notifier_call(struct san_dgpu_event *evt)
 +{
 +	int ret;
 +
@@ -5096,7 +5405,7 @@ index 0000000000000..ff3b59bcae554
 +static acpi_status san_rqsg(struct san_data *d, struct gsb_buffer *buffer)
 +{
 +	struct gsb_data_rqsx *gsb_rqsg;
-+	struct ssam_anf_dgpu_event evt;
++	struct san_dgpu_event evt;
 +	int status;
 +
 +	gsb_rqsg = san_validate_rqsx(d->dev, "RQSG", buffer);
@@ -5346,7 +5655,7 @@ index 0000000000000..ff3b59bcae554
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_sam/clients/surface_sam_sid_perfmode.c b/drivers/misc/surface_sam/clients/surface_sam_sid_perfmode.c
 new file mode 100644
-index 0000000000000..44f5d31709b22
+index 000000000000..44f5d31709b2
 --- /dev/null
 +++ b/drivers/misc/surface_sam/clients/surface_sam_sid_perfmode.c
 @@ -0,0 +1,190 @@
@@ -5542,7 +5851,7 @@ index 0000000000000..44f5d31709b22
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_sam/clients/surface_sam_sid_power.c b/drivers/misc/surface_sam/clients/surface_sam_sid_power.c
 new file mode 100644
-index 0000000000000..da8dd1e914b70
+index 000000000000..da8dd1e914b7
 --- /dev/null
 +++ b/drivers/misc/surface_sam/clients/surface_sam_sid_power.c
 @@ -0,0 +1,1114 @@
@@ -6662,7 +6971,7 @@ index 0000000000000..da8dd1e914b70
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_sam/clients/surface_sam_sid_vhf.c b/drivers/misc/surface_sam/clients/surface_sam_sid_vhf.c
 new file mode 100644
-index 0000000000000..e995c03f4b733
+index 000000000000..e995c03f4b73
 --- /dev/null
 +++ b/drivers/misc/surface_sam/clients/surface_sam_sid_vhf.c
 @@ -0,0 +1,498 @@
@@ -7166,7 +7475,7 @@ index 0000000000000..e995c03f4b733
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_sam/clients/surface_sam_vhf.c b/drivers/misc/surface_sam/clients/surface_sam_vhf.c
 new file mode 100644
-index 0000000000000..8f24e7a7bfea9
+index 000000000000..8f24e7a7bfea
 --- /dev/null
 +++ b/drivers/misc/surface_sam/clients/surface_sam_vhf.c
 @@ -0,0 +1,334 @@
@@ -7506,7 +7815,7 @@ index 0000000000000..8f24e7a7bfea9
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_sam/controller.c b/drivers/misc/surface_sam/controller.c
 new file mode 100644
-index 0000000000000..c279159e3aabc
+index 000000000000..c279159e3aab
 --- /dev/null
 +++ b/drivers/misc/surface_sam/controller.c
 @@ -0,0 +1,2441 @@
@@ -9953,7 +10262,7 @@ index 0000000000000..c279159e3aabc
 +}
 diff --git a/drivers/misc/surface_sam/controller.h b/drivers/misc/surface_sam/controller.h
 new file mode 100644
-index 0000000000000..2c328e21df68d
+index 000000000000..2c328e21df68
 --- /dev/null
 +++ b/drivers/misc/surface_sam/controller.h
 @@ -0,0 +1,275 @@
@@ -10234,7 +10543,7 @@ index 0000000000000..2c328e21df68d
 +#endif /* _SSAM_CONTROLLER_H */
 diff --git a/drivers/misc/surface_sam/core.c b/drivers/misc/surface_sam/core.c
 new file mode 100644
-index 0000000000000..5164d13e52f8d
+index 000000000000..5164d13e52f8
 --- /dev/null
 +++ b/drivers/misc/surface_sam/core.c
 @@ -0,0 +1,771 @@
@@ -11011,7 +11320,7 @@ index 0000000000000..5164d13e52f8d
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_sam/ssam_trace.h b/drivers/misc/surface_sam/ssam_trace.h
 new file mode 100644
-index 0000000000000..ad1ce1cdd474f
+index 000000000000..ad1ce1cdd474
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssam_trace.h
 @@ -0,0 +1,619 @@
@@ -11636,7 +11945,7 @@ index 0000000000000..ad1ce1cdd474f
 +#include <trace/define_trace.h>
 diff --git a/drivers/misc/surface_sam/ssh_msgb.h b/drivers/misc/surface_sam/ssh_msgb.h
 new file mode 100644
-index 0000000000000..4b37c5577897c
+index 000000000000..4b37c5577897
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssh_msgb.h
 @@ -0,0 +1,196 @@
@@ -11838,7 +12147,7 @@ index 0000000000000..4b37c5577897c
 +#endif /* _SSAM_SSH_MSGB_H */
 diff --git a/drivers/misc/surface_sam/ssh_packet_layer.c b/drivers/misc/surface_sam/ssh_packet_layer.c
 new file mode 100644
-index 0000000000000..21a8f7e4473b4
+index 000000000000..21a8f7e4473b
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssh_packet_layer.c
 @@ -0,0 +1,2001 @@
@@ -13845,7 +14154,7 @@ index 0000000000000..21a8f7e4473b4
 +}
 diff --git a/drivers/misc/surface_sam/ssh_packet_layer.h b/drivers/misc/surface_sam/ssh_packet_layer.h
 new file mode 100644
-index 0000000000000..2e2d961c5c046
+index 000000000000..2e2d961c5c04
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssh_packet_layer.h
 @@ -0,0 +1,173 @@
@@ -14024,7 +14333,7 @@ index 0000000000000..2e2d961c5c046
 +#endif /* _SSAM_SSH_PACKET_LAYER_H */
 diff --git a/drivers/misc/surface_sam/ssh_parser.c b/drivers/misc/surface_sam/ssh_parser.c
 new file mode 100644
-index 0000000000000..3e28d502d5eb2
+index 000000000000..3e28d502d5eb
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssh_parser.c
 @@ -0,0 +1,221 @@
@@ -14251,7 +14560,7 @@ index 0000000000000..3e28d502d5eb2
 +}
 diff --git a/drivers/misc/surface_sam/ssh_parser.h b/drivers/misc/surface_sam/ssh_parser.h
 new file mode 100644
-index 0000000000000..1ee455de7898a
+index 000000000000..1ee455de7898
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssh_parser.h
 @@ -0,0 +1,151 @@
@@ -14408,7 +14717,7 @@ index 0000000000000..1ee455de7898a
 +#endif /* _SURFACE_SAM_SSH_PARSER_h */
 diff --git a/drivers/misc/surface_sam/ssh_protocol.h b/drivers/misc/surface_sam/ssh_protocol.h
 new file mode 100644
-index 0000000000000..4f35ce93f02e2
+index 000000000000..4f35ce93f02e
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssh_protocol.h
 @@ -0,0 +1,103 @@
@@ -14517,7 +14826,7 @@ index 0000000000000..4f35ce93f02e2
 +#endif /* _SSAM_SSH_PROTOCOL_H */
 diff --git a/drivers/misc/surface_sam/ssh_request_layer.c b/drivers/misc/surface_sam/ssh_request_layer.c
 new file mode 100644
-index 0000000000000..24aaf6da5b545
+index 000000000000..24aaf6da5b54
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssh_request_layer.c
 @@ -0,0 +1,1246 @@
@@ -15769,7 +16078,7 @@ index 0000000000000..24aaf6da5b545
 +}
 diff --git a/drivers/misc/surface_sam/ssh_request_layer.h b/drivers/misc/surface_sam/ssh_request_layer.h
 new file mode 100644
-index 0000000000000..954f571862a69
+index 000000000000..954f571862a6
 --- /dev/null
 +++ b/drivers/misc/surface_sam/ssh_request_layer.h
 @@ -0,0 +1,136 @@
@@ -15910,7 +16219,7 @@ index 0000000000000..954f571862a69
 +
 +#endif /* _SSAM_SSH_REQUEST_LAYER_H */
 diff --git a/drivers/tty/serdev/core.c b/drivers/tty/serdev/core.c
-index a9719858c950b..ce5309d002805 100644
+index a9719858c950..ce5309d00280 100644
 --- a/drivers/tty/serdev/core.c
 +++ b/drivers/tty/serdev/core.c
 @@ -552,16 +552,97 @@ static int of_serdev_register_devices(struct serdev_controller *ctrl)
@@ -16065,7 +16374,7 @@ index a9719858c950b..ce5309d002805 100644
  	if (!ctrl->serdev)
  		return -ENODEV;
 diff --git a/include/linux/mod_devicetable.h b/include/linux/mod_devicetable.h
-index 4c56404e53a76..1ef76f488a580 100644
+index 4c56404e53a7..1ef76f488a58 100644
 --- a/include/linux/mod_devicetable.h
 +++ b/include/linux/mod_devicetable.h
 @@ -827,4 +827,21 @@ struct wmi_device_id {
@@ -16092,10 +16401,10 @@ index 4c56404e53a76..1ef76f488a580 100644
  #endif /* LINUX_MOD_DEVICETABLE_H */
 diff --git a/include/linux/surface_acpi_notify.h b/include/linux/surface_acpi_notify.h
 new file mode 100644
-index 0000000000000..37be101afdd95
+index 000000000000..aa69fa508140
 --- /dev/null
 +++ b/include/linux/surface_acpi_notify.h
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,39 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Interface for Surface ACPI/Notify (SAN).
@@ -16110,25 +16419,34 @@ index 0000000000000..37be101afdd95
 +#define _SURFACE_SAM_SAN_H
 +
 +#include <linux/types.h>
++#include <linux/notifier.h>
 +
-+
-+struct ssam_anf_dgpu_event {
-+	u8 category;			// target category
-+	u8 target;			// target ID
-+	u8 command;			// command ID
-+	u8 instance;			// instance ID
-+	u16 length;			// command data length (length of payload)
-+	u8 *payload;			// pointer to payload of length cdl
++/**
++ * struct san_dgpu_event - Discrete GPU ACPI event.
++ * @category: Category of the event.
++ * @target:   Target ID of the event source.
++ * @command:  Command ID of the event.
++ * @instance: Instance ID of the event source.
++ * @length:   Length of the event's payload data (in bytes).
++ * @payload:  Pointer to the event's payload data.
++ */
++struct san_dgpu_event {
++	u8 category;
++	u8 target;
++	u8 command;
++	u8 instance;
++	u16 length;
++	u8 *payload;
 +};
 +
-+int ssam_anf_client_link(struct device *client);
-+int ssam_anf_dgpu_notifier_register(struct notifier_block *nb);
-+int ssam_anf_dgpu_notifier_unregister(struct notifier_block *nb);
++int san_client_link(struct device *client);
++int san_dgpu_notifier_register(struct notifier_block *nb);
++int san_dgpu_notifier_unregister(struct notifier_block *nb);
 +
 +#endif /* _SURFACE_SAM_SAN_H */
 diff --git a/include/linux/surface_aggregator_module.h b/include/linux/surface_aggregator_module.h
 new file mode 100644
-index 0000000000000..2763805c283ad
+index 000000000000..2763805c283a
 --- /dev/null
 +++ b/include/linux/surface_aggregator_module.h
 @@ -0,0 +1,1744 @@
@@ -17877,7 +18195,7 @@ index 0000000000000..2763805c283ad
 +
 +#endif /* _SURFACE_AGGREGATOR_MODULE_H */
 diff --git a/scripts/mod/devicetable-offsets.c b/scripts/mod/devicetable-offsets.c
-index 054405b90ba42..74d6395bbe919 100644
+index 054405b90ba4..74d6395bbe91 100644
 --- a/scripts/mod/devicetable-offsets.c
 +++ b/scripts/mod/devicetable-offsets.c
 @@ -231,5 +231,12 @@ int main(void)
@@ -17894,7 +18212,7 @@ index 054405b90ba42..74d6395bbe919 100644
  	return 0;
  }
 diff --git a/scripts/mod/file2alias.c b/scripts/mod/file2alias.c
-index c91eba751804b..5406ad2f4fabd 100644
+index c91eba751804..5406ad2f4fab 100644
 --- a/scripts/mod/file2alias.c
 +++ b/scripts/mod/file2alias.c
 @@ -1335,6 +1335,27 @@ static int do_wmi_entry(const char *filename, void *symval, char *alias)
