@@ -1,4 +1,4 @@
-From d7e8113fe37ed0d3970029fcf61e5fdf4e8b6d24 Mon Sep 17 00:00:00 2001
+From ac0db304360fd2323b6e359fa3e8ca3611235ba1 Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:11:08 +0200
 Subject: [PATCH 5/7] surface-sam
@@ -25,7 +25,7 @@ Subject: [PATCH 5/7] surface-sam
  drivers/misc/surface_aggregator/bus.h         |   22 +
  .../misc/surface_aggregator/clients/Kconfig   |  154 +
  .../misc/surface_aggregator/clients/Makefile  |   11 +
- .../clients/surface_acpi_notify.c             |  844 ++++++
+ .../clients/surface_acpi_notify.c             |  847 ++++++
  .../clients/surface_aggregator_debugfs.c      |  280 ++
  .../clients/surface_aggregator_registry.c     |  601 ++++
  .../clients/surface_battery.c                 | 1096 +++++++
@@ -53,7 +53,7 @@ Subject: [PATCH 5/7] surface-sam
  include/linux/surface_aggregator/serial_hub.h |  657 +++++
  scripts/mod/devicetable-offsets.c             |    8 +
  scripts/mod/file2alias.c                      |   23 +
- 49 files changed, 17971 insertions(+), 16 deletions(-)
+ 49 files changed, 17974 insertions(+), 16 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/dbgdev.rst
@@ -2141,10 +2141,10 @@ index 000000000000..a859fecae8d5
 +obj-$(CONFIG_SURFACE_PERFMODE) 			+= surface_perfmode.o
 diff --git a/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c b/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c
 new file mode 100644
-index 000000000000..3bf715c32c24
+index 000000000000..10a623d1afda
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c
-@@ -0,0 +1,844 @@
+@@ -0,0 +1,847 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for the Surface ACPI Notify (SAN) interface/shim.
@@ -2669,7 +2669,8 @@ index 000000000000..3bf715c32c24
 +		memcpy(&gsb->data.out.pld[0], ptr, len);
 +}
 +
-+static acpi_status san_rqst_fixup_suspended(struct ssam_request *rqst,
++static acpi_status san_rqst_fixup_suspended(struct san_data *d,
++					    struct ssam_request *rqst,
 +					    struct gsb_buffer *gsb)
 +{
 +	if (rqst->target_category == SSAM_SSH_TC_BAS && rqst->command_id == 0x0D) {
@@ -2689,6 +2690,8 @@ index 000000000000..3bf715c32c24
 +		 * waiting for the EC to wake up, which may incur a notable
 +		 * delay.
 +		 */
++
++		dev_dbg(d->dev, "rqst: fixup: base-state quirk\n");
 +
 +		gsb_rqsx_response_success(gsb, &base_state, sizeof(base_state));
 +		return AE_OK;
@@ -2725,7 +2728,7 @@ index 000000000000..3bf715c32c24
 +	// handle suspended device
 +	if (d->dev->power.is_suspended) {
 +		dev_warn(d->dev, "rqst: device is suspended, not executing\n");
-+		return san_rqst_fixup_suspended(&rqst, buffer);
++		return san_rqst_fixup_suspended(d, &rqst, buffer);
 +	}
 +
 +	status = ssam_retry(ssam_request_sync_onstack, SAN_REQUEST_NUM_TRIES,
@@ -7905,7 +7908,7 @@ index 000000000000..ed93596adcf6
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/controller.c b/drivers/misc/surface_aggregator/controller.c
 new file mode 100644
-index 000000000000..d8973cb35a5e
+index 000000000000..641a17a06da2
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/controller.c
 @@ -0,0 +1,2509 @@
@@ -8983,7 +8986,7 @@ index 000000000000..d8973cb35a5e
 +static int ssam_controller_caps_load_from_acpi(
 +		acpi_handle handle, struct ssam_controller_caps *caps)
 +{
-+	u32 d3_closes_handle;
++	u32 d3_closes_handle = false;
 +	u64 funcs;
 +	int status;
 +
