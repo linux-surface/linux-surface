@@ -1,4 +1,4 @@
-From 0b7ad1bdaa9a3deced72912b89897e65f0906295 Mon Sep 17 00:00:00 2001
+From b0b56d4f215445da6fa7e5d321b0d6dc8efc0a81 Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:15:40 +0200
 Subject: [PATCH 08/10] surface-sam
@@ -42,7 +42,7 @@ Subject: [PATCH 08/10] surface-sam
  .../surface_aggregator/ssh_packet_layer.h     |  170 ++
  drivers/misc/surface_aggregator/ssh_parser.c  |  224 ++
  drivers/misc/surface_aggregator/ssh_parser.h  |  152 +
- .../surface_aggregator/ssh_request_layer.c    | 1247 ++++++++
+ .../surface_aggregator/ssh_request_layer.c    | 1249 ++++++++
  .../surface_aggregator/ssh_request_layer.h    |  137 +
  drivers/misc/surface_aggregator/trace.h       |  621 ++++
  drivers/tty/serdev/core.c                     |  111 +-
@@ -53,7 +53,7 @@ Subject: [PATCH 08/10] surface-sam
  include/linux/surface_aggregator/serial_hub.h |  653 +++++
  scripts/mod/devicetable-offsets.c             |    8 +
  scripts/mod/file2alias.c                      |   23 +
- 49 files changed, 17969 insertions(+), 29 deletions(-)
+ 49 files changed, 17971 insertions(+), 29 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/dbgdev.rst
@@ -7929,7 +7929,7 @@ index 000000000000..ed93596adcf6
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/controller.c b/drivers/misc/surface_aggregator/controller.c
 new file mode 100644
-index 000000000000..947aa546fd09
+index 000000000000..87d1f804c155
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/controller.c
 @@ -0,0 +1,2507 @@
@@ -9402,7 +9402,7 @@ index 000000000000..947aa546fd09
 +{
 +	size_t msglen = SSH_COMMAND_MESSAGE_LENGTH(payload_len);
 +
-+	*rqst = kzalloc(sizeof(*rqst) + msglen, flags);
++	*rqst = kzalloc(sizeof(**rqst) + msglen, flags);
 +	if (!*rqst)
 +		return -ENOMEM;
 +
@@ -14284,17 +14284,19 @@ index 000000000000..a766223b18e7
 +#endif /* _SURFACE_AGGREGATOR_SSH_PARSER_h */
 diff --git a/drivers/misc/surface_aggregator/ssh_request_layer.c b/drivers/misc/surface_aggregator/ssh_request_layer.c
 new file mode 100644
-index 000000000000..bd80503872d0
+index 000000000000..5494217afa88
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_request_layer.c
-@@ -0,0 +1,1247 @@
+@@ -0,0 +1,1249 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
++#include <asm/unaligned.h>
 +#include <linux/atomic.h>
 +#include <linux/completion.h>
 +#include <linux/error-injection.h>
 +#include <linux/ktime.h>
 +#include <linux/list.h>
++#include <linux/slab.h>
 +#include <linux/spinlock.h>
 +#include <linux/types.h>
 +#include <linux/workqueue.h>
