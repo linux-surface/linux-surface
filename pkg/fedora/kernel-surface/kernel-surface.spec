@@ -2,13 +2,13 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc33 kernel-5.8.10-300.fc33
-%global kernel_tag_fc32 kernel-5.8.10-200.fc32
-%global kernel_tag_fc31 kernel-5.8.10-100.fc31
+%global kernel_tag_fc33 kernel-5.8.12-300.fc33
+%global kernel_tag_fc32 kernel-5.8.12-200.fc32
+%global kernel_tag_fc31 kernel-5.8.12-100.fc31
 
-%global kernel_release_fc33 2
-%global kernel_release_fc32 2
-%global kernel_release_fc31 2
+%global kernel_release_fc33 1
+%global kernel_release_fc32 1
+%global kernel_release_fc31 1
 
 %global fedora_title_fc33 33 (Thirty Three)
 %global fedora_title_fc32 32 (Thirty Two)
