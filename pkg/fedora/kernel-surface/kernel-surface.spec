@@ -56,6 +56,8 @@ Provides: kernel-uname-r = %{kernel_name}
 Provides: kernel-core-uname-r = %{kernel_name}
 Provides: kernel-modules-uname-r = %{kernel_name}
 
+Recommends: iptsd
+
 Requires(pre): coreutils, systemd >= 203-2, /usr/bin/kernel-install
 Requires(pre): dracut >= 027
 Requires(pre): linux-firmware >= 20150904-56.git6ebf5d57

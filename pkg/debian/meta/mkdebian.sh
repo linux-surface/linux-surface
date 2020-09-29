@@ -17,6 +17,10 @@ image_pkgname_actual="linux-image-${kernelrelease}"
 headers_pkgname="linux-headers-surface${suffix}"
 headers_pkgname_actual="linux-headers-${kernelrelease}"
 
+recommends=""
+if [ ! "$suffix" = "-lts" ]; then
+  recommends="iptsd"
+fi
 
 mkdir -p "debian/source"
 echo "1.0" > "debian/source/format"
@@ -41,6 +45,7 @@ Homepage: https://github.com/linux-surface/linux-surface
 Package: ${image_pkgname}
 Architecture: ${debarch}
 Depends: ${image_pkgname_actual} (= ${pkgversion})
+Recommends: ${recommends}
 Description:
   Meta-package for linux-surface kernel images.
 
