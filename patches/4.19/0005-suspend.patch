@@ -1,4 +1,4 @@
-From 62b2bc9997d187d9fc51e8faa766360ee27ef4fa Mon Sep 17 00:00:00 2001
+From b420c60ae36c19a367834badda4a6a4a3c2b876d Mon Sep 17 00:00:00 2001
 From: kitakar5525 <34676735+kitakar5525@users.noreply.github.com>
 Date: Sat, 28 Sep 2019 17:48:21 +0200
 Subject: [PATCH 05/10] suspend
@@ -12,10 +12,10 @@ Subject: [PATCH 05/10] suspend
  5 files changed, 162 insertions(+), 6 deletions(-)
 
 diff --git a/drivers/nvme/host/core.c b/drivers/nvme/host/core.c
-index 0d60f2f8f3ee..6dcd37c10153 100644
+index 33dad9774da0..742b84a6f344 100644
 --- a/drivers/nvme/host/core.c
 +++ b/drivers/nvme/host/core.c
-@@ -1068,15 +1068,15 @@ static struct nvme_id_ns *nvme_identify_ns(struct nvme_ctrl *ctrl,
+@@ -1065,15 +1065,15 @@ static struct nvme_id_ns *nvme_identify_ns(struct nvme_ctrl *ctrl,
  	return id;
  }
  
@@ -34,7 +34,7 @@ index 0d60f2f8f3ee..6dcd37c10153 100644
  	c.features.fid = cpu_to_le32(fid);
  	c.features.dword11 = cpu_to_le32(dword11);
  
-@@ -1087,6 +1087,24 @@ static int nvme_set_features(struct nvme_ctrl *dev, unsigned fid, unsigned dword
+@@ -1084,6 +1084,24 @@ static int nvme_set_features(struct nvme_ctrl *dev, unsigned fid, unsigned dword
  	return ret;
  }
  
@@ -59,7 +59,7 @@ index 0d60f2f8f3ee..6dcd37c10153 100644
  int nvme_set_queue_count(struct nvme_ctrl *ctrl, int *count)
  {
  	u32 q_count = (*count - 1) | ((*count - 1) << 16);
-@@ -3613,6 +3631,18 @@ static void nvme_free_ctrl(struct device *dev)
+@@ -3615,6 +3633,18 @@ static void nvme_free_ctrl(struct device *dev)
  		nvme_put_subsystem(subsys);
  }
  
@@ -79,10 +79,10 @@ index 0d60f2f8f3ee..6dcd37c10153 100644
   * Initialize a NVMe controller structures.  This needs to be called during
   * earliest initialization so that we have the initialized structured around
 diff --git a/drivers/nvme/host/nvme.h b/drivers/nvme/host/nvme.h
-index cc4273f11989..40192b661798 100644
+index 9c2e7a151e40..8cf74e854610 100644
 --- a/drivers/nvme/host/nvme.h
 +++ b/drivers/nvme/host/nvme.h
-@@ -436,6 +436,7 @@ void nvme_complete_async_event(struct nvme_ctrl *ctrl, __le16 status,
+@@ -437,6 +437,7 @@ void nvme_complete_async_event(struct nvme_ctrl *ctrl, __le16 status,
  void nvme_stop_queues(struct nvme_ctrl *ctrl);
  void nvme_start_queues(struct nvme_ctrl *ctrl);
  void nvme_kill_queues(struct nvme_ctrl *ctrl);
@@ -90,7 +90,7 @@ index cc4273f11989..40192b661798 100644
  void nvme_unfreeze(struct nvme_ctrl *ctrl);
  void nvme_wait_freeze(struct nvme_ctrl *ctrl);
  void nvme_wait_freeze_timeout(struct nvme_ctrl *ctrl, long timeout);
-@@ -453,6 +454,12 @@ int __nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
+@@ -454,6 +455,12 @@ int __nvme_submit_sync_cmd(struct request_queue *q, struct nvme_command *cmd,
  		union nvme_result *result, void *buffer, unsigned bufflen,
  		unsigned timeout, int qid, int at_head,
  		blk_mq_req_flags_t flags);
@@ -297,10 +297,10 @@ index 279f9f0197b0..cb474338f39d 100644
  static ssize_t link_state_show(struct device *dev,
  		struct device_attribute *attr,
 diff --git a/include/linux/pci.h b/include/linux/pci.h
-index 2517492dd185..d96343cd5c99 100644
+index 2fda9893962d..ec6c48ecd7d5 100644
 --- a/include/linux/pci.h
 +++ b/include/linux/pci.h
-@@ -1489,8 +1489,10 @@ extern bool pcie_ports_native;
+@@ -1488,8 +1488,10 @@ extern bool pcie_ports_native;
  
  #ifdef CONFIG_PCIEASPM
  bool pcie_aspm_support_enabled(void);

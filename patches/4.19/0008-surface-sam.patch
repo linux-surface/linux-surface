@@ -1,4 +1,4 @@
-From 6476bc668dc5157a12e80ebc750be8ba491eab5f Mon Sep 17 00:00:00 2001
+From f6914d98615e84fb362289463dfd40e46a9e99aa Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:15:40 +0200
 Subject: [PATCH 08/10] surface-sam
@@ -19,41 +19,42 @@ Subject: [PATCH 08/10] surface-sam
  drivers/acpi/acpica/exfield.c                 |   26 +-
  drivers/misc/Kconfig                          |    1 +
  drivers/misc/Makefile                         |    1 +
- drivers/misc/surface_aggregator/Kconfig       |   65 +
- drivers/misc/surface_aggregator/Makefile      |   17 +
- drivers/misc/surface_aggregator/bus.c         |  419 +++
- drivers/misc/surface_aggregator/bus.h         |   22 +
- .../misc/surface_aggregator/clients/Kconfig   |  154 +
- .../misc/surface_aggregator/clients/Makefile  |   11 +
- .../clients/surface_acpi_notify.c             |  847 ++++++
- .../clients/surface_aggregator_debugfs.c      |  280 ++
- .../clients/surface_aggregator_registry.c     |  601 ++++
- .../clients/surface_battery.c                 | 1096 +++++++
- .../surface_aggregator/clients/surface_dtx.c  |  589 ++++
- .../surface_aggregator/clients/surface_hid.c  |  493 ++++
- .../clients/surface_hotplug.c                 | 1282 +++++++++
- .../clients/surface_keyboard.c                |  331 +++
- .../clients/surface_perfmode.c                |  194 ++
- drivers/misc/surface_aggregator/controller.c  | 2507 +++++++++++++++++
- drivers/misc/surface_aggregator/controller.h  |  283 ++
- drivers/misc/surface_aggregator/core.c        |  773 +++++
- drivers/misc/surface_aggregator/ssh_msgb.h    |  196 ++
- .../surface_aggregator/ssh_packet_layer.c     | 2002 +++++++++++++
- .../surface_aggregator/ssh_packet_layer.h     |  170 ++
- drivers/misc/surface_aggregator/ssh_parser.c  |  224 ++
- drivers/misc/surface_aggregator/ssh_parser.h  |  152 +
- .../surface_aggregator/ssh_request_layer.c    | 1249 ++++++++
- .../surface_aggregator/ssh_request_layer.h    |  137 +
- drivers/misc/surface_aggregator/trace.h       |  621 ++++
+ drivers/misc/surface_aggregator/Kconfig       |   67 +
+ drivers/misc/surface_aggregator/Makefile      |   18 +
+ drivers/misc/surface_aggregator/bus.c         |  424 +++
+ drivers/misc/surface_aggregator/bus.h         |   27 +
+ .../misc/surface_aggregator/clients/Kconfig   |  155 +
+ .../misc/surface_aggregator/clients/Makefile  |   12 +
+ .../clients/surface_acpi_notify.c             |  884 ++++++
+ .../clients/surface_aggregator_cdev.c         |  228 ++
+ .../clients/surface_aggregator_registry.c     |  602 ++++
+ .../clients/surface_battery.c                 | 1191 ++++++++
+ .../surface_aggregator/clients/surface_dtx.c  |  591 ++++
+ .../surface_aggregator/clients/surface_hid.c  |  495 ++++
+ .../clients/surface_hotplug.c                 | 1285 +++++++++
+ .../clients/surface_keyboard.c                |  333 +++
+ .../clients/surface_perfmode.c                |  122 +
+ drivers/misc/surface_aggregator/controller.c  | 2552 +++++++++++++++++
+ drivers/misc/surface_aggregator/controller.h  |  288 ++
+ drivers/misc/surface_aggregator/core.c        |  842 ++++++
+ drivers/misc/surface_aggregator/ssh_msgb.h    |  201 ++
+ .../surface_aggregator/ssh_packet_layer.c     | 2009 +++++++++++++
+ .../surface_aggregator/ssh_packet_layer.h     |  175 ++
+ drivers/misc/surface_aggregator/ssh_parser.c  |  229 ++
+ drivers/misc/surface_aggregator/ssh_parser.h  |  157 +
+ .../surface_aggregator/ssh_request_layer.c    | 1254 ++++++++
+ .../surface_aggregator/ssh_request_layer.h    |  142 +
+ drivers/misc/surface_aggregator/trace.h       |  625 ++++
  drivers/tty/serdev/core.c                     |  111 +-
  include/linux/mod_devicetable.h               |   18 +
- include/linux/surface_acpi_notify.h           |   37 +
- include/linux/surface_aggregator/controller.h |  812 ++++++
- include/linux/surface_aggregator/device.h     |  408 +++
- include/linux/surface_aggregator/serial_hub.h |  653 +++++
+ include/linux/surface_acpi_notify.h           |   39 +
+ include/linux/surface_aggregator/controller.h |  814 ++++++
+ include/linux/surface_aggregator/device.h     |  430 +++
+ include/linux/surface_aggregator/serial_hub.h |  655 +++++
+ include/uapi/linux/surface_aggregator/cdev.h  |   58 +
  scripts/mod/devicetable-offsets.c             |    8 +
  scripts/mod/file2alias.c                      |   23 +
- 49 files changed, 17971 insertions(+), 29 deletions(-)
+ 50 files changed, 18250 insertions(+), 29 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/dbgdev.rst
@@ -71,7 +72,7 @@ Subject: [PATCH 08/10] surface-sam
  create mode 100644 drivers/misc/surface_aggregator/clients/Kconfig
  create mode 100644 drivers/misc/surface_aggregator/clients/Makefile
  create mode 100644 drivers/misc/surface_aggregator/clients/surface_acpi_notify.c
- create mode 100644 drivers/misc/surface_aggregator/clients/surface_aggregator_debugfs.c
+ create mode 100644 drivers/misc/surface_aggregator/clients/surface_aggregator_cdev.c
  create mode 100644 drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
  create mode 100644 drivers/misc/surface_aggregator/clients/surface_battery.c
  create mode 100644 drivers/misc/surface_aggregator/clients/surface_dtx.c
@@ -94,6 +95,7 @@ Subject: [PATCH 08/10] surface-sam
  create mode 100644 include/linux/surface_aggregator/controller.h
  create mode 100644 include/linux/surface_aggregator/device.h
  create mode 100644 include/linux/surface_aggregator/serial_hub.h
+ create mode 100644 include/uapi/linux/surface_aggregator/cdev.h
 
 diff --git a/Documentation/driver-api/index.rst b/Documentation/driver-api/index.rst
 index 6d9f2f9fe20e..e36fbb60c676 100644
@@ -1438,10 +1440,13 @@ index eb1eb0d58c32..c8665072cca5 100644
 +obj-$(CONFIG_SURFACE_AGGREGATOR)	+= surface_aggregator/
 diff --git a/drivers/misc/surface_aggregator/Kconfig b/drivers/misc/surface_aggregator/Kconfig
 new file mode 100644
-index 000000000000..e0a9bb37d178
+index 000000000000..6d33e3259a3d
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/Kconfig
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,67 @@
++# SPDX-License-Identifier: GPL-2.0-or-later
++# Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++
 +menuconfig SURFACE_AGGREGATOR
 +	tristate "Microsoft Surface System Aggregator Module Subsystem and Drivers"
 +	depends on SERIAL_DEV_BUS
@@ -1495,7 +1500,6 @@ index 000000000000..e0a9bb37d178
 +	bool "Surface System Aggregator Module Error Injection Capabilities"
 +	depends on SURFACE_AGGREGATOR
 +	depends on FUNCTION_ERROR_INJECTION
-+	default n
 +	help
 +	  Provides error-injection capabilities for the Surface System
 +	  Aggregator Module subsystem and Surface Serial Hub driver.
@@ -1509,11 +1513,12 @@ index 000000000000..e0a9bb37d178
 +source "drivers/misc/surface_aggregator/clients/Kconfig"
 diff --git a/drivers/misc/surface_aggregator/Makefile b/drivers/misc/surface_aggregator/Makefile
 new file mode 100644
-index 000000000000..acf42597e6bb
+index 000000000000..c48e58657116
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/Makefile
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,18 @@
 +# SPDX-License-Identifier: GPL-2.0-or-later
++# Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 +
 +# For include/trace/define_trace.h to include trace.h
 +CFLAGS_core.o = -I$(src)
@@ -1532,11 +1537,16 @@ index 000000000000..acf42597e6bb
 +endif
 diff --git a/drivers/misc/surface_aggregator/bus.c b/drivers/misc/surface_aggregator/bus.c
 new file mode 100644
-index 000000000000..5581dca2eee2
+index 000000000000..efd72ce7a672
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/bus.c
-@@ -0,0 +1,419 @@
+@@ -0,0 +1,424 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * Surface System Aggregator Module bus and device integration.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ */
 +
 +#include <linux/device.h>
 +#include <linux/slab.h>
@@ -1677,7 +1687,7 @@ index 000000000000..5581dca2eee2
 +	 */
 +	ssam_controller_statelock(sdev->ctrl);
 +
-+	if (READ_ONCE(sdev->ctrl->state) != SSAM_CONTROLLER_STARTED) {
++	if (sdev->ctrl->state != SSAM_CONTROLLER_STARTED) {
 +		ssam_controller_stateunlock(sdev->ctrl);
 +		return -ENXIO;
 +	}
@@ -1957,11 +1967,16 @@ index 000000000000..5581dca2eee2
 +}
 diff --git a/drivers/misc/surface_aggregator/bus.h b/drivers/misc/surface_aggregator/bus.h
 new file mode 100644
-index 000000000000..82c697b1e45f
+index 000000000000..798471a9b369
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/bus.h
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,27 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * Surface System Aggregator Module bus and device integration.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ */
 +
 +#ifndef _SURFACE_AGGREGATOR_BUS_H
 +#define _SURFACE_AGGREGATOR_BUS_H
@@ -1985,25 +2000,26 @@ index 000000000000..82c697b1e45f
 +#endif /* _SURFACE_AGGREGATOR_BUS_H */
 diff --git a/drivers/misc/surface_aggregator/clients/Kconfig b/drivers/misc/surface_aggregator/clients/Kconfig
 new file mode 100644
-index 000000000000..1642a43a61a9
+index 000000000000..82c6e7d48e17
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/Kconfig
-@@ -0,0 +1,154 @@
-+config SURFACE_AGGREGATOR_DEBUGFS
-+	tristate "Surface System Aggregator Module DebugFS interface"
-+	depends on SURFACE_AGGREGATOR
-+	depends on DEBUG_FS
-+	default n
-+	help
-+	  Provides a DebugFS interface to the Surface System Aggregator Module
-+	  (SSAM) controller.
+@@ -0,0 +1,155 @@
++# SPDX-License-Identifier: GPL-2.0-or-later
++# Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 +
-+	  This option provides a module (called surface_aggregator_debugfs),
-+	  that, when loaded, will add a client device (and its respective
-+	  driver) to the SSAM controller. Said client device manages a DebugFS
-+	  interface (/sys/kernel/debug/surface_aggregator/controller), which can
-+	  be used by user-space tools to directly communicate with the SSAM EC
-+	  by sending requests and receiving the correspondign responses.
++config SURFACE_AGGREGATOR_CDEV
++	tristate "Surface System Aggregator Module User-Space Interface"
++	depends on SURFACE_AGGREGATOR
++	help
++	  Provides a misc-device interface to the Surface System Aggregator
++	  Module (SSAM) controller.
++
++	  This option provides a module (called surface_aggregator_cdev), that,
++	  when loaded, will add a client device (and its respective driver) to
++	  the SSAM controller. Said client device manages a misc-device
++	  interface (/dev/surface/aggregator), which can be used by user-space
++	  tools to directly communicate with the SSAM EC by sending requests and
++	  receiving the correspondign responses.
 +
 +	  The provided interface is intended for debugging and development only,
 +	  and should not be used otherwise.
@@ -2145,13 +2161,14 @@ index 000000000000..1642a43a61a9
 +	  controlling said mode via the corresponding client device.
 diff --git a/drivers/misc/surface_aggregator/clients/Makefile b/drivers/misc/surface_aggregator/clients/Makefile
 new file mode 100644
-index 000000000000..a859fecae8d5
+index 000000000000..c7b1c20f865c
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/Makefile
-@@ -0,0 +1,11 @@
+@@ -0,0 +1,12 @@
 +# SPDX-License-Identifier: GPL-2.0-or-later
++# Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 +
-+obj-$(CONFIG_SURFACE_AGGREGATOR_DEBUGFS)	+= surface_aggregator_debugfs.o
++obj-$(CONFIG_SURFACE_AGGREGATOR_CDEV)		+= surface_aggregator_cdev.o
 +obj-$(CONFIG_SURFACE_AGGREGATOR_REGISTRY)	+= surface_aggregator_registry.o
 +obj-$(CONFIG_SURFACE_ACPI_NOTIFY)		+= surface_acpi_notify.o
 +obj-$(CONFIG_SURFACE_BATTERY)			+= surface_battery.o
@@ -2162,10 +2179,10 @@ index 000000000000..a859fecae8d5
 +obj-$(CONFIG_SURFACE_PERFMODE) 			+= surface_perfmode.o
 diff --git a/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c b/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c
 new file mode 100644
-index 000000000000..10a623d1afda
+index 000000000000..1859db6b7323
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c
-@@ -0,0 +1,847 @@
+@@ -0,0 +1,884 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Driver for the Surface ACPI Notify (SAN) interface/shim.
@@ -2175,6 +2192,8 @@ index 000000000000..10a623d1afda
 + * events back to ACPI notifications. Allows handling of discrete GPU
 + * notifications sent from ACPI via the SAN interface by providing them to any
 + * registered external driver.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <asm/unaligned.h>
@@ -2837,10 +2856,6 @@ index 000000000000..10a623d1afda
 +
 +/* -- Driver setup. --------------------------------------------------------- */
 +
-+struct san_acpi_consumer {
-+	const char *path;
-+};
-+
 +static int san_events_register(struct platform_device *pdev)
 +{
 +	struct san_data *d = platform_get_drvdata(pdev);
@@ -2881,38 +2896,92 @@ index 000000000000..10a623d1afda
 +	ssam_notifier_unregister(d->ctrl, &d->nf_tmp);
 +}
 +
-+static int san_consumers_link(struct platform_device *pdev,
-+			      const struct san_acpi_consumer *cons)
++#define san_consumer_printk(level, dev, handle, fmt, ...)			\
++do {										\
++	char *path = "<error getting consumer path>";				\
++	struct acpi_buffer buffer = {						\
++		.length = ACPI_ALLOCATE_BUFFER,					\
++		.pointer = NULL,						\
++	};									\
++										\
++	if (ACPI_SUCCESS(acpi_get_name(handle, ACPI_FULL_PATHNAME, &buffer)))	\
++		path = buffer.pointer;						\
++										\
++	dev_##level(dev, "[%s]: " fmt, path, ##__VA_ARGS__);			\
++	kfree(buffer.pointer);							\
++} while (0)
++
++#define san_consumer_dbg(dev, handle, fmt, ...) \
++	san_consumer_printk(dbg, dev, handle, fmt, ##__VA_ARGS__)
++
++#define san_consumer_warn(dev, handle, fmt, ...) \
++	san_consumer_printk(warn, dev, handle, fmt, ##__VA_ARGS__)
++
++static bool is_san_consumer(struct platform_device *pdev, acpi_handle handle)
 +{
-+	const u32 flags = DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE_SUPPLIER;
-+	const struct san_acpi_consumer *c;
++	struct acpi_handle_list dep_devices;
++	acpi_handle supplier = ACPI_HANDLE(&pdev->dev);
++	acpi_status status;
++	int i;
 +
-+	for (c = cons; c && c->path; ++c) {
-+		struct acpi_device *adev;
-+		acpi_handle handle;
-+		acpi_status status;
-+		int ret;
++	if (!acpi_has_method(handle, "_DEP"))
++		return false;
 +
-+		status = acpi_get_handle(NULL, (acpi_string)c->path, &handle);
-+		if (status == AE_NOT_FOUND)
-+			continue;
-+		else if (ACPI_FAILURE(status))
-+			return -ENXIO;
-+
-+		ret = acpi_bus_get_device(handle, &adev);
-+		if (ret)
-+			return ret;
-+
-+		if (!device_link_add(&adev->dev, &pdev->dev, flags))
-+			return -EFAULT;
++	status = acpi_evaluate_reference(handle, "_DEP", NULL, &dep_devices);
++	if (ACPI_FAILURE(status)) {
++		san_consumer_dbg(&pdev->dev, handle, "failed to evaluate _DEP\n");
++		return false;
 +	}
 +
-+	return 0;
++	for (i = 0; i < dep_devices.count; i++) {
++		if (dep_devices.handles[i] == supplier)
++			return true;
++	}
++
++	return false;
++}
++
++static acpi_status san_consumer_setup(acpi_handle handle, u32 lvl,
++				      void *context, void **rv)
++{
++	const u32 flags = DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE_SUPPLIER;
++	struct platform_device *pdev = context;
++	struct acpi_device *adev;
++	struct device_link *link;
++
++	if (!is_san_consumer(pdev, handle))
++		return AE_OK;
++
++	// ignore ACPI devices that are not present
++	if (acpi_bus_get_device(handle, &adev) != 0)
++		return AE_OK;
++
++	san_consumer_dbg(&pdev->dev, handle, "creating device link\n");
++
++	// try to set up device links, ignore but log errors
++	link = device_link_add(&adev->dev, &pdev->dev, flags);
++	if (!link) {
++		san_consumer_warn(&pdev->dev, handle,
++				  "failed to create device link\n");
++		return AE_OK;
++	}
++
++	return AE_OK;
++}
++
++static int san_consumer_links_setup(struct platform_device *pdev)
++{
++	acpi_status status;
++
++	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
++				     ACPI_UINT32_MAX, san_consumer_setup, NULL,
++				     pdev, NULL);
++
++	return status ? -EFAULT : 0;
 +}
 +
 +static int san_probe(struct platform_device *pdev)
 +{
-+	const struct san_acpi_consumer *cons;
 +	acpi_handle san = ACPI_HANDLE(&pdev->dev);
 +	struct ssam_controller *ctrl;
 +	struct san_data *data;
@@ -2923,12 +2992,9 @@ index 000000000000..10a623d1afda
 +	if (status)
 +		return status == -ENXIO ? -EPROBE_DEFER : status;
 +
-+	cons = acpi_device_get_match_data(&pdev->dev);
-+	if (cons) {
-+		status = san_consumers_link(pdev, cons);
-+		if (status)
-+			return status;
-+	}
++	status = san_consumer_links_setup(pdev);
++	if (status)
++		return status;
 +
 +	data = devm_kzalloc(&pdev->dev, sizeof(*data), GFP_KERNEL);
 +	if (!data)
@@ -2981,20 +3047,8 @@ index 000000000000..10a623d1afda
 +	return 0;
 +}
 +
-+/*
-+ * ACPI devices that make use of the SAM EC via the SAN interface. Link them
-+ * to the SAN device to try and enforce correct suspend/resume orderding.
-+ */
-+static const struct san_acpi_consumer san_mshw0091_consumers[] = {
-+	{ "\\_SB.SRTC" },
-+	{ "\\ADP1"     },
-+	{ "\\_SB.BAT1" },
-+	{ "\\_SB.BAT2" },
-+	{ },
-+};
-+
 +static const struct acpi_device_id san_match[] = {
-+	{ "MSHW0091", (unsigned long) san_mshw0091_consumers },
++	{ "MSHW0091" },
 +	{ },
 +};
 +MODULE_DEVICE_TABLE(acpi, san_match);
@@ -3013,96 +3067,64 @@ index 000000000000..10a623d1afda
 +MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 +MODULE_DESCRIPTION("Surface ACPI Notify driver for Surface System Aggregator Module");
 +MODULE_LICENSE("GPL");
-diff --git a/drivers/misc/surface_aggregator/clients/surface_aggregator_debugfs.c b/drivers/misc/surface_aggregator/clients/surface_aggregator_debugfs.c
+diff --git a/drivers/misc/surface_aggregator/clients/surface_aggregator_cdev.c b/drivers/misc/surface_aggregator/clients/surface_aggregator_cdev.c
 new file mode 100644
-index 000000000000..08c3b9d6eead
+index 000000000000..2d2880e69313
 --- /dev/null
-+++ b/drivers/misc/surface_aggregator/clients/surface_aggregator_debugfs.c
-@@ -0,0 +1,280 @@
++++ b/drivers/misc/surface_aggregator/clients/surface_aggregator_cdev.c
+@@ -0,0 +1,228 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
-+ * DebugFS interface for Surface System Aggregator Module (SSAM) controller
-+ * access from user-space. Intended for debugging and development.
++ * Provides user-space access to the SSAM EC via the /dev/surface/aggregator
++ * misc device. Intended for debugging and development.
++ *
++ * Copyright (C) 2020 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
-+#include <linux/debugfs.h>
++#include <linux/fs.h>
 +#include <linux/kernel.h>
++#include <linux/miscdevice.h>
 +#include <linux/module.h>
 +#include <linux/platform_device.h>
 +#include <linux/slab.h>
 +#include <linux/uaccess.h>
 +
++#include <linux/surface_aggregator/cdev.h>
 +#include <linux/surface_aggregator/controller.h>
 +
-+#define SSAM_DBG_DEVICE_NAME		"surface_aggregator_dbg"
-+#define SSAM_DBG_IF_VERSION		0x010000
++#define SSAM_CDEV_DEVICE_NAME	"surface_aggregator_cdev"
 +
-+/**
-+ * struct ssam_debug_request - Controller request IOCTL argument.
-+ * @target_category: Target category of the SAM request.
-+ * @target_id:       Target ID of the SAM request.
-+ * @command_id:      Command ID of the SAM request.
-+ * @instance_id:     Instance ID of the SAM request.
-+ * @flags:           SAM Request flags.
-+ * @status:          Request status (output).
-+ * @payload:         Request payload (input data).
-+ * @payload.data:    Pointer to request payload data.
-+ * @payload.length:  Length of request payload data (in bytes).
-+ * @response:        Request response (output data).
-+ * @response.data:   Pointer to response buffer.
-+ * @response.length: On input: Capacity of response buffer (in bytes).
-+ *                   On output: Length of request response (number of bytes
-+ *                   in the buffer that are actually used).
-+ */
-+struct ssam_dbg_request {
-+	__u8 target_category;
-+	__u8 target_id;
-+	__u8 command_id;
-+	__u8 instance_id;
-+	__u16 flags;
-+	__s16 status;
-+
-+	struct {
-+		const __u8 __user *data;
-+		__u16 length;
-+		__u8 __pad[6];
-+	} payload;
-+
-+	struct {
-+		__u8 __user *data;
-+		__u16 length;
-+		__u8 __pad[6];
-+	} response;
-+};
-+
-+#define SSAM_DBG_IOCTL_GETVERSION  _IOR(0xA5, 0, __u32)
-+#define SSAM_DBG_IOCTL_REQUEST     _IOWR(0xA5, 1, struct ssam_dbg_request)
-+
-+struct ssam_dbg_data {
++struct ssam_cdev {
 +	struct ssam_controller *ctrl;
-+	struct dentry *dentry_dir;
-+	struct dentry *dentry_dev;
++	struct miscdevice mdev;
 +};
 +
-+static int ssam_dbg_device_open(struct inode *inode, struct file *filp)
++static int ssam_cdev_device_open(struct inode *inode, struct file *filp)
 +{
-+	filp->private_data = inode->i_private;
++	struct miscdevice *mdev = filp->private_data;
++
++	filp->private_data = container_of(mdev, struct ssam_cdev, mdev);
 +	return nonseekable_open(inode, filp);
 +}
 +
-+static long ssam_dbg_if_request(struct file *file, unsigned long arg)
++static long ssam_cdev_request(struct file *file, unsigned long arg)
 +{
-+	struct ssam_dbg_data *data = file->private_data;
-+	struct ssam_dbg_request __user *r;
-+	struct ssam_dbg_request rqst;
++	struct ssam_cdev *cdev = file->private_data;
++	struct ssam_cdev_request __user *r;
++	struct ssam_cdev_request rqst;
 +	struct ssam_request spec;
 +	struct ssam_response rsp;
++	const void __user *plddata;
++	void __user *rspdata;
 +	int status = 0, ret = 0, tmp;
 +
-+	r = (struct ssam_dbg_request __user *)arg;
-+	ret = copy_from_user(&rqst, r, sizeof(struct ssam_dbg_request));
++	r = (struct ssam_cdev_request __user *)arg;
++	ret = copy_from_user(&rqst, r, sizeof(struct ssam_cdev_request));
 +	if (ret)
 +		goto out;
++
++	plddata = u64_to_user_ptr(rqst.payload.data);
++	rspdata = u64_to_user_ptr(rqst.response.data);
 +
 +	// setup basic request fields
 +	spec.target_category = rqst.target_category;
@@ -3119,7 +3141,7 @@ index 000000000000..08c3b9d6eead
 +
 +	// get request payload from user-space
 +	if (spec.length) {
-+		if (!rqst.payload.data) {
++		if (!plddata) {
 +			ret = -EINVAL;
 +			goto out;
 +		}
@@ -3131,8 +3153,7 @@ index 000000000000..08c3b9d6eead
 +			goto out;
 +		}
 +
-+		if (copy_from_user((void *)spec.payload, rqst.payload.data,
-+				   spec.length)) {
++		if (copy_from_user((void *)spec.payload, plddata, spec.length)) {
 +			ret = -EFAULT;
 +			goto out;
 +		}
@@ -3140,7 +3161,7 @@ index 000000000000..08c3b9d6eead
 +
 +	// allocate response buffer
 +	if (rsp.capacity) {
-+		if (!rqst.response.data) {
++		if (!rspdata) {
 +			ret = -EINVAL;
 +			goto out;
 +		}
@@ -3154,26 +3175,22 @@ index 000000000000..08c3b9d6eead
 +	}
 +
 +	// perform request
-+	status = ssam_request_sync(data->ctrl, &spec, &rsp);
++	status = ssam_request_sync(cdev->ctrl, &spec, &rsp);
 +	if (status)
 +		goto out;
 +
 +	// copy response to user-space
-+	if (rsp.length) {
-+		if (copy_to_user(rqst.response.data, rsp.pointer, rsp.length)) {
-+			ret = -EFAULT;
-+			goto out;
-+		}
-+	}
++	if (rsp.length && copy_to_user(rspdata, rsp.pointer, rsp.length))
++		ret = -EFAULT;
 +
 +out:
 +	// always try to set response-length and status
 +	tmp = put_user(rsp.length, &r->response.length);
-+	if (!ret)
++	if (tmp)
 +		ret = tmp;
 +
 +	tmp = put_user(status, &r->status);
-+	if (!ret)
++	if (tmp)
 +		ret = tmp;
 +
 +	// cleanup
@@ -3183,93 +3200,67 @@ index 000000000000..08c3b9d6eead
 +	return ret;
 +}
 +
-+static long ssam_dbg_if_getversion(struct file *file, unsigned long arg)
-+{
-+	put_user(SSAM_DBG_IF_VERSION, (u32 __user *)arg);
-+	return 0;
-+}
-+
-+static long ssam_dbg_device_ioctl(struct file *file, unsigned int cmd,
-+				    unsigned long arg)
++static long ssam_cdev_device_ioctl(struct file *file, unsigned int cmd,
++				   unsigned long arg)
 +{
 +	switch (cmd) {
-+	case SSAM_DBG_IOCTL_GETVERSION:
-+		return ssam_dbg_if_getversion(file, arg);
-+
-+	case SSAM_DBG_IOCTL_REQUEST:
-+		return ssam_dbg_if_request(file, arg);
++	case SSAM_CDEV_REQUEST:
++		return ssam_cdev_request(file, arg);
 +
 +	default:
-+		return -ENOIOCTLCMD;
++		return -ENOTTY;
 +	}
 +}
 +
-+const struct file_operations ssam_dbg_device_fops = {
++static const struct file_operations ssam_controller_fops = {
 +	.owner          = THIS_MODULE,
-+	.open           = ssam_dbg_device_open,
-+	.unlocked_ioctl = ssam_dbg_device_ioctl,
-+	.compat_ioctl   = ssam_dbg_device_ioctl,
++	.open           = ssam_cdev_device_open,
++	.unlocked_ioctl = ssam_cdev_device_ioctl,
++	.compat_ioctl   = ssam_cdev_device_ioctl,
 +	.llseek         = noop_llseek,
 +};
 +
 +static int ssam_dbg_device_probe(struct platform_device *pdev)
 +{
-+	struct ssam_dbg_data *data;
 +	struct ssam_controller *ctrl;
++	struct ssam_cdev *cdev;
 +	int status;
 +
 +	status = ssam_client_bind(&pdev->dev, &ctrl);
 +	if (status)
 +		return status == -ENXIO ? -EPROBE_DEFER : status;
 +
-+	data = devm_kzalloc(&pdev->dev, sizeof(*data), GFP_KERNEL);
-+	if (!data)
++	cdev = devm_kzalloc(&pdev->dev, sizeof(*cdev), GFP_KERNEL);
++	if (!cdev)
 +		return -ENOMEM;
 +
-+	data->ctrl = ctrl;
++	cdev->ctrl = ctrl;
++	cdev->mdev.parent   = &pdev->dev;
++	cdev->mdev.minor    = MISC_DYNAMIC_MINOR;
++	cdev->mdev.name     = "surface_aggregator";
++	cdev->mdev.nodename = "surface/aggregator";
++	cdev->mdev.fops     = &ssam_controller_fops;
 +
-+	data->dentry_dir = debugfs_create_dir("surface_aggregator", NULL);
-+	if (IS_ERR(data->dentry_dir))
-+		return PTR_ERR(data->dentry_dir);
-+
-+	data->dentry_dev = debugfs_create_file("controller", 0600,
-+					       data->dentry_dir, data,
-+					       &ssam_dbg_device_fops);
-+	if (IS_ERR(data->dentry_dev)) {
-+		debugfs_remove(data->dentry_dir);
-+		return PTR_ERR(data->dentry_dev);
-+	}
-+
-+	platform_set_drvdata(pdev, data);
-+	return 0;
++	platform_set_drvdata(pdev, cdev);
++	return misc_register(&cdev->mdev);
 +}
 +
 +static int ssam_dbg_device_remove(struct platform_device *pdev)
 +{
-+	struct ssam_dbg_data *data = platform_get_drvdata(pdev);
++	struct ssam_cdev *cdev = platform_get_drvdata(pdev);
 +
-+	debugfs_remove(data->dentry_dev);
-+	debugfs_remove(data->dentry_dir);
-+
++	misc_deregister(&cdev->mdev);
 +	return 0;
 +}
 +
-+static void ssam_dbg_device_release(struct device *dev)
-+{
-+	// nothing to do
-+}
++static struct platform_device *ssam_cdev_device;
 +
-+static struct platform_device ssam_dbg_device = {
-+	.name = SSAM_DBG_DEVICE_NAME,
-+	.id = PLATFORM_DEVID_NONE,
-+	.dev.release = ssam_dbg_device_release,
-+};
-+
-+static struct platform_driver ssam_dbg_driver = {
++static struct platform_driver ssam_cdev_driver = {
 +	.probe = ssam_dbg_device_probe,
 +	.remove = ssam_dbg_device_remove,
 +	.driver = {
-+		.name = SSAM_DBG_DEVICE_NAME,
++		.name = SSAM_CDEV_DEVICE_NAME,
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 +	},
 +};
 +
@@ -3277,40 +3268,53 @@ index 000000000000..08c3b9d6eead
 +{
 +	int status;
 +
-+	status = platform_device_register(&ssam_dbg_device);
-+	if (status)
-+		return status;
++	ssam_cdev_device = platform_device_alloc(SSAM_CDEV_DEVICE_NAME,
++						 PLATFORM_DEVID_NONE);
++	if (!ssam_cdev_device)
++		return -ENOMEM;
 +
-+	status = platform_driver_register(&ssam_dbg_driver);
++	status = platform_device_add(ssam_cdev_device);
 +	if (status)
-+		platform_device_unregister(&ssam_dbg_device);
++		goto err_device;
 +
++	status = platform_driver_register(&ssam_cdev_driver);
++	if (status)
++		goto err_driver;
++
++	return 0;
++
++err_driver:
++	platform_device_del(ssam_cdev_device);
++err_device:
++	platform_device_put(ssam_cdev_device);
 +	return status;
 +}
 +module_init(ssam_debug_init);
 +
 +static void __exit ssam_debug_exit(void)
 +{
-+	platform_driver_unregister(&ssam_dbg_driver);
-+	platform_device_unregister(&ssam_dbg_device);
++	platform_driver_unregister(&ssam_cdev_driver);
++	platform_device_unregister(ssam_cdev_device);
 +}
 +module_exit(ssam_debug_exit);
 +
 +MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
-+MODULE_DESCRIPTION("DebugFS interface for Surface System Aggregator Module");
++MODULE_DESCRIPTION("User-space interface for Surface System Aggregator Module");
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c b/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
 new file mode 100644
-index 000000000000..a3547eccf98c
+index 000000000000..ad6720676abd
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
-@@ -0,0 +1,601 @@
+@@ -0,0 +1,602 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface System Aggregator Module (SSAM) client device registry.
 + *
 + * Registry for non-platform/non-ACPI SSAM client devices, i.e. devices that
 + * cannot be auto-detected. Provides device-hubs for these devices.
++ *
++ * Copyright (C) 2020 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <linux/acpi.h>
@@ -3727,7 +3731,6 @@ index 000000000000..a3547eccf98c
 +	hub->devices = desc;
 +	hub->state = SSAM_BASE_HUB_UNINITIALIZED;
 +
-+	// TODO: still need to verify registry
 +	hub->notif.base.priority = 1000;  // this notifier should run first
 +	hub->notif.base.fn = ssam_base_hub_notif;
 +	hub->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
@@ -3908,16 +3911,18 @@ index 000000000000..a3547eccf98c
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_battery.c b/drivers/misc/surface_aggregator/clients/surface_battery.c
 new file mode 100644
-index 000000000000..b5cddd3cc35a
+index 000000000000..83903feb38e1
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_battery.c
-@@ -0,0 +1,1096 @@
+@@ -0,0 +1,1191 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface battery and AC device driver.
 + *
 + * Provides support for battery and AC devices connected via the Surface
 + * System Aggregator Module.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <asm/unaligned.h>
@@ -3931,38 +3936,46 @@ index 000000000000..b5cddd3cc35a
 +
 +#include <linux/surface_aggregator/device.h>
 +
++#define SPWR_RETRY			3
++#define spwr_retry(fn, args...)		ssam_retry(fn, SPWR_RETRY, args)
 +
-+// TODO: check BIX/BST for unknown/unsupported 0xffffffff entries
-+// TODO: DPTF (/SAN notifications)?
-+// TODO: other properties?
++#define SPWR_AC_BAT_UPDATE_DELAY	msecs_to_jiffies(5000)
 +
++
++/* -- Module parameters. ---------------------------------------------------- */
 +
 +static unsigned int cache_time = 1000;
 +module_param(cache_time, uint, 0644);
 +MODULE_PARM_DESC(cache_time, "battery state chaching time in milliseconds [default: 1000]");
 +
-+#define SPWR_AC_BAT_UPDATE_DELAY	msecs_to_jiffies(5000)
 +
++/* -- SAM Interface. -------------------------------------------------------- */
 +
-+/*
-+ * SAM Interface.
-+ */
++enum sam_event_cid_bat {
++	SAM_EVENT_CID_BAT_BIX         = 0x15,
++	SAM_EVENT_CID_BAT_BST         = 0x16,
++	SAM_EVENT_CID_BAT_ADP         = 0x17,
++	SAM_EVENT_CID_BAT_PROT        = 0x18,
++	SAM_EVENT_CID_BAT_DPTF        = 0x53,
++};
 +
-+#define SAM_EVENT_PWR_CID_BIX		0x15
-+#define SAM_EVENT_PWR_CID_BST		0x16
-+#define SAM_EVENT_PWR_CID_ADAPTER	0x17
++enum sam_battery_sta {
++	SAM_BATTERY_STA_OK            = 0x0f,
++	SAM_BATTERY_STA_PRESENT	      = 0x10,
++};
 +
-+#define SAM_BATTERY_STA_OK		0x0f
-+#define SAM_BATTERY_STA_PRESENT		0x10
++enum sam_battery_state {
++	SAM_BATTERY_STATE_DISCHARGING = BIT(0),
++	SAM_BATTERY_STATE_CHARGING    = BIT(1),
++	SAM_BATTERY_STATE_CRITICAL    = BIT(2),
++};
 +
-+#define SAM_BATTERY_STATE_DISCHARGING	0x01
-+#define SAM_BATTERY_STATE_CHARGING	0x02
-+#define SAM_BATTERY_STATE_CRITICAL	0x04
++enum sam_battery_power_unit {
++	SAM_BATTERY_POWER_UNIT_mW     = 0,
++	SAM_BATTERY_POWER_UNIT_mA     = 1,
++};
 +
-+#define SAM_BATTERY_POWER_UNIT_MA	1
-+
-+
-+/* Equivalent to data returned in ACPI _BIX method */
++/* Equivalent to data returned in ACPI _BIX method, revision 0 */
 +struct spwr_bix {
 +	u8  revision;
 +	__le32 power_unit;
@@ -3980,11 +3993,13 @@ index 000000000000..b5cddd3cc35a
 +	__le32 min_avg_interval;
 +	__le32 bat_cap_granularity_1;
 +	__le32 bat_cap_granularity_2;
-+	u8  model[21];
-+	u8  serial[11];
-+	u8  type[5];
-+	u8  oem_info[21];
++	u8 model[21];
++	u8 serial[11];
++	u8 type[5];
++	u8 oem_info[21];
 +} __packed;
++
++#define SPWR_BIX_REVISION		0
 +
 +/* Equivalent to data returned in ACPI _BST method */
 +struct spwr_bst {
@@ -3994,13 +4009,7 @@ index 000000000000..b5cddd3cc35a
 +	__le32 present_voltage;
 +} __packed;
 +
-+/* DPTF event payload */
-+struct spwr_event_dptf {
-+	__le32 pmax;
-+	__le32 _1;		/* currently unknown */
-+	__le32 _2;		/* currently unknown */
-+} __packed;
-+
++#define SPWR_BATTERY_VALUE_UNKNOWN	0xffffffff
 +
 +/* Get battery status (_STA) */
 +static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_sta, __le32, {
@@ -4032,6 +4041,11 @@ index 000000000000..b5cddd3cc35a
 +	.command_id      = 0x0d,
 +});
 +
++/*
++ * The following requests are currently unused. They are nevertheless included
++ * for documentation of the SAM interface.
++ */
++
 +/* Get maximum platform power for battery (DPTF PMAX) */
 +__always_unused
 +static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_pmax, __le32, {
@@ -4061,9 +4075,7 @@ index 000000000000..b5cddd3cc35a
 +});
 +
 +
-+/*
-+ * Common Power-Subsystem Interface.
-+ */
++/* -- Common Power-Subsystem Interface. ------------------------------------- */
 +
 +struct spwr_psy_properties {
 +	const char *name;
@@ -4144,31 +4156,32 @@ index 000000000000..b5cddd3cc35a
 +	POWER_SUPPLY_PROP_SERIAL_NUMBER,
 +};
 +
-+
-+static int spwr_battery_register(struct spwr_battery_device *bat,
-+				 struct ssam_device *sdev,
-+				 struct ssam_event_registry registry);
-+
-+static void spwr_battery_unregister(struct spwr_battery_device *bat);
-+
-+
 +static bool spwr_battery_present(struct spwr_battery_device *bat)
 +{
 +	return le32_to_cpu(bat->sta) & SAM_BATTERY_STA_PRESENT;
 +}
 +
-+
 +static int spwr_battery_load_sta(struct spwr_battery_device *bat)
 +{
-+	return ssam_bat_get_sta(bat->sdev, &bat->sta);
++	return spwr_retry(ssam_bat_get_sta, bat->sdev, &bat->sta);
 +}
 +
 +static int spwr_battery_load_bix(struct spwr_battery_device *bat)
 +{
++	int status;
++
 +	if (!spwr_battery_present(bat))
 +		return 0;
 +
-+	return ssam_bat_get_bix(bat->sdev, &bat->bix);
++	status = spwr_retry(ssam_bat_get_bix, bat->sdev, &bat->bix);
++
++	// enforce NULL terminated strings in case anything goes wrong...
++	bat->bix.model[ARRAY_SIZE(bat->bix.model) - 1] = 0;
++	bat->bix.serial[ARRAY_SIZE(bat->bix.serial) - 1] = 0;
++	bat->bix.type[ARRAY_SIZE(bat->bix.type) - 1] = 0;
++	bat->bix.oem_info[ARRAY_SIZE(bat->bix.oem_info) - 1] = 0;
++
++	return status;
 +}
 +
 +static int spwr_battery_load_bst(struct spwr_battery_device *bat)
@@ -4176,17 +4189,16 @@ index 000000000000..b5cddd3cc35a
 +	if (!spwr_battery_present(bat))
 +		return 0;
 +
-+	return ssam_bat_get_bst(bat->sdev, &bat->bst);
++	return spwr_retry(ssam_bat_get_bst, bat->sdev, &bat->bst);
 +}
-+
 +
 +static int spwr_battery_set_alarm_unlocked(struct spwr_battery_device *bat,
 +					   u32 value)
 +{
-+	__le32 alarm = cpu_to_le32(value);
++	__le32 value_le = cpu_to_le32(value);
 +
 +	bat->alarm = value;
-+	return ssam_bat_set_btp(bat->sdev, &alarm);
++	return spwr_retry(ssam_bat_set_btp, bat->sdev, &value_le);
 +}
 +
 +static int spwr_battery_set_alarm(struct spwr_battery_device *bat, u32 value)
@@ -4207,7 +4219,6 @@ index 000000000000..b5cddd3cc35a
 +	int status;
 +
 +	cache_deadline = bat->timestamp + msecs_to_jiffies(cache_time);
-+
 +	if (cached && bat->timestamp && time_is_after_jiffies(cache_deadline))
 +		return 0;
 +
@@ -4250,19 +4261,13 @@ index 000000000000..b5cddd3cc35a
 +	if (status)
 +		return status;
 +
++	if (bat->bix.revision != SPWR_BIX_REVISION) {
++		dev_warn(&bat->sdev->dev, "unsupported battery revision: %u\n",
++			 bat->bix.revision);
++	}
++
 +	bat->timestamp = jiffies;
 +	return 0;
-+}
-+
-+static int spwr_battery_update_bix(struct spwr_battery_device *bat)
-+{
-+	int status;
-+
-+	mutex_lock(&bat->lock);
-+	status = spwr_battery_update_bix_unlocked(bat);
-+	mutex_unlock(&bat->lock);
-+
-+	return status;
 +}
 +
 +static int spwr_ac_update_unlocked(struct spwr_ac_device *ac)
@@ -4270,7 +4275,7 @@ index 000000000000..b5cddd3cc35a
 +	int status;
 +	u32 old = ac->state;
 +
-+	status = ssam_bat_get_psrc(ac->sdev, &ac->state);
++	status = spwr_retry(ssam_bat_get_psrc, ac->sdev, &ac->state);
 +	if (status < 0)
 +		return status;
 +
@@ -4288,48 +4293,68 @@ index 000000000000..b5cddd3cc35a
 +	return status;
 +}
 +
-+
-+static int spwr_battery_recheck(struct spwr_battery_device *bat)
++static u32 sprw_battery_get_full_cap_safe(struct spwr_battery_device *bat)
 +{
-+	bool present = spwr_battery_present(bat);
-+	u32 unit = get_unaligned_le32(&bat->bix.power_unit);
++	u32 full_cap = get_unaligned_le32(&bat->bix.last_full_charge_cap);
++
++	if (full_cap == 0 || full_cap == SPWR_BATTERY_VALUE_UNKNOWN)
++		full_cap = get_unaligned_le32(&bat->bix.design_cap);
++
++	return full_cap;
++}
++
++static bool spwr_battery_is_full(struct spwr_battery_device *bat)
++{
++	u32 state = get_unaligned_le32(&bat->bst.state);
++	u32 full_cap = sprw_battery_get_full_cap_safe(bat);
++	u32 remaining_cap = get_unaligned_le32(&bat->bst.remaining_cap);
++
++	return full_cap != SPWR_BATTERY_VALUE_UNKNOWN && full_cap != 0
++		&& remaining_cap != SPWR_BATTERY_VALUE_UNKNOWN
++		&& remaining_cap >= full_cap
++		&& state == 0;
++}
++
++static int spwr_battery_recheck_full(struct spwr_battery_device *bat)
++{
++	bool present;
++	u32 unit;
 +	int status;
 +
-+	status = spwr_battery_update_bix(bat);
++	mutex_lock(&bat->lock);
++	unit = get_unaligned_le32(&bat->bix.power_unit);
++ 	present = spwr_battery_present(bat);
++
++	status = spwr_battery_update_bix_unlocked(bat);
 +	if (status)
-+		return status;
++		goto out;
 +
 +	// if battery has been attached, (re-)initialize alarm
 +	if (!present && spwr_battery_present(bat)) {
 +		u32 cap_warn = get_unaligned_le32(&bat->bix.design_cap_warn);
-+		status = spwr_battery_set_alarm(bat, cap_warn);
++
++		status = spwr_battery_set_alarm_unlocked(bat, cap_warn);
 +		if (status)
-+			return status;
++			goto out;
 +	}
 +
-+	// if the unit has changed, re-add the battery
-+	if (unit != get_unaligned_le32(&bat->bix.power_unit)) {
-+		spwr_battery_unregister(bat);
-+		status = spwr_battery_register(bat, bat->sdev,
-+					       bat->notif.event.reg);
-+	}
++	/*
++	 * Warn if the unit has changed. This is something we genuinely don't
++	 * expect to happen, so make this a big warning. If it does, we'll
++	 * need to add support for it.
++	 */
++	WARN_ON(unit != get_unaligned_le32(&bat->bix.power_unit));
 +
-+	return status;
-+}
++out:
++	mutex_unlock(&bat->lock);
 +
-+
-+static int spwr_notify_bix(struct spwr_battery_device *bat)
-+{
-+	int status;
-+
-+	status = spwr_battery_recheck(bat);
 +	if (!status)
 +		power_supply_changed(bat->psy);
 +
 +	return status;
 +}
 +
-+static int spwr_notify_bst(struct spwr_battery_device *bat)
++static int spwr_battery_recheck_status(struct spwr_battery_device *bat)
 +{
 +	int status;
 +
@@ -4340,10 +4365,16 @@ index 000000000000..b5cddd3cc35a
 +	return status;
 +}
 +
-+static int spwr_notify_adapter_bat(struct spwr_battery_device *bat)
++static int spwr_battery_recheck_adapter(struct spwr_battery_device *bat)
 +{
-+	u32 last_full_cap = get_unaligned_le32(&bat->bix.last_full_charge_cap);
++	u32 full_cap = sprw_battery_get_full_cap_safe(bat);
 +	u32 remaining_cap = get_unaligned_le32(&bat->bst.remaining_cap);
++
++	if (full_cap == 0 || full_cap == SPWR_BATTERY_VALUE_UNKNOWN)
++		return 0;
++
++	if (remaining_cap == SPWR_BATTERY_VALUE_UNKNOWN)
++		return 0;
 +
 +	/*
 +	 * Handle battery update quirk:
@@ -4353,13 +4384,13 @@ index 000000000000..b5cddd3cc35a
 +	 * the state is updated on the battery. Schedule an update to solve this.
 +	 */
 +
-+	if (remaining_cap >= last_full_cap)
++	if (remaining_cap >= full_cap)
 +		schedule_delayed_work(&bat->update_work, SPWR_AC_BAT_UPDATE_DELAY);
 +
 +	return 0;
 +}
 +
-+static int spwr_notify_adapter_ac(struct spwr_ac_device *ac)
++static int spwr_ac_recheck(struct spwr_ac_device *ac)
 +{
 +	int status;
 +
@@ -4382,8 +4413,8 @@ index 000000000000..b5cddd3cc35a
 +		event->command_id, event->instance_id, event->target_id);
 +
 +	// handled here, needs to be handled for all targets/instances
-+	if (event->command_id == SAM_EVENT_PWR_CID_ADAPTER) {
-+		status = spwr_notify_adapter_bat(bat);
++	if (event->command_id == SAM_EVENT_CID_BAT_ADP) {
++		status = spwr_battery_recheck_adapter(bat);
 +		return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
 +	}
 +
@@ -4394,12 +4425,27 @@ index 000000000000..b5cddd3cc35a
 +		return 0;
 +
 +	switch (event->command_id) {
-+	case SAM_EVENT_PWR_CID_BIX:
-+		status = spwr_notify_bix(bat);
++	case SAM_EVENT_CID_BAT_BIX:
++		status = spwr_battery_recheck_full(bat);
 +		break;
 +
-+	case SAM_EVENT_PWR_CID_BST:
-+		status = spwr_notify_bst(bat);
++	case SAM_EVENT_CID_BAT_BST:
++		status = spwr_battery_recheck_status(bat);
++		break;
++
++	case SAM_EVENT_CID_BAT_PROT:
++		/*
++		 * TODO: Implement support for battery protection status change
++		 *       event.
++		 */
++		status = 0;
++		break;
++
++	case SAM_EVENT_CID_BAT_DPTF:
++		/*
++		 * TODO: Implement support for DPTF event.
++		 */
++		status = 0;
 +		break;
 +
 +	default:
@@ -4430,8 +4476,8 @@ index 000000000000..b5cddd3cc35a
 +	 */
 +
 +	switch (event->command_id) {
-+	case SAM_EVENT_PWR_CID_ADAPTER:
-+		status = spwr_notify_adapter_ac(ac);
++	case SAM_EVENT_CID_BAT_ADP:
++		status = spwr_ac_recheck(ac);
 +		return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
 +
 +	default:
@@ -4457,12 +4503,9 @@ index 000000000000..b5cddd3cc35a
 +	}
 +}
 +
-+
 +static int spwr_battery_prop_status(struct spwr_battery_device *bat)
 +{
 +	u32 state = get_unaligned_le32(&bat->bst.state);
-+	u32 last_full_cap = get_unaligned_le32(&bat->bix.last_full_charge_cap);
-+	u32 remaining_cap = get_unaligned_le32(&bat->bst.remaining_cap);
 +	u32 present_rate = get_unaligned_le32(&bat->bst.present_rate);
 +
 +	if (state & SAM_BATTERY_STATE_DISCHARGING)
@@ -4471,7 +4514,7 @@ index 000000000000..b5cddd3cc35a
 +	if (state & SAM_BATTERY_STATE_CHARGING)
 +		return POWER_SUPPLY_STATUS_CHARGING;
 +
-+	if (last_full_cap == remaining_cap)
++	if (spwr_battery_is_full(bat))
 +		return POWER_SUPPLY_STATUS_FULL;
 +
 +	if (present_rate == 0)
@@ -4502,25 +4545,27 @@ index 000000000000..b5cddd3cc35a
 +
 +static int spwr_battery_prop_capacity(struct spwr_battery_device *bat)
 +{
-+	u32 last_full_cap = get_unaligned_le32(&bat->bix.last_full_charge_cap);
++	u32 full_cap = sprw_battery_get_full_cap_safe(bat);
 +	u32 remaining_cap = get_unaligned_le32(&bat->bst.remaining_cap);
 +
-+	if (remaining_cap && last_full_cap)
-+		return remaining_cap * 100 / last_full_cap;
-+	else
-+		return 0;
++	if (full_cap == 0 || full_cap == SPWR_BATTERY_VALUE_UNKNOWN)
++		return -ENODEV;
++
++	if (remaining_cap == SPWR_BATTERY_VALUE_UNKNOWN)
++		return -ENODEV;
++
++	return remaining_cap * 100 / full_cap;
 +}
 +
 +static int spwr_battery_prop_capacity_level(struct spwr_battery_device *bat)
 +{
 +	u32 state = get_unaligned_le32(&bat->bst.state);
-+	u32 last_full_cap = get_unaligned_le32(&bat->bix.last_full_charge_cap);
 +	u32 remaining_cap = get_unaligned_le32(&bat->bst.remaining_cap);
 +
 +	if (state & SAM_BATTERY_STATE_CRITICAL)
 +		return POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL;
 +
-+	if (remaining_cap >= last_full_cap)
++	if (spwr_battery_is_full(bat))
 +		return POWER_SUPPLY_CAPACITY_LEVEL_FULL;
 +
 +	if (remaining_cap <= bat->alarm)
@@ -4544,7 +4589,7 @@ index 000000000000..b5cddd3cc35a
 +
 +	switch (psp) {
 +	case POWER_SUPPLY_PROP_ONLINE:
-+		val->intval = le32_to_cpu(ac->state) == 1;
++		val->intval = !!le32_to_cpu(ac->state);
 +		break;
 +
 +	default:
@@ -4562,6 +4607,7 @@ index 000000000000..b5cddd3cc35a
 +				     union power_supply_propval *val)
 +{
 +	struct spwr_battery_device *bat = power_supply_get_drvdata(psy);
++	u32 value;
 +	int status;
 +
 +	mutex_lock(&bat->lock);
@@ -4590,39 +4636,63 @@ index 000000000000..b5cddd3cc35a
 +		break;
 +
 +	case POWER_SUPPLY_PROP_CYCLE_COUNT:
-+		val->intval = get_unaligned_le32(&bat->bix.cycle_count);
++		value = get_unaligned_le32(&bat->bix.cycle_count);
++		if (value != SPWR_BATTERY_VALUE_UNKNOWN)
++			val->intval = value;
++		else
++			status = -ENODEV;
 +		break;
 +
 +	case POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN:
-+		val->intval = get_unaligned_le32(&bat->bix.design_voltage)
-+			      * 1000;
++		value = get_unaligned_le32(&bat->bix.design_voltage);
++		if (value != SPWR_BATTERY_VALUE_UNKNOWN)
++			val->intval = value * 1000;
++		else
++			status = -ENODEV;
 +		break;
 +
 +	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
-+		val->intval = get_unaligned_le32(&bat->bst.present_voltage)
-+			      * 1000;
++		value = get_unaligned_le32(&bat->bst.present_voltage);
++		if (value != SPWR_BATTERY_VALUE_UNKNOWN)
++			val->intval = value * 1000;
++		else
++			status = -ENODEV;
 +		break;
 +
 +	case POWER_SUPPLY_PROP_CURRENT_NOW:
 +	case POWER_SUPPLY_PROP_POWER_NOW:
-+		val->intval = get_unaligned_le32(&bat->bst.present_rate) * 1000;
++		value = get_unaligned_le32(&bat->bst.present_rate);
++		if (value != SPWR_BATTERY_VALUE_UNKNOWN)
++			val->intval = value * 1000;
++		else
++			status = -ENODEV;
 +		break;
 +
 +	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
 +	case POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN:
-+		val->intval = get_unaligned_le32(&bat->bix.design_cap) * 1000;
++		value = get_unaligned_le32(&bat->bix.design_cap);
++		if (value != SPWR_BATTERY_VALUE_UNKNOWN)
++			val->intval = value * 1000;
++		else
++			status = -ENODEV;
 +		break;
 +
 +	case POWER_SUPPLY_PROP_CHARGE_FULL:
 +	case POWER_SUPPLY_PROP_ENERGY_FULL:
-+		val->intval = get_unaligned_le32(&bat->bix.last_full_charge_cap)
-+			      * 1000;
++		value = get_unaligned_le32(&bat->bix.last_full_charge_cap);
++		if (value != SPWR_BATTERY_VALUE_UNKNOWN)
++			val->intval = value * 1000;
++		else
++			status = -ENODEV;
 +		break;
 +
 +	case POWER_SUPPLY_PROP_CHARGE_NOW:
 +	case POWER_SUPPLY_PROP_ENERGY_NOW:
-+		val->intval = get_unaligned_le32(&bat->bst.remaining_cap)
-+			      * 1000;
++		value = get_unaligned_le32(&bat->bst.remaining_cap);
++		if (value != SPWR_BATTERY_VALUE_UNKNOWN)
++			val->intval = value * 1000;
++		else
++			status = -ENODEV;
 +		break;
 +
 +	case POWER_SUPPLY_PROP_CAPACITY:
@@ -4647,7 +4717,7 @@ index 000000000000..b5cddd3cc35a
 +
 +	default:
 +		status = -EINVAL;
-+		goto out;
++		break;
 +	}
 +
 +out:
@@ -4696,43 +4766,15 @@ index 000000000000..b5cddd3cc35a
 +};
 +
 +
-+static void spwr_ac_set_name(struct spwr_ac_device *ac, const char *name)
-+{
-+	strncpy(ac->name, name, ARRAY_SIZE(ac->name) - 1);
-+}
-+
-+static int spwr_ac_register(struct spwr_ac_device *ac,
++static void spwr_ac_init(struct spwr_ac_device *ac,
 +			    struct ssam_device *sdev,
-+			    struct ssam_event_registry registry)
++			    struct ssam_event_registry registry,
++			    const char *name)
 +{
-+	struct power_supply_config psy_cfg = {};
-+	__le32 sta;
-+	int status;
-+
-+	// make sure the device is there and functioning properly
-+	status = ssam_bat_get_sta(sdev, &sta);
-+	if (status)
-+		return status;
-+
-+	if ((le32_to_cpu(sta) & SAM_BATTERY_STA_OK) != SAM_BATTERY_STA_OK)
-+		return -ENODEV;
-+
-+	psy_cfg.drv_data = ac;
++	mutex_init(&ac->lock);
++	strncpy(ac->name, name, ARRAY_SIZE(ac->name) - 1);
 +
 +	ac->sdev = sdev;
-+	mutex_init(&ac->lock);
-+
-+	ac->psy_desc.name = ac->name;
-+	ac->psy_desc.type = POWER_SUPPLY_TYPE_MAINS;
-+	ac->psy_desc.properties = spwr_ac_props;
-+	ac->psy_desc.num_properties = ARRAY_SIZE(spwr_ac_props);
-+	ac->psy_desc.get_property = spwr_ac_get_property;
-+
-+	ac->psy = power_supply_register(&ac->sdev->dev, &ac->psy_desc, &psy_cfg);
-+	if (IS_ERR(ac->psy)) {
-+		status = PTR_ERR(ac->psy);
-+		goto err_psy;
-+	}
 +
 +	ac->notif.base.priority = 1;
 +	ac->notif.base.fn = spwr_notify_ac;
@@ -4742,16 +4784,41 @@ index 000000000000..b5cddd3cc35a
 +	ac->notif.event.mask = SSAM_EVENT_MASK_NONE;
 +	ac->notif.event.flags = SSAM_EVENT_SEQUENCED;
 +
-+	status = ssam_notifier_register(sdev->ctrl, &ac->notif);
-+	if (status)
-+		goto err_notif;
++	ac->psy_desc.name = ac->name;
++	ac->psy_desc.type = POWER_SUPPLY_TYPE_MAINS;
++	ac->psy_desc.properties = spwr_ac_props;
++	ac->psy_desc.num_properties = ARRAY_SIZE(spwr_ac_props);
++	ac->psy_desc.get_property = spwr_ac_get_property;
++}
 +
-+	return 0;
-+
-+err_notif:
-+	power_supply_unregister(ac->psy);
-+err_psy:
++static void spwr_ac_destroy(struct spwr_ac_device *ac)
++{
 +	mutex_destroy(&ac->lock);
++}
++
++static int spwr_ac_register(struct spwr_ac_device *ac)
++{
++	struct power_supply_config psy_cfg = {};
++	__le32 sta;
++	int status;
++
++	// make sure the device is there and functioning properly
++	status = spwr_retry(ssam_bat_get_sta, ac->sdev, &sta);
++	if (status)
++		return status;
++
++	if ((le32_to_cpu(sta) & SAM_BATTERY_STA_OK) != SAM_BATTERY_STA_OK)
++		return -ENODEV;
++
++	psy_cfg.drv_data = ac;
++	ac->psy = power_supply_register(&ac->sdev->dev, &ac->psy_desc, &psy_cfg);
++	if (IS_ERR(ac->psy))
++		return PTR_ERR(ac->psy);
++
++	status = ssam_notifier_register(ac->sdev->ctrl, &ac->notif);
++	if (status)
++		power_supply_unregister(ac->psy);
++
 +	return status;
 +}
 +
@@ -4759,28 +4826,47 @@ index 000000000000..b5cddd3cc35a
 +{
 +	ssam_notifier_unregister(ac->sdev->ctrl, &ac->notif);
 +	power_supply_unregister(ac->psy);
-+	mutex_destroy(&ac->lock);
 +	return 0;
 +}
 +
-+static void spwr_battery_set_name(struct spwr_battery_device *bat,
-+				  const char *name)
++static void spwr_battery_init(struct spwr_battery_device *bat,
++			      struct ssam_device *sdev,
++			      struct ssam_event_registry registry,
++			      const char *name)
 +{
++	mutex_init(&bat->lock);
 +	strncpy(bat->name, name, ARRAY_SIZE(bat->name) - 1);
++
++	bat->sdev = sdev;
++
++	bat->notif.base.priority = 1;
++	bat->notif.base.fn = spwr_notify_bat;
++	bat->notif.event.reg = registry;
++	bat->notif.event.id.target_category = sdev->uid.category;
++	bat->notif.event.id.instance = 0;
++	bat->notif.event.mask = SSAM_EVENT_MASK_NONE;
++	bat->notif.event.flags = SSAM_EVENT_SEQUENCED;
++
++	bat->psy_desc.name = bat->name;
++	bat->psy_desc.type = POWER_SUPPLY_TYPE_BATTERY;
++	bat->psy_desc.get_property = spwr_battery_get_property;
++
++	INIT_DELAYED_WORK(&bat->update_work, spwr_battery_update_bst_workfn);
 +}
 +
-+static int spwr_battery_register(struct spwr_battery_device *bat,
-+				 struct ssam_device *sdev,
-+				 struct ssam_event_registry registry)
++static void spwr_battery_destroy(struct spwr_battery_device *bat)
++{
++	mutex_destroy(&bat->lock);
++}
++
++static int spwr_battery_register(struct spwr_battery_device *bat)
 +{
 +	struct power_supply_config psy_cfg = {};
 +	__le32 sta;
 +	int status;
 +
-+	bat->sdev = sdev;
-+
 +	// make sure the device is there and functioning properly
-+	status = ssam_bat_get_sta(sdev, &sta);
++	status = spwr_retry(ssam_bat_get_sta, bat->sdev, &sta);
 +	if (status)
 +		return status;
 +
@@ -4798,39 +4884,29 @@ index 000000000000..b5cddd3cc35a
 +			return status;
 +	}
 +
-+	bat->psy_desc.name = bat->name;
-+	bat->psy_desc.type = POWER_SUPPLY_TYPE_BATTERY;
-+
-+	if (get_unaligned_le32(&bat->bix.power_unit) == SAM_BATTERY_POWER_UNIT_MA) {
-+		bat->psy_desc.properties = spwr_battery_props_chg;
-+		bat->psy_desc.num_properties = ARRAY_SIZE(spwr_battery_props_chg);
-+	} else {
++	switch (get_unaligned_le32(&bat->bix.power_unit)) {
++	case SAM_BATTERY_POWER_UNIT_mW:
 +		bat->psy_desc.properties = spwr_battery_props_eng;
 +		bat->psy_desc.num_properties = ARRAY_SIZE(spwr_battery_props_eng);
++		break;
++
++	case SAM_BATTERY_POWER_UNIT_mA:
++		bat->psy_desc.properties = spwr_battery_props_chg;
++		bat->psy_desc.num_properties = ARRAY_SIZE(spwr_battery_props_chg);
++		break;
++
++	default:
++		dev_err(&bat->sdev->dev, "unsupported battery power unit: %u\n",
++			get_unaligned_le32(&bat->bix.power_unit));
++		return -ENOTSUPP;
 +	}
 +
-+	bat->psy_desc.get_property = spwr_battery_get_property;
-+
-+	mutex_init(&bat->lock);
 +	psy_cfg.drv_data = bat;
-+
-+	INIT_DELAYED_WORK(&bat->update_work, spwr_battery_update_bst_workfn);
-+
 +	bat->psy = power_supply_register(&bat->sdev->dev, &bat->psy_desc, &psy_cfg);
-+	if (IS_ERR(bat->psy)) {
-+		status = PTR_ERR(bat->psy);
-+		goto err_psy;
-+	}
++	if (IS_ERR(bat->psy))
++		return PTR_ERR(bat->psy);
 +
-+	bat->notif.base.priority = 1;
-+	bat->notif.base.fn = spwr_notify_bat;
-+	bat->notif.event.reg = registry;
-+	bat->notif.event.id.target_category = sdev->uid.category;
-+	bat->notif.event.id.instance = 0;
-+	bat->notif.event.mask = SSAM_EVENT_MASK_NONE;
-+	bat->notif.event.flags = SSAM_EVENT_SEQUENCED;
-+
-+	status = ssam_notifier_register(sdev->ctrl, &bat->notif);
++	status = ssam_notifier_register(bat->sdev->ctrl, &bat->notif);
 +	if (status)
 +		goto err_notif;
 +
@@ -4841,11 +4917,9 @@ index 000000000000..b5cddd3cc35a
 +	return 0;
 +
 +err_file:
-+	ssam_notifier_unregister(sdev->ctrl, &bat->notif);
++	ssam_notifier_unregister(bat->sdev->ctrl, &bat->notif);
 +err_notif:
 +	power_supply_unregister(bat->psy);
-+err_psy:
-+	mutex_destroy(&bat->lock);
 +	return status;
 +}
 +
@@ -4859,26 +4933,38 @@ index 000000000000..b5cddd3cc35a
 +}
 +
 +
-+/*
-+ * Battery Driver.
-+ */
++/* -- Power Management. ----------------------------------------------------- */
 +
-+static int surface_sam_sid_battery_resume(struct device *dev)
++#ifdef CONFIG_PM_SLEEP
++
++static int surface_battery_resume(struct device *dev)
 +{
-+	struct spwr_battery_device *bat;
-+
-+	// TODO: run this on workqueue
-+
-+	bat = dev_get_drvdata(dev);
-+	return spwr_battery_recheck(bat);
++	return spwr_battery_recheck_full(dev_get_drvdata(dev));
 +}
-+SIMPLE_DEV_PM_OPS(surface_sam_sid_battery_pm,
-+		  NULL, surface_sam_sid_battery_resume);
 +
-+static int surface_sam_sid_battery_probe(struct ssam_device *sdev)
++static int surface_ac_resume(struct device *dev)
++{
++	return spwr_ac_recheck(dev_get_drvdata(dev));
++}
++
++#else /* CONFIG_PM_SLEEP */
++
++#define surface_battery_resume	NULL
++#define surface_ac_resume	NULL
++
++#endif /* CONFIG_PM_SLEEP */
++
++SIMPLE_DEV_PM_OPS(surface_battery_pm_ops, NULL, surface_battery_resume);
++SIMPLE_DEV_PM_OPS(surface_ac_pm_ops, NULL, surface_ac_resume);
++
++
++/* -- Battery Driver. ------------------------------------------------------- */
++
++static int surface_battery_probe(struct ssam_device *sdev)
 +{
 +	const struct spwr_psy_properties *p;
 +	struct spwr_battery_device *bat;
++	int status;
 +
 +	p = ssam_device_get_match_data(sdev);
 +	if (!p)
@@ -4888,15 +4974,22 @@ index 000000000000..b5cddd3cc35a
 +	if (!bat)
 +		return -ENOMEM;
 +
-+	spwr_battery_set_name(bat, p->name);
++	spwr_battery_init(bat, sdev, p->registry, p->name);
 +	ssam_device_set_drvdata(sdev, bat);
 +
-+	return spwr_battery_register(bat, sdev, p->registry);
++	status = spwr_battery_register(bat);
++	if (status)
++		spwr_battery_destroy(bat);
++
++	return status;
 +}
 +
-+static void surface_sam_sid_battery_remove(struct ssam_device *sdev)
++static void surface_battery_remove(struct ssam_device *sdev)
 +{
-+	spwr_battery_unregister(ssam_device_get_drvdata(sdev));
++	struct spwr_battery_device *bat = ssam_device_get_drvdata(sdev);
++
++	spwr_battery_unregister(bat);
++	spwr_battery_destroy(bat);
 +}
 +
 +static const struct spwr_psy_properties spwr_psy_props_bat1 = {
@@ -4909,35 +5002,32 @@ index 000000000000..b5cddd3cc35a
 +	.registry = SSAM_EVENT_REGISTRY_KIP,
 +};
 +
-+static const struct ssam_device_id surface_sam_sid_battery_match[] = {
++static const struct ssam_device_id surface_battery_match[] = {
 +	{ SSAM_SDEV(BAT, 0x01, 0x01, 0x00), (unsigned long)&spwr_psy_props_bat1     },
 +	{ SSAM_SDEV(BAT, 0x02, 0x01, 0x00), (unsigned long)&spwr_psy_props_bat2_sb3 },
 +	{ },
 +};
-+MODULE_DEVICE_TABLE(ssam, surface_sam_sid_battery_match);
++MODULE_DEVICE_TABLE(ssam, surface_battery_match);
 +
-+static struct ssam_device_driver surface_sam_sid_battery = {
-+	.probe = surface_sam_sid_battery_probe,
-+	.remove = surface_sam_sid_battery_remove,
-+	.match_table = surface_sam_sid_battery_match,
++static struct ssam_device_driver surface_battery_driver = {
++	.probe = surface_battery_probe,
++	.remove = surface_battery_remove,
++	.match_table = surface_battery_match,
 +	.driver = {
 +		.name = "surface_battery",
-+		.pm = &surface_sam_sid_battery_pm,
++		.pm = &surface_battery_pm_ops,
 +		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 +	},
 +};
 +
 +
-+/*
-+ * AC Driver.
-+ */
++/* -- AC Driver. ------------------------------------------------------------ */
 +
-+// TODO: check/update on resume, call power_supply_changed?
-+
-+static int surface_sam_sid_ac_probe(struct ssam_device *sdev)
++static int surface_ac_probe(struct ssam_device *sdev)
 +{
 +	const struct spwr_psy_properties *p;
 +	struct spwr_ac_device *ac;
++	int status;
 +
 +	p = ssam_device_get_match_data(sdev);
 +	if (!p)
@@ -4947,15 +5037,22 @@ index 000000000000..b5cddd3cc35a
 +	if (!ac)
 +		return -ENOMEM;
 +
-+	spwr_ac_set_name(ac, p->name);
++	spwr_ac_init(ac, sdev, p->registry, p->name);
 +	ssam_device_set_drvdata(sdev, ac);
 +
-+	return spwr_ac_register(ac, sdev, p->registry);
++	status = spwr_ac_register(ac);
++	if (status)
++		spwr_ac_destroy(ac);
++
++	return status;
 +}
 +
-+static void surface_sam_sid_ac_remove(struct ssam_device *sdev)
++static void surface_ac_remove(struct ssam_device *sdev)
 +{
-+	spwr_ac_unregister(ssam_device_get_drvdata(sdev));
++	struct spwr_ac_device *ac = ssam_device_get_drvdata(sdev);
++
++	spwr_ac_unregister(ac);
++	spwr_ac_destroy(ac);
 +}
 +
 +static const struct spwr_psy_properties spwr_psy_props_adp1 = {
@@ -4963,57 +5060,58 @@ index 000000000000..b5cddd3cc35a
 +	.registry = SSAM_EVENT_REGISTRY_SAM,
 +};
 +
-+static const struct ssam_device_id surface_sam_sid_ac_match[] = {
++static const struct ssam_device_id surface_ac_match[] = {
 +	{ SSAM_SDEV(BAT, 0x01, 0x01, 0x01), (unsigned long)&spwr_psy_props_adp1 },
 +	{ },
 +};
-+MODULE_DEVICE_TABLE(ssam, surface_sam_sid_ac_match);
++MODULE_DEVICE_TABLE(ssam, surface_ac_match);
 +
-+static struct ssam_device_driver surface_sam_sid_ac = {
-+	.probe = surface_sam_sid_ac_probe,
-+	.remove = surface_sam_sid_ac_remove,
-+	.match_table = surface_sam_sid_ac_match,
++static struct ssam_device_driver surface_ac_driver = {
++	.probe = surface_ac_probe,
++	.remove = surface_ac_remove,
++	.match_table = surface_ac_match,
 +	.driver = {
 +		.name = "surface_ac",
++		.pm = &surface_ac_pm_ops,
 +		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 +	},
 +};
 +
 +
-+static int __init surface_sam_sid_power_init(void)
++/* -- Module Setup. --------------------------------------------------------- */
++
++static int __init surface_battery_init(void)
 +{
 +	int status;
 +
-+	status = ssam_device_driver_register(&surface_sam_sid_battery);
++	status = ssam_device_driver_register(&surface_battery_driver);
 +	if (status)
 +		return status;
 +
-+	status = ssam_device_driver_register(&surface_sam_sid_ac);
-+	if (status) {
-+		ssam_device_driver_unregister(&surface_sam_sid_battery);
-+		return status;
-+	}
++	status = ssam_device_driver_register(&surface_ac_driver);
++	if (status)
++		ssam_device_driver_unregister(&surface_battery_driver);
 +
-+	return 0;
++	return status;
 +}
-+module_init(surface_sam_sid_power_init);
++module_init(surface_battery_init);
 +
-+static void __exit surface_sam_sid_power_exit(void)
++static void __exit surface_battery_exit(void)
 +{
-+	ssam_device_driver_unregister(&surface_sam_sid_battery);
-+	ssam_device_driver_unregister(&surface_sam_sid_ac);
++	ssam_device_driver_unregister(&surface_battery_driver);
++	ssam_device_driver_unregister(&surface_ac_driver);
 +}
-+module_exit(surface_sam_sid_power_exit);
++module_exit(surface_battery_exit);
 +
 +MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 +MODULE_DESCRIPTION("Battery/AC driver for Surface System Aggregator Module");
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_dtx.c b/drivers/misc/surface_aggregator/clients/surface_dtx.c
 new file mode 100644
-index 000000000000..51b21e194ee3
+index 000000000000..ee815ad0fdad
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_dtx.c
-@@ -0,0 +1,589 @@
+@@ -0,0 +1,591 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface Book (gen. 2 and later) detachment system (DTX) driver.
@@ -5023,6 +5121,8 @@ index 000000000000..51b21e194ee3
 + * (containing the keyboard and optionally a discrete GPU). Allows to
 + * acknowledge (to speed things up), abort (e.g. in case the dGPU is stil in
 + * use), or request detachment via user-space.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <linux/acpi.h>
@@ -5605,16 +5705,18 @@ index 000000000000..51b21e194ee3
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_hid.c b/drivers/misc/surface_aggregator/clients/surface_hid.c
 new file mode 100644
-index 000000000000..50528a7c3680
+index 000000000000..c29cb39543c5
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_hid.c
-@@ -0,0 +1,493 @@
+@@ -0,0 +1,495 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface System Aggregator Module (SSAM) HID device driver.
 + *
 + * Provides support for HID input devices connected via the Surface System
 + * Aggregator Module.
++ *
++ * Copyright (C) 2019-2020 Blaž Hrastnik <blaz@mxxn.io>
 + */
 +
 +#include <linux/hid.h>
@@ -6104,10 +6206,10 @@ index 000000000000..50528a7c3680
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_hotplug.c b/drivers/misc/surface_aggregator/clients/surface_hotplug.c
 new file mode 100644
-index 000000000000..33acbbc5de94
+index 000000000000..165c5b452bee
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_hotplug.c
-@@ -0,0 +1,1282 @@
+@@ -0,0 +1,1285 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface Book (gen. 2 and later) discrete GPU (dGPU) hot-plug system driver.
@@ -6115,6 +6217,8 @@ index 000000000000..33acbbc5de94
 + * Supports explicit setting of the dGPU power-state on the Surface Books via
 + * a user-space interface. Properly handles dGPU hot-plugging by detaching the
 + * base of the device.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <linux/acpi.h>
@@ -7383,6 +7487,7 @@ index 000000000000..33acbbc5de94
 +		.name = "surface_dgpu_hotplug",
 +		.acpi_match_table = shps_acpi_match,
 +		.pm = &shps_pm_ops,
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 +	},
 +};
 +module_platform_driver(surface_sam_hps);
@@ -7392,16 +7497,18 @@ index 000000000000..33acbbc5de94
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_keyboard.c b/drivers/misc/surface_aggregator/clients/surface_keyboard.c
 new file mode 100644
-index 000000000000..580c4255d068
+index 000000000000..94b1e0728bb2
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_keyboard.c
-@@ -0,0 +1,331 @@
+@@ -0,0 +1,333 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface System Aggregator Module (SSAM) legacy HID input device driver.
 + *
 + * Provides support for the legacy HID keyboard device found on the Surface
 + * Laptop 1 and 2.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <linux/acpi.h>
@@ -7729,10 +7836,10 @@ index 000000000000..580c4255d068
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_perfmode.c b/drivers/misc/surface_aggregator/clients/surface_perfmode.c
 new file mode 100644
-index 000000000000..ed93596adcf6
+index 000000000000..580ac680a183
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_perfmode.c
-@@ -0,0 +1,194 @@
+@@ -0,0 +1,122 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface performance-mode driver.
@@ -7740,6 +7847,8 @@ index 000000000000..ed93596adcf6
 + * Proides a user-space interface for the performance mode control provided by
 + * the Surface System Aggregator Module (SSAM), influencing cooling behavior
 + * of the device and potentially managing power limits.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <asm/unaligned.h>
@@ -7750,30 +7859,15 @@ index 000000000000..ed93596adcf6
 +
 +#include <linux/surface_aggregator/device.h>
 +
-+
-+#define SID_PARAM_PERM		0644
-+
 +enum sam_perf_mode {
-+	SAM_PERF_MODE_NORMAL   = 1,
-+	SAM_PERF_MODE_BATTERY  = 2,
-+	SAM_PERF_MODE_PERF1    = 3,
-+	SAM_PERF_MODE_PERF2    = 4,
++	SAM_PERF_MODE_NORMAL  = 1,
++	SAM_PERF_MODE_BATTERY = 2,
++	SAM_PERF_MODE_PERF1   = 3,
++	SAM_PERF_MODE_PERF2   = 4,
 +
-+	__SAM_PERF_MODE__START = 1,
-+	__SAM_PERF_MODE__END   = 4,
++	__SAM_PERF_MODE__MIN  = 1,
++	__SAM_PERF_MODE__MAX  = 4,
 +};
-+
-+enum sid_param_perf_mode {
-+	SID_PARAM_PERF_MODE_AS_IS    = 0,
-+	SID_PARAM_PERF_MODE_NORMAL   = SAM_PERF_MODE_NORMAL,
-+	SID_PARAM_PERF_MODE_BATTERY  = SAM_PERF_MODE_BATTERY,
-+	SID_PARAM_PERF_MODE_PERF1    = SAM_PERF_MODE_PERF1,
-+	SID_PARAM_PERF_MODE_PERF2    = SAM_PERF_MODE_PERF2,
-+
-+	__SID_PARAM_PERF_MODE__START = 0,
-+	__SID_PARAM_PERF_MODE__END   = 4,
-+};
-+
 +
 +struct ssam_perf_info {
 +	__le32 mode;
@@ -7795,44 +7889,14 @@ index 000000000000..ed93596adcf6
 +{
 +	__le32 mode_le = cpu_to_le32(mode);
 +
-+	if (mode < __SAM_PERF_MODE__START || mode > __SAM_PERF_MODE__END)
++	if (mode < __SAM_PERF_MODE__MIN || mode > __SAM_PERF_MODE__MAX)
 +		return -EINVAL;
 +
 +	return __ssam_tmp_perf_mode_set(sdev, &mode_le);
 +}
 +
-+
-+static int param_perf_mode_set(const char *val, const struct kernel_param *kp)
-+{
-+	int perf_mode;
-+	int status;
-+
-+	status = kstrtoint(val, 0, &perf_mode);
-+	if (status)
-+		return status;
-+
-+	if (perf_mode < __SID_PARAM_PERF_MODE__START || perf_mode > __SID_PARAM_PERF_MODE__END)
-+		return -EINVAL;
-+
-+	return param_set_int(val, kp);
-+}
-+
-+static const struct kernel_param_ops param_perf_mode_ops = {
-+	.set = param_perf_mode_set,
-+	.get = param_get_int,
-+};
-+
-+static int param_perf_mode_init = SID_PARAM_PERF_MODE_AS_IS;
-+static int param_perf_mode_exit = SID_PARAM_PERF_MODE_AS_IS;
-+
-+module_param_cb(perf_mode_init, &param_perf_mode_ops, &param_perf_mode_init, SID_PARAM_PERM);
-+module_param_cb(perf_mode_exit, &param_perf_mode_ops, &param_perf_mode_exit, SID_PARAM_PERM);
-+
-+MODULE_PARM_DESC(perf_mode_init, "Performance-mode to be set on module initialization");
-+MODULE_PARM_DESC(perf_mode_exit, "Performance-mode to be set on module exit");
-+
-+
-+static ssize_t perf_mode_show(struct device *dev, struct device_attribute *attr, char *data)
++static ssize_t perf_mode_show(struct device *dev, struct device_attribute *attr,
++			      char *data)
 +{
 +	struct ssam_device *sdev = to_ssam_device(dev);
 +	struct ssam_perf_info info;
@@ -7840,7 +7904,8 @@ index 000000000000..ed93596adcf6
 +
 +	status = ssam_tmp_perf_mode_get(sdev, &info);
 +	if (status) {
-+		dev_err(dev, "failed to get current performance mode: %d\n", status);
++		dev_err(dev, "failed to get current performance mode: %d\n",
++			status);
 +		return -EIO;
 +	}
 +
@@ -7855,57 +7920,27 @@ index 000000000000..ed93596adcf6
 +	int status;
 +
 +	status = kstrtoint(data, 0, &perf_mode);
-+	if (status)
++	if (status < 0)
 +		return status;
 +
 +	status = ssam_tmp_perf_mode_set(sdev, perf_mode);
-+	if (status)
++	if (status < 0)
 +		return status;
-+
-+	// TODO: Should we notify ACPI here?
-+	//
-+	//       There is a _DSM call described as
-+	//           WSID._DSM: Notify DPTF on Slider State change
-+	//       which calls
-+	//           ODV3 = ToInteger (Arg3)
-+	//           Notify(IETM, 0x88)
-+	//       IETM is an INT3400 Intel Dynamic Power Performance Management
-+	//       device, part of the DPTF framework. From the corresponding
-+	//       kernel driver, it looks like event 0x88 is being ignored. Also
-+	//       it is currently unknown what the consequecnes of setting ODV3
-+	//       are.
 +
 +	return count;
 +}
 +
 +static const DEVICE_ATTR_RW(perf_mode);
 +
-+
 +static int surface_sam_sid_perfmode_probe(struct ssam_device *sdev)
 +{
-+	int status;
-+
-+	// set initial perf_mode
-+	if (param_perf_mode_init != SID_PARAM_PERF_MODE_AS_IS) {
-+		status = ssam_tmp_perf_mode_set(sdev, param_perf_mode_init);
-+		if (status)
-+			return status;
-+	}
-+
-+	// register perf_mode attribute
-+	status = sysfs_create_file(&sdev->dev.kobj, &dev_attr_perf_mode.attr);
-+	if (status)
-+		ssam_tmp_perf_mode_set(sdev, param_perf_mode_exit);
-+
-+	return status;
++	return sysfs_create_file(&sdev->dev.kobj, &dev_attr_perf_mode.attr);
 +}
 +
 +static void surface_sam_sid_perfmode_remove(struct ssam_device *sdev)
 +{
 +	sysfs_remove_file(&sdev->dev.kobj, &dev_attr_perf_mode.attr);
-+	ssam_tmp_perf_mode_set(sdev, param_perf_mode_exit);
 +}
-+
 +
 +static const struct ssam_device_id ssam_perfmode_match[] = {
 +	{ SSAM_SDEV(TMP, 0x01, 0x00, 0x01) },
@@ -7929,11 +7964,16 @@ index 000000000000..ed93596adcf6
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/controller.c b/drivers/misc/surface_aggregator/controller.c
 new file mode 100644
-index 000000000000..87d1f804c155
+index 000000000000..d73db08662b8
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/controller.c
-@@ -0,0 +1,2507 @@
+@@ -0,0 +1,2552 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * Main SSAM/SSH controller structure and functionality.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ */
 +
 +#include <linux/acpi.h>
 +#include <linux/atomic.h>
@@ -8471,8 +8511,9 @@ index 000000000000..87d1f804c155
 + * SSAM_EVENT_ITEM_CACHE_PAYLOAD_LEN - Maximum payload length for a cached
 + * &struct ssam_event_item.
 + *
-+ * This length has been chosen to be accomodate standard touchpad and keyboard
-+ * input events. Events with larger payloads will be allocated separately.
++ * This length has been chosen to be accommodate standard touchpad and
++ * keyboard input events. Events with larger payloads will be allocated
++ * separately.
 + */
 +#define SSAM_EVENT_ITEM_CACHE_PAYLOAD_LEN	32
 +
@@ -8629,7 +8670,7 @@ index 000000000000..87d1f804c155
 +	u16 tidx = ssh_tid_to_index(tid);
 +
 +	if (!ssh_rqid_is_event(rqid)) {
-+		dev_err(cplt->dev, "event: unsupported rquest ID: 0x%04x\n", rqid);
++		dev_err(cplt->dev, "event: unsupported request ID: 0x%04x\n", rqid);
 +		return NULL;
 +	}
 +
@@ -8821,7 +8862,8 @@ index 000000000000..87d1f804c155
 + */
 +struct ssam_controller *ssam_controller_get(struct ssam_controller *c)
 +{
-+	kref_get(&c->kref);
++	if (c)
++		kref_get(&c->kref);
 +	return c;
 +}
 +EXPORT_SYMBOL_GPL(ssam_controller_get);
@@ -8832,7 +8874,8 @@ index 000000000000..87d1f804c155
 + */
 +void ssam_controller_put(struct ssam_controller *c)
 +{
-+	kref_put(&c->kref, __ssam_controller_release);
++	if (c)
++		kref_put(&c->kref, __ssam_controller_release);
 +}
 +EXPORT_SYMBOL_GPL(ssam_controller_put);
 +
@@ -9108,7 +9151,11 @@ index 000000000000..87d1f804c155
 +		return status;
 +	}
 +
-+	// update state
++	/*
++	 * Set state via write_once even though we expect to be in an
++	 * exclusive context, due to smoke-testing in
++	 * ssam_request_sync_submit().
++	 */
 +	WRITE_ONCE(ctrl->state, SSAM_CONTROLLER_INITIALIZED);
 +	return 0;
 +}
@@ -9121,18 +9168,26 @@ index 000000000000..87d1f804c155
 + * Note: When this function is called, the controller shouldbe properly hooked
 + * up to the serdev core via &struct serdev_device_ops. Please refert to
 + * ssam_controller_init() for more details on controller initialization.
++ *
++ * This function must be called from an exclusive context with regards to the
++ * state, if necessary, by locking the controller via ssam_controller_lock().
 + */
 +int ssam_controller_start(struct ssam_controller *ctrl)
 +{
 +	int status;
 +
-+	if (READ_ONCE(ctrl->state) != SSAM_CONTROLLER_INITIALIZED)
++	if (ctrl->state != SSAM_CONTROLLER_INITIALIZED)
 +		return -EINVAL;
 +
 +	status = ssh_rtl_start(&ctrl->rtl);
 +	if (status)
 +		return status;
 +
++	/*
++	 * Set state via write_once even though we expect to be locked/in an
++	 * exclusive context, due to smoke-testing in
++	 * ssam_request_sync_submit().
++	 */
 +	WRITE_ONCE(ctrl->state, SSAM_CONTROLLER_STARTED);
 +	return 0;
 +}
@@ -9155,10 +9210,13 @@ index 000000000000..87d1f804c155
 + * Note that events may still be pending after this call, but due to the
 + * notifiers being unregistered, the will be dropped when the controller is
 + * subsequently being destroyed via ssam_controller_destroy().
++ *
++ * This function must be called from an exclusive context with regards to the
++ * state, if necessary, by locking the controller via ssam_controller_lock().
 + */
 +void ssam_controller_shutdown(struct ssam_controller *ctrl)
 +{
-+	enum ssam_controller_state s = READ_ONCE(ctrl->state);
++	enum ssam_controller_state s = ctrl->state;
 +	int status;
 +
 +	if (s == SSAM_CONTROLLER_UNINITIALIZED || s == SSAM_CONTROLLER_STOPPED)
@@ -9190,6 +9248,11 @@ index 000000000000..87d1f804c155
 +	// cancel rem. requests, ensure no new ones can be queued, stop threads
 +	ssh_rtl_shutdown(&ctrl->rtl);
 +
++	/*
++	 * Set state via write_once even though we expect to be locked/in an
++	 * exclusive context, due to smoke-testing in
++	 * ssam_request_sync_submit().
++	 */
 +	WRITE_ONCE(ctrl->state, SSAM_CONTROLLER_STOPPED);
 +	ctrl->rtl.ptl.serdev = NULL;
 +}
@@ -9200,11 +9263,18 @@ index 000000000000..87d1f804c155
 + *
 + * Ensures that all resources associated with the controller get freed. This
 + * function should only be called after the controller has been stopped via
-+ * ssam_controller_shutdown().
++ * ssam_controller_shutdown(). In general, this function should not be called
++ * directly. The only valid place to call this function direclty is during
++ * initialization, before the controller has been fully initialized and passed
++ * to other processes. This function is called automatically when the
++ * reference count of the controller reaches zero.
++ *
++ * Must be called from an exclusive context with regards to the controller
++ * state.
 + */
 +void ssam_controller_destroy(struct ssam_controller *ctrl)
 +{
-+	if (READ_ONCE(ctrl->state) == SSAM_CONTROLLER_UNINITIALIZED)
++	if (ctrl->state == SSAM_CONTROLLER_UNINITIALIZED)
 +		return;
 +
 +	WARN_ON(ctrl->state != SSAM_CONTROLLER_STOPPED);
@@ -9221,6 +9291,11 @@ index 000000000000..87d1f804c155
 +	ssam_cplt_destroy(&ctrl->cplt);
 +	ssh_rtl_destroy(&ctrl->rtl);
 +
++	/*
++	 * Set state via write_once even though we expect to be locked/in an
++	 * exclusive context, due to smoke-testing in
++	 * ssam_request_sync_submit().
++	 */
 +	WRITE_ONCE(ctrl->state, SSAM_CONTROLLER_UNINITIALIZED);
 +}
 +
@@ -9241,12 +9316,17 @@ index 000000000000..87d1f804c155
 +{
 +	ssam_controller_lock(ctrl);
 +
-+	if (READ_ONCE(ctrl->state) != SSAM_CONTROLLER_STARTED) {
++	if (ctrl->state != SSAM_CONTROLLER_STARTED) {
 +		ssam_controller_unlock(ctrl);
 +		return -EINVAL;
 +	}
 +
 +	ssam_dbg(ctrl, "pm: suspending controller\n");
++
++	/*
++	 * Set state via write_once even though we're locked, due to
++	 * smoke-testing in ssam_request_sync_submit().
++	 */
 +	WRITE_ONCE(ctrl->state, SSAM_CONTROLLER_SUSPENDED);
 +
 +	ssam_controller_unlock(ctrl);
@@ -9268,12 +9348,17 @@ index 000000000000..87d1f804c155
 +{
 +	ssam_controller_lock(ctrl);
 +
-+	if (READ_ONCE(ctrl->state) != SSAM_CONTROLLER_SUSPENDED) {
++	if (ctrl->state != SSAM_CONTROLLER_SUSPENDED) {
 +		ssam_controller_unlock(ctrl);
 +		return -EINVAL;
 +	}
 +
 +	ssam_dbg(ctrl, "pm: resuming controller\n");
++
++	/*
++	 * Set state via write_once even though we're locked, due to
++	 * smoke-testing in ssam_request_sync_submit().
++	 */
 +	WRITE_ONCE(ctrl->state, SSAM_CONTROLLER_STARTED);
 +
 +	ssam_controller_unlock(ctrl);
@@ -9789,28 +9874,23 @@ index 000000000000..87d1f804c155
 +/* -- Wrappers for internal SAM requests. ----------------------------------- */
 +
 +/**
-+ * ssam_log_firmware_version() - Log SAM/EC firmware version to kernel log.
-+ * @ctrl: The controller.
++ * ssam_get_firmware_version() - Get the SAM/EC firmware version.
++ * @ctrl:    The controller.
++ * @version: Where to store the version number.
 + *
 + * Return: Returns zero on success or the status of the executed SAM request
 + * if that request failed.
 + */
-+int ssam_log_firmware_version(struct ssam_controller *ctrl)
++int ssam_get_firmware_version(struct ssam_controller *ctrl, u32 *version)
 +{
 +	__le32 __version;
-+	u32 version, a, b, c;
 +	int status;
 +
 +	status = ssam_ssh_get_firmware_version(ctrl, &__version);
 +	if (status)
 +		return status;
 +
-+	version = le32_to_cpu(__version);
-+	a = (version >> 24) & 0xff;
-+	b = ((version >> 8) & 0xffff);
-+	c = version & 0xff;
-+
-+	ssam_info(ctrl, "SAM controller version: %u.%u.%u\n", a, b, c);
++	*version = le32_to_cpu(__version);
 +	return 0;
 +}
 +
@@ -10148,7 +10228,7 @@ index 000000000000..87d1f804c155
 + *
 + * This function is intended to disable all events prior to hibenration entry.
 + * See ssam_notifier_restore_registered() to restore/re-enable all events
-+ * disabled with this fucntion.
++ * disabled with this function.
 + *
 + * Note that this function will not disable events for notifiers registered
 + * after calling this function. It should thus be made sure that no new
@@ -10341,8 +10421,8 @@ index 000000000000..87d1f804c155
 +	 * command to SAM (or alternatively the display-on notification). As
 +	 * proper handling for this interrupt is not implemented yet, leaving
 +	 * the IRQ at TRIGGER_HIGH would cause an IRQ storm (as the callback
-+	 * never gets sent and thus the line line never gets reset). To avoid
-+	 * this, mark the IRQ as TRIGGER_RISING for now, only creating a single
++	 * never gets sent and thus the line never gets reset). To avoid this,
++	 * mark the IRQ as TRIGGER_RISING for now, only creating a single
 +	 * interrupt, and let the SAM resume callback during the controller
 +	 * resume process clear it.
 +	 */
@@ -10442,11 +10522,16 @@ index 000000000000..87d1f804c155
 +}
 diff --git a/drivers/misc/surface_aggregator/controller.h b/drivers/misc/surface_aggregator/controller.h
 new file mode 100644
-index 000000000000..b45b5b23cbd6
+index 000000000000..b855fd54a163
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/controller.h
-@@ -0,0 +1,283 @@
+@@ -0,0 +1,288 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * Main SSAM/SSH controller structure and functionality.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ */
 +
 +#ifndef _SURFACE_AGGREGATOR_CONTROLLER_H
 +#define _SURFACE_AGGREGATOR_CONTROLLER_H
@@ -10691,7 +10776,7 @@ index 000000000000..b45b5b23cbd6
 +
 +/**
 + * ssam_controller_write_wakeup() - Notify the controller that the underlying
-+ * device has space avaliable for data to be written.
++ * device has space available for data to be written.
 + * @ctrl: The controller.
 + */
 +static inline void ssam_controller_write_wakeup(struct ssam_controller *ctrl)
@@ -10716,7 +10801,7 @@ index 000000000000..b45b5b23cbd6
 +void ssam_controller_lock(struct ssam_controller *c);
 +void ssam_controller_unlock(struct ssam_controller *c);
 +
-+int ssam_log_firmware_version(struct ssam_controller *ctrl);
++int ssam_get_firmware_version(struct ssam_controller *ctrl, u32 *version);
 +int ssam_ctrl_notif_display_off(struct ssam_controller *ctrl);
 +int ssam_ctrl_notif_display_on(struct ssam_controller *ctrl);
 +int ssam_ctrl_notif_d0_exit(struct ssam_controller *ctrl);
@@ -10731,10 +10816,10 @@ index 000000000000..b45b5b23cbd6
 +#endif /* _SURFACE_AGGREGATOR_CONTROLLER_H */
 diff --git a/drivers/misc/surface_aggregator/core.c b/drivers/misc/surface_aggregator/core.c
 new file mode 100644
-index 000000000000..957bdcc4e3d3
+index 000000000000..539da8781ffb
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/core.c
-@@ -0,0 +1,773 @@
+@@ -0,0 +1,842 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface Serial Hub (SSH) driver for communication with the Surface/System
@@ -10743,6 +10828,8 @@ index 000000000000..957bdcc4e3d3
 + * Provides access to a SAM-over-SSH connected EC via a controller device.
 + * Handles communication via requests as well as enabling, disabling, and
 + * relaying of events.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <linux/acpi.h>
@@ -10754,6 +10841,7 @@ index 000000000000..957bdcc4e3d3
 +#include <linux/module.h>
 +#include <linux/pm.h>
 +#include <linux/serdev.h>
++#include <linux/sysfs.h>
 +
 +#include <linux/surface_aggregator/controller.h>
 +
@@ -10866,7 +10954,7 @@ index 000000000000..957bdcc4e3d3
 +
 +	ssam_controller_statelock(c);
 +
-+	if (READ_ONCE(c->state) != SSAM_CONTROLLER_STARTED) {
++	if (c->state != SSAM_CONTROLLER_STARTED) {
 +		ssam_controller_stateunlock(c);
 +		return -ENXIO;
 +	}
@@ -10983,6 +11071,55 @@ index 000000000000..957bdcc4e3d3
 +};
 +
 +
++/* -- SysFS and misc. ------------------------------------------------------- */
++
++static int ssam_log_firmware_version(struct ssam_controller *ctrl)
++{
++	u32 version, a, b, c;
++	int status;
++
++	status = ssam_get_firmware_version(ctrl, &version);
++	if (status)
++		return status;
++
++	a = (version >> 24) & 0xff;
++	b = ((version >> 8) & 0xffff);
++	c = version & 0xff;
++
++	ssam_info(ctrl, "SAM firmware version: %u.%u.%u\n", a, b, c);
++	return 0;
++}
++
++static ssize_t firmware_version_show(struct device *dev,
++				     struct device_attribute *attr, char *buf)
++{
++	struct ssam_controller *ctrl = dev_get_drvdata(dev);
++	u32 version, a, b, c;
++	int status;
++
++	status = ssam_get_firmware_version(ctrl, &version);
++	if (status < 0)
++		return status;
++
++	a = (version >> 24) & 0xff;
++	b = ((version >> 8) & 0xffff);
++	c = version & 0xff;
++
++	return snprintf(buf, PAGE_SIZE - 1, "%u.%u.%u\n", a, b, c);
++}
++static DEVICE_ATTR_RO(firmware_version);
++
++static struct attribute *ssam_sam_attrs[] = {
++	&dev_attr_firmware_version.attr,
++	NULL,
++};
++
++static const struct attribute_group ssam_sam_group = {
++	.name = "sam",
++	.attrs = ssam_sam_attrs,
++};
++
++
 +/* -- ACPI based device setup. ---------------------------------------------- */
 +
 +static acpi_status ssam_serdev_setup_via_acpi_crs(struct acpi_resource *rsc,
@@ -11079,6 +11216,8 @@ index 000000000000..957bdcc4e3d3
 +	if (status)
 +		ssam_err(c, "pm: D0-exit notification failed: %d\n", status);
 +}
++
++#ifdef CONFIG_PM_SLEEP
 +
 +static int ssam_serial_hub_pm_prepare(struct device *dev)
 +{
@@ -11286,6 +11425,12 @@ index 000000000000..957bdcc4e3d3
 +	.restore  = ssam_serial_hub_pm_restore,
 +};
 +
++#else /* CONFIG_PM_SLEEP */
++
++static const struct dev_pm_ops ssam_serial_hub_pm_ops = { };
++
++#endif /* CONFIG_PM_SLEEP */
++
 +
 +/* -- Device/driver setup. -------------------------------------------------- */
 +
@@ -11353,15 +11498,19 @@ index 000000000000..957bdcc4e3d3
 +	if (status)
 +		goto err_initrq;
 +
++	status = sysfs_create_group(&serdev->dev.kobj, &ssam_sam_group);
++	if (status)
++		goto err_initrq;
++
 +	// setup IRQ
 +	status = ssam_irq_setup(ctrl);
 +	if (status)
-+		goto err_initrq;
++		goto err_irq;
 +
 +	// finally, set main controller reference
 +	status = ssam_try_set_controller(ctrl);
 +	if (WARN_ON(status))	// currently, we're the only provider
-+		goto err_initrq;
++		goto err_mainref;
 +
 +	/*
 +	 * TODO: The EC can wake up the system via the associated GPIO interrupt
@@ -11378,6 +11527,10 @@ index 000000000000..957bdcc4e3d3
 +
 +	return 0;
 +
++err_mainref:
++	ssam_irq_free(ctrl);
++err_irq:
++	sysfs_remove_group(&serdev->dev.kobj, &ssam_sam_group);
 +err_initrq:
 +	ssam_controller_shutdown(ctrl);
 +err_devinit:
@@ -11398,6 +11551,7 @@ index 000000000000..957bdcc4e3d3
 +	ssam_clear_controller();
 +
 +	ssam_irq_free(ctrl);
++	sysfs_remove_group(&serdev->dev.kobj, &ssam_sam_group);
 +	ssam_controller_lock(ctrl);
 +
 +	// remove all client devices
@@ -11510,11 +11664,16 @@ index 000000000000..957bdcc4e3d3
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/ssh_msgb.h b/drivers/misc/surface_aggregator/ssh_msgb.h
 new file mode 100644
-index 000000000000..046e5e44a100
+index 000000000000..1735a01f1f95
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_msgb.h
-@@ -0,0 +1,196 @@
+@@ -0,0 +1,201 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * SSH message builder functions.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ */
 +
 +#ifndef _SURFACE_AGGREGATOR_SSH_MSGB_H
 +#define _SURFACE_AGGREGATOR_SSH_MSGB_H
@@ -11712,11 +11871,16 @@ index 000000000000..046e5e44a100
 +#endif /* _SURFACE_AGGREGATOR_SSH_MSGB_H */
 diff --git a/drivers/misc/surface_aggregator/ssh_packet_layer.c b/drivers/misc/surface_aggregator/ssh_packet_layer.c
 new file mode 100644
-index 000000000000..4ffe94b5fe99
+index 000000000000..861fa712b06f
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_packet_layer.c
-@@ -0,0 +1,2002 @@
+@@ -0,0 +1,2009 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * SSH packet transport layer.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ */
 +
 +#include <asm/unaligned.h>
 +#include <linux/atomic.h>
@@ -12229,7 +12393,8 @@ index 000000000000..4ffe94b5fe99
 + */
 +struct ssh_packet *ssh_packet_get(struct ssh_packet *packet)
 +{
-+	kref_get(&packet->refcnt);
++	if (packet)
++		kref_get(&packet->refcnt);
 +	return packet;
 +}
 +EXPORT_SYMBOL_GPL(ssh_packet_get);
@@ -12246,7 +12411,8 @@ index 000000000000..4ffe94b5fe99
 + */
 +void ssh_packet_put(struct ssh_packet *packet)
 +{
-+	kref_put(&packet->refcnt, __ssh_ptl_packet_release);
++	if (packet)
++		kref_put(&packet->refcnt, __ssh_ptl_packet_release);
 +}
 +EXPORT_SYMBOL_GPL(ssh_packet_put);
 +
@@ -12475,7 +12641,7 @@ index 000000000000..4ffe94b5fe99
 +
 +	head = __ssh_ptl_queue_find_entrypoint(packet);
 +
-+	list_add_tail(&ssh_packet_get(packet)->queue_node, &ptl->queue.head);
++	list_add_tail(&ssh_packet_get(packet)->queue_node, head);
 +	return 0;
 +}
 +
@@ -12567,7 +12733,7 @@ index 000000000000..4ffe94b5fe99
 +static void ssh_ptl_remove_and_complete(struct ssh_packet *p, int status)
 +{
 +	/*
-+	 * A call to this function should in general be preceeded by
++	 * A call to this function should in general be preceded by
 +	 * set_bit(SSH_PACKET_SF_LOCKED_BIT, &p->flags) to avoid re-adding the
 +	 * packet to the structures it's going to be removed from.
 +	 *
@@ -12969,7 +13135,7 @@ index 000000000000..4ffe94b5fe99
 +
 +/**
 + * ssh_ptl_submit() - Submit a packet to the transport layer.
-+ * @ptl: The packet transport layer to to submit to.
++ * @ptl: The packet transport layer to submit the packet to.
 + * @p:   The packet to submit.
 + *
 + * Submits a new packet to the transport layer, queuing it to be sent. This
@@ -13058,7 +13224,7 @@ index 000000000000..4ffe94b5fe99
 +	 * Note: We deliberately do not remove/attempt to cancel and complete
 +	 * packets that are out of tires in this function. The packet will be
 +	 * eventually canceled and completed by the timeout. Removing the packet
-+	 * here could lead to overly eager cancelation if the packet has not
++	 * here could lead to overly eager cancellation if the packet has not
 +	 * been re-transmitted yet but the tries-counter already updated (i.e
 +	 * ssh_ptl_tx_next() removed the packet from the queue and updated the
 +	 * counter, but re-transmission for the last try has not actually
@@ -13592,7 +13758,7 @@ index 000000000000..4ffe94b5fe99
 +	 *
 +	 * Note 3: There may be overlap between complete_p and complete_q.
 +	 * This is handled via test_and_set_bit() on the "completed" flag
-+	 * (also handles cancelation).
++	 * (also handles cancellation).
 +	 */
 +
 +	// mark queued packets as locked and move them to complete_q
@@ -13720,11 +13886,16 @@ index 000000000000..4ffe94b5fe99
 +}
 diff --git a/drivers/misc/surface_aggregator/ssh_packet_layer.h b/drivers/misc/surface_aggregator/ssh_packet_layer.h
 new file mode 100644
-index 000000000000..413388d256ff
+index 000000000000..39500b05d1f8
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_packet_layer.h
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,175 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * SSH packet transport layer.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ */
 +
 +#ifndef _SURFACE_AGGREGATOR_SSH_PACKET_LAYER_H
 +#define _SURFACE_AGGREGATOR_SSH_PACKET_LAYER_H
@@ -13791,7 +13962,7 @@ index 000000000000..413388d256ff
 + * @rx.blocked.seqs:   Array of blocked sequence IDs.
 + * @rx.blocked.offset: Offset indicating where a new ID should be inserted.
 + * @rtx_timeout:   Retransmission timeout subsystem.
-+ * @rtx_timeout.timeout: Timout inverval for retransmission.
++ * @rtx_timeout.timeout: Timeout inverval for retransmission.
 + * @rtx_timeout.expires: Time specifying when the reaper work is next scheduled.
 + * @rtx_timeout.reaper:  Work performing timeout checks and subsequent actions.
 + * @ops:           Packet layer operations.
@@ -13896,11 +14067,16 @@ index 000000000000..413388d256ff
 +#endif /* _SURFACE_AGGREGATOR_SSH_PACKET_LAYER_H */
 diff --git a/drivers/misc/surface_aggregator/ssh_parser.c b/drivers/misc/surface_aggregator/ssh_parser.c
 new file mode 100644
-index 000000000000..7d9f7de74100
+index 000000000000..fb96ce326d63
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_parser.c
-@@ -0,0 +1,224 @@
+@@ -0,0 +1,229 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * SSH message parser.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ */
 +
 +#include <asm/unaligned.h>
 +#include <linux/compiler.h>
@@ -14029,7 +14205,7 @@ index 000000000000..7d9f7de74100
 +		return -ENOMSG;
 +	}
 +
-+	// check for minumum packet length
++	// check for minimum packet length
 +	if (unlikely(source->len < SSH_MESSAGE_LENGTH(0))) {
 +		dev_dbg(dev, "rx: parser: not enough data for frame\n");
 +		return 0;
@@ -14126,11 +14302,16 @@ index 000000000000..7d9f7de74100
 +}
 diff --git a/drivers/misc/surface_aggregator/ssh_parser.h b/drivers/misc/surface_aggregator/ssh_parser.h
 new file mode 100644
-index 000000000000..a766223b18e7
+index 000000000000..ba6eaa1ea2bd
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_parser.h
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,157 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * SSH message parser.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ */
 +
 +#ifndef _SURFACE_AGGREGATOR_SSH_PARSER_H
 +#define _SURFACE_AGGREGATOR_SSH_PARSER_H
@@ -14200,7 +14381,7 @@ index 000000000000..a766223b18e7
 + * @buf: The buffer to free.
 + *
 + * Frees a SSH parser buffer by freeing the memory backing it and then
-+ * reseting its pointer to %NULL and length and capacity to zero. Intended to
++ * resetting its pointer to %NULL and length and capacity to zero. Intended to
 + * free a buffer previously allocated with sshp_buf_alloc().
 + */
 +static inline void sshp_buf_free(struct sshp_buf *buf)
@@ -14235,7 +14416,7 @@ index 000000000000..a766223b18e7
 + * limited either by the remaining space in the buffer or by the number of
 + * bytes available in the fifo.
 + *
-+ * Return: Returns the number of bytes transfered.
++ * Return: Returns the number of bytes transferred.
 + */
 +static inline size_t sshp_buf_read_from_fifo(struct sshp_buf *buf,
 +					     struct kfifo *fifo)
@@ -14284,11 +14465,16 @@ index 000000000000..a766223b18e7
 +#endif /* _SURFACE_AGGREGATOR_SSH_PARSER_h */
 diff --git a/drivers/misc/surface_aggregator/ssh_request_layer.c b/drivers/misc/surface_aggregator/ssh_request_layer.c
 new file mode 100644
-index 000000000000..5494217afa88
+index 000000000000..d536f40635ae
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_request_layer.c
-@@ -0,0 +1,1249 @@
+@@ -0,0 +1,1254 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * SSH request transport layer.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ */
 +
 +#include <asm/unaligned.h>
 +#include <linux/atomic.h>
@@ -14604,7 +14790,7 @@ index 000000000000..5494217afa88
 +	/*
 +	 * Try to be nice and not block/live-lock the workqueue: Run a maximum
 +	 * of 10 tries, then re-submit if necessary. This should not be
-+	 * neccesary for normal execution, but guarantee it anyway.
++	 * necessary for normal execution, but guarantee it anyway.
 +	 */
 +	for (i = 0; i < 10; i++) {
 +		status = ssh_rtl_tx_try_process_one(rtl);
@@ -14916,8 +15102,8 @@ index 000000000000..5494217afa88
 +	/*
 +	 * Note: 1) Requests cannot be re-submitted. 2) If a request is queued,
 +	 * it cannot be "transmitting"/"pending" yet. Thus, if we successfully
-+	 * remove the the request here, we have removed all its occurences in
-+	 * the system.
++	 * remove the request here, we have removed all its occurences in the
++	 * system.
 +	 */
 +
 +	remove = test_and_clear_bit(SSH_REQUEST_SF_QUEUED_BIT, &r->state);
@@ -15539,11 +15725,16 @@ index 000000000000..5494217afa88
 +}
 diff --git a/drivers/misc/surface_aggregator/ssh_request_layer.h b/drivers/misc/surface_aggregator/ssh_request_layer.h
 new file mode 100644
-index 000000000000..cfcfeb0c2c56
+index 000000000000..0265f38dfa5f
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_request_layer.h
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,142 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * SSH request transport layer.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ */
 +
 +#ifndef _SURFACE_AGGREGATOR_SSH_REQUEST_LAYER_H
 +#define _SURFACE_AGGREGATOR_SSH_REQUEST_LAYER_H
@@ -15597,7 +15788,7 @@ index 000000000000..cfcfeb0c2c56
 + * @tx:            Transmitter subsystem.
 + * @tx.work:       Transmitter work item.
 + * @rtx_timeout:   Retransmission timeout subsystem.
-+ * @rtx_timeout.timeout: Timout inverval for retransmission.
++ * @rtx_timeout.timeout: Timeout inverval for retransmission.
 + * @rtx_timeout.expires: Time specifying when the reaper work is next scheduled.
 + * @rtx_timeout.reaper:  Work performing timeout checks and subsequent actions.
 + * @ops:           Request layer operations.
@@ -15682,11 +15873,16 @@ index 000000000000..cfcfeb0c2c56
 +#endif /* _SURFACE_AGGREGATOR_SSH_REQUEST_LAYER_H */
 diff --git a/drivers/misc/surface_aggregator/trace.h b/drivers/misc/surface_aggregator/trace.h
 new file mode 100644
-index 000000000000..e99e35a2d939
+index 000000000000..86da9631fdf2
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/trace.h
-@@ -0,0 +1,621 @@
+@@ -0,0 +1,625 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * Trace points for SSAM/SSH.
++ *
++ * Copyright (C) 2020 Maximilian Luz <luzmaximilian@gmail.com>
++ */
 +
 +#undef TRACE_SYSTEM
 +#define TRACE_SYSTEM surface_aggregator
@@ -16026,18 +16222,18 @@ index 000000000000..e99e35a2d939
 +	TP_ARGS(packet),
 +
 +	TP_STRUCT__entry(
++		__field(unsigned long, state)
 +		__array(char, uid, SSAM_PTR_UID_LEN)
 +		__field(u8, priority)
 +		__field(u16, length)
-+		__field(unsigned long, state)
 +		__field(u16, seq)
 +	),
 +
 +	TP_fast_assign(
++		__entry->state = READ_ONCE(packet->state);
 +		ssam_trace_ptr_uid(packet, __entry->uid);
 +		__entry->priority = READ_ONCE(packet->priority);
 +		__entry->length = packet->data.len;
-+		__entry->state = READ_ONCE(packet->state);
 +		__entry->seq = ssam_trace_get_packet_seq(packet);
 +	),
 +
@@ -16064,21 +16260,21 @@ index 000000000000..e99e35a2d939
 +	TP_ARGS(packet, status),
 +
 +	TP_STRUCT__entry(
++		__field(unsigned long, state)
++		__field(int, status)
 +		__array(char, uid, SSAM_PTR_UID_LEN)
 +		__field(u8, priority)
 +		__field(u16, length)
-+		__field(unsigned long, state)
 +		__field(u16, seq)
-+		__field(int, status)
 +	),
 +
 +	TP_fast_assign(
++		__entry->state = READ_ONCE(packet->state);
++		__entry->status = status;
 +		ssam_trace_ptr_uid(packet, __entry->uid);
 +		__entry->priority = READ_ONCE(packet->priority);
 +		__entry->length = packet->data.len;
-+		__entry->state = READ_ONCE(packet->state);
 +		__entry->seq = ssam_trace_get_packet_seq(packet);
-+		__entry->status = status;
 +	),
 +
 +	TP_printk("uid=%s, seq=%s, ty=%s, pri=0x%02x, len=%u, sta=%s, status=%d",
@@ -16105,9 +16301,9 @@ index 000000000000..e99e35a2d939
 +	TP_ARGS(request),
 +
 +	TP_STRUCT__entry(
-+		__array(char, uid, SSAM_PTR_UID_LEN)
 +		__field(unsigned long, state)
 +		__field(u32, rqid)
++		__array(char, uid, SSAM_PTR_UID_LEN)
 +		__field(u8, tc)
 +		__field(u16, cid)
 +		__field(u16, iid)
@@ -16117,9 +16313,9 @@ index 000000000000..e99e35a2d939
 +		const struct ssh_packet *p = &request->packet;
 +
 +		// use packet for UID so we can match requests to packets
-+		ssam_trace_ptr_uid(p, __entry->uid);
 +		__entry->state = READ_ONCE(request->state);
 +		__entry->rqid = ssam_trace_get_request_id(p);
++		ssam_trace_ptr_uid(p, __entry->uid);
 +		__entry->tc = ssam_trace_get_request_tc(p);
 +		__entry->cid = ssam_trace_get_command_field_u8(p, cid);
 +		__entry->iid = ssam_trace_get_command_field_u8(p, iid);
@@ -16149,26 +16345,26 @@ index 000000000000..e99e35a2d939
 +	TP_ARGS(request, status),
 +
 +	TP_STRUCT__entry(
-+		__array(char, uid, SSAM_PTR_UID_LEN)
 +		__field(unsigned long, state)
 +		__field(u32, rqid)
++		__field(int, status)
++		__array(char, uid, SSAM_PTR_UID_LEN)
 +		__field(u8, tc)
 +		__field(u16, cid)
 +		__field(u16, iid)
-+		__field(int, status)
 +	),
 +
 +	TP_fast_assign(
 +		const struct ssh_packet *p = &request->packet;
 +
 +		// use packet for UID so we can match requests to packets
-+		ssam_trace_ptr_uid(p, __entry->uid);
 +		__entry->state = READ_ONCE(request->state);
 +		__entry->rqid = ssam_trace_get_request_id(p);
++		__entry->status = status;
++		ssam_trace_ptr_uid(p, __entry->uid);
 +		__entry->tc = ssam_trace_get_request_tc(p);
 +		__entry->cid = ssam_trace_get_command_field_u8(p, cid);
 +		__entry->iid = ssam_trace_get_command_field_u8(p, iid);
-+		__entry->status = status;
 +	),
 +
 +	TP_printk("uid=%s, rqid=%s, ty=%s, sta=%s, tc=%s, cid=%s, iid=%s, status=%d",
@@ -16196,13 +16392,13 @@ index 000000000000..e99e35a2d939
 +	TP_ARGS(ptr, len),
 +
 +	TP_STRUCT__entry(
-+		__array(char, uid, SSAM_PTR_UID_LEN)
 +		__field(size_t, len)
++		__array(char, uid, SSAM_PTR_UID_LEN)
 +	),
 +
 +	TP_fast_assign(
-+		ssam_trace_ptr_uid(ptr, __entry->uid);
 +		__entry->len = len;
++		ssam_trace_ptr_uid(ptr, __entry->uid);
 +	),
 +
 +	TP_printk("uid=%s, len=%zu", __entry->uid, __entry->len)
@@ -16222,7 +16418,6 @@ index 000000000000..e99e35a2d939
 +
 +	TP_STRUCT__entry(
 +		__array(char, uid, SSAM_PTR_UID_LEN)
-+		__field(size_t, len)
 +	),
 +
 +	TP_fast_assign(
@@ -16245,13 +16440,13 @@ index 000000000000..e99e35a2d939
 +	TP_ARGS(property, value),
 +
 +	TP_STRUCT__entry(
-+		__string(property, property)
 +		__field(unsigned int, value)
++		__string(property, property)
 +	),
 +
 +	TP_fast_assign(
-+		__assign_str(property, property);
 +		__entry->value = value;
++		__assign_str(property, property);
 +	),
 +
 +	TP_printk("%s=%u", __get_str(property), __entry->value)
@@ -16491,16 +16686,18 @@ index 610cdf8082f2..2c8dd2abbd04 100644
  #endif /* LINUX_MOD_DEVICETABLE_H */
 diff --git a/include/linux/surface_acpi_notify.h b/include/linux/surface_acpi_notify.h
 new file mode 100644
-index 000000000000..ee5e04f2eb48
+index 000000000000..d45e2420eaa0
 --- /dev/null
 +++ b/include/linux/surface_acpi_notify.h
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,39 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Interface for Surface ACPI Notify (SAN) driver.
 + *
 + * Provides access to discrete GPU notifications sent from ACPI via the SAN
 + * driver, which are not handled by this driver directly.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#ifndef _LINUX_SURFACE_ACPI_NOTIFY_H
@@ -16534,10 +16731,10 @@ index 000000000000..ee5e04f2eb48
 +#endif /* _LINUX_SURFACE_ACPI_NOTIFY_H */
 diff --git a/include/linux/surface_aggregator/controller.h b/include/linux/surface_aggregator/controller.h
 new file mode 100644
-index 000000000000..2fac2cbf8816
+index 000000000000..f4f93c2072f0
 --- /dev/null
 +++ b/include/linux/surface_aggregator/controller.h
-@@ -0,0 +1,812 @@
+@@ -0,0 +1,814 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Surface System Aggregator Module (SSAM) controller interface.
@@ -16545,6 +16742,8 @@ index 000000000000..2fac2cbf8816
 + * Main communication interface for the SSAM EC. Provides a controller
 + * managing access and communication to and from the SSAM EC, as well as main
 + * communication structures and definitions.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#ifndef _LINUX_SURFACE_AGGREGATOR_CONTROLLER_H
@@ -17352,10 +17551,10 @@ index 000000000000..2fac2cbf8816
 +#endif /* _LINUX_SURFACE_AGGREGATOR_CONTROLLER_H */
 diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
 new file mode 100644
-index 000000000000..9c5f691a957e
+index 000000000000..80b6d5a0fa97
 --- /dev/null
 +++ b/include/linux/surface_aggregator/device.h
-@@ -0,0 +1,408 @@
+@@ -0,0 +1,430 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Surface System Aggregator Module (SSAM) bus and client-device subsystem.
@@ -17364,6 +17563,8 @@ index 000000000000..9c5f691a957e
 + * devices, and respective drivers building on top of the SSAM controller.
 + * Provides support for non-platform/non-ACPI SSAM clients via dedicated
 + * subsystem.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#ifndef _LINUX_SURFACE_AGGREGATOR_DEVICE_H
@@ -17417,6 +17618,11 @@ index 000000000000..9c5f691a957e
 +
 +/*
 + * Special values for device matching.
++ *
++ * These values are intended to be used with SSAM_DEVICE(), SSAM_VDEV(), and
++ * SSAM_SDEV() exclusively. Specifically, they are used to initialize the
++ * match_flags member of the device ID structure. Do not use them directly
++ * with struct ssam_device_id or struct ssam_device_uid.
 + */
 +#define SSAM_ANY_TID		0xffff
 +#define SSAM_ANY_IID		0xffff
@@ -17437,6 +17643,11 @@ index 000000000000..9c5f691a957e
 + * matching should ignore target ID, instance ID, and/or sub-function,
 + * respectively. This macro initializes the ``match_flags`` field based on the
 + * given parameters.
++ *
++ * Note: The parameters @d and @cat must be valid &u8 values, the parameters
++ * @tid, @iid, and @fun must be either valid &u8 values or %SSAM_ANY_TID,
++ * %SSAM_ANY_IID, or %SSAM_ANY_FUN, respectively. Other non-&u8 values are not
++ * allowed.
 + */
 +#define SSAM_DEVICE(d, cat, tid, iid, fun)					\
 +	.match_flags = (((tid) != SSAM_ANY_TID) ? SSAM_MATCH_TARGET : 0)	\
@@ -17462,6 +17673,11 @@ index 000000000000..9c5f691a957e
 + * %SSAM_ANY_FUN can be used to specify that matching should ignore target ID,
 + * instance ID, and/or sub-function, respectively. This macro initializes the
 + * ``match_flags`` field based on the given parameters.
++ *
++ * Note: The parameter @cat must be a valid &u8 value, the parameters @tid,
++ * @iid, and @fun must be either valid &u8 values or %SSAM_ANY_TID,
++ * %SSAM_ANY_IID, or %SSAM_ANY_FUN, respectively. Other non-&u8 values are not
++ * allowed.
 + */
 +#define SSAM_VDEV(cat, tid, iid, fun) \
 +	SSAM_DEVICE(SSAM_DOMAIN_VIRTUAL, SSAM_VIRTUAL_TC_##cat, tid, iid, fun)
@@ -17481,6 +17697,11 @@ index 000000000000..9c5f691a957e
 + * used to specify that matching should ignore target ID, instance ID, and/or
 + * sub-function, respectively. This macro initializes the ``match_flags``
 + * field based on the given parameters.
++ *
++ * Note: The parameter @cat must be a valid &u8 value, the parameters @tid,
++ * @iid, and @fun must be either valid &u8 values or %SSAM_ANY_TID,
++ * %SSAM_ANY_IID, or %SSAM_ANY_FUN, respectively. Other non-&u8 values are not
++ * allowed.
 + */
 +#define SSAM_SDEV(cat, tid, iid, fun) \
 +	SSAM_DEVICE(SSAM_DOMAIN_SERIALHUB, SSAM_SSH_TC_##cat, tid, iid, fun)
@@ -17596,8 +17817,7 @@ index 000000000000..9c5f691a957e
 + */
 +static inline struct ssam_device *ssam_device_get(struct ssam_device *sdev)
 +{
-+	get_device(&sdev->dev);
-+	return sdev;
++	return sdev ? to_ssam_device(get_device(&sdev->dev)) : NULL;
 +}
 +
 +/**
@@ -17612,7 +17832,8 @@ index 000000000000..9c5f691a957e
 + */
 +static inline void ssam_device_put(struct ssam_device *sdev)
 +{
-+	put_device(&sdev->dev);
++	if (sdev)
++		put_device(&sdev->dev);
 +}
 +
 +/**
@@ -17766,10 +17987,10 @@ index 000000000000..9c5f691a957e
 +#endif /* _LINUX_SURFACE_AGGREGATOR_DEVICE_H */
 diff --git a/include/linux/surface_aggregator/serial_hub.h b/include/linux/surface_aggregator/serial_hub.h
 new file mode 100644
-index 000000000000..e5e43de12039
+index 000000000000..80200ec0fc8a
 --- /dev/null
 +++ b/include/linux/surface_aggregator/serial_hub.h
-@@ -0,0 +1,653 @@
+@@ -0,0 +1,655 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Surface Serial Hub (SSH) protocol and communication interface.
@@ -17777,6 +17998,8 @@ index 000000000000..e5e43de12039
 + * Lower-level communication layers and SSH protocol definitions for the
 + * Surface System Aggregator Module (SSAM). Provides the interface for basic
 + * packet- and request-based communication with the SSAM EC via SSH.
++ *
++ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#ifndef _LINUX_SURFACE_AGGREGATOR_SERIAL_HUB_H
@@ -17899,7 +18122,7 @@ index 000000000000..e5e43de12039
 +#define SSH_MSG_LEN_CTRL	SSH_MSG_LEN_BASE
 +
 +/**
-+ * SSH_MESSAGE_LENGTH() - Comute lenght of SSH message.
++ * SSH_MESSAGE_LENGTH() - Comute length of SSH message.
 + * @payload_size: Length of the payload inside the SSH frame.
 + *
 + * Return: Returns the length of a SSH message with payload of specified size.
@@ -18386,8 +18609,7 @@ index 000000000000..e5e43de12039
 + */
 +static inline struct ssh_request *ssh_request_get(struct ssh_request *r)
 +{
-+	ssh_packet_get(&r->packet);
-+	return r;
++	return r ? to_ssh_request(ssh_packet_get(&r->packet)) : NULL;
 +}
 +
 +/**
@@ -18404,7 +18626,8 @@ index 000000000000..e5e43de12039
 + */
 +static inline void ssh_request_put(struct ssh_request *r)
 +{
-+	ssh_packet_put(&r->packet);
++	if (r)
++		ssh_packet_put(&r->packet);
 +}
 +
 +/**
@@ -18423,6 +18646,70 @@ index 000000000000..e5e43de12039
 +}
 +
 +#endif /* _LINUX_SURFACE_AGGREGATOR_SERIAL_HUB_H */
+diff --git a/include/uapi/linux/surface_aggregator/cdev.h b/include/uapi/linux/surface_aggregator/cdev.h
+new file mode 100644
+index 000000000000..43819986f911
+--- /dev/null
++++ b/include/uapi/linux/surface_aggregator/cdev.h
+@@ -0,0 +1,58 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++/*
++ * Surface System Aggregator Module (SSAM) user-space EC interface.
++ *
++ * Definitions, structs, and IOCTLs for the /dev/surface/aggregator misc
++ * device. This device provides direct user-space access to the SSAM EC.
++ * Intended for debugging and development.
++ *
++ * Copyright (C) 2020 Maximilian Luz <luzmaximilian@gmail.com>
++ */
++
++#ifndef _UAPI_LINUX_SURFACE_AGGREGATOR_CDEV_H
++#define _UAPI_LINUX_SURFACE_AGGREGATOR_CDEV_H
++
++#include <linux/types.h>
++#include <linux/ioctl.h>
++
++/**
++ * struct ssam_cdev_request - Controller request IOCTL argument.
++ * @target_category: Target category of the SAM request.
++ * @target_id:       Target ID of the SAM request.
++ * @command_id:      Command ID of the SAM request.
++ * @instance_id:     Instance ID of the SAM request.
++ * @flags:           SAM Request flags.
++ * @status:          Request status (output).
++ * @payload:         Request payload (input data).
++ * @payload.data:    Pointer to request payload data.
++ * @payload.length:  Length of request payload data (in bytes).
++ * @response:        Request response (output data).
++ * @response.data:   Pointer to response buffer.
++ * @response.length: On input: Capacity of response buffer (in bytes).
++ *                   On output: Length of request response (number of bytes
++ *                   in the buffer that are actually used).
++ */
++struct ssam_cdev_request {
++	__u8 target_category;
++	__u8 target_id;
++	__u8 command_id;
++	__u8 instance_id;
++	__u16 flags;
++	__s16 status;
++
++	struct {
++		__u64 data;
++		__u16 length;
++		__u8 __pad[6];
++	} payload;
++
++	struct {
++		__u64 data;
++		__u16 length;
++		__u8 __pad[6];
++	} response;
++} __attribute__((__packed__));
++
++#define SSAM_CDEV_REQUEST	_IOWR(0xA5, 1, struct ssam_cdev_request)
++
++#endif /* _UAPI_LINUX_SURFACE_AGGREGATOR_CDEV_H */
 diff --git a/scripts/mod/devicetable-offsets.c b/scripts/mod/devicetable-offsets.c
 index 293004499b4d..6a319852083e 100644
 --- a/scripts/mod/devicetable-offsets.c
@@ -18442,7 +18729,7 @@ index 293004499b4d..6a319852083e 100644
  	return 0;
  }
 diff --git a/scripts/mod/file2alias.c b/scripts/mod/file2alias.c
-index 7f40b6aab689..40bd82b9cd41 100644
+index 7f40b6aab689..f171616ab318 100644
 --- a/scripts/mod/file2alias.c
 +++ b/scripts/mod/file2alias.c
 @@ -1276,6 +1276,28 @@ static int do_typec_entry(const char *filename, void *symval, char *alias)
@@ -18450,7 +18737,7 @@ index 7f40b6aab689..40bd82b9cd41 100644
  }
  
 +/*
-+ * Looks like: ssam:cNtNiNfN
++ * Looks like: ssam:dNcNtNiNfN
 + *
 + * N is exactly 2 digits, where each is an upper-case hex digit.
 + */
