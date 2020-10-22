@@ -1,22 +1,405 @@
-From 69777ceca6c4036a9f071a37c582dbc2359f0c3f Mon Sep 17 00:00:00 2001
+From 5d78acea2443324844d4535f30e1026fb14799fc Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:15:40 +0200
-Subject: [PATCH 08/11] surface-sam
+Subject: [PATCH] ACPI: Fix buffer/integer type mismatch
 
+This is actually not a bug in the kernel, but rather Microsoft not
+conforming with the ACPI specification.
+
+Patchset: surface-sam
+---
+ drivers/acpi/acpica/dsopcode.c |  2 +-
+ drivers/acpi/acpica/exfield.c  | 26 ++++++++++----------------
+ 2 files changed, 11 insertions(+), 17 deletions(-)
+
+diff --git a/drivers/acpi/acpica/dsopcode.c b/drivers/acpi/acpica/dsopcode.c
+index 2f4641e5ecde..beb22d7e245e 100644
+--- a/drivers/acpi/acpica/dsopcode.c
++++ b/drivers/acpi/acpica/dsopcode.c
+@@ -123,7 +123,7 @@ acpi_ds_init_buffer_field(u16 aml_opcode,
+ 
+ 		/* Offset is in bits, count is in bits */
+ 
+-		field_flags = AML_FIELD_ACCESS_BYTE;
++		field_flags = AML_FIELD_ACCESS_BUFFER;
+ 		bit_offset = offset;
+ 		bit_count = (u32) length_desc->integer.value;
+ 
+diff --git a/drivers/acpi/acpica/exfield.c b/drivers/acpi/acpica/exfield.c
+index b272c329d45d..cf547883a993 100644
+--- a/drivers/acpi/acpica/exfield.c
++++ b/drivers/acpi/acpica/exfield.c
+@@ -102,6 +102,7 @@ acpi_ex_read_data_from_field(struct acpi_walk_state *walk_state,
+ 	void *buffer;
+ 	u32 function;
+ 	u16 accessor_type;
++	u8 field_flags;
+ 
+ 	ACPI_FUNCTION_TRACE_PTR(ex_read_data_from_field, obj_desc);
+ 
+@@ -199,11 +200,16 @@ acpi_ex_read_data_from_field(struct acpi_walk_state *walk_state,
+ 	 * Note: Field.length is in bits.
+ 	 */
+ 	length =
+-	    (acpi_size)ACPI_ROUND_BITS_UP_TO_BYTES(obj_desc->field.bit_length);
++	    (acpi_size)ACPI_ROUND_BITS_UP_TO_BYTES(obj_desc->common_field.bit_length);
++	field_flags = obj_desc->common_field.field_flags;
+ 
+-	if (length > acpi_gbl_integer_byte_width) {
++	if (length > acpi_gbl_integer_byte_width ||
++	    (field_flags & AML_FIELD_ACCESS_TYPE_MASK) == AML_FIELD_ACCESS_BUFFER) {
+ 
+-		/* Field is too large for an Integer, create a Buffer instead */
++		/*
++		 * Field is either too large for an Integer, or a actually of type
++		 * buffer, so create a Buffer.
++		 */
+ 
+ 		buffer_desc = acpi_ut_create_buffer_object(length);
+ 		if (!buffer_desc) {
+@@ -366,19 +372,7 @@ acpi_ex_write_data_to_field(union acpi_operand_object *source_desc,
+ 		} else if (obj_desc->field.region_obj->region.space_id ==
+ 			   ACPI_ADR_SPACE_GSBUS) {
+ 			accessor_type = obj_desc->field.attribute;
+-			length =
+-			    acpi_ex_get_serial_access_length(accessor_type,
+-							     obj_desc->field.
+-							     access_length);
+-
+-			/*
+-			 * Add additional 2 bytes for the generic_serial_bus data buffer:
+-			 *
+-			 *     Status;    (Byte 0 of the data buffer)
+-			 *     Length;    (Byte 1 of the data buffer)
+-			 *     Data[x-1]: (Bytes 2-x of the arbitrary length data buffer)
+-			 */
+-			length += 2;
++			length = source_desc->buffer.length;
+ 			function = ACPI_WRITE | (accessor_type << 16);
+ 		} else {	/* IPMI */
+ 
+-- 
+2.28.0
+
+From 5a933ea960eb31d07159b624e74c243f1bfbef76 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Tue, 24 Sep 2019 17:38:12 +0200
+Subject: [PATCH] serdev: Add ACPI devices by ResourceSource field
+
+When registering a serdev controller, ACPI needs to be checked for
+devices attached to it. Currently, all immediate children of the ACPI
+node of the controller are assumed to be UART client devices for this
+controller. Furthermore, these devices are not searched elsewhere.
+
+This is incorrect: Similar to SPI and I2C devices, the UART client
+device definition (via UARTSerialBusV2) can reside anywhere in the ACPI
+namespace as resource definition inside the _CRS method and points to
+the controller via its ResourceSource field. This field may either
+contain a fully qualified or relative path, indicating the controller
+device. To address this, we need to walk over the whole ACPI namespace,
+looking at each resource definition, and match the client device to the
+controller via this field.
+
+This patch is based on the existing acpi serial bus implementations in
+drivers/i2c/i2c-core-acpi.c and drivers/spi/spi.c, specifically commit
+4c3c59544f33e97cf8557f27e05a9904ead16363 ("spi/acpi: enumerate all SPI
+slaves in the namespace").
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/tty/serdev/core.c | 111 +++++++++++++++++++++++++++++++++-----
+ 1 file changed, 99 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/tty/serdev/core.c b/drivers/tty/serdev/core.c
+index c66a04d24f1d..1b18d12d217f 100644
+--- a/drivers/tty/serdev/core.c
++++ b/drivers/tty/serdev/core.c
+@@ -496,16 +496,97 @@ static int of_serdev_register_devices(struct serdev_controller *ctrl)
+ }
+ 
+ #ifdef CONFIG_ACPI
++
++#define SERDEV_ACPI_MAX_SCAN_DEPTH 32
++
++struct acpi_serdev_lookup {
++	acpi_handle device_handle;
++	acpi_handle controller_handle;
++	int n;
++	int index;
++};
++
++static int acpi_serdev_parse_resource(struct acpi_resource *ares, void *data)
++{
++	struct acpi_serdev_lookup *lookup = data;
++	struct acpi_resource_uart_serialbus *sb;
++	acpi_status status;
++
++	if (ares->type != ACPI_RESOURCE_TYPE_SERIAL_BUS)
++		return 1;
++
++	if (ares->data.common_serial_bus.type != ACPI_RESOURCE_SERIAL_TYPE_UART)
++		return 1;
++
++	if (lookup->index != -1 && lookup->n++ != lookup->index)
++		return 1;
++
++	sb = &ares->data.uart_serial_bus;
++
++	status = acpi_get_handle(lookup->device_handle,
++				 sb->resource_source.string_ptr,
++				 &lookup->controller_handle);
++	if (ACPI_FAILURE(status))
++		return 1;
++
++	/*
++	 * NOTE: Ideally, we would also want to retreive other properties here,
++	 * once setting them before opening the device is supported by serdev.
++	 */
++
++	return 1;
++}
++
++static int acpi_serdev_do_lookup(struct acpi_device *adev,
++                                 struct acpi_serdev_lookup *lookup)
++{
++	struct list_head resource_list;
++	int ret;
++
++	lookup->device_handle = acpi_device_handle(adev);
++	lookup->controller_handle = NULL;
++	lookup->n = 0;
++
++	INIT_LIST_HEAD(&resource_list);
++	ret = acpi_dev_get_resources(adev, &resource_list,
++				     acpi_serdev_parse_resource, lookup);
++	acpi_dev_free_resource_list(&resource_list);
++
++	if (ret < 0)
++		return -EINVAL;
++
++	return 0;
++}
++
++static int acpi_serdev_check_resources(struct serdev_controller *ctrl,
++				       struct acpi_device *adev)
++{
++	struct acpi_serdev_lookup lookup;
++	int ret;
++
++	if (acpi_bus_get_status(adev) || !adev->status.present)
++		return -EINVAL;
++
++	/* Look for UARTSerialBusV2 resource */
++	lookup.index = -1;	// we only care for the last device
++
++	ret = acpi_serdev_do_lookup(adev, &lookup);
++	if (ret)
++		return ret;
++
++	/* Make sure controller and ResourceSource handle match */
++	if (ACPI_HANDLE(ctrl->dev.parent) != lookup.controller_handle)
++		return -ENODEV;
++
++	return 0;
++}
++
+ static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
+-					    struct acpi_device *adev)
++					       struct acpi_device *adev)
+ {
+-	struct serdev_device *serdev = NULL;
++	struct serdev_device *serdev;
+ 	int err;
+ 
+-	if (acpi_bus_get_status(adev) || !adev->status.present ||
+-	    acpi_device_enumerated(adev))
+-		return AE_OK;
+-
+ 	serdev = serdev_device_alloc(ctrl);
+ 	if (!serdev) {
+ 		dev_err(&ctrl->dev, "failed to allocate serdev device for %s\n",
+@@ -533,7 +614,7 @@ static const struct acpi_device_id serdev_acpi_devices_blacklist[] = {
+ };
+ 
+ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
+-				       void *data, void **return_value)
++					  void *data, void **return_value)
+ {
+ 	struct serdev_controller *ctrl = data;
+ 	struct acpi_device *adev;
+@@ -541,26 +622,32 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
+ 	if (acpi_bus_get_device(handle, &adev))
+ 		return AE_OK;
+ 
++	if (acpi_device_enumerated(adev))
++		return AE_OK;
++
+ 	/* Skip if black listed */
+ 	if (!acpi_match_device_ids(adev, serdev_acpi_devices_blacklist))
+ 		return AE_OK;
+ 
++	if (acpi_serdev_check_resources(ctrl, adev))
++		return AE_OK;
++
+ 	return acpi_serdev_register_device(ctrl, adev);
+ }
+ 
++
+ static int acpi_serdev_register_devices(struct serdev_controller *ctrl)
+ {
+ 	acpi_status status;
+-	acpi_handle handle;
+ 
+-	handle = ACPI_HANDLE(ctrl->dev.parent);
+-	if (!handle)
++	if (!has_acpi_companion(ctrl->dev.parent))
+ 		return -ENODEV;
+ 
+-	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, handle, 1,
++	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
++				     SERDEV_ACPI_MAX_SCAN_DEPTH,
+ 				     acpi_serdev_add_device, NULL, ctrl, NULL);
+ 	if (ACPI_FAILURE(status))
+-		dev_dbg(&ctrl->dev, "failed to enumerate serdev slaves\n");
++		dev_warn(&ctrl->dev, "failed to enumerate serdev slaves\n");
+ 
+ 	if (!ctrl->serdev)
+ 		return -ENODEV;
+-- 
+2.28.0
+
+From 632b5dc29badc5b21510aa8d6f3a436d9f452dc9 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Mon, 17 Aug 2020 01:23:20 +0200
+Subject: [PATCH] misc: surface_sam: Add file2alias support for Surface SAM
+ devices
+
+Implement file2alias support for Surface System Aggregator Module (SSAM)
+devices. This allows modules to be auto-loaded for specific devices via
+their respective module alias.
+
+Patchset: surface-sam
+---
+ include/linux/mod_devicetable.h   | 17 +++++++++++++++++
+ scripts/mod/devicetable-offsets.c |  7 +++++++
+ scripts/mod/file2alias.c          | 21 +++++++++++++++++++++
+ 3 files changed, 45 insertions(+)
+
+diff --git a/include/linux/mod_devicetable.h b/include/linux/mod_devicetable.h
+index 610cdf8082f2..69f4527315e7 100644
+--- a/include/linux/mod_devicetable.h
++++ b/include/linux/mod_devicetable.h
+@@ -768,4 +768,21 @@ struct typec_device_id {
+ 	kernel_ulong_t driver_data;
+ };
+ 
++/* Surface System Aggregator Module */
++
++#define SSAM_MATCH_CHANNEL	0x1
++#define SSAM_MATCH_INSTANCE	0x2
++#define SSAM_MATCH_FUNCTION	0x4
++
++struct ssam_device_id {
++	__u8 match_flags;
++
++	__u8 category;
++	__u8 channel;
++	__u8 instance;
++	__u8 function;
++
++	kernel_ulong_t driver_data;
++};
++
+ #endif /* LINUX_MOD_DEVICETABLE_H */
+diff --git a/scripts/mod/devicetable-offsets.c b/scripts/mod/devicetable-offsets.c
+index 293004499b4d..13acbf55c6fd 100644
+--- a/scripts/mod/devicetable-offsets.c
++++ b/scripts/mod/devicetable-offsets.c
+@@ -225,5 +225,12 @@ int main(void)
+ 	DEVID_FIELD(typec_device_id, svid);
+ 	DEVID_FIELD(typec_device_id, mode);
+ 
++	DEVID(ssam_device_id);
++	DEVID_FIELD(ssam_device_id, match_flags);
++	DEVID_FIELD(ssam_device_id, category);
++	DEVID_FIELD(ssam_device_id, channel);
++	DEVID_FIELD(ssam_device_id, instance);
++	DEVID_FIELD(ssam_device_id, function);
++
+ 	return 0;
+ }
+diff --git a/scripts/mod/file2alias.c b/scripts/mod/file2alias.c
+index 7f40b6aab689..76e3b1d7db45 100644
+--- a/scripts/mod/file2alias.c
++++ b/scripts/mod/file2alias.c
+@@ -1276,6 +1276,26 @@ static int do_typec_entry(const char *filename, void *symval, char *alias)
+ 	return 1;
+ }
+ 
++/* Looks like: ssam:cNtNiNfN
++ *
++ * N is exactly 2 digits, where each is an upper-case hex digit.
++ */
++static int do_ssam_entry(const char *filename, void *symval, char *alias)
++{
++	DEF_FIELD(symval, ssam_device_id, match_flags);
++	DEF_FIELD(symval, ssam_device_id, category);
++	DEF_FIELD(symval, ssam_device_id, channel);
++	DEF_FIELD(symval, ssam_device_id, instance);
++	DEF_FIELD(symval, ssam_device_id, function);
++
++	sprintf(alias, "ssam:c%02X", category);
++	ADD(alias, "t", match_flags & SSAM_MATCH_CHANNEL, channel);
++	ADD(alias, "i", match_flags & SSAM_MATCH_INSTANCE, instance);
++	ADD(alias, "f", match_flags & SSAM_MATCH_FUNCTION, function);
++
++	return 1;
++}
++
+ /* Does namelen bytes of name exactly match the symbol? */
+ static bool sym_is(const char *name, unsigned namelen, const char *symbol)
+ {
+@@ -1346,6 +1366,7 @@ static const struct devtable devtable[] = {
+ 	{"fslmc", SIZE_fsl_mc_device_id, do_fsl_mc_entry},
+ 	{"tbsvc", SIZE_tb_service_id, do_tbsvc_entry},
+ 	{"typec", SIZE_typec_device_id, do_typec_entry},
++	{"ssam", SIZE_ssam_device_id, do_ssam_entry},
+ };
+ 
+ /* Create MODULE_ALIAS() statements.
+-- 
+2.28.0
+
+From a14fa36daaee6d27744986e0cfdd336127146662 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Mon, 17 Aug 2020 01:44:30 +0200
+Subject: [PATCH] misc: Add support for Surface System Aggregator Module
+
+Add support for the Surface System Aggregator Module (SSAM), an embedded
+controller that can be found on 5th and later generation Microsoft
+Surface devices. The responsibilities of this EC vary from device to
+device. It provides battery information on all 5th and later generation
+devices, temperature sensor and cooling capability access, functionality
+for clipboard detaching on the Surface Books (2 and 3), as well as
+HID-over-SSAM input devices, including keyboard on the Surface Laptop 1
+and 2, and keyboard as well as touchpad input on the Surface Laptop 3
+and Surface Book 3.
+
+Patchset: surface-sam
 ---
  Documentation/driver-api/index.rst            |    1 +
  .../surface_aggregator/client-api.rst         |   38 +
  .../driver-api/surface_aggregator/client.rst  |  394 +++
  .../surface_aggregator/clients/cdev.rst       |   85 +
- .../surface_aggregator/clients/index.rst      |   21 +
+ .../surface_aggregator/clients/dtx.rst        |  712 +++++
+ .../surface_aggregator/clients/index.rst      |   22 +
  .../surface_aggregator/clients/san.rst        |   44 +
  .../driver-api/surface_aggregator/index.rst   |   21 +
  .../surface_aggregator/internal-api.rst       |   67 +
  .../surface_aggregator/internal.rst           |   50 +
  .../surface_aggregator/overview.rst           |   76 +
  .../driver-api/surface_aggregator/ssh.rst     |  343 +++
- drivers/acpi/acpica/dsopcode.c                |    2 +-
- drivers/acpi/acpica/exfield.c                 |   26 +-
  drivers/misc/Kconfig                          |    1 +
  drivers/misc/Makefile                         |    1 +
  drivers/misc/surface_aggregator/Kconfig       |   67 +
@@ -29,7 +412,7 @@ Subject: [PATCH 08/11] surface-sam
  .../clients/surface_aggregator_cdev.c         |  299 ++
  .../clients/surface_aggregator_registry.c     |  605 ++++
  .../clients/surface_battery.c                 | 1192 ++++++++
- .../surface_aggregator/clients/surface_dtx.c  | 1127 ++++++++
+ .../surface_aggregator/clients/surface_dtx.c  | 1268 ++++++++
  .../surface_aggregator/clients/surface_hid.c  |  919 ++++++
  .../clients/surface_hotplug.c                 | 1285 +++++++++
  .../clients/surface_perfmode.c                |  122 +
@@ -44,19 +427,20 @@ Subject: [PATCH 08/11] surface-sam
  .../surface_aggregator/ssh_request_layer.c    | 1254 ++++++++
  .../surface_aggregator/ssh_request_layer.h    |  142 +
  drivers/misc/surface_aggregator/trace.h       |  625 ++++
- drivers/tty/serdev/core.c                     |  111 +-
- include/linux/mod_devicetable.h               |   18 +
+ include/linux/mod_devicetable.h               |    5 +-
  include/linux/surface_acpi_notify.h           |   39 +
  include/linux/surface_aggregator/controller.h |  815 ++++++
  include/linux/surface_aggregator/device.h     |  430 +++
  include/linux/surface_aggregator/serial_hub.h |  655 +++++
  include/uapi/linux/surface_aggregator/cdev.h  |   58 +
- scripts/mod/devicetable-offsets.c             |    8 +
- scripts/mod/file2alias.c                      |   23 +
- 49 files changed, 18904 insertions(+), 29 deletions(-)
+ include/uapi/linux/surface_aggregator/dtx.h   |  150 +
+ scripts/mod/devicetable-offsets.c             |    3 +-
+ scripts/mod/file2alias.c                      |   10 +-
+ 48 files changed, 19760 insertions(+), 7 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
+ create mode 100644 Documentation/driver-api/surface_aggregator/clients/dtx.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/index.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/san.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/index.rst
@@ -94,6 +478,7 @@ Subject: [PATCH 08/11] surface-sam
  create mode 100644 include/linux/surface_aggregator/device.h
  create mode 100644 include/linux/surface_aggregator/serial_hub.h
  create mode 100644 include/uapi/linux/surface_aggregator/cdev.h
+ create mode 100644 include/uapi/linux/surface_aggregator/dtx.h
 
 diff --git a/Documentation/driver-api/index.rst b/Documentation/driver-api/index.rst
 index 6d9f2f9fe20e..e36fbb60c676 100644
@@ -642,12 +1027,730 @@ index 000000000000..63b5afcb89b5
 +
 +.. kernel-doc:: include/uapi/linux/surface_aggregator/cdev.h
 +   :functions: ssam_cdev_request
+diff --git a/Documentation/driver-api/surface_aggregator/clients/dtx.rst b/Documentation/driver-api/surface_aggregator/clients/dtx.rst
+new file mode 100644
+index 000000000000..e974c2b04e9f
+--- /dev/null
++++ b/Documentation/driver-api/surface_aggregator/clients/dtx.rst
+@@ -0,0 +1,712 @@
++.. SPDX-License-Identifier: GPL-2.0+
++
++.. |__u16| replace:: :c:type:`__u16 <__u16>`
++.. |sdtx_event| replace:: :c:type:`struct sdtx_event <sdtx_event>`
++.. |sdtx_event_code| replace:: :c:type:`enum sdtx_event_code <sdtx_event_code>`
++.. |sdtx_base_info| replace:: :c:type:`struct sdtx_base_info <sdtx_base_info>`
++.. |sdtx_device_mode| replace:: :c:type:`struct sdtx_device_mode <sdtx_device_mode>`
++
++======================================================
++User-Space DTX (Clipboard Detachment System) Interface
++======================================================
++
++The ``surface_dtx`` driver is responsible for proper clipboard detachment
++and re-attachment handling. To this end, it provides the ``/dev/surface/dtx``
++device file, through which it can interface with a user-space daemon. This
++daemon is then ultimately responsible for determining and taking necessary
++actions, such as unmounting devices attached to the base,
++unloading/reloading the graphics-driver, user-notifications, etc.
++
++There are two basic communication principles used in this driver: Commands
++(in other parts of the documentation also referred to as requests) and
++events. Commands are sent to the EC and may have a different implications in
++different contexts. Events are sent by the EC upon some internal state
++change. Commands are always driver-initiated, whereas events are always
++initiated by the EC.
++
++.. contents::
++
++Nomenclature
++============
++
++* **Clipboard:**
++  The detachable upper part of the Surface Book, housing the screen and CPU.
++
++* **Base:**
++  The lower part of the Surface Book from which the clipboard can be
++  detached, optionally (model dependent) housing the discrete GPU (dGPU).
++
++* **Latch:**
++  The mechanism keeping the clipboard attached to the base in normal
++  operation and allowing it to be detached when requested.
++
++* **Silently ignored commands:**
++  The command is accepted by the EC as a valid command and acknowledged
++  (following the standard communication protocol), but the EC does not act
++  upon it, i.e. ignores it.e upper part of the
++
++
++Detachment Process
++==================
++
++Warning: This part of the documentation is based on reverse engineering and
++testing and thus may contain errors or be incomplete.
++
++Latch States
++------------
++
++The latch mechanism has two major states: *open* and *closed*. In the
++*closed* state (default), the clipboard is secured to the base, whereas in
++the *open* state, the clipboard can be removed by a user.
++
++The latch can additionally be locked and, correspondingly, unlocked, which
++can influence the detachment procedure. Specifically, this locking mechanism
++is intended to prevent the the dGPU, positioned in the base of the device,
++from being hot-unplugged while in use. More details can be found in the
++documentation for the detachment procedure below. By default, the latch is
++unlocked.
++
++Detachment Procedure
++--------------------
++
++Note that the detachment process is governed fully by the EC. The
++``surface_dtx`` driver only relays events from the EC to user-space and
++commands from user-space to the EC, i.e. it does not influence this process.
++
++The detachment process is started with the user pressing the *detach* button
++on the base of the device or executing the ``SDTX_IOCTL_LATCH_REQUEST`` IOCTL.
++Following that:
++
++1. The EC turns on the indicator led on the detach-button, sends a
++   *detach-request* event (``SDTX_EVENT_REQUEST``), and awaits further
++   instructions/commands. In case the latch is unlocked, the led will flash
++   green. If the latch has been locked, the led will be solid red
++
++2. The event is, via the ``surface_dtx`` driver, relayed to user-space, where
++   an appropriate user-space daemon can handle it and send instructions back
++   to the EC via IOCTLs provided by this driver.
++
++3. The EC waits for instructions from user-space and acts according to them.
++   If the EC does not receive any instructions in a given period, it will
++   time out and continue as follows:
++
++   - If the latch is unlocked, the EC will open the latch and the clipboard
++     can be detached from the base. This is the exact behavior as without
++     this driver or any user-space daemon. See the ``SDTX_IOCTL_LATCH_CONFIRM``
++     description below for more details on the follow-up behavior of the EC.
++
++   - If the latch is locked, the EC will *not* open the latch, meaning the
++     clipboard cannot be detached from the base. Furthermore, the EC sends
++     an cancel event (``SDTX_EVENT_CANCEL``) detailing this with the cancel
++     reason ``SDTX_DETACH_TIMEDOUT`` (see :ref:`events` for details).
++
++Valid responses by a user-space daemon to a detachment request event are:
++
++- Execute ``SDTX_IOCTL_LATCH_REQUEST``. This will immediately abort the
++  detachment process. Furthermore, the EC will send a detach-request event,
++  similar to the user pressing the detach-button to cancel said process (see
++  below).
++
++- Execute ``SDTX_IOCTL_LATCH_CONFIRM``. This will cause the EC to open the
++  latch, after which the user can separate clipboard and base.
++
++  As this changes the latch state, a *latch-status* event
++  (``SDTX_EVENT_LATCH_STATUS``) will be sent once the latch has been opened
++  successfully. If the EC fails to open the latch, e.g. due to hardware
++  error or low battery, a latch-cancel event (``SDTX_EVENT_CANCEL``) will be
++  sent with the cancel reason indicating the specific failure.
++
++  If the latch is currently locked, the latch will automatically be
++  unlocked before it is opened.
++
++- Execute ``SDTX_IOCTL_LATCH_HEARTBEAT``. This will reset the internal timeout.
++  No other actions will be performed, i.e. the detachment process will neither
++  be completed nor canceled, and the EC will still be waiting for further
++  responses.
++
++- Execute ``SDTX_IOCTL_LATCH_CANCEL``. This will abort the detachment process,
++  similar to ``SDTX_IOCTL_LATCH_REQUEST``, described above, or the button
++  press, described below. A *generic request* event (``SDTX_EVENT_REQUEST``)
++  is send in response to this. In contrast to those, however, this command
++  does not trigger a new detachment process if none is currently in
++  progress.
++
++- Do nothing. The detachment process eventually times out as described in
++  point 3.
++
++See :ref:`ioctls` for more details on these responses.
++
++It is important to note that, if the user presses the detach button at any
++point when a detachment operation is in progress (i.e. after the the EC has
++sent the initial *detach-request* event (``SDTX_EVENT_REQUEST``) and before
++it received the corresponding response concluding the process), the
++detachment process is canceled on the EC-level and an identical event is
++being sent. Thus a *detach-request* event, by itself, does not signal the
++start of the detachment process.
++
++The detachment process may further be canceled by the EC due to hardware
++failures or a low clipboard battery. This is done via a cancel event
++(``SDTX_EVENT_CANCEL``) with the corresponding cancel reason.
++
++
++User-Space Interface Documentation
++==================================
++
++Error Codes and Status Values
++-----------------------------
++
++Error and status codes are divided into different categories, which can be
++used to determine if the status code is an error, and, if it is, the
++severity and type of that error. The current categories are:
++
++.. flat-table:: Overview of Status/Error Categories.
++   :widths: 2 1 3
++   :header-rows: 1
++
++   * - Name
++     - Value
++     - Short Description
++
++   * - ``STATUS``
++     - ``0x0000``
++     - Non-error status codes.
++
++   * - ``RUNTIME_ERROR``
++     - ``0x1000``
++     - Non-critical runtime errors.
++
++   * - ``HARDWARE_ERROR``
++     - ``0x2000``
++     - Critical hardware failures.
++
++   * - ``UNKNOWN``
++     - ``0xF000``
++     - Unknown error codes.
++
++Other categories are reserved for future use. The ``SDTX_CATEGORY()`` macro
++can be used to determine the category of any status value. The
++``SDTX_SUCCESS()`` macro can be used to check if the status value is a
++success value (``SDTX_CATEGORY_STATUS``) or if it indicates a failure.
++
++Unknown status or error codes sent by the EC are assigned to the ``UNKNOWN``
++category by the driver and may be implemented via their own code in the
++future.
++
++Currently used error codes are:
++
++.. flat-table:: Overview of Error Codes.
++   :widths: 2 1 1 3
++   :header-rows: 1
++
++   * - Name
++     - Category
++     - Value
++     - Short Description
++
++   * - ``SDTX_DETACH_NOT_FEASIBLE``
++     - ``RUNTIME``
++     - ``0x1001``
++     - Detachment not feasible due to low clipboard battery.
++
++   * - ``SDTX_DETACH_TIMEDOUT``
++     - ``RUNTIME``
++     - ``0x1002``
++     - Detachment process timed out while the latch was locked.
++
++   * - ``SDTX_ERR_FAILED_TO_OPEN``
++     - ``HARDWARE``
++     - ``0x2001``
++     - Failed to open latch.
++
++   * - ``SDTX_ERR_FAILED_TO_REMAIN_OPEN``
++     - ``HARDWARE``
++     - ``0x2002``
++     - Failed to keep latch open.
++
++   * - ``SDTX_ERR_FAILED_TO_CLOSE``
++     - ``HARDWARE``
++     - ``0x2003``
++     - Failed to close latch.
++
++Other error codes are reserved for future use. Non-error status codes may
++overlap and are generally only unique within their use-case:
++
++.. flat-table:: Latch Status Codes.
++   :widths: 2 1 1 3
++   :header-rows: 1
++
++   * - Name
++     - Category
++     - Value
++     - Short Description
++
++   * - ``SDTX_LATCH_CLOSED``
++     - ``STATUS``
++     - ``0x0000``
++     - Latch is closed/has been closed.
++
++   * - ``SDTX_LATCH_OPENED``
++     - ``STATUS``
++     - ``0x0001``
++     - Latch is open/has been opened.
++
++.. flat-table:: Base State Codes.
++   :widths: 2 1 1 3
++   :header-rows: 1
++
++   * - Name
++     - Category
++     - Value
++     - Short Description
++
++   * - ``SDTX_BASE_DETACHED``
++     - ``STATUS``
++     - ``0x0000``
++     - Base has been detached/is not present.
++
++   * - ``SDTX_BASE_ATTACHED``
++     - ``STATUS``
++     - ``0x0001``
++     - Base has been attached/is present.
++
++Again, other codes are reserved for future use.
++
++.. _events:
++
++Events
++------
++
++Events can be received by reading from the device file. They are disabled by
++default and have to be enabled by executing ``SDTX_IOCTL_EVENTS_ENABLE``
++first. All events follow the layout prescribed by |sdtx_event|. Specific
++event types can be identified by their event code, described in
++|sdtx_event_code|. Note that other event codes are reserved for future use,
++thus an event parser must be able to handle any unknown/unsupported event
++types gracefully, by relying on the payload length given in the event header.
++
++Currently provided event types are:
++
++.. flat-table:: Overview of DTX events.
++   :widths: 2 1 1 3
++   :header-rows: 1
++
++   * - Name
++     - Code
++     - Payload
++     - Short Description
++
++   * - ``SDTX_EVENT_REQUEST``
++     - ``1``
++     - ``0`` bytes
++     - Detachment process initiated/aborted.
++
++   * - ``SDTX_EVENT_CANCEL``
++     - ``2``
++     - ``2`` bytes
++     - EC canceled detachment process.
++
++   * - ``SDTX_EVENT_BASE_CONNECTION``
++     - ``3``
++     - ``4`` bytes
++     - Base connection state changed.
++
++   * - ``SDTX_EVENT_LATCH_STATUS``
++     - ``4``
++     - ``2`` bytes
++     - Latch status changed.
++
++   * - ``SDTX_EVENT_DEVICE_MODE``
++     - ``5``
++     - ``2`` bytes
++     - Device mode changed.
++
++Individual events in more detail:
++
++``SDTX_EVENT_REQUEST``
++^^^^^^^^^^^^^^^^^^^^^^
++
++Sent when a detachment process is started or, if in progress, aborted by the
++user, either via a detach button press or a detach request
++(``SDTX_IOCTL_LATCH_REQUEST``) being sent from user-space.
++
++Does not have any payload.
++
++``SDTX_EVENT_CANCEL``
++^^^^^^^^^^^^^^^^^^^^^
++
++Sent when a detachment process is canceled by the EC due to unfulfilled
++preconditions (e.g. clipboard battery too low to detach) or hardware
++failure. The reason for cancellation is given in the event payload detailed
++below and can be one of
++
++* ``SDTX_DETACH_TIMEDOUT``: Detachment timed out while the latch was locked.
++  The latch has neither been opened nor unlocked.
++
++* ``SDTX_DETACH_NOT_FEASIBLE``: Detachment not feasible due to low clipboard
++  battery.
++
++* ``SDTX_ERR_FAILED_TO_OPEN``: Could not open the latch (hardware failure).
++
++* ``SDTX_ERR_FAILED_TO_REMAIN_OPEN``: Could not keep the latch open (hardware
++  failure).
++
++* ``SDTX_ERR_FAILED_TO_CLOSE``: Could not close the latch (hardware failure).
++
++Other error codes in this context are reserved for future use.
++
++These codes can be classified via the ``SDTX_CATEGORY()`` macro to discern
++between critical hardware errors (``SDTX_CATEGORY_HARDWARE_ERROR``) or
++runtime errors (``SDTX_CATEGORY_RUNTIME_ERROR``), the latter of which may
++happen during normal operation if certain preconditions for detachment are
++not given.
++
++.. flat-table:: Detachment Cancel Event Payload
++   :widths: 1 1 4
++   :header-rows: 1
++
++   * - Field
++     - Type
++     - Description
++
++   * - ``reason``
++     - |__u16|
++     - Reason for cancellation.
++
++``SDTX_EVENT_BASE_CONNECTION``
++^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++Sent when the base connection state has changed, i.e. when the base has been
++attached, detached, or detachment has become infeasible due to low clipboard
++battery. The new state and, if a base is connected, ID of the base is
++provided as payload of type |sdtx_base_info| with its layout presented
++below:
++
++.. flat-table:: Base-Connection-Change Event Payload
++   :widths: 1 1 4
++   :header-rows: 1
++
++   * - Field
++     - Type
++     - Description
++
++   * - ``state``
++     - |__u16|
++     - Base connection state.
++
++   * - ``base_id``
++     - |__u16|
++     - Type of base connected (zero if none).
++
++Possible values for ``state`` are:
++
++* ``SDTX_BASE_DETACHED``,
++* ``SDTX_BASE_ATTACHED``, and
++* ``SDTX_DETACH_NOT_FEASIBLE``.
++
++Other values are reserved for future use.
++
++``SDTX_EVENT_LATCH_STATUS``
++^^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++Sent when the latch status has changed, i.e. when the latch has been opened,
++closed, or an error occurred. The current status is provided as payload:
++
++.. flat-table:: Latch-Status-Change Event Payload
++   :widths: 1 1 4
++   :header-rows: 1
++
++   * - Field
++     - Type
++     - Description
++
++   * - ``status``
++     - |__u16|
++     - Latch status.
++
++Possible values for ``status`` are:
++
++* ``SDTX_LATCH_CLOSED``,
++* ``SDTX_LATCH_OPENED``,
++* ``SDTX_ERR_FAILED_TO_OPEN``,
++* ``SDTX_ERR_FAILED_TO_REMAIN_OPEN``, and
++* ``SDTX_ERR_FAILED_TO_CLOSE``.
++
++Other values are reserved for future use.
++
++``SDTX_EVENT_DEVICE_MODE``
++^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++Sent when the device mode has changed. The new device mode is provided as
++payload:
++
++.. flat-table:: Device-Mode-Change Event Payload
++   :widths: 1 1 4
++   :header-rows: 1
++
++   * - Field
++     - Type
++     - Description
++
++   * - ``mode``
++     - |__u16|
++     - Device operation mode.
++
++Possible values for ``mode`` are:
++
++* ``SDTX_DEVICE_MODE_TABLET``,
++* ``SDTX_DEVICE_MODE_LAPTOP``, and
++* ``SDTX_DEVICE_MODE_STUDIO``.
++
++Other values are reserved for future use.
++
++.. _ioctls:
++
++IOCTLs
++------
++
++The following IOCTLs are provided:
++
++.. flat-table:: Overview of DTX IOCTLs
++   :widths: 1 1 1 1 4
++   :header-rows: 1
++
++   * - Type
++     - Number
++     - Direction
++     - Name
++     - Description
++
++   * - ``0xA5``
++     - ``0x21``
++     - ``-``
++     - ``EVENTS_ENABLE``
++     - Enable events for the current file descriptor.
++
++   * - ``0xA5``
++     - ``0x22``
++     - ``-``
++     - ``EVENTS_DISABLE``
++     - Disable events for the current file descriptor.
++
++   * - ``0xA5``
++     - ``0x23``
++     - ``-``
++     - ``LATCH_LOCK``
++     - Lock the latch.
++
++   * - ``0xA5``
++     - ``0x24``
++     - ``-``
++     - ``LATCH_UNLOCK``
++     - Unlock the latch.
++
++   * - ``0xA5``
++     - ``0x25``
++     - ``-``
++     - ``LATCH_REQUEST``
++     - Request clipboard detachment.
++
++   * - ``0xA5``
++     - ``0x26``
++     - ``-``
++     - ``LATCH_CONFIRM``
++     - Confirm clipboard detachment request.
++
++   * - ``0xA5``
++     - ``0x27``
++     - ``-``
++     - ``LATCH_HEARTBEAT``
++     - Send heartbeat signal to EC.
++
++   * - ``0xA5``
++     - ``0x28``
++     - ``-``
++     - ``LATCH_CANCEL``
++     - Cancel detachment process.
++
++   * - ``0xA5``
++     - ``0x29``
++     - ``R``
++     - ``GET_BASE_INFO``
++     - Get current base/connection information.
++
++   * - ``0xA5``
++     - ``0x2A``
++     - ``R``
++     - ``GET_DEVICE_MODE``
++     - Get current device operation mode.
++
++   * - ``0xA5``
++     - ``0x2B``
++     - ``R``
++     - ``GET_LATCH_STATUS``
++     - Get current device latch status.
++
++``SDTX_IOCTL_EVENTS_ENABLE``
++^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++Defined as ``_IO(0xA5, 0x22)``.
++
++Enable events for the current file descriptor. Events can be obtained by
++reading from the device, if enabled. Events are disabled by default.
++
++``SDTX_IOCTL_EVENTS_DISABLE``
++^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++Defined as ``_IO(0xA5, 0x22)``.
++
++Disable events for the current file descriptor. Events can be obtained by
++reading from the device, if enabled. Events are disabled by default.
++
++``SDTX_IOCTL_LATCH_LOCK``
++^^^^^^^^^^^^^^^^^^^^^^^^^
++
++Defined as ``_IO(0xA5, 0x23)``.
++
++Locks the latch, causing the detachment procedure to abort without opening
++the latch on timeout. The latch is unlocked by default. This command will be
++silently ignored if the latch is already locked.
++
++``SDTX_IOCTL_LATCH_UNLOCK``
++^^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++Defined as ``_IO(0xA5, 0x24)``.
++
++Unlocks the latch, causing the detachment procedure to open the latch on
++timeout. The latch is unlocked by default. This command will not open the
++latch when sent during an ongoing detachment process. It will be silently
++ignored if the latch is already unlocked.
++
++``SDTX_IOCTL_LATCH_REQUEST``
++^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++Defined as ``_IO(0xA5, 0x25)``.
++
++Generic latch request. Behavior depends on the context: If no
++detachment-process is active, detachment is requested. Otherwise the
++currently active detachment-process will be aborted.
++
++If a detachment process is canceled by this operation, a generic detachment
++request event (``SDTX_EVENT_REQUEST``) will be sent.
++
++This essentially behaves the same as a detachment button press.
++
++``SDTX_IOCTL_LATCH_CONFIRM``
++^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++Defined as ``_IO(0xA5, 0x26)``.
++
++Acknowledges and confirms a latch request. If sent during an ongoing
++detachment process, this command causes the latch to be opened immediately.
++The latch will also be opened if it has been locked. In this case, the latch
++lock is reset to the unlocked state.
++
++This command will be silently ignored if there is currently no detachment
++procedure in progress.
++
++``SDTX_IOCTL_LATCH_HEARTBEAT``
++^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++Defined as ``_IO(0xA5, 0x27)``.
++
++Sends a heartbeat, essentially resetting the detachment timeout. This
++command can be used to keep the detachment process alive while work required
++for the detachment to succeed is still in progress.
++
++This command will be silently ignored if there is currently no detachment
++procedure in progress.
++
++``SDTX_IOCTL_LATCH_CANCEL``
++^^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++Defined as ``_IO(0xA5, 0x28)``.
++
++Cancels detachment in progress (if any). If a detachment process is canceled
++by this operation, a generic detachment request event
++(``SDTX_EVENT_REQUEST``) will be sent.
++
++This command will be silently ignored if there is currently no detachment
++procedure in progress.
++
++``SDTX_IOCTL_GET_BASE_INFO``
++^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++Defined as ``_IOR(0xA5, 0x29, struct sdtx_base_info)``.
++
++Get the current base connection state (i.e. attached/detached) and the type
++of the base connected to the clipboard. This is command essentially provides
++a way to query the information provided by the base connection change event
++(``SDTX_EVENT_BASE_CONNECTION``).
++
++Possible values for ``struct sdtx_base_info.state`` are:
++
++* ``SDTX_BASE_DETACHED``,
++* ``SDTX_BASE_ATTACHED``, and
++* ``SDTX_DETACH_NOT_FEASIBLE``.
++
++Other values are reserved for future use.
++
++``SDTX_IOCTL_GET_DEVICE_MODE``
++^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++Defined as ``_IOR(0xA5, 0x2A, __u16)``.
++
++Returns the device operation mode, indicating if and how the base is
++attached to the clipboard. This is command essentially provides a way to
++query the information provided by the device mode change event
++(``SDTX_EVENT_DEVICE_MODE``).
++
++Returned values are:
++
++* ``SDTX_DEVICE_MODE_LAPTOP``
++* ``SDTX_DEVICE_MODE_TABLET``
++* ``SDTX_DEVICE_MODE_STUDIO``
++
++See |sdtx_device_mode| for details. Other values are reserved for future
++use.
++
++
++``SDTX_IOCTL_GET_LATCH_STATUS``
++^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++Defined as ``_IOR(0xA5, 0x2B, __u16)``.
++
++Get the current latch status or (presumably) the last error encountered when
++trying to open/close the latch. This is command essentially provides a way
++to query the information provided by the latch status change event
++(``SDTX_EVENT_LATCH_STATUS``).
++
++Returned values are:
++
++* ``SDTX_LATCH_CLOSED``,
++* ``SDTX_LATCH_OPENED``,
++* ``SDTX_ERR_FAILED_TO_OPEN``,
++* ``SDTX_ERR_FAILED_TO_REMAIN_OPEN``, and
++* ``SDTX_ERR_FAILED_TO_CLOSE``.
++
++Other values are reserved for future use.
++
++A Note on Base IDs
++------------------
++
++Base types/IDs provided via ``SDTX_EVENT_BASE_CONNECTION`` or
++``SDTX_IOCTL_GET_BASE_INFO`` are directly forwarded from from the EC in the
++lower byte of the combined |__u16| value, with the driver storing the EC
++type from which this ID comes in the high byte (without this, base IDs over
++different types of ECs may be overlapping).
++
++The ``SDTX_DEVICE_TYPE()`` macro can be used to determine the EC device
++type. This can be one of
++
++* ``SDTX_DEVICE_TYPE_HID``, for Surface Aggregator Module over HID, and
++
++* ``SDTX_DEVICE_TYPE_SSH``, for Surface Aggregator Module over Surface Serial
++  Hub.
++
++Note that currently only the ``SSH`` type EC is supported, however ``HID``
++type is reserved for future use.
++
++Structures and Enums
++--------------------
++
++.. kernel-doc:: include/uapi/linux/surface_aggregator/dtx.h
 diff --git a/Documentation/driver-api/surface_aggregator/clients/index.rst b/Documentation/driver-api/surface_aggregator/clients/index.rst
 new file mode 100644
-index 000000000000..3ccabce23271
+index 000000000000..98ea9946b8a2
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/clients/index.rst
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,22 @@
 +.. SPDX-License-Identifier: GPL-2.0+
 +
 +===========================
@@ -661,6 +1764,7 @@ index 000000000000..3ccabce23271
 +   :maxdepth: 1
 +
 +   cdev
++   dtx
 +   san
 +
 +.. only::  subproject and html
@@ -1306,72 +2410,6 @@ index 000000000000..0b68228010e9
 +(per party, effectively leading to synchronous communication regarding
 +frames) and at most three pending commands. The limit to synchronous frame
 +transfers seems to be consistent with behavior observed on Windows.
-diff --git a/drivers/acpi/acpica/dsopcode.c b/drivers/acpi/acpica/dsopcode.c
-index 2f4641e5ecde..beb22d7e245e 100644
---- a/drivers/acpi/acpica/dsopcode.c
-+++ b/drivers/acpi/acpica/dsopcode.c
-@@ -123,7 +123,7 @@ acpi_ds_init_buffer_field(u16 aml_opcode,
- 
- 		/* Offset is in bits, count is in bits */
- 
--		field_flags = AML_FIELD_ACCESS_BYTE;
-+		field_flags = AML_FIELD_ACCESS_BUFFER;
- 		bit_offset = offset;
- 		bit_count = (u32) length_desc->integer.value;
- 
-diff --git a/drivers/acpi/acpica/exfield.c b/drivers/acpi/acpica/exfield.c
-index b272c329d45d..cf547883a993 100644
---- a/drivers/acpi/acpica/exfield.c
-+++ b/drivers/acpi/acpica/exfield.c
-@@ -102,6 +102,7 @@ acpi_ex_read_data_from_field(struct acpi_walk_state *walk_state,
- 	void *buffer;
- 	u32 function;
- 	u16 accessor_type;
-+	u8 field_flags;
- 
- 	ACPI_FUNCTION_TRACE_PTR(ex_read_data_from_field, obj_desc);
- 
-@@ -199,11 +200,16 @@ acpi_ex_read_data_from_field(struct acpi_walk_state *walk_state,
- 	 * Note: Field.length is in bits.
- 	 */
- 	length =
--	    (acpi_size)ACPI_ROUND_BITS_UP_TO_BYTES(obj_desc->field.bit_length);
-+	    (acpi_size)ACPI_ROUND_BITS_UP_TO_BYTES(obj_desc->common_field.bit_length);
-+	field_flags = obj_desc->common_field.field_flags;
- 
--	if (length > acpi_gbl_integer_byte_width) {
-+	if (length > acpi_gbl_integer_byte_width ||
-+	    (field_flags & AML_FIELD_ACCESS_TYPE_MASK) == AML_FIELD_ACCESS_BUFFER) {
- 
--		/* Field is too large for an Integer, create a Buffer instead */
-+		/*
-+		 * Field is either too large for an Integer, or a actually of type
-+		 * buffer, so create a Buffer.
-+		 */
- 
- 		buffer_desc = acpi_ut_create_buffer_object(length);
- 		if (!buffer_desc) {
-@@ -366,19 +372,7 @@ acpi_ex_write_data_to_field(union acpi_operand_object *source_desc,
- 		} else if (obj_desc->field.region_obj->region.space_id ==
- 			   ACPI_ADR_SPACE_GSBUS) {
- 			accessor_type = obj_desc->field.attribute;
--			length =
--			    acpi_ex_get_serial_access_length(accessor_type,
--							     obj_desc->field.
--							     access_length);
--
--			/*
--			 * Add additional 2 bytes for the generic_serial_bus data buffer:
--			 *
--			 *     Status;    (Byte 0 of the data buffer)
--			 *     Length;    (Byte 1 of the data buffer)
--			 *     Data[x-1]: (Bytes 2-x of the arbitrary length data buffer)
--			 */
--			length += 2;
-+			length = source_desc->buffer.length;
- 			function = ACPI_WRITE | (accessor_type << 16);
- 		} else {	/* IPMI */
- 
 diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
 index 77263b5f5915..75253cf45905 100644
 --- a/drivers/misc/Kconfig
@@ -5131,10 +6169,10 @@ index 000000000000..d43797590cd9
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_dtx.c b/drivers/misc/surface_aggregator/clients/surface_dtx.c
 new file mode 100644
-index 000000000000..e177e9873a0c
+index 000000000000..114cf4c21172
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_dtx.c
-@@ -0,0 +1,1127 @@
+@@ -0,0 +1,1268 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface Book (gen. 2 and later) detachment system (DTX) driver.
@@ -5166,98 +6204,7 @@ index 000000000000..e177e9873a0c
 +
 +#include <linux/surface_aggregator/controller.h>
 +#include <linux/surface_aggregator/device.h>
-+
-+
-+/* -- Public interface. ----------------------------------------------------- */
-+
-+/* Status/error categories */
-+#define SDTX_CATEGORY_STATUS		0x0000
-+#define SDTX_CATEGORY_RUNTIME_ERROR	0x1000
-+#define SDTX_CATEGORY_HARDWARE_ERROR	0x2000
-+#define SDTX_CATEGORY_UNKNOWN		0xf000
-+
-+#define SDTX_CATEGORY_MASK		0xf000
-+#define SDTX_CATEGORY(value)		((value) & SDTX_CATEGORY_MASK)
-+
-+#define SDTX_STATUS(code)		((code) | SDTX_CATEGORY_STATUS)
-+#define SDTX_ERR_RT(code)		((code) | SDTX_CATEGORY_RUNTIME_ERROR)
-+#define SDTX_ERR_HW(code)		((code) | SDTX_CATEGORY_HARDWARE_ERROR)
-+#define SDTX_UNKNOWN(code)		((code) | SDTX_CATEGORY_UNKNOWN)
-+
-+#define SDTX_SUCCESS(value)	(SDTX_CATEGORY(value) == SDTX_CATEGORY_STATUS)
-+
-+/* Latch status values */
-+#define SDTX_LATCH_CLOSED		SDTX_STATUS(0x00)
-+#define SDTX_LATCH_OPENED		SDTX_STATUS(0x01)
-+
-+/* Base state values */
-+#define SDTX_BASE_DETACHED		SDTX_STATUS(0x00)
-+#define SDTX_BASE_ATTACHED		SDTX_STATUS(0x01)
-+
-+/* Runtime errors (non-critical) */
-+#define SDTX_DETACH_NOT_FEASIBLE	SDTX_ERR_RT(0x01)
-+#define SDTX_DETACH_TIMEDOUT		SDTX_ERR_RT(0x02)
-+
-+/* Hardware errors (critical) */
-+#define SDTX_ERR_FAILED_TO_OPEN		SDTX_ERR_HW(0x01)
-+#define SDTX_ERR_FAILED_TO_REMAIN_OPEN	SDTX_ERR_HW(0x02)
-+#define SDTX_ERR_FAILED_TO_CLOSE	SDTX_ERR_HW(0x03)
-+
-+
-+/* Base types */
-+#define SDTX_DEVICE_TYPE_HID		0x0100
-+#define SDTX_DEVICE_TYPE_SSH		0x0200
-+
-+#define SDTX_DEVICE_TYPE_MASK		0x0f00
-+#define SDTX_DEVICE_TYPE(value)		((value) & SDTX_DEVICE_TYPE_MASK)
-+
-+#define SDTX_BASE_TYPE_HID(id)		((id) | SDTX_DEVICE_TYPE_HID)
-+#define SDTX_BASE_TYPE_SSH(id)		((id) | SDTX_DEVICE_TYPE_SSH)
-+
-+
-+/* Device mode */
-+enum sdtx_device_mode {
-+	SDTX_DEVICE_MODE_TABLET		= 0x00,
-+	SDTX_DEVICE_MODE_LAPTOP		= 0x01,
-+	SDTX_DEVICE_MODE_STUDIO		= 0x02,
-+};
-+
-+
-+/* Event provided by reading from the device */
-+struct sdtx_event {
-+	__u16 length;
-+	__u16 code;
-+	__u8 data[];
-+} __packed;
-+
-+enum sdtx_event_code {
-+	SDTX_EVENT_REQUEST		= 1,
-+	SDTX_EVENT_CANCEL		= 2,
-+	SDTX_EVENT_BASE_CONNECTION	= 3,
-+	SDTX_EVENT_LATCH_STATUS		= 4,
-+	SDTX_EVENT_DEVICE_MODE		= 5,
-+};
-+
-+
-+/* IOCTL interface */
-+struct sdtx_base_info {
-+	__u16 state;
-+	__u16 base_id;
-+} __packed;
-+
-+#define SDTX_IOCTL_EVENTS_ENABLE	_IO(0xa5, 0x21)
-+#define SDTX_IOCTL_EVENTS_DISABLE	_IO(0xa5, 0x22)
-+
-+#define SDTX_IOCTL_LATCH_LOCK		_IO(0xa5, 0x23)
-+#define SDTX_IOCTL_LATCH_UNLOCK		_IO(0xa5, 0x24)
-+#define SDTX_IOCTL_LATCH_REQUEST	_IO(0xa5, 0x25)
-+#define SDTX_IOCTL_LATCH_CONFIRM	_IO(0xa5, 0x26)
-+#define SDTX_IOCTL_LATCH_HEARTBEAT	_IO(0xa5, 0x27)
-+#define SDTX_IOCTL_LATCH_CANCEL		_IO(0xa5, 0x28)
-+
-+#define SDTX_IOCTL_GET_BASE_INFO	_IOR(0xa5, 0x29, struct sdtx_base_info)
-+#define SDTX_IOCTL_GET_DEVICE_MODE	_IOR(0xa5, 0x2a, u16)
-+#define SDTX_IOCTL_GET_LATCH_STATUS	_IOR(0xa5, 0x2b, u16)
++#include <linux/surface_aggregator/dtx.h>
 +
 +
 +/* -- SSAM interface. ------------------------------------------------------- */
@@ -5269,30 +6216,29 @@ index 000000000000..e177e9873a0c
 +	SAM_EVENT_CID_DTX_LATCH_STATUS			= 0x11,
 +};
 +
-+enum dtx_base_state {
-+	SDTX_BASE_STATE_DETACH_SUCCESS			= 0x00,
-+	SDTX_BASE_STATE_ATTACHED			= 0x01,
-+	SDTX_BASE_STATE_NOT_FEASIBLE			= 0x02,
++enum ssam_bas_base_state {
++	SSAM_BAS_BASE_STATE_DETACH_SUCCESS		= 0x00,
++	SSAM_BAS_BASE_STATE_ATTACHED			= 0x01,
++	SSAM_BAS_BASE_STATE_NOT_FEASIBLE		= 0x02,
 +};
 +
-+enum dtx_latch_status {
-+	SDTX_LATCH_STATUS_CLOSED			= 0x00,
-+	SDTX_LATCH_STATUS_OPENED			= 0x01,
-+	SDTX_LATCH_STATUS_FAILED_TO_OPEN		= 0x02,
-+	SDTX_LATCH_STATUS_FAILED_TO_REMAIN_OPEN		= 0x03,
-+	SDTX_LATCH_STATUS_FAILED_TO_CLOSE		= 0x04,
++enum ssam_bas_latch_status {
++	SSAM_BAS_LATCH_STATUS_CLOSED			= 0x00,
++	SSAM_BAS_LATCH_STATUS_OPENED			= 0x01,
++	SSAM_BAS_LATCH_STATUS_FAILED_TO_OPEN		= 0x02,
++	SSAM_BAS_LATCH_STATUS_FAILED_TO_REMAIN_OPEN	= 0x03,
++	SSAM_BAS_LATCH_STATUS_FAILED_TO_CLOSE		= 0x04,
 +};
 +
-+enum dtx_cancel_reason {
-+	SDTX_CANCEL_REASON_NOT_FEASIBLE			= 0x00,  // low battery
-+	SDTX_CANCEL_REASON_TIMEOUT			= 0x02,
-+	SDTX_CANCEL_REASON_FAILED_TO_OPEN		= 0x03,
-+	SDTX_CANCEL_REASON_FAILED_TO_REMAIN_OPEN	= 0x04,
-+	SDTX_CANCEL_REASON_FAILED_TO_CLOSE		= 0x05,
++enum ssam_bas_cancel_reason {
++	SSAM_BAS_CANCEL_REASON_NOT_FEASIBLE		= 0x00,  // low battery
++	SSAM_BAS_CANCEL_REASON_TIMEOUT			= 0x02,
++	SSAM_BAS_CANCEL_REASON_FAILED_TO_OPEN		= 0x03,
++	SSAM_BAS_CANCEL_REASON_FAILED_TO_REMAIN_OPEN	= 0x04,
++	SSAM_BAS_CANCEL_REASON_FAILED_TO_CLOSE		= 0x05,
 +};
 +
-+
-+struct ssam_dtx_base_info {
++struct ssam_bas_base_info {
 +	u8 state;
 +	u8 base_id;
 +} __packed;
@@ -5339,7 +6285,7 @@ index 000000000000..e177e9873a0c
 +	.instance_id     = 0x00,
 +});
 +
-+static SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_get_base, struct ssam_dtx_base_info, {
++static SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_get_base, struct ssam_bas_base_info, {
 +	.target_category = SSAM_SSH_TC_BAS,
 +	.target_id       = 0x01,
 +	.command_id      = 0x0c,
@@ -5364,7 +6310,10 @@ index 000000000000..e177e9873a0c
 +/* -- Main structures. ------------------------------------------------------ */
 +
 +enum sdtx_device_state {
-+	SDTX_DEVICE_SHUTDOWN = BIT(0),
++	SDTX_DEVICE_SHUTDOWN_BIT    = BIT(0),
++	SDTX_DEVICE_DIRTY_BASE_BIT  = BIT(1),
++	SDTX_DEVICE_DIRTY_MODE_BIT  = BIT(2),
++	SDTX_DEVICE_DIRTY_LATCH_BIT = BIT(3),
 +};
 +
 +struct sdtx_device {
@@ -5373,35 +6322,39 @@ index 000000000000..e177e9873a0c
 +
 +	struct device *dev;
 +	struct ssam_controller *ctrl;
-+	unsigned long state;
++	unsigned long flags;
 +
 +	struct miscdevice mdev;
 +	wait_queue_head_t waitq;
++	struct mutex write_lock;
 +	struct rw_semaphore client_lock;
 +	struct list_head client_list;
++
++	struct delayed_work state_work;
++	struct {
++		struct ssam_bas_base_info base;
++		u8 device_mode;
++		u8 latch_status;
++	} state;
 +
 +	struct delayed_work mode_work;
 +	struct input_dev *mode_switch;
 +
 +	struct ssam_event_notifier notif;
-+
-+	struct mutex mutex;
-+	bool active;
 +};
 +
 +enum sdtx_client_state {
-+	SDTX_CLIENT_EVENTS_ENABLED = BIT(0),
++	SDTX_CLIENT_EVENTS_ENABLED_BIT = BIT(0),
 +};
 +
 +struct sdtx_client {
 +	struct sdtx_device *ddev;
 +	struct list_head node;
-+	unsigned long state;
++	unsigned long flags;
 +
 +	struct fasync_struct *fasync;
 +
 +	struct mutex read_lock;
-+	spinlock_t write_lock;
 +	DECLARE_KFIFO(buffer, u8, 512);
 +};
 +
@@ -5430,13 +6383,13 @@ index 000000000000..e177e9873a0c
 +static u16 sdtx_translate_base_state(struct sdtx_device *ddev, u8 state)
 +{
 +	switch (state) {
-+	case SDTX_BASE_STATE_ATTACHED:
++	case SSAM_BAS_BASE_STATE_ATTACHED:
 +		return SDTX_BASE_ATTACHED;
 +
-+	case SDTX_BASE_STATE_DETACH_SUCCESS:
++	case SSAM_BAS_BASE_STATE_DETACH_SUCCESS:
 +		return SDTX_BASE_DETACHED;
 +
-+	case SDTX_BASE_STATE_NOT_FEASIBLE:
++	case SSAM_BAS_BASE_STATE_NOT_FEASIBLE:
 +		return SDTX_DETACH_NOT_FEASIBLE;
 +
 +	default:
@@ -5448,19 +6401,19 @@ index 000000000000..e177e9873a0c
 +static u16 sdtx_translate_latch_status(struct sdtx_device *ddev, u8 status)
 +{
 +	switch (status) {
-+	case SDTX_LATCH_STATUS_CLOSED:
++	case SSAM_BAS_LATCH_STATUS_CLOSED:
 +		return SDTX_LATCH_CLOSED;
 +
-+	case SDTX_LATCH_STATUS_OPENED:
++	case SSAM_BAS_LATCH_STATUS_OPENED:
 +		return SDTX_LATCH_OPENED;
 +
-+	case SDTX_LATCH_STATUS_FAILED_TO_OPEN:
++	case SSAM_BAS_LATCH_STATUS_FAILED_TO_OPEN:
 +		return SDTX_ERR_FAILED_TO_OPEN;
 +
-+	case SDTX_LATCH_STATUS_FAILED_TO_REMAIN_OPEN:
++	case SSAM_BAS_LATCH_STATUS_FAILED_TO_REMAIN_OPEN:
 +		return SDTX_ERR_FAILED_TO_REMAIN_OPEN;
 +
-+	case SDTX_LATCH_STATUS_FAILED_TO_CLOSE:
++	case SSAM_BAS_LATCH_STATUS_FAILED_TO_CLOSE:
 +		return SDTX_ERR_FAILED_TO_CLOSE;
 +
 +	default:
@@ -5472,19 +6425,19 @@ index 000000000000..e177e9873a0c
 +static u16 sdtx_translate_cancel_reason(struct sdtx_device *ddev, u8 reason)
 +{
 +	switch (reason) {
-+	case SDTX_CANCEL_REASON_NOT_FEASIBLE:
++	case SSAM_BAS_CANCEL_REASON_NOT_FEASIBLE:
 +		return SDTX_DETACH_NOT_FEASIBLE;
 +
-+	case SDTX_CANCEL_REASON_TIMEOUT:
++	case SSAM_BAS_CANCEL_REASON_TIMEOUT:
 +		return SDTX_DETACH_TIMEDOUT;
 +
-+	case SDTX_CANCEL_REASON_FAILED_TO_OPEN:
++	case SSAM_BAS_CANCEL_REASON_FAILED_TO_OPEN:
 +		return SDTX_ERR_FAILED_TO_OPEN;
 +
-+	case SDTX_CANCEL_REASON_FAILED_TO_REMAIN_OPEN:
++	case SSAM_BAS_CANCEL_REASON_FAILED_TO_REMAIN_OPEN:
 +		return SDTX_ERR_FAILED_TO_REMAIN_OPEN;
 +
-+	case SDTX_CANCEL_REASON_FAILED_TO_CLOSE:
++	case SSAM_BAS_CANCEL_REASON_FAILED_TO_CLOSE:
 +		return SDTX_ERR_FAILED_TO_CLOSE;
 +
 +	default:
@@ -5499,7 +6452,7 @@ index 000000000000..e177e9873a0c
 +static int sdtx_ioctl_get_base_info(struct sdtx_device *ddev,
 +				    struct sdtx_base_info __user *buf)
 +{
-+	struct ssam_dtx_base_info raw;
++	struct ssam_bas_base_info raw;
 +	struct sdtx_base_info info;
 +	int status;
 +
@@ -5547,11 +6500,11 @@ index 000000000000..e177e9873a0c
 +
 +	switch (cmd) {
 +	case SDTX_IOCTL_EVENTS_ENABLE:
-+		set_bit(SDTX_CLIENT_EVENTS_ENABLED, &client->state);
++		set_bit(SDTX_CLIENT_EVENTS_ENABLED_BIT, &client->flags);
 +		return 0;
 +
 +	case SDTX_IOCTL_EVENTS_DISABLE:
-+		clear_bit(SDTX_CLIENT_EVENTS_ENABLED, &client->state);
++		clear_bit(SDTX_CLIENT_EVENTS_ENABLED_BIT, &client->flags);
 +		return 0;
 +
 +	case SDTX_IOCTL_LATCH_LOCK:
@@ -5596,7 +6549,7 @@ index 000000000000..e177e9873a0c
 +	if (down_read_killable(&client->ddev->lock))
 +		return -ERESTARTSYS;
 +
-+	if (test_bit(SDTX_DEVICE_SHUTDOWN, &client->ddev->state)) {
++	if (test_bit(SDTX_DEVICE_SHUTDOWN_BIT, &client->ddev->flags)) {
 +		up_read(&client->ddev->lock);
 +		return -ENODEV;
 +	}
@@ -5627,7 +6580,6 @@ index 000000000000..e177e9873a0c
 +	INIT_LIST_HEAD(&client->node);
 +
 +	mutex_init(&client->read_lock);
-+	spin_lock_init(&client->write_lock);
 +	INIT_KFIFO(client->buffer);
 +
 +	file->private_data = client;
@@ -5636,7 +6588,7 @@ index 000000000000..e177e9873a0c
 +	down_write(&ddev->client_lock);
 +
 +	// do not add a new client if the device has been shut down
-+	if (test_bit(SDTX_DEVICE_SHUTDOWN, &ddev->state)) {
++	if (test_bit(SDTX_DEVICE_SHUTDOWN_BIT, &ddev->flags)) {
 +		up_write(&ddev->client_lock);
 +		sdtx_device_put(client->ddev);
 +		kfree(client);
@@ -5677,7 +6629,7 @@ index 000000000000..e177e9873a0c
 +		return -ERESTARTSYS;
 +
 +	// make sure we're not shut down
-+	if (test_bit(SDTX_DEVICE_SHUTDOWN, &ddev->state)) {
++	if (test_bit(SDTX_DEVICE_SHUTDOWN_BIT, &ddev->flags)) {
 +		up_read(&ddev->lock);
 +		return -ENODEV;
 +	}
@@ -5692,8 +6644,8 @@ index 000000000000..e177e9873a0c
 +
 +			status = wait_event_interruptible(ddev->waitq,
 +					!kfifo_is_empty(&client->buffer)
-+					|| test_bit(SDTX_DEVICE_SHUTDOWN,
-+						    &ddev->state));
++					|| test_bit(SDTX_DEVICE_SHUTDOWN_BIT,
++						    &ddev->flags));
 +			if (status < 0)
 +				return status;
 +
@@ -5701,7 +6653,7 @@ index 000000000000..e177e9873a0c
 +				return -ERESTARTSYS;
 +
 +			// need to check that we're not shut down again
-+			if (test_bit(SDTX_DEVICE_SHUTDOWN, &ddev->state)) {
++			if (test_bit(SDTX_DEVICE_SHUTDOWN_BIT, &ddev->flags)) {
 +				up_read(&ddev->lock);
 +				return -ENODEV;
 +			}
@@ -5740,7 +6692,7 @@ index 000000000000..e177e9873a0c
 +	if (down_read_killable(&client->ddev->lock))
 +		return -ERESTARTSYS;
 +
-+	if (test_bit(SDTX_DEVICE_SHUTDOWN, &client->ddev->state)) {
++	if (test_bit(SDTX_DEVICE_SHUTDOWN_BIT, &client->ddev->flags)) {
 +		up_read(&client->ddev->lock);
 +		return EPOLLHUP | EPOLLERR;
 +	}
@@ -5790,12 +6742,12 @@ index 000000000000..e177e9873a0c
 +#define SDTX_DEVICE_MODE_DELAY_CONNECT	msecs_to_jiffies(100)
 +#define SDTX_DEVICE_MODE_DELAY_RECHECK	msecs_to_jiffies(100)
 +
-+static void sdtx_device_mode_update(struct sdtx_device *ddev, unsigned long delay);
++static void sdtx_update_device_mode(struct sdtx_device *ddev, unsigned long delay);
 +
 +
 +struct sdtx_status_event {
 +	struct sdtx_event e;
-+	u16 v;
++	__u16 v;
 +} __packed;
 +
 +struct sdtx_base_info_event {
@@ -5809,6 +6761,7 @@ index 000000000000..e177e9873a0c
 +	struct sdtx_base_info_event base;
 +};
 +
++/* Must be executed with ddev->write_lock held. */
 +static void sdtx_push_event(struct sdtx_device *ddev, struct sdtx_event *evt)
 +{
 +	const size_t len = sizeof(struct sdtx_event) + evt->length;
@@ -5816,18 +6769,13 @@ index 000000000000..e177e9873a0c
 +
 +	down_read(&ddev->client_lock);
 +	list_for_each_entry(client, &ddev->client_list, node) {
-+		if (!test_bit(SDTX_CLIENT_EVENTS_ENABLED, &client->state))
++		if (!test_bit(SDTX_CLIENT_EVENTS_ENABLED_BIT, &client->flags))
 +			continue;
 +
-+		spin_lock(&client->write_lock);
-+
-+		if (likely(kfifo_avail(&client->buffer) >= len)) {
++		if (likely(kfifo_avail(&client->buffer) >= len))
 +			kfifo_in(&client->buffer, (const u8 *)evt, len);
-+			spin_unlock(&client->write_lock);
-+		} else {
-+			spin_unlock(&client->write_lock);
++		else
 +			dev_warn(ddev->dev, "event buffer overrun\n");
-+		}
 +
 +		kill_fasync(&client->fasync, SIGIO, POLL_IN);
 +	}
@@ -5871,11 +6819,23 @@ index 000000000000..e177e9873a0c
 +		return 0;
 +	}
 +
++	mutex_lock(&ddev->write_lock);
++
 +	// translate event
 +	switch (in->command_id) {
 +	case SAM_EVENT_CID_DTX_CONNECTION:
-+		event.base.e.code = SDTX_EVENT_BASE_CONNECTION;
++		clear_bit(SDTX_DEVICE_DIRTY_BASE_BIT, &ddev->flags);
++
++		// if state has not changed: do not send new event
++		if (ddev->state.base.state == in->data[0]
++		    && ddev->state.base.base_id == in->data[1])
++			goto out;
++
++		ddev->state.base.state = in->data[0];
++		ddev->state.base.base_id = in->data[1];
++
 +		event.base.e.length = sizeof(struct sdtx_base_info);
++		event.base.e.code = SDTX_EVENT_BASE_CONNECTION;
 +		event.base.v.state = sdtx_translate_base_state(ddev, in->data[0]);
 +		event.base.v.base_id = SDTX_BASE_TYPE_SSH(in->data[1]);
 +		break;
@@ -5886,14 +6846,22 @@ index 000000000000..e177e9873a0c
 +		break;
 +
 +	case SAM_EVENT_CID_DTX_CANCEL:
-+		event.status.e.code = SDTX_EVENT_CANCEL;
 +		event.status.e.length = sizeof(u16);
++		event.status.e.code = SDTX_EVENT_CANCEL;
 +		event.status.v = sdtx_translate_cancel_reason(ddev, in->data[0]);
 +		break;
 +
 +	case SAM_EVENT_CID_DTX_LATCH_STATUS:
-+		event.status.e.code = SDTX_EVENT_LATCH_STATUS;
++		clear_bit(SDTX_DEVICE_DIRTY_LATCH_BIT, &ddev->flags);
++
++		// if state has not changed: do not send new event
++		if (ddev->state.latch_status == in->data[0])
++			goto out;
++
++		ddev->state.latch_status = in->data[0];
++
 +		event.status.e.length = sizeof(u16);
++		event.status.e.code = SDTX_EVENT_LATCH_STATUS;
 +		event.status.v = sdtx_translate_latch_status(ddev, in->data[0]);
 +		break;
 +	}
@@ -5905,27 +6873,31 @@ index 000000000000..e177e9873a0c
 +		unsigned long delay;
 +
 +		delay = in->data[0] ? SDTX_DEVICE_MODE_DELAY_CONNECT : 0;
-+		sdtx_device_mode_update(ddev, delay);
++		sdtx_update_device_mode(ddev, delay);
 +	}
 +
++out:
++	mutex_unlock(&ddev->write_lock);
 +	return SSAM_NOTIF_HANDLED;
 +}
 +
 +
-+/* -- Tablet-mode switch. --------------------------------------------------- */
++/* -- State update functions. ----------------------------------------------- */
 +
-+static void sdtx_device_mode_update(struct sdtx_device *ddev, unsigned long delay)
++static bool sdtx_device_mode_invalid(u8 mode, u8 base_state)
 +{
-+	schedule_delayed_work(&ddev->mode_work, delay);
++	return ((base_state == SSAM_BAS_BASE_STATE_ATTACHED)
++			&& (mode == SDTX_DEVICE_MODE_TABLET))
++		|| ((base_state == SSAM_BAS_BASE_STATE_DETACH_SUCCESS)
++			&& (mode != SDTX_DEVICE_MODE_TABLET));
 +}
 +
 +static void sdtx_device_mode_workfn(struct work_struct *work)
 +{
 +	struct sdtx_device *ddev;
 +	struct sdtx_status_event event;
-+	struct ssam_dtx_base_info base;
++	struct ssam_bas_base_info base;
 +	int status, tablet;
-+	bool invalid;
 +	u8 mode;
 +
 +	ddev = container_of(work, struct sdtx_device, mode_work.work);
@@ -5950,19 +6922,89 @@ index 000000000000..e177e9873a0c
 +	 * makes sense for the given base state and try again later if it
 +	 * doesn't.
 +	 */
-+	invalid = ((base.state == SDTX_BASE_STATE_ATTACHED)
-+			&& (mode == SDTX_DEVICE_MODE_TABLET))
-+		|| ((base.state == SDTX_BASE_STATE_DETACH_SUCCESS)
-+			&& (mode != SDTX_DEVICE_MODE_TABLET));
-+
-+	if (invalid) {
++	if (sdtx_device_mode_invalid(mode, base.state)) {
 +		dev_dbg(ddev->dev, "device mode is invalid, trying again\n");
-+		sdtx_device_mode_update(ddev, SDTX_DEVICE_MODE_DELAY_RECHECK);
++		sdtx_update_device_mode(ddev, SDTX_DEVICE_MODE_DELAY_RECHECK);
 +		return;
 +	}
 +
-+	event.e.code = SDTX_EVENT_DEVICE_MODE;
++	mutex_lock(&ddev->write_lock);
++	clear_bit(SDTX_DEVICE_DIRTY_MODE_BIT, &ddev->flags);
++
++	// avoid sending duplicate device-mode events
++	if (ddev->state.device_mode == mode) {
++		mutex_unlock(&ddev->write_lock);
++		return;
++	}
++
++	ddev->state.device_mode = mode;
++
 +	event.e.length = sizeof(u16);
++	event.e.code = SDTX_EVENT_DEVICE_MODE;
++	event.v = mode;
++
++	sdtx_push_event(ddev, &event.e);
++
++	// send SW_TABLET_MODE event
++	tablet = mode != SDTX_DEVICE_MODE_LAPTOP;
++	input_report_switch(ddev->mode_switch, SW_TABLET_MODE, tablet);
++	input_sync(ddev->mode_switch);
++
++	mutex_unlock(&ddev->write_lock);
++}
++
++static void sdtx_update_device_mode(struct sdtx_device *ddev, unsigned long delay)
++{
++	schedule_delayed_work(&ddev->mode_work, delay);
++}
++
++
++static void __sdtx_device_state_update_base(struct sdtx_device *ddev,
++					    struct ssam_bas_base_info info)
++{
++	struct sdtx_base_info_event event;
++
++	// prevent duplicate events
++	if (ddev->state.base.state == info.state
++	    && ddev->state.base.base_id == info.base_id)
++		return;
++
++	ddev->state.base = info;
++
++	event.e.length = sizeof(struct sdtx_base_info);
++	event.e.code = SDTX_EVENT_BASE_CONNECTION;
++	event.v.state = sdtx_translate_base_state(ddev, info.state);
++	event.v.base_id = SDTX_BASE_TYPE_SSH(info.base_id);
++
++	sdtx_push_event(ddev, &event.e);
++}
++
++static void __sdtx_device_state_update_mode(struct sdtx_device *ddev, u8 mode)
++{
++	struct sdtx_status_event event;
++	int tablet;
++
++	/*
++	 * Note: This function must be called after updating the base state
++	 * via __sdtx_device_state_update_base(), as we rely on the updated
++	 * base state value in the validity check below.
++	 */
++
++	if (sdtx_device_mode_invalid(mode, ddev->state.base.state)) {
++		dev_dbg(ddev->dev, "device mode is invalid, trying again\n");
++		sdtx_update_device_mode(ddev, SDTX_DEVICE_MODE_DELAY_RECHECK);
++		return;
++	}
++
++	// prevent duplicate events
++	if (ddev->state.device_mode == mode)
++		return;
++
++	ddev->state.device_mode = mode;
++
++	// send event
++	event.e.length = sizeof(u16);
++	event.e.code = SDTX_EVENT_DEVICE_MODE;
 +	event.v = mode;
 +
 +	sdtx_push_event(ddev, &event.e);
@@ -5973,14 +7015,97 @@ index 000000000000..e177e9873a0c
 +	input_sync(ddev->mode_switch);
 +}
 +
++static void __sdtx_device_state_update_latch(struct sdtx_device *ddev, u8 status)
++{
++	struct sdtx_status_event event;
++
++	// prevent duplicate events
++	if (ddev->state.latch_status == status)
++		return;
++
++	ddev->state.latch_status = status;
++
++	event.e.length = sizeof(struct sdtx_base_info);
++	event.e.code = SDTX_EVENT_BASE_CONNECTION;
++	event.v = sdtx_translate_latch_status(ddev, status);
++
++	sdtx_push_event(ddev, &event.e);
++}
++
++static void sdtx_device_state_workfn(struct work_struct *work)
++{
++	struct sdtx_device *ddev;
++	struct ssam_bas_base_info base;
++	u8 mode, latch;
++	int status;
++
++	ddev = container_of(work, struct sdtx_device, state_work.work);
++
++	// mark everyting as dirty
++	set_bit(SDTX_DEVICE_DIRTY_BASE_BIT, &ddev->flags);
++	set_bit(SDTX_DEVICE_DIRTY_MODE_BIT, &ddev->flags);
++	set_bit(SDTX_DEVICE_DIRTY_LATCH_BIT, &ddev->flags);
++
++	/*
++	 * Ensure that the state gets marked as dirty before continuing to
++	 * query it. Necessary to ensure that clear_bit() calls in
++	 * sdtx_notifier() and sdtx_device_mode_workfn() actually clear these
++	 * bits if an event is received while updating the state here.
++	 */
++	smp_mb__after_atomic();
++
++	status = ssam_bas_get_base(ddev->ctrl, &base);
++	if (status) {
++		dev_err(ddev->dev, "failed to get base state: %d\n", status);
++		return;
++	}
++
++	status = ssam_bas_get_device_mode(ddev->ctrl, &mode);
++	if (status) {
++		dev_err(ddev->dev, "failed to get device mode: %d\n", status);
++		return;
++	}
++
++	status = ssam_bas_get_latch_status(ddev->ctrl, &latch);
++	if (status) {
++		dev_err(ddev->dev, "failed to get latch status: %d\n", status);
++		return;
++	}
++
++	mutex_lock(&ddev->write_lock);
++
++	/*
++	 * If the respective dirty-bit has been cleared, an event has been
++	 * received, updating this state. The queried state may thus be out of
++	 * date. At this point, we can safely assume that the state provided
++	 * by the event is either up to date, or we're about to receive
++	 * another event updating it.
++	 */
++
++	if (test_and_clear_bit(SDTX_DEVICE_DIRTY_BASE_BIT, &ddev->flags))
++		__sdtx_device_state_update_base(ddev, base);
++
++	if (test_and_clear_bit(SDTX_DEVICE_DIRTY_MODE_BIT, &ddev->flags))
++		__sdtx_device_state_update_mode(ddev, mode);
++
++	if (test_and_clear_bit(SDTX_DEVICE_DIRTY_LATCH_BIT, &ddev->flags))
++		__sdtx_device_state_update_latch(ddev, latch);
++
++	mutex_unlock(&ddev->write_lock);
++}
++
++static void sdtx_update_device_state(struct sdtx_device *ddev, unsigned long delay)
++{
++	schedule_delayed_work(&ddev->state_work, delay);
++}
++
 +
 +/* -- Common device initialization. ----------------------------------------- */
 +
 +static int sdtx_device_init(struct sdtx_device *ddev, struct device *dev,
 +			    struct ssam_controller *ctrl)
 +{
-+	int status;
-+	u8 mode;
++	int status, tablet_mode;
 +
 +	// basic initialization
 +	kref_init(&ddev->kref);
@@ -6001,17 +7126,35 @@ index 000000000000..e177e9873a0c
 +	ddev->notif.event.flags = SSAM_EVENT_SEQUENCED;
 +
 +	init_waitqueue_head(&ddev->waitq);
++	mutex_init(&ddev->write_lock);
 +	init_rwsem(&ddev->client_lock);
 +	INIT_LIST_HEAD(&ddev->client_list);
 +
 +	INIT_DELAYED_WORK(&ddev->mode_work, sdtx_device_mode_workfn);
++	INIT_DELAYED_WORK(&ddev->state_work, sdtx_device_state_workfn);
 +
-+	// get current device mode
-+	status = ssam_bas_get_device_mode(ddev->ctrl, &mode);
++	/*
++	 * Get current device state. We want to guarantee that events are only
++	 * sent when state actually changes. Thus we cannot use special
++	 * "uninitialized" values, as that would cause problems when manually
++	 * querying the state in surface_dtx_pm_complete(). I.e. we would not
++	 * be able to detect state changes there if no change event has been
++	 * received between driver initialization and first device suspension.
++	 *
++	 * Note that we also need to do this before registring the event
++	 * notifier, as that may access the state values.
++	 */
++	status = ssam_bas_get_base(ddev->ctrl, &ddev->state.base);
 +	if (status)
 +		return status;
 +
-+	mode = (mode != SDTX_DEVICE_MODE_LAPTOP);
++	status = ssam_bas_get_device_mode(ddev->ctrl, &ddev->state.device_mode);
++	if (status)
++		return status;
++
++	status = ssam_bas_get_latch_status(ddev->ctrl, &ddev->state.latch_status);
++	if (status)
++		return status;
 +
 +	// set up tablet mode switch
 +	ddev->mode_switch = input_allocate_device();
@@ -6023,8 +7166,9 @@ index 000000000000..e177e9873a0c
 +	ddev->mode_switch->id.bustype = BUS_HOST;
 +	ddev->mode_switch->dev.parent = ddev->dev;
 +
++	tablet_mode = (ddev->state.device_mode != SDTX_DEVICE_MODE_LAPTOP);
 +	input_set_capability(ddev->mode_switch, EV_SW, SW_TABLET_MODE);
-+	input_report_switch(ddev->mode_switch, SW_TABLET_MODE, mode);
++	input_report_switch(ddev->mode_switch, SW_TABLET_MODE, tablet_mode);
 +
 +	status = input_register_device(ddev->mode_switch);
 +	if (status) {
@@ -6043,13 +7187,10 @@ index 000000000000..e177e9873a0c
 +		goto err_mdev;
 +
 +	/*
-+	 * Update device mode in case it has changed between getting the
-+	 * initial mode and registring the event notifier. Note that this is
-+	 * safe with regards to concurrent connection change events as the
-+	 * update work will actually check for consistency with base info.
++	 * Update device state in case it has changed between getting the
++	 * initial mode and registring the event notifier.
 +	 */
-+	sdtx_device_mode_update(ddev, 0);
-+
++	sdtx_update_device_state(ddev, 0);
 +	return 0;
 +
 +err_notif:
@@ -6096,7 +7237,7 @@ index 000000000000..e177e9873a0c
 +	 * Mark device as shut-down. Prevent new clients from being added and
 +	 * new operations from being executed.
 +	 */
-+	set_bit(SDTX_DEVICE_SHUTDOWN, &ddev->state);
++	set_bit(SDTX_DEVICE_SHUTDOWN_BIT, &ddev->flags);
 +
 +	// wake up async clients
 +	down_write(&ddev->client_lock);
@@ -6127,6 +7268,43 @@ index 000000000000..e177e9873a0c
 +	 */
 +	sdtx_device_put(ddev);
 +}
++
++
++/* -- PM ops. --------------------------------------------------------------- */
++
++#ifdef CONFIG_PM_SLEEP
++
++static void surface_dtx_pm_complete(struct device *dev)
++{
++	struct sdtx_device *ddev = dev_get_drvdata(dev);
++
++	/*
++	 * Normally, the EC will store events while suspended (i.e. in
++	 * display-off state) and release them when resumed (i.e. transitioned
++	 * to display-on state). During hibernation, however, the EC will be
++	 * shut down and does not store events. Furthermore, events might be
++	 * dropped during prolonged suspension (it is scurrently unknown how
++	 * big this event buffer is and how it behaves on overruns).
++	 *
++	 * To prevent any problems, we update the device state here. We do
++	 * this delayed to ensure that any events sent by the EC directly
++	 * after resuming will be handled first. The delay below has been
++	 * chosen (experimentally), so that there should be ample time for
++	 * these events to be handled, before we check and, if necessary,
++	 * update the state.
++	 */
++	sdtx_update_device_state(ddev, msecs_to_jiffies(1000));
++}
++
++static const struct dev_pm_ops surface_dtx_pm_ops = {
++	.complete = surface_dtx_pm_complete,
++};
++
++#else /* CONFIG_PM_SLEEP */
++
++static const struct dev_pm_ops surface_dtx_pm_ops = {};
++
++#endif /* CONFIG_PM_SLEEP */
 +
 +
 +/* -- Platform driver. ------------------------------------------------------ */
@@ -6168,6 +7346,7 @@ index 000000000000..e177e9873a0c
 +	.driver = {
 +		.name = "surface_dtx_pltf",
 +		.acpi_match_table = surface_dtx_acpi_match,
++		.pm = &surface_dtx_pm_ops,
 +		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 +	},
 +};
@@ -17147,188 +18326,29 @@ index 000000000000..232bf1142aae
 +#define TRACE_INCLUDE_FILE trace
 +
 +#include <trace/define_trace.h>
-diff --git a/drivers/tty/serdev/core.c b/drivers/tty/serdev/core.c
-index c66a04d24f1d..1b18d12d217f 100644
---- a/drivers/tty/serdev/core.c
-+++ b/drivers/tty/serdev/core.c
-@@ -496,16 +496,97 @@ static int of_serdev_register_devices(struct serdev_controller *ctrl)
- }
- 
- #ifdef CONFIG_ACPI
-+
-+#define SERDEV_ACPI_MAX_SCAN_DEPTH 32
-+
-+struct acpi_serdev_lookup {
-+	acpi_handle device_handle;
-+	acpi_handle controller_handle;
-+	int n;
-+	int index;
-+};
-+
-+static int acpi_serdev_parse_resource(struct acpi_resource *ares, void *data)
-+{
-+	struct acpi_serdev_lookup *lookup = data;
-+	struct acpi_resource_uart_serialbus *sb;
-+	acpi_status status;
-+
-+	if (ares->type != ACPI_RESOURCE_TYPE_SERIAL_BUS)
-+		return 1;
-+
-+	if (ares->data.common_serial_bus.type != ACPI_RESOURCE_SERIAL_TYPE_UART)
-+		return 1;
-+
-+	if (lookup->index != -1 && lookup->n++ != lookup->index)
-+		return 1;
-+
-+	sb = &ares->data.uart_serial_bus;
-+
-+	status = acpi_get_handle(lookup->device_handle,
-+				 sb->resource_source.string_ptr,
-+				 &lookup->controller_handle);
-+	if (ACPI_FAILURE(status))
-+		return 1;
-+
-+	/*
-+	 * NOTE: Ideally, we would also want to retreive other properties here,
-+	 * once setting them before opening the device is supported by serdev.
-+	 */
-+
-+	return 1;
-+}
-+
-+static int acpi_serdev_do_lookup(struct acpi_device *adev,
-+                                 struct acpi_serdev_lookup *lookup)
-+{
-+	struct list_head resource_list;
-+	int ret;
-+
-+	lookup->device_handle = acpi_device_handle(adev);
-+	lookup->controller_handle = NULL;
-+	lookup->n = 0;
-+
-+	INIT_LIST_HEAD(&resource_list);
-+	ret = acpi_dev_get_resources(adev, &resource_list,
-+				     acpi_serdev_parse_resource, lookup);
-+	acpi_dev_free_resource_list(&resource_list);
-+
-+	if (ret < 0)
-+		return -EINVAL;
-+
-+	return 0;
-+}
-+
-+static int acpi_serdev_check_resources(struct serdev_controller *ctrl,
-+				       struct acpi_device *adev)
-+{
-+	struct acpi_serdev_lookup lookup;
-+	int ret;
-+
-+	if (acpi_bus_get_status(adev) || !adev->status.present)
-+		return -EINVAL;
-+
-+	/* Look for UARTSerialBusV2 resource */
-+	lookup.index = -1;	// we only care for the last device
-+
-+	ret = acpi_serdev_do_lookup(adev, &lookup);
-+	if (ret)
-+		return ret;
-+
-+	/* Make sure controller and ResourceSource handle match */
-+	if (ACPI_HANDLE(ctrl->dev.parent) != lookup.controller_handle)
-+		return -ENODEV;
-+
-+	return 0;
-+}
-+
- static acpi_status acpi_serdev_register_device(struct serdev_controller *ctrl,
--					    struct acpi_device *adev)
-+					       struct acpi_device *adev)
- {
--	struct serdev_device *serdev = NULL;
-+	struct serdev_device *serdev;
- 	int err;
- 
--	if (acpi_bus_get_status(adev) || !adev->status.present ||
--	    acpi_device_enumerated(adev))
--		return AE_OK;
--
- 	serdev = serdev_device_alloc(ctrl);
- 	if (!serdev) {
- 		dev_err(&ctrl->dev, "failed to allocate serdev device for %s\n",
-@@ -533,7 +614,7 @@ static const struct acpi_device_id serdev_acpi_devices_blacklist[] = {
- };
- 
- static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
--				       void *data, void **return_value)
-+					  void *data, void **return_value)
- {
- 	struct serdev_controller *ctrl = data;
- 	struct acpi_device *adev;
-@@ -541,26 +622,32 @@ static acpi_status acpi_serdev_add_device(acpi_handle handle, u32 level,
- 	if (acpi_bus_get_device(handle, &adev))
- 		return AE_OK;
- 
-+	if (acpi_device_enumerated(adev))
-+		return AE_OK;
-+
- 	/* Skip if black listed */
- 	if (!acpi_match_device_ids(adev, serdev_acpi_devices_blacklist))
- 		return AE_OK;
- 
-+	if (acpi_serdev_check_resources(ctrl, adev))
-+		return AE_OK;
-+
- 	return acpi_serdev_register_device(ctrl, adev);
- }
- 
-+
- static int acpi_serdev_register_devices(struct serdev_controller *ctrl)
- {
- 	acpi_status status;
--	acpi_handle handle;
- 
--	handle = ACPI_HANDLE(ctrl->dev.parent);
--	if (!handle)
-+	if (!has_acpi_companion(ctrl->dev.parent))
- 		return -ENODEV;
- 
--	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, handle, 1,
-+	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
-+				     SERDEV_ACPI_MAX_SCAN_DEPTH,
- 				     acpi_serdev_add_device, NULL, ctrl, NULL);
- 	if (ACPI_FAILURE(status))
--		dev_dbg(&ctrl->dev, "failed to enumerate serdev slaves\n");
-+		dev_warn(&ctrl->dev, "failed to enumerate serdev slaves\n");
- 
- 	if (!ctrl->serdev)
- 		return -ENODEV;
 diff --git a/include/linux/mod_devicetable.h b/include/linux/mod_devicetable.h
-index 610cdf8082f2..2c8dd2abbd04 100644
+index 69f4527315e7..2c8dd2abbd04 100644
 --- a/include/linux/mod_devicetable.h
 +++ b/include/linux/mod_devicetable.h
-@@ -768,4 +768,22 @@ struct typec_device_id {
- 	kernel_ulong_t driver_data;
- };
+@@ -770,15 +770,16 @@ struct typec_device_id {
  
-+/* Surface System Aggregator Module */
-+
+ /* Surface System Aggregator Module */
+ 
+-#define SSAM_MATCH_CHANNEL	0x1
 +#define SSAM_MATCH_TARGET	0x1
-+#define SSAM_MATCH_INSTANCE	0x2
-+#define SSAM_MATCH_FUNCTION	0x4
-+
-+struct ssam_device_id {
-+	__u8 match_flags;
-+
+ #define SSAM_MATCH_INSTANCE	0x2
+ #define SSAM_MATCH_FUNCTION	0x4
+ 
+ struct ssam_device_id {
+ 	__u8 match_flags;
+ 
 +	__u8 domain;
-+	__u8 category;
+ 	__u8 category;
+-	__u8 channel;
 +	__u8 target;
-+	__u8 instance;
-+	__u8 function;
-+
-+	kernel_ulong_t driver_data;
-+};
-+
- #endif /* LINUX_MOD_DEVICETABLE_H */
+ 	__u8 instance;
+ 	__u8 function;
+ 
 diff --git a/include/linux/surface_acpi_notify.h b/include/linux/surface_acpi_notify.h
 new file mode 100644
 index 000000000000..8e3e86c7d78c
@@ -19294,7 +20314,7 @@ index 000000000000..3974535796ca
 +#endif /* _LINUX_SURFACE_AGGREGATOR_SERIAL_HUB_H */
 diff --git a/include/uapi/linux/surface_aggregator/cdev.h b/include/uapi/linux/surface_aggregator/cdev.h
 new file mode 100644
-index 000000000000..e85351141a2d
+index 000000000000..1a8bc0249f8e
 --- /dev/null
 +++ b/include/uapi/linux/surface_aggregator/cdev.h
 @@ -0,0 +1,58 @@
@@ -19312,8 +20332,8 @@ index 000000000000..e85351141a2d
 +#ifndef _UAPI_LINUX_SURFACE_AGGREGATOR_CDEV_H
 +#define _UAPI_LINUX_SURFACE_AGGREGATOR_CDEV_H
 +
-+#include <linux/types.h>
 +#include <linux/ioctl.h>
++#include <linux/types.h>
 +
 +/**
 + * struct ssam_cdev_request - Controller request IOCTL argument.
@@ -19356,65 +20376,208 @@ index 000000000000..e85351141a2d
 +#define SSAM_CDEV_REQUEST	_IOWR(0xA5, 1, struct ssam_cdev_request)
 +
 +#endif /* _UAPI_LINUX_SURFACE_AGGREGATOR_CDEV_H */
+diff --git a/include/uapi/linux/surface_aggregator/dtx.h b/include/uapi/linux/surface_aggregator/dtx.h
+new file mode 100644
+index 000000000000..d88cabfb8dd7
+--- /dev/null
++++ b/include/uapi/linux/surface_aggregator/dtx.h
+@@ -0,0 +1,150 @@
++/* SPDX-License-Identifier: GPL-2.0+ WITH Linux-syscall-note */
++/*
++ * Surface DTX (clipboard detachment system driver) user-space interface.
++ *
++ * Definitions, structs, and IOCTLs for the /dev/surface/dtx misc device. This
++ * device allows user-space to control the clipboard detachment process on
++ * Surface Book series devices.
++ *
++ * Copyright (C) 2020 Maximilian Luz <luzmaximilian@gmail.com>
++ */
++
++#ifndef _UAPI_LINUX_SURFACE_AGGREGATOR_DTX_H
++#define _UAPI_LINUX_SURFACE_AGGREGATOR_DTX_H
++
++#include <linux/ioctl.h>
++#include <linux/types.h>
++
++
++/* Status/error categories */
++#define SDTX_CATEGORY_STATUS		0x0000
++#define SDTX_CATEGORY_RUNTIME_ERROR	0x1000
++#define SDTX_CATEGORY_HARDWARE_ERROR	0x2000
++#define SDTX_CATEGORY_UNKNOWN		0xf000
++
++#define SDTX_CATEGORY_MASK		0xf000
++#define SDTX_CATEGORY(value)		((value) & SDTX_CATEGORY_MASK)
++
++#define SDTX_STATUS(code)		((code) | SDTX_CATEGORY_STATUS)
++#define SDTX_ERR_RT(code)		((code) | SDTX_CATEGORY_RUNTIME_ERROR)
++#define SDTX_ERR_HW(code)		((code) | SDTX_CATEGORY_HARDWARE_ERROR)
++#define SDTX_UNKNOWN(code)		((code) | SDTX_CATEGORY_UNKNOWN)
++
++#define SDTX_SUCCESS(value)	(SDTX_CATEGORY(value) == SDTX_CATEGORY_STATUS)
++
++/* Latch status values */
++#define SDTX_LATCH_CLOSED		SDTX_STATUS(0x00)
++#define SDTX_LATCH_OPENED		SDTX_STATUS(0x01)
++
++/* Base state values */
++#define SDTX_BASE_DETACHED		SDTX_STATUS(0x00)
++#define SDTX_BASE_ATTACHED		SDTX_STATUS(0x01)
++
++/* Runtime errors (non-critical) */
++#define SDTX_DETACH_NOT_FEASIBLE	SDTX_ERR_RT(0x01)
++#define SDTX_DETACH_TIMEDOUT		SDTX_ERR_RT(0x02)
++
++/* Hardware errors (critical) */
++#define SDTX_ERR_FAILED_TO_OPEN		SDTX_ERR_HW(0x01)
++#define SDTX_ERR_FAILED_TO_REMAIN_OPEN	SDTX_ERR_HW(0x02)
++#define SDTX_ERR_FAILED_TO_CLOSE	SDTX_ERR_HW(0x03)
++
++
++/* Base types */
++#define SDTX_DEVICE_TYPE_HID		0x0100
++#define SDTX_DEVICE_TYPE_SSH		0x0200
++
++#define SDTX_DEVICE_TYPE_MASK		0x0f00
++#define SDTX_DEVICE_TYPE(value)		((value) & SDTX_DEVICE_TYPE_MASK)
++
++#define SDTX_BASE_TYPE_HID(id)		((id) | SDTX_DEVICE_TYPE_HID)
++#define SDTX_BASE_TYPE_SSH(id)		((id) | SDTX_DEVICE_TYPE_SSH)
++
++
++/**
++ * enum sdtx_device_mode - Mode describing how (and if) the clipboard is
++ * attached to the base of the device.
++ * @SDTX_DEVICE_MODE_TABLET: The clipboard is detached from the base and the
++ *                           device operates as tablet.
++ * @SDTX_DEVICE_MODE_LAPTOP: The clipboard is attached normally to the base
++ *                           and the device operates as laptop.
++ * @SDTX_DEVICE_MODE_STUDIO: The clipboard is attached to the base in reverse.
++ *                           The device operates as tablet with keyboard and
++ *                           touchpad deactivated, however, the base battery
++ *                           and, if present in the specific device model, dGPU
++ *                           are available to the system.
++ */
++enum sdtx_device_mode {
++	SDTX_DEVICE_MODE_TABLET		= 0x00,
++	SDTX_DEVICE_MODE_LAPTOP		= 0x01,
++	SDTX_DEVICE_MODE_STUDIO		= 0x02,
++};
++
++/**
++ * struct sdtx_event - Event provided by reading from the DTX device file.
++ * @length: Length of the event payload, in bytes.
++ * @code:   Event code, detailing what type of event this is.
++ * @data:   Payload of the event, containing @length bytes.
++ *
++ * See &enum sdtx_event_code for currently valid event codes.
++ */
++struct sdtx_event {
++	__u16 length;
++	__u16 code;
++	__u8 data[];
++} __packed;
++
++/**
++ * enum sdtx_event_code - Code describing the type of an event.
++ * @SDTX_EVENT_REQUEST:         Detachment request event type.
++ * @SDTX_EVENT_CANCEL:          Cancel detachment process event type.
++ * @SDTX_EVENT_BASE_CONNECTION: Base/clipboard connection change event type.
++ * @SDTX_EVENT_LATCH_STATUS:    Latch status change event type.
++ * @SDTX_EVENT_DEVICE_MODE:     Device mode change event type.
++ *
++ * Used in @struct sdtx_event to describe the type of the event. Further event
++ * codes are reserved for future use. Any event parser should be able to
++ * gracefully handle unknown events, i.e. by simply skipping them.
++ *
++ * Consult the DTX user-space interface documentation for details regarding
++ * the individual event types.
++ */
++enum sdtx_event_code {
++	SDTX_EVENT_REQUEST		= 1,
++	SDTX_EVENT_CANCEL		= 2,
++	SDTX_EVENT_BASE_CONNECTION	= 3,
++	SDTX_EVENT_LATCH_STATUS		= 4,
++	SDTX_EVENT_DEVICE_MODE		= 5,
++};
++
++/**
++ * struct sdtx_base_info - Describes if and what type of base is connected.
++ * @state:   The state of the connection. Valid values are %SDTX_BASE_DETACHED,
++ *           %SDTX_BASE_ATTACHED, and %SDTX_DETACH_NOT_FEASIBLE (in case a base
++ *           is attached but low clipboard battery prevents detachment). Other
++ *           values are currently reserved.
++ * @base_id: The type of base connected. Zero if no base is connected.
++ */
++struct sdtx_base_info {
++	__u16 state;
++	__u16 base_id;
++} __packed;
++
++
++/* IOCTLs */
++#define SDTX_IOCTL_EVENTS_ENABLE	_IO(0xa5, 0x21)
++#define SDTX_IOCTL_EVENTS_DISABLE	_IO(0xa5, 0x22)
++
++#define SDTX_IOCTL_LATCH_LOCK		_IO(0xa5, 0x23)
++#define SDTX_IOCTL_LATCH_UNLOCK		_IO(0xa5, 0x24)
++
++#define SDTX_IOCTL_LATCH_REQUEST	_IO(0xa5, 0x25)
++#define SDTX_IOCTL_LATCH_CONFIRM	_IO(0xa5, 0x26)
++#define SDTX_IOCTL_LATCH_HEARTBEAT	_IO(0xa5, 0x27)
++#define SDTX_IOCTL_LATCH_CANCEL		_IO(0xa5, 0x28)
++
++#define SDTX_IOCTL_GET_BASE_INFO	_IOR(0xa5, 0x29, struct sdtx_base_info)
++#define SDTX_IOCTL_GET_DEVICE_MODE	_IOR(0xa5, 0x2a, __u16)
++#define SDTX_IOCTL_GET_LATCH_STATUS	_IOR(0xa5, 0x2b, __u16)
++
++#endif /* _UAPI_LINUX_SURFACE_AGGREGATOR_DTX_H */
 diff --git a/scripts/mod/devicetable-offsets.c b/scripts/mod/devicetable-offsets.c
-index 293004499b4d..6a319852083e 100644
+index 13acbf55c6fd..6a319852083e 100644
 --- a/scripts/mod/devicetable-offsets.c
 +++ b/scripts/mod/devicetable-offsets.c
-@@ -225,5 +225,13 @@ int main(void)
- 	DEVID_FIELD(typec_device_id, svid);
- 	DEVID_FIELD(typec_device_id, mode);
+@@ -227,8 +227,9 @@ int main(void)
  
-+	DEVID(ssam_device_id);
-+	DEVID_FIELD(ssam_device_id, match_flags);
+ 	DEVID(ssam_device_id);
+ 	DEVID_FIELD(ssam_device_id, match_flags);
 +	DEVID_FIELD(ssam_device_id, domain);
-+	DEVID_FIELD(ssam_device_id, category);
+ 	DEVID_FIELD(ssam_device_id, category);
+-	DEVID_FIELD(ssam_device_id, channel);
 +	DEVID_FIELD(ssam_device_id, target);
-+	DEVID_FIELD(ssam_device_id, instance);
-+	DEVID_FIELD(ssam_device_id, function);
-+
- 	return 0;
- }
+ 	DEVID_FIELD(ssam_device_id, instance);
+ 	DEVID_FIELD(ssam_device_id, function);
+ 
 diff --git a/scripts/mod/file2alias.c b/scripts/mod/file2alias.c
-index 7f40b6aab689..f171616ab318 100644
+index 76e3b1d7db45..f171616ab318 100644
 --- a/scripts/mod/file2alias.c
 +++ b/scripts/mod/file2alias.c
-@@ -1276,6 +1276,28 @@ static int do_typec_entry(const char *filename, void *symval, char *alias)
+@@ -1276,20 +1276,22 @@ static int do_typec_entry(const char *filename, void *symval, char *alias)
  	return 1;
  }
  
+-/* Looks like: ssam:cNtNiNfN
 +/*
 + * Looks like: ssam:dNcNtNiNfN
-+ *
-+ * N is exactly 2 digits, where each is an upper-case hex digit.
-+ */
-+static int do_ssam_entry(const char *filename, void *symval, char *alias)
-+{
-+	DEF_FIELD(symval, ssam_device_id, match_flags);
+  *
+  * N is exactly 2 digits, where each is an upper-case hex digit.
+  */
+ static int do_ssam_entry(const char *filename, void *symval, char *alias)
+ {
+ 	DEF_FIELD(symval, ssam_device_id, match_flags);
 +	DEF_FIELD(symval, ssam_device_id, domain);
-+	DEF_FIELD(symval, ssam_device_id, category);
+ 	DEF_FIELD(symval, ssam_device_id, category);
+-	DEF_FIELD(symval, ssam_device_id, channel);
 +	DEF_FIELD(symval, ssam_device_id, target);
-+	DEF_FIELD(symval, ssam_device_id, instance);
-+	DEF_FIELD(symval, ssam_device_id, function);
-+
+ 	DEF_FIELD(symval, ssam_device_id, instance);
+ 	DEF_FIELD(symval, ssam_device_id, function);
+ 
+-	sprintf(alias, "ssam:c%02X", category);
+-	ADD(alias, "t", match_flags & SSAM_MATCH_CHANNEL, channel);
 +	sprintf(alias, "ssam:d%02Xc%02X", domain, category);
 +	ADD(alias, "t", match_flags & SSAM_MATCH_TARGET, target);
-+	ADD(alias, "i", match_flags & SSAM_MATCH_INSTANCE, instance);
-+	ADD(alias, "f", match_flags & SSAM_MATCH_FUNCTION, function);
-+
-+	return 1;
-+}
-+
- /* Does namelen bytes of name exactly match the symbol? */
- static bool sym_is(const char *name, unsigned namelen, const char *symbol)
- {
-@@ -1346,6 +1368,7 @@ static const struct devtable devtable[] = {
- 	{"fslmc", SIZE_fsl_mc_device_id, do_fsl_mc_entry},
- 	{"tbsvc", SIZE_tb_service_id, do_tbsvc_entry},
- 	{"typec", SIZE_typec_device_id, do_typec_entry},
-+	{"ssam", SIZE_ssam_device_id, do_ssam_entry},
- };
+ 	ADD(alias, "i", match_flags & SSAM_MATCH_INSTANCE, instance);
+ 	ADD(alias, "f", match_flags & SSAM_MATCH_FUNCTION, function);
  
- /* Create MODULE_ALIAS() statements.
 -- 
 2.28.0
 

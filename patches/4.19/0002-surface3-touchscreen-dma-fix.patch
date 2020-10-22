@@ -1,8 +1,34 @@
-From 26e5e3d5780b48ef1f2a7115ef7a1ef1f4bf1e67 Mon Sep 17 00:00:00 2001
+From 6893037808c47ada1b0bf8705ebe7f60dfd600b0 Mon Sep 17 00:00:00 2001
 From: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 Date: Sun, 5 Jul 2020 14:56:20 +0300
-Subject: [PATCH 02/11] surface3-touchscreen-dma-fix
+Subject: [PATCH] dmaengine: dw: Initialize channel before each transfer
 
+In some cases DMA can be used only with a consumer which does runtime power
+management and on the platforms, that have DMA auto power gating logic
+(see comments in the drivers/acpi/acpi_lpss.c), may result in DMA losing
+its context. Simple mitigation of this issue is to initialize channel
+each time the consumer initiates a transfer.
+
+Fixes: cfdf5b6cc598 ("dw_dmac: add support for Lynxpoint DMA controllers")
+Reported-by: Tsuchiya Yuto <kitakar@gmail.com>
+Signed-off-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Acked-by: Viresh Kumar <viresh.kumar@linaro.org>
+BugLink: https://bugzilla.kernel.org/show_bug.cgi?id=206403
+Link: https://lore.kernel.org/r/20200705115620.51929-1-andriy.shevchenko@linux.intel.com
+Signed-off-by: Vinod Koul <vkoul@kernel.org>
+
+(cherry picked from commit 99ba8b9b0d9780e9937eb1d488d120e9e5c2533d)
+[Reason for cherry-picking this commit:
+  This commit fixes touch input when using DMA mode on Surface 3's
+  touchscreen.
+  Note: this commit was not backported to v4.19 by upstream. For now,
+  backport this patch ourselves.]
+[ Conflicts:
+	drivers/dma/dw/core.c
+ Resolved conflict by accepting current change then removed
+ DW_DMA_IS_INITIALIZED lines]
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: surface3-touchscreen-dma-fix
 ---
  drivers/dma/dw/core.c | 12 ------------
  1 file changed, 12 deletions(-)

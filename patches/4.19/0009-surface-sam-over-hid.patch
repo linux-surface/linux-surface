@@ -1,15 +1,57 @@
-From b91f59f3002ceab95cae05a5bc6c9428063b1485 Mon Sep 17 00:00:00 2001
+From bcb8584fbaa4854a8bcfc35c167712df1230cd5a Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 25 Jul 2020 17:19:53 +0200
-Subject: [PATCH 09/11] surface-sam-over-hid
+Subject: [PATCH] i2c: acpi: Implement RawBytes read access
 
+Microsoft Surface Pro 4 and Book 1 devices access the MSHW0030 I2C
+device via a generic serial bus operation region and RawBytes read
+access. On the Surface Book 1, this access is required to turn on (and
+off) the discrete GPU.
+
+Multiple things are to note here:
+
+a) The RawBytes access is device/driver dependent. The ACPI
+   specification states:
+
+   > Raw accesses assume that the writer has knowledge of the bus that
+   > the access is made over and the device that is being accessed. The
+   > protocol may only ensure that the buffer is transmitted to the
+   > appropriate driver, but the driver must be able to interpret the
+   > buffer to communicate to a register.
+
+   Thus this implementation may likely not work on other devices
+   accessing I2C via the RawBytes accessor type.
+
+b) The MSHW0030 I2C device is an HID-over-I2C device which seems to
+   serve multiple functions:
+
+   1. It is the main access point for the legacy-type Surface Aggregator
+      Module (also referred to as SAM-over-HID, as opposed to the newer
+      SAM-over-SSH/UART). It has currently not been determined on how
+      support for the legacy SAM should be implemented. Likely via a
+      custom HID driver.
+
+   2. It seems to serve as the HID device for the Integrated Sensor Hub.
+      This might complicate matters with regards to implementing a
+      SAM-over-HID driver required by legacy SAM.
+
+In light of this, the simplest approach has been chosen for now.
+However, it may make more sense regarding breakage and compatibility to
+either provide functionality for replacing or enhancing the default
+operation region handler via some additional API functions, or even to
+completely blacklist MSHW0030 from the I2C core and provide a custom
+driver for it.
+
+Replacing/enhancing the default operation region handler would, however,
+either require some sort of secondary driver and access point for it,
+from which the new API functions would be called and the new handler
+(part) would be installed, or hard-coding them via some sort of
+quirk-like interface into the I2C core.
+
+Patchset: surface-sam-over-hid
 ---
- drivers/i2c/i2c-core-acpi.c        |  35 +++++++
- drivers/platform/x86/Kconfig       |   7 ++
- drivers/platform/x86/Makefile      |   1 +
- drivers/platform/x86/sb1_dgpu_sw.c | 162 +++++++++++++++++++++++++++++
- 4 files changed, 205 insertions(+)
- create mode 100644 drivers/platform/x86/sb1_dgpu_sw.c
+ drivers/i2c/i2c-core-acpi.c | 35 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
 
 diff --git a/drivers/i2c/i2c-core-acpi.c b/drivers/i2c/i2c-core-acpi.c
 index eb0569359387..c2b5a2aca731 100644
@@ -64,13 +106,38 @@ index eb0569359387..c2b5a2aca731 100644
  	default:
  		dev_warn(&adapter->dev, "protocol 0x%02x not supported for client 0x%02x\n",
  			 accessor_type, client->addr);
+-- 
+2.28.0
+
+From 53e895a0bfdf74dddb2f295f4d4e1ab93229fc40 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 6 Sep 2020 04:01:19 +0200
+Subject: [PATCH] platform/x86: Add driver for Surface Book 1 dGPU switch
+
+Add driver exposing the discrete GPU power-switch of the  Microsoft
+Surface Book 1 to user-space.
+
+On the Surface Book 1, the dGPU power is controlled via the Surface
+System Aggregator Module (SAM). The specific SAM-over-HID command for
+this is exposed via ACPI. This module provides a simple driver exposing
+the ACPI call via a sysfs parameter to user-space, so that users can
+easily power-on/-off the dGPU.
+
+Patchset: surface-sam-over-hid
+---
+ drivers/platform/x86/Kconfig       |   7 ++
+ drivers/platform/x86/Makefile      |   1 +
+ drivers/platform/x86/sb1_dgpu_sw.c | 162 +++++++++++++++++++++++++++++
+ 3 files changed, 170 insertions(+)
+ create mode 100644 drivers/platform/x86/sb1_dgpu_sw.c
+
 diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
-index 0d20ffdb5a67..1e1ec7e562e8 100644
+index cd2442056cec..52fdf87b21f2 100644
 --- a/drivers/platform/x86/Kconfig
 +++ b/drivers/platform/x86/Kconfig
-@@ -1168,6 +1168,13 @@ config SURFACE_3_POWER_OPREGION
- 	  Select this option to enable support for ACPI operation
- 	  region of the Surface 3 battery platform driver.
+@@ -1177,6 +1177,13 @@ config SURFACE_GPE
+ 	  accordingly. It is required on those devices to allow wake-ups from
+ 	  suspend by opening the lid.
  
 +config SURFACE_BOOK1_DGPU_SWITCH
 +	tristate "Surface Book 1 dGPU Switch Driver"
@@ -83,13 +150,13 @@ index 0d20ffdb5a67..1e1ec7e562e8 100644
  	tristate "Intel P-Unit IPC Driver"
  	---help---
 diff --git a/drivers/platform/x86/Makefile b/drivers/platform/x86/Makefile
-index 2ea90039a3e4..3911b95487c7 100644
+index 49238e9d4abf..6b028d1ee802 100644
 --- a/drivers/platform/x86/Makefile
 +++ b/drivers/platform/x86/Makefile
-@@ -82,6 +82,7 @@ obj-$(CONFIG_TOUCHSCREEN_DMI)	+= touchscreen_dmi.o
- obj-$(CONFIG_SURFACE_PRO3_BUTTON)	+= surfacepro3_button.o
+@@ -83,6 +83,7 @@ obj-$(CONFIG_SURFACE_PRO3_BUTTON)	+= surfacepro3_button.o
  obj-$(CONFIG_SURFACE_3_BUTTON)	+= surface3_button.o
  obj-$(CONFIG_SURFACE_3_POWER_OPREGION) += surface3_power.o
+ obj-$(CONFIG_SURFACE_GPE)	+= surface_gpe.o
 +obj-$(CONFIG_SURFACE_BOOK1_DGPU_SWITCH)	+= sb1_dgpu_sw.o
  obj-$(CONFIG_INTEL_PUNIT_IPC)  += intel_punit_ipc.o
  obj-$(CONFIG_INTEL_BXTWC_PMIC_TMU)	+= intel_bxtwc_tmu.o
