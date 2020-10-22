@@ -1,8 +1,38 @@
-From 463107b4f3a4b794406270c8333e66619bdadf05 Mon Sep 17 00:00:00 2001
-From: Chih-Wei Huang <cwhuang@linux.org.tw>
-Date: Tue, 18 Sep 2018 11:01:37 +0800
-Subject: [PATCH 1/7] surface3-oemb
+From 783117ef972d0dcc29d1065e4609690c9093a8c3 Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Sun, 18 Oct 2020 16:42:44 +0900
+Subject: [PATCH] (surface3-oemb) add DMI matches for Surface 3 with broken DMI
+ table
 
+On some Surface 3, the DMI table gets corrupted for unknown reasons
+and breaks existing DMI matching used for device-specific quirks.
+
+This commit adds the (broken) DMI data into dmi_system_id tables used
+for quirks so that each driver can enable quirks even on the affected
+systems.
+
+On affected systems, DMI data will look like this:
+    $ grep . /sys/devices/virtual/dmi/id/{bios_vendor,board_name,board_vendor,\
+    chassis_vendor,product_name,sys_vendor}
+    /sys/devices/virtual/dmi/id/bios_vendor:American Megatrends Inc.
+    /sys/devices/virtual/dmi/id/board_name:OEMB
+    /sys/devices/virtual/dmi/id/board_vendor:OEMB
+    /sys/devices/virtual/dmi/id/chassis_vendor:OEMB
+    /sys/devices/virtual/dmi/id/product_name:OEMB
+    /sys/devices/virtual/dmi/id/sys_vendor:OEMB
+
+Expected:
+    $ grep . /sys/devices/virtual/dmi/id/{bios_vendor,board_name,board_vendor,\
+    chassis_vendor,product_name,sys_vendor}
+    /sys/devices/virtual/dmi/id/bios_vendor:American Megatrends Inc.
+    /sys/devices/virtual/dmi/id/board_name:Surface 3
+    /sys/devices/virtual/dmi/id/board_vendor:Microsoft Corporation
+    /sys/devices/virtual/dmi/id/chassis_vendor:Microsoft Corporation
+    /sys/devices/virtual/dmi/id/product_name:Surface 3
+    /sys/devices/virtual/dmi/id/sys_vendor:Microsoft Corporation
+
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: surface3-oemb
 ---
  drivers/platform/x86/surface3-wmi.c               | 7 +++++++
  sound/soc/codecs/rt5645.c                         | 9 +++++++++
