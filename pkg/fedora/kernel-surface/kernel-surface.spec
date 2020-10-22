@@ -93,7 +93,6 @@ Patch2:     %{surface_source}/%{kernel_patches}/0003-ipts.patch
 Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-gpe.patch
 Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam-over-hid.patch
 Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam.patch
-Patch6:     %{surface_source}/%{kernel_patches}/0007-i2c-core-Restore-acpi_walk_dep_device_list-getting-c.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
