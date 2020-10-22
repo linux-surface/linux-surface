@@ -1,0 +1,1376 @@
+From 1040020890118b08d89401905c6c3c63f0127ccf Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Thu, 24 Sep 2020 18:02:06 +0900
+Subject: [PATCH] mwifiex: pcie: skip cancel_work_sync() on reset failure path
+
+If a reset is performed, but even the reset fails for some reasons (e.g.,
+on Surface devices, the fw reset requires another quirks),
+cancel_work_sync() hangs in mwifiex_cleanup_pcie().
+
+    # reset performed after firmware went into bad state
+    kernel: mwifiex_pcie 0000:01:00.0: WLAN FW already running! Skip FW dnld
+    kernel: mwifiex_pcie 0000:01:00.0: WLAN FW is active
+    # but even the reset failed
+    kernel: mwifiex_pcie 0000:01:00.0: mwifiex_cmd_timeout_func: Timeout cmd id = 0xfa, act = 0xa000
+    kernel: mwifiex_pcie 0000:01:00.0: num_data_h2c_failure = 0
+    kernel: mwifiex_pcie 0000:01:00.0: num_cmd_h2c_failure = 0
+    kernel: mwifiex_pcie 0000:01:00.0: is_cmd_timedout = 1
+    kernel: mwifiex_pcie 0000:01:00.0: num_tx_timeout = 0
+    kernel: mwifiex_pcie 0000:01:00.0: last_cmd_index = 2
+    kernel: mwifiex_pcie 0000:01:00.0: last_cmd_id: 16 00 a4 00 fa 00 a4 00 7f 00
+    kernel: mwifiex_pcie 0000:01:00.0: last_cmd_act: 00 00 00 00 00 a0 00 00 00 00
+    kernel: mwifiex_pcie 0000:01:00.0: last_cmd_resp_index = 0
+    kernel: mwifiex_pcie 0000:01:00.0: last_cmd_resp_id: 16 80 7f 80 16 80 a4 80 7f 80
+    kernel: mwifiex_pcie 0000:01:00.0: last_event_index = 1
+    kernel: mwifiex_pcie 0000:01:00.0: last_event: 58 00 58 00 58 00 58 00 58 00
+    kernel: mwifiex_pcie 0000:01:00.0: data_sent=0 cmd_sent=1
+    kernel: mwifiex_pcie 0000:01:00.0: ps_mode=0 ps_state=0
+    kernel: mwifiex_pcie 0000:01:00.0: info: _mwifiex_fw_dpc: unregister device
+    # mwifiex_pcie_work hanged
+    kernel: INFO: task kworker/0:0:24857 blocked for more than 122 seconds.
+    kernel:       Tainted: G        W  OE     5.3.11-arch1-1 #1
+    kernel: "echo 0 > /proc/sys/kernel/hung_task_timeout_secs" disables this message.
+    kernel: kworker/0:0     D    0 24857      2 0x80004000
+    kernel: Workqueue: events mwifiex_pcie_work [mwifiex_pcie]
+    kernel: Call Trace:
+    kernel:  ? __schedule+0x27f/0x6d0
+    kernel:  schedule+0x43/0xd0
+    kernel:  schedule_timeout+0x299/0x3d0
+    kernel:  ? __switch_to_asm+0x40/0x70
+    kernel:  wait_for_common+0xeb/0x190
+    kernel:  ? wake_up_q+0x60/0x60
+    kernel:  __flush_work+0x130/0x1e0
+    kernel:  ? flush_workqueue_prep_pwqs+0x130/0x130
+    kernel:  __cancel_work_timer+0x123/0x1b0
+    kernel:  mwifiex_cleanup_pcie+0x28/0xd0 [mwifiex_pcie]
+    kernel:  mwifiex_free_adapter+0x24/0xe0 [mwifiex]
+    kernel:  _mwifiex_fw_dpc+0x28d/0x520 [mwifiex]
+    kernel:  mwifiex_reinit_sw+0x15d/0x2c0 [mwifiex]
+    kernel:  mwifiex_pcie_reset_done+0x50/0x80 [mwifiex_pcie]
+    kernel:  pci_try_reset_function+0x38/0x70
+    kernel:  process_one_work+0x1d1/0x3a0
+    kernel:  worker_thread+0x4a/0x3d0
+    kernel:  kthread+0xfb/0x130
+    kernel:  ? process_one_work+0x3a0/0x3a0
+    kernel:  ? kthread_park+0x80/0x80
+    kernel:  ret_from_fork+0x35/0x40
+
+This is a deadlock caused by calling cancel_work_sync() in
+mwifiex_cleanup_pcie():
+
+- Device resets are done via mwifiex_pcie_card_reset()
+- which schedules card->work to call mwifiex_pcie_card_reset_work()
+- which calls pci_try_reset_function().
+- This leads to mwifiex_pcie_reset_done() be called on the same workqueue,
+  which in turn calls
+- mwifiex_reinit_sw() and that calls
+- _mwifiex_fw_dpc().
+
+The problem is now that _mwifiex_fw_dpc() calls mwifiex_free_adapter()
+in case firmware initialization fails. That ends up calling
+mwifiex_cleanup_pcie().
+
+Note that all those calls are still running on the workqueue. So when
+mwifiex_cleanup_pcie() now calls cancel_work_sync(), it's really waiting
+on itself to complete, causing a deadlock.
+
+This commit fixes the deadlock by skipping cancel_work_sync() on a reset
+failure path.
+
+After this commit, when reset fails, the following output is
+expected to be shown:
+
+    kernel: mwifiex_pcie 0000:03:00.0: info: _mwifiex_fw_dpc: unregister device
+    kernel: mwifiex: Failed to bring up adapter: -5
+    kernel: mwifiex_pcie 0000:03:00.0: reinit failed: -5
+
+To reproduce this issue, for example, try putting the root port of wifi
+into D3 (replace "00:1d.3" with your setup).
+
+    # put into D3 (root port)
+    sudo setpci -v -s 00:1d.3 CAP_PM+4.b=0b
+
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/pcie.c | 18 +++++++++++++++++-
+ drivers/net/wireless/marvell/mwifiex/pcie.h |  2 ++
+ 2 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
+index 87b4ccca4b9a..00138d6129f4 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
+@@ -377,6 +377,8 @@ static void mwifiex_pcie_reset_prepare(struct pci_dev *pdev)
+ 	clear_bit(MWIFIEX_IFACE_WORK_DEVICE_DUMP, &card->work_flags);
+ 	clear_bit(MWIFIEX_IFACE_WORK_CARD_RESET, &card->work_flags);
+ 	mwifiex_dbg(adapter, INFO, "%s, successful\n", __func__);
++
++	card->pci_reset_ongoing = true;
+ }
+ 
+ /*
+@@ -405,6 +407,8 @@ static void mwifiex_pcie_reset_done(struct pci_dev *pdev)
+ 		dev_err(&pdev->dev, "reinit failed: %d\n", ret);
+ 	else
+ 		mwifiex_dbg(adapter, INFO, "%s, successful\n", __func__);
++
++	card->pci_reset_ongoing = false;
+ }
+ 
+ static const struct pci_error_handlers mwifiex_pcie_err_handler = {
+@@ -2995,7 +2999,19 @@ static void mwifiex_cleanup_pcie(struct mwifiex_adapter *adapter)
+ 	int ret;
+ 	u32 fw_status;
+ 
+-	cancel_work_sync(&card->work);
++	/* Perform the cancel_work_sync() only when we're not resetting
++	 * the card. It's because that function never returns if we're
++	 * in reset path. If we're here when resetting the card, it means
++	 * that we failed to reset the card (reset failure path).
++	 */
++	if (!card->pci_reset_ongoing) {
++		mwifiex_dbg(adapter, MSG, "performing cancel_work_sync()...\n");
++		cancel_work_sync(&card->work);
++		mwifiex_dbg(adapter, MSG, "cancel_work_sync() done\n");
++	} else {
++		mwifiex_dbg(adapter, MSG,
++			    "skipped cancel_work_sync() because we're in card reset failure path\n");
++	}
+ 
+ 	ret = mwifiex_read_reg(adapter, reg->fw_status, &fw_status);
+ 	if (fw_status == FIRMWARE_READY_PCIE) {
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.h b/drivers/net/wireless/marvell/mwifiex/pcie.h
+index fc59b522f670..048f4db6027a 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie.h
++++ b/drivers/net/wireless/marvell/mwifiex/pcie.h
+@@ -391,6 +391,8 @@ struct pcie_service_card {
+ 	struct mwifiex_msix_context share_irq_ctx;
+ 	struct work_struct work;
+ 	unsigned long work_flags;
++
++	bool pci_reset_ongoing;
+ };
+ 
+ static inline int
+-- 
+2.28.0
+
+From 36c7b429bd54df9e55fbdc653139d4baf16c9953 Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Mon, 28 Sep 2020 17:46:49 +0900
+Subject: [PATCH] mwifiex: pcie: add DMI-based quirk impl for Surface devices
+
+This commit adds quirk implementation based on DMI matching with DMI
+table for Surface devices.
+
+This implementation can be used for quirks later.
+
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/Makefile |   1 +
+ drivers/net/wireless/marvell/mwifiex/pcie.c   |   4 +
+ drivers/net/wireless/marvell/mwifiex/pcie.h   |   1 +
+ .../wireless/marvell/mwifiex/pcie_quirks.c    | 114 ++++++++++++++++++
+ .../wireless/marvell/mwifiex/pcie_quirks.h    |  11 ++
+ 5 files changed, 131 insertions(+)
+ create mode 100644 drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
+ create mode 100644 drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/Makefile b/drivers/net/wireless/marvell/mwifiex/Makefile
+index fdfd9bf15ed4..8a1e7c5b9c6e 100644
+--- a/drivers/net/wireless/marvell/mwifiex/Makefile
++++ b/drivers/net/wireless/marvell/mwifiex/Makefile
+@@ -49,6 +49,7 @@ mwifiex_sdio-y += sdio.o
+ obj-$(CONFIG_MWIFIEX_SDIO) += mwifiex_sdio.o
+ 
+ mwifiex_pcie-y += pcie.o
++mwifiex_pcie-y += pcie_quirks.o
+ obj-$(CONFIG_MWIFIEX_PCIE) += mwifiex_pcie.o
+ 
+ mwifiex_usb-y += usb.o
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
+index 00138d6129f4..899ce2657880 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
+@@ -27,6 +27,7 @@
+ #include "wmm.h"
+ #include "11n.h"
+ #include "pcie.h"
++#include "pcie_quirks.h"
+ 
+ #define PCIE_VERSION	"1.0"
+ #define DRV_NAME        "Marvell mwifiex PCIe"
+@@ -261,6 +262,9 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
+ 			return ret;
+ 	}
+ 
++	/* check quirks */
++	mwifiex_initialize_quirks(card);
++
+ 	if (mwifiex_add_card(card, &card->fw_done, &pcie_ops,
+ 			     MWIFIEX_PCIE, &pdev->dev)) {
+ 		pr_err("%s failed\n", __func__);
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.h b/drivers/net/wireless/marvell/mwifiex/pcie.h
+index 048f4db6027a..51566380f8da 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie.h
++++ b/drivers/net/wireless/marvell/mwifiex/pcie.h
+@@ -393,6 +393,7 @@ struct pcie_service_card {
+ 	unsigned long work_flags;
+ 
+ 	bool pci_reset_ongoing;
++	unsigned long quirks;
+ };
+ 
+ static inline int
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
+new file mode 100644
+index 000000000000..929aee2b0a60
+--- /dev/null
++++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
+@@ -0,0 +1,114 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * File for PCIe quirks.
++ */
++
++/* The low-level PCI operations will be performed in this file. Therefore,
++ * let's use dev_*() instead of mwifiex_dbg() here to avoid troubles (e.g.
++ * to avoid using mwifiex_adapter struct before init or wifi is powered
++ * down, or causes NULL ptr deref).
++ */
++
++#include <linux/dmi.h>
++
++#include "pcie_quirks.h"
++
++/* quirk table based on DMI matching */
++static const struct dmi_system_id mwifiex_quirk_table[] = {
++	{
++		.ident = "Surface Pro 4",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 4"),
++		},
++		.driver_data = 0,
++	},
++	{
++		.ident = "Surface Pro 5",
++		.matches = {
++			/* match for SKU here due to generic product name "Surface Pro" */
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
++		},
++		.driver_data = 0,
++	},
++	{
++		.ident = "Surface Pro 5 (LTE)",
++		.matches = {
++			/* match for SKU here due to generic product name "Surface Pro" */
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
++		},
++		.driver_data = 0,
++	},
++	{
++		.ident = "Surface Pro 6",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 6"),
++		},
++		.driver_data = 0,
++	},
++	{
++		.ident = "Surface Book 1",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book"),
++		},
++		.driver_data = 0,
++	},
++	{
++		.ident = "Surface Book 2",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book 2"),
++		},
++		.driver_data = 0,
++	},
++	{
++		.ident = "Surface Laptop 1",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop"),
++		},
++		.driver_data = 0,
++	},
++	{
++		.ident = "Surface Laptop 2",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop 2"),
++		},
++		.driver_data = 0,
++	},
++	{
++		.ident = "Surface 3",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface 3"),
++		},
++		.driver_data = 0,
++	},
++	{
++		.ident = "Surface Pro 3",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 3"),
++		},
++		.driver_data = 0,
++	},
++	{}
++};
++
++void mwifiex_initialize_quirks(struct pcie_service_card *card)
++{
++	struct pci_dev *pdev = card->dev;
++	const struct dmi_system_id *dmi_id;
++
++	dmi_id = dmi_first_match(mwifiex_quirk_table);
++	if (dmi_id)
++		card->quirks = (uintptr_t)dmi_id->driver_data;
++
++	if (!card->quirks)
++		dev_info(&pdev->dev, "no quirks enabled\n");
++}
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
+new file mode 100644
+index 000000000000..5326ae7e5671
+--- /dev/null
++++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
+@@ -0,0 +1,11 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Header file for PCIe quirks.
++ */
++
++#include "pcie.h"
++
++/* quirks */
++// quirk flags can be added here
++
++void mwifiex_initialize_quirks(struct pcie_service_card *card);
+-- 
+2.28.0
+
+From e4cedba33eff73175314de2c93bd8c2ddf01e441 Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Tue, 29 Sep 2020 17:25:22 +0900
+Subject: [PATCH] mwifiex: pcie: add reset_d3cold quirk for Surface gen4+
+ devices
+
+To reset mwifiex on Surface gen4+ (Pro 4 or later gen) devices, it
+seems that putting the wifi device into D3cold is required according
+to errata.inf file on Windows installation (Windows/INF/errata.inf).
+
+This patch adds a function that performs power-cycle (put into D3cold
+then D0) and call the function at the end of reset_prepare().
+
+Note: Need to also reset the parent device (bridge) of wifi on SB1;
+it might be because the bridge of wifi always reports it's in D3hot.
+When I tried to reset only the wifi device (not touching parent), it gave
+the following error and the reset failed:
+
+    acpi device:4b: Cannot transition to power state D0 for parent in D3hot
+    mwifiex_pcie 0000:03:00.0: can't change power state from D3cold to D0 (config space inaccessible)
+
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/pcie.c   |  7 ++
+ .../wireless/marvell/mwifiex/pcie_quirks.c    | 73 +++++++++++++++++--
+ .../wireless/marvell/mwifiex/pcie_quirks.h    |  3 +-
+ 3 files changed, 74 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
+index 899ce2657880..45488c2bc1c1 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
+@@ -380,6 +380,13 @@ static void mwifiex_pcie_reset_prepare(struct pci_dev *pdev)
+ 	mwifiex_shutdown_sw(adapter);
+ 	clear_bit(MWIFIEX_IFACE_WORK_DEVICE_DUMP, &card->work_flags);
+ 	clear_bit(MWIFIEX_IFACE_WORK_CARD_RESET, &card->work_flags);
++
++	/* For Surface gen4+ devices, we need to put wifi into D3cold right
++	 * before performing FLR
++	 */
++	if (card->quirks & QUIRK_FW_RST_D3COLD)
++		mwifiex_pcie_reset_d3cold_quirk(pdev);
++
+ 	mwifiex_dbg(adapter, INFO, "%s, successful\n", __func__);
+ 
+ 	card->pci_reset_ongoing = true;
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
+index 929aee2b0a60..edc739c542fe 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
+@@ -21,7 +21,7 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 4"),
+ 		},
+-		.driver_data = 0,
++		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
+ 	},
+ 	{
+ 		.ident = "Surface Pro 5",
+@@ -30,7 +30,7 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+ 		},
+-		.driver_data = 0,
++		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
+ 	},
+ 	{
+ 		.ident = "Surface Pro 5 (LTE)",
+@@ -39,7 +39,7 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+ 		},
+-		.driver_data = 0,
++		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
+ 	},
+ 	{
+ 		.ident = "Surface Pro 6",
+@@ -47,7 +47,7 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 6"),
+ 		},
+-		.driver_data = 0,
++		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
+ 	},
+ 	{
+ 		.ident = "Surface Book 1",
+@@ -55,7 +55,7 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book"),
+ 		},
+-		.driver_data = 0,
++		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
+ 	},
+ 	{
+ 		.ident = "Surface Book 2",
+@@ -63,7 +63,7 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book 2"),
+ 		},
+-		.driver_data = 0,
++		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
+ 	},
+ 	{
+ 		.ident = "Surface Laptop 1",
+@@ -71,7 +71,7 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop"),
+ 		},
+-		.driver_data = 0,
++		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
+ 	},
+ 	{
+ 		.ident = "Surface Laptop 2",
+@@ -79,7 +79,7 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop 2"),
+ 		},
+-		.driver_data = 0,
++		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
+ 	},
+ 	{
+ 		.ident = "Surface 3",
+@@ -111,4 +111,61 @@ void mwifiex_initialize_quirks(struct pcie_service_card *card)
+ 
+ 	if (!card->quirks)
+ 		dev_info(&pdev->dev, "no quirks enabled\n");
++	if (card->quirks & QUIRK_FW_RST_D3COLD)
++		dev_info(&pdev->dev, "quirk reset_d3cold enabled\n");
++}
++
++static void mwifiex_pcie_set_power_d3cold(struct pci_dev *pdev)
++{
++	dev_info(&pdev->dev, "putting into D3cold...\n");
++
++	pci_save_state(pdev);
++	if (pci_is_enabled(pdev))
++		pci_disable_device(pdev);
++	pci_set_power_state(pdev, PCI_D3cold);
++}
++
++static int mwifiex_pcie_set_power_d0(struct pci_dev *pdev)
++{
++	int ret;
++
++	dev_info(&pdev->dev, "putting into D0...\n");
++
++	pci_set_power_state(pdev, PCI_D0);
++	ret = pci_enable_device(pdev);
++	if (ret) {
++		dev_err(&pdev->dev, "pci_enable_device failed\n");
++		return ret;
++	}
++	pci_restore_state(pdev);
++
++	return 0;
++}
++
++int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev)
++{
++	struct pci_dev *parent_pdev = pci_upstream_bridge(pdev);
++	int ret;
++
++	/* Power-cycle (put into D3cold then D0) */
++	dev_info(&pdev->dev, "Using reset_d3cold quirk to perform FW reset\n");
++
++	/* We need to perform power-cycle also for bridge of wifi because
++	 * on some devices (e.g. Surface Book 1), the OS for some reasons
++	 * can't know the real power state of the bridge.
++	 * When tried to power-cycle only wifi, the reset failed with the
++	 * following dmesg log:
++	 * "Cannot transition to power state D0 for parent in D3hot".
++	 */
++	mwifiex_pcie_set_power_d3cold(pdev);
++	mwifiex_pcie_set_power_d3cold(parent_pdev);
++
++	ret = mwifiex_pcie_set_power_d0(parent_pdev);
++	if (ret)
++		return ret;
++	ret = mwifiex_pcie_set_power_d0(pdev);
++	if (ret)
++		return ret;
++
++	return 0;
+ }
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
+index 5326ae7e5671..8b9dcb5070d8 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
++++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
+@@ -6,6 +6,7 @@
+ #include "pcie.h"
+ 
+ /* quirks */
+-// quirk flags can be added here
++#define QUIRK_FW_RST_D3COLD	BIT(0)
+ 
+ void mwifiex_initialize_quirks(struct pcie_service_card *card);
++int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
+-- 
+2.28.0
+
+From acaf58ea2c66fb0e7141952b54ec2f0eb7d6934e Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Tue, 29 Sep 2020 17:32:22 +0900
+Subject: [PATCH] mwifiex: pcie: add reset_wsid quirk for Surface 3
+
+This commit adds reset_wsid quirk and uses this quirk for Surface 3 on
+card reset.
+
+To reset mwifiex on Surface 3, it seems that calling the _DSM method
+exists in \_SB.WSID [1] device is required.
+
+On Surface 3, calling the _DSM method removes/re-probes the card by
+itself. So, need to place the reset function before performing FLR and
+skip performing any other reset-related works.
+
+Note that Surface Pro 3 also has the WSID device [2], but it seems to need
+more work. This commit only supports Surface 3 yet.
+
+[1] https://github.com/linux-surface/acpidumps/blob/05cba925f3a515f222acb5b3551a032ddde958fe/surface_3/dsdt.dsl#L11947-L12011
+[2] https://github.com/linux-surface/acpidumps/blob/05cba925f3a515f222acb5b3551a032ddde958fe/surface_pro_3/dsdt.dsl#L12164-L12216
+
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/pcie.c   | 10 +++
+ .../wireless/marvell/mwifiex/pcie_quirks.c    | 77 ++++++++++++++++++-
+ .../wireless/marvell/mwifiex/pcie_quirks.h    |  5 ++
+ 3 files changed, 91 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
+index 45488c2bc1c1..daae572ce94e 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
+@@ -2817,6 +2817,16 @@ static void mwifiex_pcie_card_reset_work(struct mwifiex_adapter *adapter)
+ {
+ 	struct pcie_service_card *card = adapter->card;
+ 
++	/* On Surface 3, reset_wsid method removes then re-probes card by
++	 * itself. So, need to place it here and skip performing any other
++	 * reset-related works.
++	 */
++	if (card->quirks & QUIRK_FW_RST_WSID_S3) {
++		mwifiex_pcie_reset_wsid_quirk(card->dev);
++		/* skip performing any other reset-related works */
++		return;
++	}
++
+ 	/* We can't afford to wait here; remove() might be waiting on us. If we
+ 	 * can't grab the device lock, maybe we'll get another chance later.
+ 	 */
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
+index edc739c542fe..f0a6fa0a7ae5 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
+@@ -9,10 +9,21 @@
+  * down, or causes NULL ptr deref).
+  */
+ 
++#include <linux/acpi.h>
+ #include <linux/dmi.h>
+ 
+ #include "pcie_quirks.h"
+ 
++/* For reset_wsid quirk */
++#define ACPI_WSID_PATH		"\\_SB.WSID"
++#define WSID_REV		0x0
++#define WSID_FUNC_WIFI_PWR_OFF	0x1
++#define WSID_FUNC_WIFI_PWR_ON	0x2
++/* WSID _DSM UUID: "534ea3bf-fcc2-4e7a-908f-a13978f0c7ef" */
++static const guid_t wsid_dsm_guid =
++	GUID_INIT(0x534ea3bf, 0xfcc2, 0x4e7a,
++		  0x90, 0x8f, 0xa1, 0x39, 0x78, 0xf0, 0xc7, 0xef);
++
+ /* quirk table based on DMI matching */
+ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 	{
+@@ -87,7 +98,7 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface 3"),
+ 		},
+-		.driver_data = 0,
++		.driver_data = (void *)QUIRK_FW_RST_WSID_S3,
+ 	},
+ 	{
+ 		.ident = "Surface Pro 3",
+@@ -113,6 +124,9 @@ void mwifiex_initialize_quirks(struct pcie_service_card *card)
+ 		dev_info(&pdev->dev, "no quirks enabled\n");
+ 	if (card->quirks & QUIRK_FW_RST_D3COLD)
+ 		dev_info(&pdev->dev, "quirk reset_d3cold enabled\n");
++	if (card->quirks & QUIRK_FW_RST_WSID_S3)
++		dev_info(&pdev->dev,
++			 "quirk reset_wsid for Surface 3 enabled\n");
+ }
+ 
+ static void mwifiex_pcie_set_power_d3cold(struct pci_dev *pdev)
+@@ -169,3 +183,64 @@ int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev)
+ 
+ 	return 0;
+ }
++
++int mwifiex_pcie_reset_wsid_quirk(struct pci_dev *pdev)
++{
++	acpi_handle handle;
++	union acpi_object *obj;
++	acpi_status status;
++
++	dev_info(&pdev->dev, "Using reset_wsid quirk to perform FW reset\n");
++
++	status = acpi_get_handle(NULL, ACPI_WSID_PATH, &handle);
++	if (ACPI_FAILURE(status)) {
++		dev_err(&pdev->dev, "No ACPI handle for path %s\n",
++			ACPI_WSID_PATH);
++		return -ENODEV;
++	}
++
++	if (!acpi_has_method(handle, "_DSM")) {
++		dev_err(&pdev->dev, "_DSM method not found\n");
++		return -ENODEV;
++	}
++
++	if (!acpi_check_dsm(handle, &wsid_dsm_guid,
++			    WSID_REV, WSID_FUNC_WIFI_PWR_OFF)) {
++		dev_err(&pdev->dev,
++			"_DSM method doesn't support wifi power off func\n");
++		return -ENODEV;
++	}
++
++	if (!acpi_check_dsm(handle, &wsid_dsm_guid,
++			    WSID_REV, WSID_FUNC_WIFI_PWR_ON)) {
++		dev_err(&pdev->dev,
++			"_DSM method doesn't support wifi power on func\n");
++		return -ENODEV;
++	}
++
++	/* card will be removed immediately after this call on Surface 3 */
++	dev_info(&pdev->dev, "turning wifi off...\n");
++	obj = acpi_evaluate_dsm(handle, &wsid_dsm_guid,
++				WSID_REV, WSID_FUNC_WIFI_PWR_OFF,
++				NULL);
++	if (!obj) {
++		dev_err(&pdev->dev,
++			"device _DSM execution failed for turning wifi off\n");
++		return -EIO;
++	}
++	ACPI_FREE(obj);
++
++	/* card will be re-probed immediately after this call on Surface 3 */
++	dev_info(&pdev->dev, "turning wifi on...\n");
++	obj = acpi_evaluate_dsm(handle, &wsid_dsm_guid,
++				WSID_REV, WSID_FUNC_WIFI_PWR_ON,
++				NULL);
++	if (!obj) {
++		dev_err(&pdev->dev,
++			"device _DSM execution failed for turning wifi on\n");
++		return -EIO;
++	}
++	ACPI_FREE(obj);
++
++	return 0;
++}
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
+index 8b9dcb5070d8..3ef7440418e3 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
++++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
+@@ -7,6 +7,11 @@
+ 
+ /* quirks */
+ #define QUIRK_FW_RST_D3COLD	BIT(0)
++/* Surface 3 and Surface Pro 3 have the same _DSM method but need to
++ * be handled differently. Currently, only S3 is supported.
++ */
++#define QUIRK_FW_RST_WSID_S3	BIT(1)
+ 
+ void mwifiex_initialize_quirks(struct pcie_service_card *card);
+ int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
++int mwifiex_pcie_reset_wsid_quirk(struct pci_dev *pdev);
+-- 
+2.28.0
+
+From 4a498b49a7f7141895741fcdd28032b790ff9d35 Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Wed, 30 Sep 2020 18:08:24 +0900
+Subject: [PATCH] mwifiex: pcie: (OEMB) add quirk for Surface 3 with broken DMI
+ table
+
+(made referring to http://git.osdn.net/view?p=android-x86/kernel.git;a=commitdiff;h=18e2e857c57633b25b3b4120f212224a108cd883)
+
+On some Surface 3, the DMI table gets corrupted for unknown reasons
+and breaks existing DMI matching used for device-specific quirks.
+
+This commit adds the (broken) DMI info for the affected Surface 3.
+
+On affected systems, DMI info will look like this:
+    $ grep . /sys/devices/virtual/dmi/id/{bios_vendor,board_name,board_vendor,\
+    chassis_vendor,product_name,sys_vendor}
+    /sys/devices/virtual/dmi/id/bios_vendor:American Megatrends Inc.
+    /sys/devices/virtual/dmi/id/board_name:OEMB
+    /sys/devices/virtual/dmi/id/board_vendor:OEMB
+    /sys/devices/virtual/dmi/id/chassis_vendor:OEMB
+    /sys/devices/virtual/dmi/id/product_name:OEMB
+    /sys/devices/virtual/dmi/id/sys_vendor:OEMB
+
+Expected:
+    $ grep . /sys/devices/virtual/dmi/id/{bios_vendor,board_name,board_vendor,\
+    chassis_vendor,product_name,sys_vendor}
+    /sys/devices/virtual/dmi/id/bios_vendor:American Megatrends Inc.
+    /sys/devices/virtual/dmi/id/board_name:Surface 3
+    /sys/devices/virtual/dmi/id/board_vendor:Microsoft Corporation
+    /sys/devices/virtual/dmi/id/chassis_vendor:Microsoft Corporation
+    /sys/devices/virtual/dmi/id/product_name:Surface 3
+    /sys/devices/virtual/dmi/id/sys_vendor:Microsoft Corporation
+
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/pcie_quirks.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
+index f0a6fa0a7ae5..34dcd84f02a6 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
+@@ -100,6 +100,15 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 		},
+ 		.driver_data = (void *)QUIRK_FW_RST_WSID_S3,
+ 	},
++	{
++		.ident = "Surface 3",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_BIOS_VENDOR, "American Megatrends Inc."),
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "OEMB"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "OEMB"),
++		},
++		.driver_data = (void *)QUIRK_FW_RST_WSID_S3,
++	},
+ 	{
+ 		.ident = "Surface Pro 3",
+ 		.matches = {
+-- 
+2.28.0
+
+From 28158ef411e579c66eb33cafe1b7af5cd9dbcc89 Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Thu, 24 Sep 2020 01:56:29 +0900
+Subject: [PATCH] mwifiex: fix mwifiex_shutdown_sw() causing sw reset failure
+
+When FLR is performed but without fw reset for some reasons (e.g. on
+Surface devices, fw reset requires another quirk), it fails to reset
+properly. You can trigger the issue on such devices via debugfs entry
+for reset:
+
+    $ echo 1 | sudo tee /sys/kernel/debug/mwifiex/mlan0/reset
+
+and the resulting dmesg log:
+
+    mwifiex_pcie 0000:03:00.0: Resetting per request
+    mwifiex_pcie 0000:03:00.0: info: successfully disconnected from [BSSID]: reason code 3
+    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
+    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
+    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
+    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
+    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
+    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
+    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
+    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
+    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
+    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
+    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
+    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
+    mwifiex_pcie 0000:03:00.0: info: shutdown mwifiex...
+    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
+    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
+    mwifiex_pcie 0000:03:00.0: WLAN FW already running! Skip FW dnld
+    mwifiex_pcie 0000:03:00.0: WLAN FW is active
+    mwifiex_pcie 0000:03:00.0: Unknown api_id: 4
+    mwifiex_pcie 0000:03:00.0: info: MWIFIEX VERSION: mwifiex 1.0 (15.68.19.p21)
+    mwifiex_pcie 0000:03:00.0: driver_version = mwifiex 1.0 (15.68.19.p21)
+    mwifiex_pcie 0000:03:00.0: info: trying to associate to '[SSID]' bssid [BSSID]
+    mwifiex_pcie 0000:03:00.0: info: associated to bssid [BSSID] successfully
+    mwifiex_pcie 0000:03:00.0: cmd_wait_q terminated: -110
+    mwifiex_pcie 0000:03:00.0: info: successfully disconnected from [BSSID]: reason code 15
+    mwifiex_pcie 0000:03:00.0: cmd_wait_q terminated: -110
+    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
+    mwifiex_pcie 0000:03:00.0: cmd_wait_q terminated: -110
+    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
+    mwifiex_pcie 0000:03:00.0: cmd_wait_q terminated: -110
+    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
+    [...]
+
+When comparing mwifiex_shutdown_sw() with mwifiex_pcie_remove(), it
+lacks mwifiex_init_shutdown_fw().
+
+This commit fixes mwifiex_shutdown_sw() by adding the missing
+mwifiex_init_shutdown_fw().
+
+Fixes: 4c5dae59d2e9 ("mwifiex: add PCIe function level reset support")
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/main.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/main.c b/drivers/net/wireless/marvell/mwifiex/main.c
+index 9ee5600351a7..5965999f1b9b 100644
+--- a/drivers/net/wireless/marvell/mwifiex/main.c
++++ b/drivers/net/wireless/marvell/mwifiex/main.c
+@@ -1469,6 +1469,8 @@ int mwifiex_shutdown_sw(struct mwifiex_adapter *adapter)
+ 	priv = mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_ANY);
+ 	mwifiex_deauthenticate(priv, NULL);
+ 
++	mwifiex_init_shutdown_fw(priv, MWIFIEX_FUNC_SHUTDOWN);
++
+ 	mwifiex_uninit_sw(adapter);
+ 	adapter->is_up = false;
+ 
+-- 
+2.28.0
+
+From f0a8812d81ab425af896717c2ef339d8f7d0557e Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Thu, 24 Sep 2020 01:56:34 +0900
+Subject: [PATCH] mwifiex: pcie: use shutdown_sw()/reinit_sw() on
+ suspend()/resume()
+
+There are issues with S0ix achievement and AP scanning after suspend
+with the current Host Sleep method.
+
+When using the Host Sleep method, it prevents the platform to reach S0ix
+during suspend. Also, after suspend, sometimes AP scanning won't work,
+resulting in non-working wifi.
+
+To fix such issues, perform shutdown_sw()/reinit_sw() instead of Host
+Sleep.
+
+As a side effect, this patch disables wakeups (means that Wake-On-WLAN
+can't be used anymore, if it was working before), and might also reset
+some internal states.
+
+Note that suspend() no longer checks if it's already suspended.
+
+With the previous Host Sleep method, the check was done by looking at
+adapter->hs_activated in mwifiex_enable_hs() [sta_ioctl.c], but not
+MWIFIEX_IS_SUSPENDED. So, what the previous method checked was instead
+Host Sleep state, not suspend itself. Therefore, there is no need to check
+the suspend state now.
+
+Also removed comment for suspend state check at top of suspend()
+accordingly.
+
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/main.c |  4 +--
+ drivers/net/wireless/marvell/mwifiex/pcie.c | 29 +++++++--------------
+ 2 files changed, 12 insertions(+), 21 deletions(-)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/main.c b/drivers/net/wireless/marvell/mwifiex/main.c
+index 5965999f1b9b..74bf0076daec 100644
+--- a/drivers/net/wireless/marvell/mwifiex/main.c
++++ b/drivers/net/wireless/marvell/mwifiex/main.c
+@@ -1453,7 +1453,7 @@ static void mwifiex_uninit_sw(struct mwifiex_adapter *adapter)
+ }
+ 
+ /*
+- * This function gets called during PCIe function level reset.
++ * This function can be used for shutting down the adapter SW.
+  */
+ int mwifiex_shutdown_sw(struct mwifiex_adapter *adapter)
+ {
+@@ -1481,7 +1481,7 @@ int mwifiex_shutdown_sw(struct mwifiex_adapter *adapter)
+ }
+ EXPORT_SYMBOL_GPL(mwifiex_shutdown_sw);
+ 
+-/* This function gets called during PCIe function level reset. Required
++/* This function can be used for reinitting the adapter SW. Required
+  * code is extracted from mwifiex_add_card()
+  */
+ int
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
+index daae572ce94e..b46d56389c3b 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
+@@ -145,8 +145,7 @@ static bool mwifiex_pcie_ok_to_access_hw(struct mwifiex_adapter *adapter)
+  * registered functions must have drivers with suspend and resume
+  * methods. Failing that the kernel simply removes the whole card.
+  *
+- * If already not suspended, this function allocates and sends a host
+- * sleep activate request to the firmware and turns off the traffic.
++ * This function shuts down the adapter.
+  */
+ static int mwifiex_pcie_suspend(struct device *dev)
+ {
+@@ -154,31 +153,21 @@ static int mwifiex_pcie_suspend(struct device *dev)
+ 	struct pcie_service_card *card = dev_get_drvdata(dev);
+ 
+ 
+-	/* Might still be loading firmware */
+-	wait_for_completion(&card->fw_done);
+-
+ 	adapter = card->adapter;
+ 	if (!adapter) {
+ 		dev_err(dev, "adapter is not valid\n");
+ 		return 0;
+ 	}
+ 
+-	mwifiex_enable_wake(adapter);
+-
+-	/* Enable the Host Sleep */
+-	if (!mwifiex_enable_hs(adapter)) {
++	/* Shut down SW */
++	if (mwifiex_shutdown_sw(adapter)) {
+ 		mwifiex_dbg(adapter, ERROR,
+ 			    "cmd: failed to suspend\n");
+-		clear_bit(MWIFIEX_IS_HS_ENABLING, &adapter->work_flags);
+-		mwifiex_disable_wake(adapter);
+ 		return -EFAULT;
+ 	}
+ 
+-	flush_workqueue(adapter->workqueue);
+-
+ 	/* Indicate device suspended */
+ 	set_bit(MWIFIEX_IS_SUSPENDED, &adapter->work_flags);
+-	clear_bit(MWIFIEX_IS_HS_ENABLING, &adapter->work_flags);
+ 
+ 	return 0;
+ }
+@@ -188,13 +177,13 @@ static int mwifiex_pcie_suspend(struct device *dev)
+  * registered functions must have drivers with suspend and resume
+  * methods. Failing that the kernel simply removes the whole card.
+  *
+- * If already not resumed, this function turns on the traffic and
+- * sends a host sleep cancel request to the firmware.
++ * If already not resumed, this function reinits the adapter.
+  */
+ static int mwifiex_pcie_resume(struct device *dev)
+ {
+ 	struct mwifiex_adapter *adapter;
+ 	struct pcie_service_card *card = dev_get_drvdata(dev);
++	int ret;
+ 
+ 
+ 	if (!card->adapter) {
+@@ -212,9 +201,11 @@ static int mwifiex_pcie_resume(struct device *dev)
+ 
+ 	clear_bit(MWIFIEX_IS_SUSPENDED, &adapter->work_flags);
+ 
+-	mwifiex_cancel_hs(mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_STA),
+-			  MWIFIEX_ASYNC_CMD);
+-	mwifiex_disable_wake(adapter);
++	ret = mwifiex_reinit_sw(adapter);
++	if (ret)
++		dev_err(dev, "reinit failed: %d\n", ret);
++	else
++		mwifiex_dbg(adapter, INFO, "%s, successful\n", __func__);
+ 
+ 	return 0;
+ }
+-- 
+2.28.0
+
+From 3754079592ed651678caaaf85ba6e974bcc5acf1 Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Mon, 24 Aug 2020 17:11:35 +0900
+Subject: [PATCH] mwifiex: pcie: add enable_device_dump module parameter
+
+The devicve_dump may take a little bit long time and users may want to
+disable the dump for daily usage.
+
+This commit adds a new module parameter and disables device_dump by
+default.
+
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/pcie.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
+index b46d56389c3b..1847a0274991 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
+@@ -34,6 +34,11 @@
+ 
+ static struct mwifiex_if_ops pcie_ops;
+ 
++static bool enable_device_dump;
++module_param(enable_device_dump, bool, 0644);
++MODULE_PARM_DESC(enable_device_dump,
++		 "enable device_dump (default: disabled)");
++
+ static const struct of_device_id mwifiex_pcie_of_match_table[] = {
+ 	{ .compatible = "pci11ab,2b42" },
+ 	{ .compatible = "pci1b4b,2b42" },
+@@ -2791,6 +2796,12 @@ static void mwifiex_pcie_fw_dump(struct mwifiex_adapter *adapter)
+ 
+ static void mwifiex_pcie_device_dump_work(struct mwifiex_adapter *adapter)
+ {
++	if (!enable_device_dump) {
++		mwifiex_dbg(adapter, MSG,
++			    "device_dump is disabled by module parameter\n");
++		return;
++	}
++
+ 	adapter->devdump_data = vzalloc(MWIFIEX_FW_DUMP_SIZE);
+ 	if (!adapter->devdump_data) {
+ 		mwifiex_dbg(adapter, ERROR,
+-- 
+2.28.0
+
+From 56e9e15e3c774e324afed5f8e2a9465c36cb0378 Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Sun, 4 Oct 2020 00:11:49 +0900
+Subject: [PATCH] mwifiex: pcie: disable bridge_d3 for Surface gen4+
+
+Currently, mwifiex fw will crash after suspend on recent kernel series.
+On Windows, it seems that the root port of wifi will never enter D3 state
+(stay on D0 state). And on Linux, disabling the D3 state for the
+bridge fixes fw crashing after suspend.
+
+This commit disables the D3 state of root port on driver initialization
+and fixes fw crashing after suspend.
+
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/pcie.c   |  7 +++++
+ .../wireless/marvell/mwifiex/pcie_quirks.c    | 27 +++++++++++++------
+ .../wireless/marvell/mwifiex/pcie_quirks.h    |  1 +
+ 3 files changed, 27 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
+index 1847a0274991..3bd39d9ba3de 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
+@@ -226,6 +226,7 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
+ 					const struct pci_device_id *ent)
+ {
+ 	struct pcie_service_card *card;
++	struct pci_dev *parent_pdev = pci_upstream_bridge(pdev);
+ 	int ret;
+ 
+ 	pr_debug("info: vendor=0x%4.04X device=0x%4.04X rev=%d\n",
+@@ -267,6 +268,12 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
+ 		return -1;
+ 	}
+ 
++	/* disable bridge_d3 for Surface gen4+ devices to fix fw crashing
++	 * after suspend
++	 */
++	if (card->quirks & QUIRK_NO_BRIDGE_D3)
++		parent_pdev->bridge_d3 = false;
++
+ 	return 0;
+ }
+ 
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
+index 34dcd84f02a6..a2aeb2af907e 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
+@@ -32,7 +32,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 4"),
+ 		},
+-		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
++		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
++					QUIRK_NO_BRIDGE_D3),
+ 	},
+ 	{
+ 		.ident = "Surface Pro 5",
+@@ -41,7 +42,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+ 		},
+-		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
++		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
++					QUIRK_NO_BRIDGE_D3),
+ 	},
+ 	{
+ 		.ident = "Surface Pro 5 (LTE)",
+@@ -50,7 +52,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+ 		},
+-		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
++		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
++					QUIRK_NO_BRIDGE_D3),
+ 	},
+ 	{
+ 		.ident = "Surface Pro 6",
+@@ -58,7 +61,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 6"),
+ 		},
+-		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
++		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
++					QUIRK_NO_BRIDGE_D3),
+ 	},
+ 	{
+ 		.ident = "Surface Book 1",
+@@ -66,7 +70,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book"),
+ 		},
+-		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
++		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
++					QUIRK_NO_BRIDGE_D3),
+ 	},
+ 	{
+ 		.ident = "Surface Book 2",
+@@ -74,7 +79,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book 2"),
+ 		},
+-		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
++		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
++					QUIRK_NO_BRIDGE_D3),
+ 	},
+ 	{
+ 		.ident = "Surface Laptop 1",
+@@ -82,7 +88,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop"),
+ 		},
+-		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
++		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
++					QUIRK_NO_BRIDGE_D3),
+ 	},
+ 	{
+ 		.ident = "Surface Laptop 2",
+@@ -90,7 +97,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop 2"),
+ 		},
+-		.driver_data = (void *)QUIRK_FW_RST_D3COLD,
++		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
++					QUIRK_NO_BRIDGE_D3),
+ 	},
+ 	{
+ 		.ident = "Surface 3",
+@@ -136,6 +144,9 @@ void mwifiex_initialize_quirks(struct pcie_service_card *card)
+ 	if (card->quirks & QUIRK_FW_RST_WSID_S3)
+ 		dev_info(&pdev->dev,
+ 			 "quirk reset_wsid for Surface 3 enabled\n");
++	if (card->quirks & QUIRK_NO_BRIDGE_D3)
++		dev_info(&pdev->dev,
++			 "quirk no_brigde_d3 enabled\n");
+ }
+ 
+ static void mwifiex_pcie_set_power_d3cold(struct pci_dev *pdev)
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
+index 3ef7440418e3..a95ebac06e13 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
++++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
+@@ -11,6 +11,7 @@
+  * be handled differently. Currently, only S3 is supported.
+  */
+ #define QUIRK_FW_RST_WSID_S3	BIT(1)
++#define QUIRK_NO_BRIDGE_D3	BIT(2)
+ 
+ void mwifiex_initialize_quirks(struct pcie_service_card *card);
+ int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
+-- 
+2.28.0
+
+From 532503b8b7b9d60a57fc5d15cae07ddbf6c95627 Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Sun, 4 Oct 2020 00:25:48 +0900
+Subject: [PATCH] mwifiex: add allow_ps_mode module parameter
+
+This commit adds the allow_ps_mode module parameter and set it false
+(disallowed) by default, to make ps_mode (power_save) control easier.
+
+On some setups (e.g., with 5GHz AP), power_save causes connection
+completely unstable. So, we need to disable it. However, userspace tools
+may try to enable it. For this reason, we need to tell userspace that
+power_save is disallowed by default.
+
+When this parameter is set to false, changing the power_save mode will
+be disallowed like the following:
+
+    $ sudo iw dev mlan0 set power_save on
+    command failed: Operation not permitted (-1)
+
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/cfg80211.c | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+index 96848fa0e417..786f7a197613 100644
+--- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
++++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+@@ -25,6 +25,11 @@
+ static char *reg_alpha2;
+ module_param(reg_alpha2, charp, 0);
+ 
++static bool allow_ps_mode;
++module_param(allow_ps_mode, bool, 0644);
++MODULE_PARM_DESC(allow_ps_mode,
++		 "allow WiFi power management to be enabled. (default: disallowed)");
++
+ static const struct ieee80211_iface_limit mwifiex_ap_sta_limits[] = {
+ 	{
+ 		.max = MWIFIEX_MAX_BSS_NUM,
+@@ -435,6 +440,17 @@ mwifiex_cfg80211_set_power_mgmt(struct wiphy *wiphy,
+ 
+ 	ps_mode = enabled;
+ 
++	/* Allow ps_mode to be enabled only when allow_ps_mode is true */
++	if (ps_mode && !allow_ps_mode) {
++		mwifiex_dbg(priv->adapter, MSG,
++			    "Enabling ps_mode disallowed by modparam\n");
++
++		/* Return -EPERM to inform userspace tools that setting
++		 * power_save to be enabled is not permitted.
++		 */
++		return -EPERM;
++	}
++
+ 	return mwifiex_drv_set_power(priv, &ps_mode);
+ }
+ 
+-- 
+2.28.0
+
+From 0972cfcfd39efd4e4ef96db7843adb1742b1da7d Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Sun, 4 Oct 2020 00:38:48 +0900
+Subject: [PATCH] mwifiex: print message when changing ps_mode
+
+Users may want to know the ps_mode state change (e.g., diagnosing
+connection issues). This commit adds the print when changing ps_mode.
+
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/cfg80211.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+index 786f7a197613..8f4b8bc5ff03 100644
+--- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
++++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+@@ -451,6 +451,13 @@ mwifiex_cfg80211_set_power_mgmt(struct wiphy *wiphy,
+ 		return -EPERM;
+ 	}
+ 
++	if (ps_mode)
++		mwifiex_dbg(priv->adapter, MSG,
++			    "Enabling ps_mode, disable if unstable.\n");
++	else
++		mwifiex_dbg(priv->adapter, MSG,
++			    "Disabling ps_mode.\n");
++
+ 	return mwifiex_drv_set_power(priv, &ps_mode);
+ }
+ 
+-- 
+2.28.0
+
+From e22985a52f59503c3e7e85e71dae28f19d333beb Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Sun, 4 Oct 2020 00:59:37 +0900
+Subject: [PATCH] mwifiex: disable ps_mode explicitly by default instead
+
+At least on Surface devices, the ps_mode causes connection unstable,
+especially with 5GHz APs. Then, it eventually causes fw crashing.
+
+This commit disables ps_mode by default instead of enabling it.
+
+Required code is extracted from mwifiex_drv_set_power().
+
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/sta_cmd.c | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
+index d3a968ef21ef..9b7b52fbc9c4 100644
+--- a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
++++ b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
+@@ -2333,14 +2333,19 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
+ 			return -1;
+ 
+ 		if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
+-			/* Enable IEEE PS by default */
+-			priv->adapter->ps_mode = MWIFIEX_802_11_POWER_MODE_PSP;
++			/* Disable IEEE PS by default */
++			priv->adapter->ps_mode = MWIFIEX_802_11_POWER_MODE_CAM;
+ 			ret = mwifiex_send_cmd(priv,
+ 					       HostCmd_CMD_802_11_PS_MODE_ENH,
+-					       EN_AUTO_PS, BITMAP_STA_PS, NULL,
++					       DIS_AUTO_PS, BITMAP_STA_PS, NULL,
+ 					       true);
+ 			if (ret)
+ 				return -1;
++			ret = mwifiex_send_cmd(priv,
++					       HostCmd_CMD_802_11_PS_MODE_ENH,
++					       GET_PS, 0, NULL, false);
++			if (ret)
++				return -1;
+ 		}
+ 
+ 		if (drcs) {
+-- 
+2.28.0
+
