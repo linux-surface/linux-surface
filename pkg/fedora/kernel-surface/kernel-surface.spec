@@ -2,9 +2,9 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc33 kernel-5.8.15-301.fc33
-%global kernel_tag_fc32 kernel-5.8.15-201.fc32
-%global kernel_tag_fc31 kernel-5.8.15-101.fc31
+%global kernel_tag_fc33 kernel-5.8.16-300.fc33
+%global kernel_tag_fc32 kernel-5.8.16-200.fc32
+%global kernel_tag_fc31 kernel-5.8.16-100.fc31
 
 %global kernel_release_fc33 1
 %global kernel_release_fc32 1
@@ -14,7 +14,7 @@
 %global fedora_title_fc32 32 (Thirty Two)
 %global fedora_title_fc31 31 (Thirty One)
 
-%global ls_patches_commit cbffebd10168066d0d186646bc87692a4e9e8ce7
+%global ls_patches_commit ea2ecf7a1d562bb99bb7f2d25b70c0e1c378d815
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -90,9 +90,9 @@ Source101:  parallel_xz.sh
 Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-oemb.patch
 Patch1:     %{surface_source}/%{kernel_patches}/0002-wifi.patch
 Patch2:     %{surface_source}/%{kernel_patches}/0003-ipts.patch
-Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-sam.patch
+Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-gpe.patch
 Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam-over-hid.patch
-Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-gpe.patch
+Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam.patch
 Patch6:     %{surface_source}/%{kernel_patches}/0007-i2c-core-Restore-acpi_walk_dep_device_list-getting-c.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
