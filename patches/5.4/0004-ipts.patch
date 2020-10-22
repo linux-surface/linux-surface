@@ -1,8 +1,91 @@
-From 5f39b676103581dcfa4702ea3f921729c4c9a982 Mon Sep 17 00:00:00 2001
+From 4596b258b819644d212a9f8e4d20ebc4456c187d Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Mon, 27 Jan 2020 21:16:20 +0100
-Subject: [PATCH 4/8] ipts
+Subject: [PATCH] mei: Add IPTS device IDs
 
+Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
+Patchset: ipts
+---
+ drivers/misc/mei/hw-me-regs.h | 2 ++
+ drivers/misc/mei/pci-me.c     | 2 ++
+ 2 files changed, 4 insertions(+)
+
+diff --git a/drivers/misc/mei/hw-me-regs.h b/drivers/misc/mei/hw-me-regs.h
+index e56dc4754064..a55c61c89238 100644
+--- a/drivers/misc/mei/hw-me-regs.h
++++ b/drivers/misc/mei/hw-me-regs.h
+@@ -59,6 +59,7 @@
+ 
+ #define MEI_DEV_ID_SPT        0x9D3A  /* Sunrise Point */
+ #define MEI_DEV_ID_SPT_2      0x9D3B  /* Sunrise Point 2 */
++#define MEI_DEV_ID_SPT_4      0x9D3E  /* Sunrise Point 4 (iTouch) */
+ #define MEI_DEV_ID_SPT_H      0xA13A  /* Sunrise Point H */
+ #define MEI_DEV_ID_SPT_H_2    0xA13B  /* Sunrise Point H 2 */
+ 
+@@ -90,6 +91,7 @@
+ #define MEI_DEV_ID_CDF        0x18D3  /* Cedar Fork */
+ 
+ #define MEI_DEV_ID_ICP_LP     0x34E0  /* Ice Lake Point LP */
++#define MEI_DEV_ID_ICP_LP_4   0x34E4  /* Ice Lake Point LP 4 (iTouch) */
+ 
+ #define MEI_DEV_ID_TGP_LP     0xA0E0  /* Tiger Lake Point LP */
+ 
+diff --git a/drivers/misc/mei/pci-me.c b/drivers/misc/mei/pci-me.c
+index 75ab2ffbf235..78790904d77c 100644
+--- a/drivers/misc/mei/pci-me.c
++++ b/drivers/misc/mei/pci-me.c
+@@ -77,6 +77,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
+ 
+ 	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT, MEI_ME_PCH8_CFG)},
+ 	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT_2, MEI_ME_PCH8_CFG)},
++	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT_4, MEI_ME_PCH8_CFG)},
+ 	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT_H, MEI_ME_PCH8_SPS_CFG)},
+ 	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT_H_2, MEI_ME_PCH8_SPS_CFG)},
+ 	{MEI_PCI_DEVICE(MEI_DEV_ID_LBG, MEI_ME_PCH12_CFG)},
+@@ -103,6 +104,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
+ 	{MEI_PCI_DEVICE(MEI_DEV_ID_CMP_H_3, MEI_ME_PCH8_CFG)},
+ 
+ 	{MEI_PCI_DEVICE(MEI_DEV_ID_ICP_LP, MEI_ME_PCH12_CFG)},
++	{MEI_PCI_DEVICE(MEI_DEV_ID_ICP_LP_4, MEI_ME_PCH12_CFG)},
+ 
+ 	{MEI_PCI_DEVICE(MEI_DEV_ID_TGP_LP, MEI_ME_PCH12_CFG)},
+ 
+-- 
+2.28.0
+
+From 87fea2c77d752224b06dc4beee817fa26f2b1356 Mon Sep 17 00:00:00 2001
+From: Dorian Stoll <dorian.stoll@tmsp.io>
+Date: Fri, 20 Dec 2019 23:15:58 +0100
+Subject: [PATCH] uapi: Add MEI bus ID
+
+Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
+Patchset: ipts
+---
+ include/uapi/linux/input.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/include/uapi/linux/input.h b/include/uapi/linux/input.h
+index 9a61c28ed3ae..47fc20975245 100644
+--- a/include/uapi/linux/input.h
++++ b/include/uapi/linux/input.h
+@@ -271,6 +271,7 @@ struct input_mask {
+ #define BUS_RMI			0x1D
+ #define BUS_CEC			0x1E
+ #define BUS_INTEL_ISHTP		0x1F
++#define BUS_MEI			0x44
+ 
+ /*
+  * MT_TOOL types
+-- 
+2.28.0
+
+From 8c1f8a2a71c1c382d8b1606ff57a9f72cba1e5a6 Mon Sep 17 00:00:00 2001
+From: Dorian Stoll <dorian.stoll@tmsp.io>
+Date: Mon, 27 Jan 2020 21:22:42 +0100
+Subject: [PATCH] input: Add support for Intel Precise Touch & Stylus
+
+Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
+Patchset: ipts
 ---
  drivers/input/touchscreen/Kconfig             |   2 +
  drivers/input/touchscreen/Makefile            |   1 +
@@ -38,10 +121,7 @@ Subject: [PATCH 4/8] ipts
  drivers/input/touchscreen/ipts/singletouch.h  |  14 +
  drivers/input/touchscreen/ipts/stylus.c       | 179 ++++++++++++
  drivers/input/touchscreen/ipts/stylus.h       |  14 +
- drivers/misc/mei/hw-me-regs.h                 |   2 +
- drivers/misc/mei/pci-me.c                     |   2 +
- include/uapi/linux/input.h                    |   1 +
- 37 files changed, 1722 insertions(+)
+ 34 files changed, 1717 insertions(+)
  create mode 100644 drivers/input/touchscreen/ipts/Kconfig
  create mode 100644 drivers/input/touchscreen/ipts/Makefile
  create mode 100644 drivers/input/touchscreen/ipts/context.h
@@ -2004,58 +2084,6 @@ index 000000000000..5b93add1eac2
 +void ipts_stylus_free(struct ipts_context *ipts);
 +
 +#endif /* _IPTS_STYLUS_H_ */
-diff --git a/drivers/misc/mei/hw-me-regs.h b/drivers/misc/mei/hw-me-regs.h
-index e56dc4754064..a55c61c89238 100644
---- a/drivers/misc/mei/hw-me-regs.h
-+++ b/drivers/misc/mei/hw-me-regs.h
-@@ -59,6 +59,7 @@
- 
- #define MEI_DEV_ID_SPT        0x9D3A  /* Sunrise Point */
- #define MEI_DEV_ID_SPT_2      0x9D3B  /* Sunrise Point 2 */
-+#define MEI_DEV_ID_SPT_4      0x9D3E  /* Sunrise Point 4 (iTouch) */
- #define MEI_DEV_ID_SPT_H      0xA13A  /* Sunrise Point H */
- #define MEI_DEV_ID_SPT_H_2    0xA13B  /* Sunrise Point H 2 */
- 
-@@ -90,6 +91,7 @@
- #define MEI_DEV_ID_CDF        0x18D3  /* Cedar Fork */
- 
- #define MEI_DEV_ID_ICP_LP     0x34E0  /* Ice Lake Point LP */
-+#define MEI_DEV_ID_ICP_LP_4   0x34E4  /* Ice Lake Point LP 4 (iTouch) */
- 
- #define MEI_DEV_ID_TGP_LP     0xA0E0  /* Tiger Lake Point LP */
- 
-diff --git a/drivers/misc/mei/pci-me.c b/drivers/misc/mei/pci-me.c
-index 75ab2ffbf235..78790904d77c 100644
---- a/drivers/misc/mei/pci-me.c
-+++ b/drivers/misc/mei/pci-me.c
-@@ -77,6 +77,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
- 
- 	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT, MEI_ME_PCH8_CFG)},
- 	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT_2, MEI_ME_PCH8_CFG)},
-+	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT_4, MEI_ME_PCH8_CFG)},
- 	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT_H, MEI_ME_PCH8_SPS_CFG)},
- 	{MEI_PCI_DEVICE(MEI_DEV_ID_SPT_H_2, MEI_ME_PCH8_SPS_CFG)},
- 	{MEI_PCI_DEVICE(MEI_DEV_ID_LBG, MEI_ME_PCH12_CFG)},
-@@ -103,6 +104,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
- 	{MEI_PCI_DEVICE(MEI_DEV_ID_CMP_H_3, MEI_ME_PCH8_CFG)},
- 
- 	{MEI_PCI_DEVICE(MEI_DEV_ID_ICP_LP, MEI_ME_PCH12_CFG)},
-+	{MEI_PCI_DEVICE(MEI_DEV_ID_ICP_LP_4, MEI_ME_PCH12_CFG)},
- 
- 	{MEI_PCI_DEVICE(MEI_DEV_ID_TGP_LP, MEI_ME_PCH12_CFG)},
- 
-diff --git a/include/uapi/linux/input.h b/include/uapi/linux/input.h
-index 9a61c28ed3ae..47fc20975245 100644
---- a/include/uapi/linux/input.h
-+++ b/include/uapi/linux/input.h
-@@ -271,6 +271,7 @@ struct input_mask {
- #define BUS_RMI			0x1D
- #define BUS_CEC			0x1E
- #define BUS_INTEL_ISHTP		0x1F
-+#define BUS_MEI			0x44
- 
- /*
-  * MT_TOOL types
 -- 
 2.28.0
 
