@@ -1,4 +1,4 @@
-From be8c81503d5c12f775ad4530c39152a94a270cc9 Mon Sep 17 00:00:00 2001
+From 26efb765b5fa98ad3022fb93be3ed85e57e999d8 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 29 Oct 2020 22:04:38 +0100
 Subject: [PATCH] PCI: Allow D3cold for hot-plug ports on Surface Books
@@ -83,90 +83,67 @@ index c9338f914a0e..94371684783e 100644
 -- 
 2.29.2
 
-From 8b64dbc1c773df9c81e18a6bb3213bab01ec19bb Mon Sep 17 00:00:00 2001
+From 6a10f2a3c026fa6178dfd812a66fc321c395a946 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Sat, 31 Oct 2020 19:48:06 +0100
-Subject: [PATCH] PCI: Update platform power state when updating PCI state
+Date: Mon, 9 Nov 2020 14:23:00 +0100
+Subject: [PATCH] PCI: Run platform power transition on initial D0 entry
 
 On some devices and platforms, the initial platform power state is not
 in sync with the power state of the PCI device.
 
-Specifically, on the Surface Book 2 and 3, some ACPI power regions that
-should be "on" for the D0 state (and others) are initialized as "off" in
-ACPI, whereas the PCI device is in D0. As the state is updated in
-pci_enable_device_flags() without ensuring that the platform state is
-also updated, the power resource will never be properly turned on.
-Instead, it lives in a sort of on-but-marked-as-off zombie-state, which
-confuses things down the line when attempting to transition the device
-into D3cold: As the resource is already marked as off, it won't be
-turned off and the device does not fully enter D3cold, causing increased
-power consumption during (runtime-)suspend.
+pci_enable_device_flags() updates the state of a PCI device by reading
+from the the PCI_PM_CTRL register. This may change the stored power
+state of the device without running the appropriate platform power
+transition.
 
-Ensuring that the platform power state is in sync with the PCI power
-state when updating the latter guarantees that all required ACPI power
-regions are powered on/off in accordance with the requirements
-(specified in the ACPI _PRn fields) for the current PCI power state.
+Due to the stored power-state being changed, the later call to
+pci_set_power_state(..., PCI_D0) in do_pci_enable_device() can evaluate
+to a no-op if the stored state has been changed to D0 via that. This
+will then prevent the appropriate platform power transition to be run,
+which can on some devices and platforms lead to platform and PCI power
+state being entirely different, i.e. out-of-sync. On ACPI platforms,
+this can lead to power resources not being turned on, even though they
+are marked as required for D0.
+
+Specifically, on the Microsoft Surface Book 2 and 3, some ACPI power
+regions that should be "on" for the D0 state (and others) are
+initialized as "off" in ACPI, whereas the PCI device is in D0. As the
+state is updated in pci_enable_device_flags() without ensuring that the
+platform state is also updated, the power resource will never be
+properly turned on. Instead, it lives in a sort of on-but-marked-as-off
+zombie-state, which confuses things down the line when attempting to
+transition the device into D3cold: As the resource is already marked as
+off, it won't be turned off and the device does not fully enter D3cold,
+causing increased power consumption during (runtime-)suspend.
+
+By replacing pci_set_power_state() in do_pci_enable_device() with
+pci_power_up(), we can force pci_platform_power_transition() to be
+called, which will then check if the platform power state needs updating
+and appropriate actions need to be taken.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-sam
 ---
- drivers/pci/pci.c | 30 ++++++++++++++++++++++++++++--
- 1 file changed, 28 insertions(+), 2 deletions(-)
+ drivers/pci/pci.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/drivers/pci/pci.c b/drivers/pci/pci.c
-index 94371684783e..0d1ef894e9e6 100644
+index 94371684783e..56c564c698bd 100644
 --- a/drivers/pci/pci.c
 +++ b/drivers/pci/pci.c
-@@ -1731,7 +1731,7 @@ static void pci_enable_bridge(struct pci_dev *dev)
- static int pci_enable_device_flags(struct pci_dev *dev, unsigned long flags)
- {
- 	struct pci_dev *bridge;
--	int err;
-+	int err = 0;
- 	int i, bars = 0;
+@@ -1664,7 +1664,7 @@ static int do_pci_enable_device(struct pci_dev *dev, int bars)
+ 	u16 cmd;
+ 	u8 pin;
  
- 	/*
-@@ -1741,9 +1741,35 @@ static int pci_enable_device_flags(struct pci_dev *dev, unsigned long flags)
- 	 * (e.g. if the device really is in D0 at enable time).
- 	 */
- 	if (dev->pm_cap) {
-+		pci_power_t current_state;
- 		u16 pmcsr;
-+
- 		pci_read_config_word(dev, dev->pm_cap + PCI_PM_CTRL, &pmcsr);
--		dev->current_state = (pmcsr & PCI_PM_CTRL_STATE_MASK);
-+		current_state = (pmcsr & PCI_PM_CTRL_STATE_MASK);
-+
-+		/*
-+		 * On some platforms, the initial power state may not be in
-+		 * sync with the PCI power state. Specifically, on ACPI based
-+		 * platforms, power-resources for the current state may not
-+		 * have been properly enabled (or power-resources not required
-+		 * for the current state disabled) yet. Thus, ensure that the
-+		 * platform power state reflects the PCI state.
-+		 *
-+		 * Update platform state before actually setting current state
-+		 * so that it can still be accessed in platform code, if
-+		 * necessary.
-+		 */
-+		if (platform_pci_power_manageable(dev))
-+			err = platform_pci_set_power_state(dev, current_state);
-+
-+		// always update current state
-+		dev->current_state = current_state;
-+
-+		if (err) {
-+			pci_err(dev, "failed to update platform power state: %d\n",
-+				err);
-+			return err;
-+		}
- 	}
+-	err = pci_set_power_state(dev, PCI_D0);
++	err = pci_power_up(dev);
+ 	if (err < 0 && err != -EIO)
+ 		return err;
  
- 	if (atomic_inc_return(&dev->enable_cnt) > 1)
 -- 
 2.29.2
 
-From dd133384e8eee7077766e76d7c26e878f4cc76c6 Mon Sep 17 00:00:00 2001
+From 2b003cf04cb97c27f26845f1a3f3454d8c877982 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 31 Oct 2020 20:46:33 +0100
 Subject: [PATCH] PCI: Add sysfs attribute for PCI device power state
@@ -239,7 +216,7 @@ index 6d78df981d41..17f186ce8e87 100644
 -- 
 2.29.2
 
-From 5d1e25f6d0d9688d4961c2d85a6efb014182d5d0 Mon Sep 17 00:00:00 2001
+From 359390681494f1aa49f0ca5fc1b4f2a14ffd3d5d Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] misc: surface_sam: Add file2alias support for Surface SAM
@@ -341,7 +318,7 @@ index 9599e2a3f1e6..079672e0747a 100644
 -- 
 2.29.2
 
-From 10e60e8efb629e95fb3984e807a929a416bbc75f Mon Sep 17 00:00:00 2001
+From c3a8945b91ccdf99fc7eea0c31b8cb88f7a81a7a Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] misc: Add support for Surface System Aggregator Module
@@ -381,12 +358,12 @@ Patchset: surface-sam
  .../clients/surface_acpi_notify.c             |  884 ++++++
  .../clients/surface_aggregator_cdev.c         |  299 ++
  .../clients/surface_aggregator_registry.c     |  656 +++++
- .../clients/surface_battery.c                 | 1195 ++++++++
- .../surface_aggregator/clients/surface_dtx.c  | 1277 ++++++++
- .../surface_aggregator/clients/surface_hid.c  |  925 ++++++
+ .../clients/surface_battery.c                 | 1192 ++++++++
+ .../surface_aggregator/clients/surface_dtx.c  | 1279 +++++++++
+ .../surface_aggregator/clients/surface_hid.c  |  922 ++++++
  .../clients/surface_hotplug.c                 |  269 ++
  .../clients/surface_perfmode.c                |  122 +
- drivers/misc/surface_aggregator/controller.c  | 2555 +++++++++++++++++
+ drivers/misc/surface_aggregator/controller.c  | 2557 +++++++++++++++++
  drivers/misc/surface_aggregator/controller.h  |  288 ++
  drivers/misc/surface_aggregator/core.c        |  831 ++++++
  drivers/misc/surface_aggregator/ssh_msgb.h    |  201 ++
@@ -399,14 +376,14 @@ Patchset: surface-sam
  drivers/misc/surface_aggregator/trace.h       |  625 ++++
  include/linux/mod_devicetable.h               |    5 +-
  include/linux/surface_acpi_notify.h           |   39 +
- include/linux/surface_aggregator/controller.h |  815 ++++++
+ include/linux/surface_aggregator/controller.h |  832 ++++++
  include/linux/surface_aggregator/device.h     |  430 +++
  include/linux/surface_aggregator/serial_hub.h |  659 +++++
  include/uapi/linux/surface_aggregator/cdev.h  |   58 +
  include/uapi/linux/surface_aggregator/dtx.h   |  150 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 48 files changed, 18808 insertions(+), 7 deletions(-)
+ 48 files changed, 18823 insertions(+), 7 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -3136,7 +3113,7 @@ index 000000000000..7320922ba755
 +obj-$(CONFIG_SURFACE_PERFMODE) 			+= surface_perfmode.o
 diff --git a/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c b/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c
 new file mode 100644
-index 000000000000..9010f3aafd28
+index 000000000000..7a5b8f280036
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c
 @@ -0,0 +1,884 @@
@@ -3728,8 +3705,8 @@ index 000000000000..9010f3aafd28
 +		return san_rqst_fixup_suspended(d, &rqst, buffer);
 +	}
 +
-+	status = ssam_retry(ssam_request_sync_onstack, SAN_REQUEST_NUM_TRIES,
-+			    d->ctrl, &rqst, &rsp, SAN_GSB_MAX_RQSX_PAYLOAD);
++	status = __ssam_retry(ssam_request_sync_onstack, SAN_REQUEST_NUM_TRIES,
++			      d->ctrl, &rqst, &rsp, SAN_GSB_MAX_RQSX_PAYLOAD);
 +
 +	if (!status) {
 +		gsb_rqsx_response_success(buffer, rsp.pointer, rsp.length);
@@ -4331,7 +4308,7 @@ index 000000000000..f5e81cd67357
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c b/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
 new file mode 100644
-index 000000000000..569d1b96bb1a
+index 000000000000..77ef266b88f3
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
 @@ -0,0 +1,656 @@
@@ -4654,7 +4631,7 @@ index 000000000000..569d1b96bb1a
 +	u8 opmode;
 +	int status;
 +
-+	status = ssam_bas_query_opmode(sdev->ctrl, &opmode);
++	status = ssam_retry(ssam_bas_query_opmode, sdev->ctrl, &opmode);
 +	if (status < 0) {
 +		dev_err(&sdev->dev, "failed to query base state: %d\n", status);
 +		return status;
@@ -4993,10 +4970,10 @@ index 000000000000..569d1b96bb1a
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_battery.c b/drivers/misc/surface_aggregator/clients/surface_battery.c
 new file mode 100644
-index 000000000000..e1e0804eeb54
+index 000000000000..7ed9ba3f98d7
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_battery.c
-@@ -0,0 +1,1195 @@
+@@ -0,0 +1,1192 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface battery and AC device driver.
@@ -5017,9 +4994,6 @@ index 000000000000..e1e0804eeb54
 +#include <linux/workqueue.h>
 +
 +#include <linux/surface_aggregator/device.h>
-+
-+#define SPWR_RETRY			3
-+#define spwr_retry(fn, args...)		ssam_retry(fn, SPWR_RETRY, args)
 +
 +#define SPWR_AC_BAT_UPDATE_DELAY	msecs_to_jiffies(5000)
 +
@@ -5249,7 +5223,7 @@ index 000000000000..e1e0804eeb54
 +
 +static int spwr_battery_load_sta(struct spwr_battery_device *bat)
 +{
-+	return spwr_retry(ssam_bat_get_sta, bat->sdev, &bat->sta);
++	return ssam_retry(ssam_bat_get_sta, bat->sdev, &bat->sta);
 +}
 +
 +static int spwr_battery_load_bix(struct spwr_battery_device *bat)
@@ -5259,7 +5233,7 @@ index 000000000000..e1e0804eeb54
 +	if (!spwr_battery_present(bat))
 +		return 0;
 +
-+	status = spwr_retry(ssam_bat_get_bix, bat->sdev, &bat->bix);
++	status = ssam_retry(ssam_bat_get_bix, bat->sdev, &bat->bix);
 +
 +	// enforce NULL terminated strings in case anything goes wrong...
 +	bat->bix.model[ARRAY_SIZE(bat->bix.model) - 1] = 0;
@@ -5275,7 +5249,7 @@ index 000000000000..e1e0804eeb54
 +	if (!spwr_battery_present(bat))
 +		return 0;
 +
-+	return spwr_retry(ssam_bat_get_bst, bat->sdev, &bat->bst);
++	return ssam_retry(ssam_bat_get_bst, bat->sdev, &bat->bst);
 +}
 +
 +static int spwr_battery_set_alarm_unlocked(struct spwr_battery_device *bat,
@@ -5284,7 +5258,7 @@ index 000000000000..e1e0804eeb54
 +	__le32 value_le = cpu_to_le32(value);
 +
 +	bat->alarm = value;
-+	return spwr_retry(ssam_bat_set_btp, bat->sdev, &value_le);
++	return ssam_retry(ssam_bat_set_btp, bat->sdev, &value_le);
 +}
 +
 +static int spwr_battery_set_alarm(struct spwr_battery_device *bat, u32 value)
@@ -5361,7 +5335,7 @@ index 000000000000..e1e0804eeb54
 +	int status;
 +	u32 old = ac->state;
 +
-+	status = spwr_retry(ssam_bat_get_psrc, ac->sdev, &ac->state);
++	status = ssam_retry(ssam_bat_get_psrc, ac->sdev, &ac->state);
 +	if (status < 0)
 +		return status;
 +
@@ -5889,7 +5863,7 @@ index 000000000000..e1e0804eeb54
 +	int status;
 +
 +	// make sure the device is there and functioning properly
-+	status = spwr_retry(ssam_bat_get_sta, ac->sdev, &sta);
++	status = ssam_retry(ssam_bat_get_sta, ac->sdev, &sta);
 +	if (status)
 +		return status;
 +
@@ -5952,7 +5926,7 @@ index 000000000000..e1e0804eeb54
 +	int status;
 +
 +	// make sure the device is there and functioning properly
-+	status = spwr_retry(ssam_bat_get_sta, bat->sdev, &sta);
++	status = ssam_retry(ssam_bat_get_sta, bat->sdev, &sta);
 +	if (status)
 +		return status;
 +
@@ -6194,10 +6168,10 @@ index 000000000000..e1e0804eeb54
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_dtx.c b/drivers/misc/surface_aggregator/clients/surface_dtx.c
 new file mode 100644
-index 000000000000..588931ddcb48
+index 000000000000..346b54848b8f
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_dtx.c
-@@ -0,0 +1,1277 @@
+@@ -0,0 +1,1279 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface Book (gen. 2 and later) detachment system (DTX) driver.
@@ -6486,7 +6460,7 @@ index 000000000000..588931ddcb48
 +	struct sdtx_base_info info;
 +	int status;
 +
-+	status = ssam_bas_get_base(ddev->ctrl, &raw);
++	status = ssam_retry(ssam_bas_get_base, ddev->ctrl, &raw);
 +	if (status < 0)
 +		return status;
 +
@@ -6504,7 +6478,7 @@ index 000000000000..588931ddcb48
 +	u8 mode;
 +	int status;
 +
-+	status = ssam_bas_get_device_mode(ddev->ctrl, &mode);
++	status = ssam_retry(ssam_bas_get_device_mode, ddev->ctrl, &mode);
 +	if (status < 0)
 +		return status;
 +
@@ -6516,7 +6490,7 @@ index 000000000000..588931ddcb48
 +	u8 latch;
 +	int status;
 +
-+	status = ssam_bas_get_latch_status(ddev->ctrl, &latch);
++	status = ssam_retry(ssam_bas_get_latch_status, ddev->ctrl, &latch);
 +	if (status < 0)
 +		return status;
 +
@@ -6538,22 +6512,22 @@ index 000000000000..588931ddcb48
 +		return 0;
 +
 +	case SDTX_IOCTL_LATCH_LOCK:
-+		return ssam_bas_latch_lock(ddev->ctrl);
++		return ssam_retry(ssam_bas_latch_lock, ddev->ctrl);
 +
 +	case SDTX_IOCTL_LATCH_UNLOCK:
-+		return ssam_bas_latch_unlock(ddev->ctrl);
++		return ssam_retry(ssam_bas_latch_unlock, ddev->ctrl);
 +
 +	case SDTX_IOCTL_LATCH_REQUEST:
-+		return ssam_bas_latch_request(ddev->ctrl);
++		return ssam_retry(ssam_bas_latch_request, ddev->ctrl);
 +
 +	case SDTX_IOCTL_LATCH_CONFIRM:
-+		return ssam_bas_latch_confirm(ddev->ctrl);
++		return ssam_retry(ssam_bas_latch_confirm, ddev->ctrl);
 +
 +	case SDTX_IOCTL_LATCH_HEARTBEAT:
-+		return ssam_bas_latch_heartbeat(ddev->ctrl);
++		return ssam_retry(ssam_bas_latch_heartbeat, ddev->ctrl);
 +
 +	case SDTX_IOCTL_LATCH_CANCEL:
-+		return ssam_bas_latch_cancel(ddev->ctrl);
++		return ssam_retry(ssam_bas_latch_cancel, ddev->ctrl);
 +
 +	case SDTX_IOCTL_GET_BASE_INFO:
 +		return sdtx_ioctl_get_base_info(ddev,
@@ -6934,14 +6908,14 @@ index 000000000000..588931ddcb48
 +	ddev = container_of(work, struct sdtx_device, mode_work.work);
 +
 +	// get operation mode
-+	status = ssam_bas_get_device_mode(ddev->ctrl, &mode);
++	status = ssam_retry(ssam_bas_get_device_mode, ddev->ctrl, &mode);
 +	if (status) {
 +		dev_err(ddev->dev, "failed to get device mode: %d\n", status);
 +		return;
 +	}
 +
 +	// get base info
-+	status = ssam_bas_get_base(ddev->ctrl, &base);
++	status = ssam_retry(ssam_bas_get_base, ddev->ctrl, &base);
 +	if (status) {
 +		dev_err(ddev->dev, "failed to get base info: %d\n", status);
 +		return;
@@ -7085,19 +7059,19 @@ index 000000000000..588931ddcb48
 +	 */
 +	smp_mb__after_atomic();
 +
-+	status = ssam_bas_get_base(ddev->ctrl, &base);
++	status = ssam_retry(ssam_bas_get_base, ddev->ctrl, &base);
 +	if (status) {
 +		dev_err(ddev->dev, "failed to get base state: %d\n", status);
 +		return;
 +	}
 +
-+	status = ssam_bas_get_device_mode(ddev->ctrl, &mode);
++	status = ssam_retry(ssam_bas_get_device_mode, ddev->ctrl, &mode);
 +	if (status) {
 +		dev_err(ddev->dev, "failed to get device mode: %d\n", status);
 +		return;
 +	}
 +
-+	status = ssam_bas_get_latch_status(ddev->ctrl, &latch);
++	status = ssam_retry(ssam_bas_get_latch_status, ddev->ctrl, &latch);
 +	if (status) {
 +		dev_err(ddev->dev, "failed to get latch status: %d\n", status);
 +		return;
@@ -7175,15 +7149,17 @@ index 000000000000..588931ddcb48
 +	 * Note that we also need to do this before registring the event
 +	 * notifier, as that may access the state values.
 +	 */
-+	status = ssam_bas_get_base(ddev->ctrl, &ddev->state.base);
++	status = ssam_retry(ssam_bas_get_base, ddev->ctrl, &ddev->state.base);
 +	if (status)
 +		return status;
 +
-+	status = ssam_bas_get_device_mode(ddev->ctrl, &ddev->state.device_mode);
++	status = ssam_retry(ssam_bas_get_device_mode, ddev->ctrl,
++			    &ddev->state.device_mode);
 +	if (status)
 +		return status;
 +
-+	status = ssam_bas_get_latch_status(ddev->ctrl, &ddev->state.latch_status);
++	status = ssam_retry(ssam_bas_get_latch_status, ddev->ctrl,
++			    &ddev->state.latch_status);
 +	if (status)
 +		return status;
 +
@@ -7477,10 +7453,10 @@ index 000000000000..588931ddcb48
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_hid.c b/drivers/misc/surface_aggregator/clients/surface_hid.c
 new file mode 100644
-index 000000000000..60691800e7e5
+index 000000000000..033abc9aa95e
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_hid.c
-@@ -0,0 +1,925 @@
+@@ -0,0 +1,922 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface System Aggregator Module (SSAM) HID device driver.
@@ -7504,9 +7480,6 @@ index 000000000000..60691800e7e5
 +
 +#include <linux/surface_aggregator/controller.h>
 +#include <linux/surface_aggregator/device.h>
-+
-+#define SHID_RETRY			3
-+#define shid_retry(fn, args...)		ssam_retry(fn, SHID_RETRY, args)
 +
 +
 +enum surface_hid_descriptor_entry {
@@ -7629,7 +7602,7 @@ index 000000000000..60691800e7e5
 +
 +		rsp.length = 0;
 +
-+		status = shid_retry(ssam_request_sync_onstack, shid->ctrl,
++		status = ssam_retry(ssam_request_sync_onstack, shid->ctrl,
 +				    &rqst, &rsp, sizeof(*slice));
 +		if (status)
 +			return status;
@@ -7681,7 +7654,7 @@ index 000000000000..60691800e7e5
 +
 +	buf[0] = report_id;
 +
-+	return shid_retry(ssam_request_sync, shid->ctrl, &rqst, NULL);
++	return ssam_retry(ssam_request_sync, shid->ctrl, &rqst, NULL);
 +}
 +
 +static int ssam_hid_get_raw_report(struct surface_hid_device *shid,
@@ -7702,7 +7675,7 @@ index 000000000000..60691800e7e5
 +	rsp.length = 0;
 +	rsp.pointer = buf;
 +
-+	return shid_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
++	return ssam_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
 +			  sizeof(report_id));
 +}
 +
@@ -7787,7 +7760,7 @@ index 000000000000..60691800e7e5
 +	rsp.length = 0;
 +	rsp.pointer = buf;
 +
-+	status = shid_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
++	status = ssam_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
 +			    sizeof(entry));
 +	if (status)
 +		return status;
@@ -7814,7 +7787,7 @@ index 000000000000..60691800e7e5
 +	rqst.length = sizeof(value_u8);
 +	rqst.payload = &value_u8;
 +
-+	return shid_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, NULL,
++	return ssam_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, NULL,
 +			  sizeof(value_u8));
 +}
 +
@@ -7838,7 +7811,7 @@ index 000000000000..60691800e7e5
 +	rsp.length = 0;
 +	rsp.pointer = buf;
 +
-+	status = shid_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
++	status = ssam_retry(ssam_request_sync_onstack, shid->ctrl, &rqst, &rsp,
 +			    sizeof(payload));
 +	if (status)
 +		return status;
@@ -8683,7 +8656,7 @@ index 000000000000..9afddfc6a358
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_perfmode.c b/drivers/misc/surface_aggregator/clients/surface_perfmode.c
 new file mode 100644
-index 000000000000..006601b3bea6
+index 000000000000..e13f4995b28b
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_perfmode.c
 @@ -0,0 +1,122 @@
@@ -8739,7 +8712,7 @@ index 000000000000..006601b3bea6
 +	if (mode < __SAM_PERF_MODE__MIN || mode > __SAM_PERF_MODE__MAX)
 +		return -EINVAL;
 +
-+	return __ssam_tmp_perf_mode_set(sdev, &mode_le);
++	return ssam_retry(__ssam_tmp_perf_mode_set, sdev, &mode_le);
 +}
 +
 +static ssize_t perf_mode_show(struct device *dev, struct device_attribute *attr,
@@ -8749,7 +8722,7 @@ index 000000000000..006601b3bea6
 +	struct ssam_perf_info info;
 +	int status;
 +
-+	status = ssam_tmp_perf_mode_get(sdev, &info);
++	status = ssam_retry(ssam_tmp_perf_mode_get, sdev, &info);
 +	if (status) {
 +		dev_err(dev, "failed to get current performance mode: %d\n",
 +			status);
@@ -8811,10 +8784,10 @@ index 000000000000..006601b3bea6
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/controller.c b/drivers/misc/surface_aggregator/controller.c
 new file mode 100644
-index 000000000000..c5d19feb4d38
+index 000000000000..feee7c7c5945
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/controller.c
-@@ -0,0 +1,2555 @@
+@@ -0,0 +1,2557 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Main SSAM/SSH controller structure and functionality.
@@ -10634,7 +10607,8 @@ index 000000000000..c5d19feb4d38
 +	result.length = 0;
 +	result.pointer = buf;
 +
-+	status = ssam_request_sync_onstack(ctrl, &rqst, &result, sizeof(params));
++	status = ssam_retry(ssam_request_sync_onstack, ctrl, &rqst, &result,
++			    sizeof(params));
 +	if (status) {
 +		ssam_err(ctrl, "failed to enable event source (tc: 0x%02x, "
 +			 "iid: 0x%02x, reg: 0x%02x)\n", id.target_category,
@@ -10702,7 +10676,8 @@ index 000000000000..c5d19feb4d38
 +	result.length = 0;
 +	result.pointer = buf;
 +
-+	status = ssam_request_sync_onstack(ctrl, &rqst, &result, sizeof(params));
++	status = ssam_retry(ssam_request_sync_onstack, ctrl, &rqst, &result,
++			    sizeof(params));
 +	if (status) {
 +		ssam_err(ctrl, "failed to disable event source (tc: 0x%02x, "
 +			 "iid: 0x%02x, reg: 0x%02x)\n", id.target_category,
@@ -10736,7 +10711,7 @@ index 000000000000..c5d19feb4d38
 +	__le32 __version;
 +	int status;
 +
-+	status = ssam_ssh_get_firmware_version(ctrl, &__version);
++	status = ssam_retry(ssam_ssh_get_firmware_version, ctrl, &__version);
 +	if (status)
 +		return status;
 +
@@ -10778,7 +10753,7 @@ index 000000000000..c5d19feb4d38
 +
 +	ssam_dbg(ctrl, "pm: notifying display off\n");
 +
-+	status = ssam_ssh_notif_display_off(ctrl, &response);
++	status = ssam_retry(ssam_ssh_notif_display_off, ctrl, &response);
 +	if (status)
 +		return status;
 +
@@ -10817,7 +10792,7 @@ index 000000000000..c5d19feb4d38
 +
 +	ssam_dbg(ctrl, "pm: notifying display on\n");
 +
-+	status = ssam_ssh_notif_display_on(ctrl, &response);
++	status = ssam_retry(ssam_ssh_notif_display_on, ctrl, &response);
 +	if (status)
 +		return status;
 +
@@ -10859,7 +10834,7 @@ index 000000000000..c5d19feb4d38
 +
 +	ssam_dbg(ctrl, "pm: notifying D0 exit\n");
 +
-+	status = ssam_ssh_notif_d0_exit(ctrl, &response);
++	status = ssam_retry(ssam_ssh_notif_d0_exit, ctrl, &response);
 +	if (status)
 +		return status;
 +
@@ -10901,7 +10876,7 @@ index 000000000000..c5d19feb4d38
 +
 +	ssam_dbg(ctrl, "pm: notifying D0 entry\n");
 +
-+	status = ssam_ssh_notif_d0_entry(ctrl, &response);
++	status = ssam_retry(ssam_ssh_notif_d0_entry, ctrl, &response);
 +	if (status)
 +		return status;
 +
@@ -17411,10 +17386,10 @@ index 000000000000..8e3e86c7d78c
 +#endif /* _LINUX_SURFACE_ACPI_NOTIFY_H */
 diff --git a/include/linux/surface_aggregator/controller.h b/include/linux/surface_aggregator/controller.h
 new file mode 100644
-index 000000000000..447cda590409
+index 000000000000..d128c68c04e0
 --- /dev/null
 +++ b/include/linux/surface_aggregator/controller.h
-@@ -0,0 +1,815 @@
+@@ -0,0 +1,832 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * Surface System Aggregator Module (SSAM) controller interface.
@@ -17663,7 +17638,7 @@ index 000000000000..447cda590409
 +	})
 +
 +/**
-+ * ssam_retry - Retry request in case of I/O errors or timeouts.
++ * __ssam_retry - Retry request in case of I/O errors or timeouts.
 + * @request: The request function to execute. Must return an integer.
 + * @n:       Number of tries.
 + * @args:    Arguments for the request function.
@@ -17675,7 +17650,7 @@ index 000000000000..447cda590409
 + *
 + * Return: Returns the return value of the last execution of @request.
 + */
-+#define ssam_retry(request, n, args...)					\
++#define __ssam_retry(request, n, args...)				\
 +	({								\
 +		int __i, __s = 0;					\
 +									\
@@ -17687,6 +17662,23 @@ index 000000000000..447cda590409
 +		__s;							\
 +	})
 +
++/**
++ * ssam_retry - Retry request in case of I/O errors or timeouts up to three
++ * times in total.
++ * @request: The request function to execute. Must return an integer.
++ * @args:    Arguments for the request function.
++ *
++ * Executes the given request function, i.e. calls @request. In case the
++ * request returns %-EREMOTEIO (indicates I/O error) or -%ETIMEDOUT (request
++ * or underlying packet timed out), @request will be re-executed again, up to
++ * three times in total.
++ *
++ * See __ssam_retry() for a more generic macro for this purpose.
++ *
++ * Return: Returns the return value of the last execution of @request.
++ */
++#define ssam_retry(request, args...) \
++	__ssam_retry(request, 3, args)
 +
 +/**
 + * struct ssam_request_spec - Blue-print specification of SAM request.
