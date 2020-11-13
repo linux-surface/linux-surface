@@ -6,15 +6,15 @@
 %global kernel_tag_fc32 kernel-5.8.18-200.fc32
 %global kernel_tag_fc31 kernel-5.8.18-100.fc31
 
-%global kernel_release_fc33 2
-%global kernel_release_fc32 2
-%global kernel_release_fc31 2
+%global kernel_release_fc33 3
+%global kernel_release_fc32 3
+%global kernel_release_fc31 3
 
 %global fedora_title_fc33 33 (Thirty Three)
 %global fedora_title_fc32 32 (Thirty Two)
 %global fedora_title_fc31 31 (Thirty One)
 
-%global ls_patches_commit c4b1d6dac4938c19015f1650076a8371db81592f
+%global ls_patches_commit e6fdaf8ddd82b3e18725b60e29a0a0bc3b05714c
 
 %global sb_crt surface.crt
 %global sb_key surface.key
