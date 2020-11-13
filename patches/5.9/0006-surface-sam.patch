@@ -1,4 +1,4 @@
-From 84fcc76b6ec6fb447d76e367695b35cce5fbea8e Mon Sep 17 00:00:00 2001
+From 0b304873e92c778debadaabbbe19b69420d8faa8 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 29 Oct 2020 22:04:38 +0100
 Subject: [PATCH] PCI: Allow D3cold for hot-plug ports on Surface Books
@@ -83,7 +83,7 @@ index e39c5499770f..31d8811ee5c5 100644
 -- 
 2.29.2
 
-From 989461594c2a167d8292a217a05563341c792dbf Mon Sep 17 00:00:00 2001
+From a5497a7cc5c0befecf73d65b6af83f45f08389f8 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 9 Nov 2020 14:23:00 +0100
 Subject: [PATCH] PCI: Run platform power transition on initial D0 entry
@@ -143,7 +143,7 @@ index 31d8811ee5c5..4d652c3abae8 100644
 -- 
 2.29.2
 
-From e2c51058cff0cf3d07661843a15985ca5fcaabe4 Mon Sep 17 00:00:00 2001
+From 69f385511d829a997aabfe92a44416af6d5f9ada Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 31 Oct 2020 20:46:33 +0100
 Subject: [PATCH] PCI: Add sysfs attribute for PCI device power state
@@ -216,7 +216,7 @@ index 6d78df981d41..17f186ce8e87 100644
 -- 
 2.29.2
 
-From 7dfe04d75bc2e8384291feb37c2873c924aa4ea1 Mon Sep 17 00:00:00 2001
+From 4046882cdbccb918c844d260e8594b4e753d6354 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] misc: surface_sam: Add file2alias support for Surface SAM
@@ -318,7 +318,7 @@ index 2417dd1dee33..a6c583362b92 100644
 -- 
 2.29.2
 
-From 920c67f6103567f540fe84069833051429e12a45 Mon Sep 17 00:00:00 2001
+From 16d3d210570364fe10baf6dd740cb09817097fa9 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] misc: Add support for Surface System Aggregator Module
@@ -485,7 +485,7 @@ index 000000000000..a1117d57036a
 +    :export:
 diff --git a/Documentation/driver-api/surface_aggregator/client.rst b/Documentation/driver-api/surface_aggregator/client.rst
 new file mode 100644
-index 000000000000..41c17bb63bef
+index 000000000000..f1275bf53837
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/client.rst
 @@ -0,0 +1,394 @@
@@ -548,7 +548,7 @@ index 000000000000..41c17bb63bef
 +|ssam_client_link|). It is important to do this, as it, first, guarantees
 +that the returned controller is valid for use in the client driver for as
 +long as this driver is bound to its device, i.e. that the driver gets
-+un-bound before the controller ever becomes invalid, and, second, as it
++unbound before the controller ever becomes invalid, and, second, as it
 +ensures correct suspend/resume ordering. This setup should be done in the
 +driver's probe function, and may be used to defer probing in case the SSAM
 +subsystem is not ready yet, for example:
@@ -573,7 +573,7 @@ index 000000000000..41c17bb63bef
 +lifetime be guaranteed via |ssam_controller_get| and |ssam_controller_put|.
 +Note that none of these functions, however, guarantee that the controller
 +will not be shut down or suspended. These functions essentially only operate
-+on the reference, i.e. only guarantee a bare minimum of accessability
++on the reference, i.e. only guarantee a bare minimum of accessibility
 +without any guarantees at all on practical operability.
 +
 +
@@ -709,7 +709,7 @@ index 000000000000..41c17bb63bef
 +            *   ssam_request_sync_onstack(ctrl, &rqst, &resp, sizeof(arg_le));
 +            *
 +            * to perform the request, allocating the message buffer directly
-+            * on the stack as opposed to via kzalloc(.
++            * on the stack as opposed to via kzalloc().
 +            */
 +
 +           /*
@@ -757,12 +757,12 @@ index 000000000000..41c17bb63bef
 +
 +- :c:func:`SSAM_DEFINE_SYNC_REQUEST_N` for requests without return value and
 +  without argument.
-+- :c:func:`SSAM_DEFINE_SYNC_REQUEST_R` for equests with return value but no
++- :c:func:`SSAM_DEFINE_SYNC_REQUEST_R` for requests with return value but no
 +  argument.
 +- :c:func:`SSAM_DEFINE_SYNC_REQUEST_W` for requests without return value but
 +  with argument.
 +
-+Refer to their respecitve documentation for more details. For each one of
++Refer to their respective documentation for more details. For each one of
 +these macros, a special variant is provided, which targets request types
 +applicable to multiple instances of the same device type:
 +
@@ -885,7 +885,7 @@ index 000000000000..41c17bb63bef
 +with the same flag and it is considered a bug to do otherwise.
 diff --git a/Documentation/driver-api/surface_aggregator/clients/cdev.rst b/Documentation/driver-api/surface_aggregator/clients/cdev.rst
 new file mode 100644
-index 000000000000..63b5afcb89b5
+index 000000000000..720c9c03aa0e
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/clients/cdev.rst
 @@ -0,0 +1,85 @@
@@ -901,7 +901,7 @@ index 000000000000..63b5afcb89b5
 +==============================
 +
 +The ``surface_aggregator_cdev`` module provides a misc-device for the SSAM
-+controller to allow for a (more or less) direct connection from userspace to
++controller to allow for a (more or less) direct connection from user-space to
 +the SAM EC. It is intended to be used for development and debugging, and
 +therefore should not be used or relied upon in any other way. Note that this
 +module is not loaded automatically, but instead must be loaded manually.
@@ -1928,7 +1928,7 @@ index 000000000000..6c020b87ad62
 +API and interface options for other kernel drivers.
 diff --git a/Documentation/driver-api/surface_aggregator/overview.rst b/Documentation/driver-api/surface_aggregator/overview.rst
 new file mode 100644
-index 000000000000..06d49ce001e7
+index 000000000000..b4ef7e25748c
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/overview.rst
 @@ -0,0 +1,76 @@
@@ -1999,7 +1999,7 @@ index 000000000000..06d49ce001e7
 +
 +As already elaborated above, the Surface Serial Hub (SSH) is the
 +communication interface for SAM on 5th- and all later-generation Surface
-+devices. On the highest level, communication can be sparated into two main
++devices. On the highest level, communication can be separated into two main
 +types: Requests, messages sent from host to EC that may trigger a direct
 +response from the EC (explicitly associated with the request), and events
 +(sometimes also referred to as notifications), sent from EC to host without

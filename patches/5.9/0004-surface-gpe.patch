@@ -1,4 +1,4 @@
-From c48e6dbc46e67d74e563d4bb7a01c30d79cfa757 Mon Sep 17 00:00:00 2001
+From f8a8b8e8f6eee845f60e7d56e648fc4fe0ebfd31 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 16 Aug 2020 23:39:56 +0200
 Subject: [PATCH] platform/x86: Add Driver to set up lid GPEs on MS Surface
@@ -33,8 +33,8 @@ Patchset: surface-gpe
 ---
  drivers/platform/x86/Kconfig       |   9 +
  drivers/platform/x86/Makefile      |   1 +
- drivers/platform/x86/surface_gpe.c | 309 +++++++++++++++++++++++++++++
- 3 files changed, 319 insertions(+)
+ drivers/platform/x86/surface_gpe.c | 321 +++++++++++++++++++++++++++++
+ 3 files changed, 331 insertions(+)
  create mode 100644 drivers/platform/x86/surface_gpe.c
 
 diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
@@ -71,10 +71,10 @@ index 5f823f7eff45..c0d1c753eb3c 100644
  obj-$(CONFIG_MSI_LAPTOP)	+= msi-laptop.o
 diff --git a/drivers/platform/x86/surface_gpe.c b/drivers/platform/x86/surface_gpe.c
 new file mode 100644
-index 000000000000..88b952ee9b8b
+index 000000000000..573dc52f568f
 --- /dev/null
 +++ b/drivers/platform/x86/surface_gpe.c
-@@ -0,0 +1,309 @@
+@@ -0,0 +1,321 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Surface GPE/Lid driver to enable wakeup from suspend via the lid by
@@ -220,6 +220,18 @@ index 000000000000..88b952ee9b8b
 +			 */
 +			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
 +			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_3_1867:1868"),
++		},
++		.driver_data = (void *)lid_device_props_l4D,
++	},
++	{
++		.ident = "Surface Laptop 3 (Intel 15\")",
++		.matches = {
++			/*
++			 * We match for SKU here due to different vairants: The
++			 * AMD (15") version does not rely on GPEs.
++			 */
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_3_1872"),
 +		},
 +		.driver_data = (void *)lid_device_props_l4D,
 +	},
