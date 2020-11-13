@@ -1,4 +1,4 @@
-From 4d748f3baa99a037bcf82e0eeadb37f9f414725f Mon Sep 17 00:00:00 2001
+From 52d7807ec1d317c003ae9bb80e57f214ae23b99f Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:11:08 +0200
 Subject: [PATCH] ACPI: Fix buffer/integer type mismatch
@@ -60,7 +60,7 @@ index d3d2dbfba680..0b7f617a6e9b 100644
 -- 
 2.29.2
 
-From d92ec71cdcfd601d5ca8b2b8606d45ee47b8f2e3 Mon Sep 17 00:00:00 2001
+From 97d52ac0951b5385b4f5626a47f84ba0ffeefd06 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 24 Sep 2019 17:38:12 +0200
 Subject: [PATCH] serdev: Add ACPI devices by ResourceSource field
@@ -248,7 +248,7 @@ index a9719858c950..ce5309d00280 100644
 -- 
 2.29.2
 
-From 6d87a01f7841f9c287607adec3604cbf16292453 Mon Sep 17 00:00:00 2001
+From 3482f4182879466976c947d53cbddba057e839b9 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 29 Oct 2020 22:04:38 +0100
 Subject: [PATCH] PCI: Allow D3cold for hot-plug ports on Surface Books
@@ -333,7 +333,7 @@ index b1b2c8ddbc92..15566ec8f75d 100644
 -- 
 2.29.2
 
-From da5f35bad772a6854c80df04f6710a2842b3d040 Mon Sep 17 00:00:00 2001
+From a8c97b33fa4b4598527a8ea64242ded201803f34 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 9 Nov 2020 14:23:00 +0100
 Subject: [PATCH] PCI: Run platform power transition on initial D0 entry
@@ -395,7 +395,7 @@ index 15566ec8f75d..9b0a591fc60b 100644
 -- 
 2.29.2
 
-From f8142da29f19db03995420b7f8e798c38ae03200 Mon Sep 17 00:00:00 2001
+From e5b02da2335978b0e2e695338636c1ef3ad04fc3 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 31 Oct 2020 20:46:33 +0100
 Subject: [PATCH] PCI: Add sysfs attribute for PCI device power state
@@ -468,7 +468,7 @@ index e401f040f157..418927872ae6 100644
 -- 
 2.29.2
 
-From 9f6c88bb06a99de23bf214f8d5b5bea49c164d09 Mon Sep 17 00:00:00 2001
+From 5aeed170de734b7cc8e3a0a42bd712928ec6eeb2 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] misc: surface_sam: Add file2alias support for Surface SAM
@@ -570,7 +570,7 @@ index c91eba751804..bc06f7631200 100644
 -- 
 2.29.2
 
-From 9f94a0785a1171b88ccf73cffd472dd2fd973dae Mon Sep 17 00:00:00 2001
+From ebc16a220daf1a4546989f1c5fcd56558b13d62b Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] misc: Add support for Surface System Aggregator Module
@@ -737,7 +737,7 @@ index 000000000000..a1117d57036a
 +    :export:
 diff --git a/Documentation/driver-api/surface_aggregator/client.rst b/Documentation/driver-api/surface_aggregator/client.rst
 new file mode 100644
-index 000000000000..41c17bb63bef
+index 000000000000..f1275bf53837
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/client.rst
 @@ -0,0 +1,394 @@
@@ -800,7 +800,7 @@ index 000000000000..41c17bb63bef
 +|ssam_client_link|). It is important to do this, as it, first, guarantees
 +that the returned controller is valid for use in the client driver for as
 +long as this driver is bound to its device, i.e. that the driver gets
-+un-bound before the controller ever becomes invalid, and, second, as it
++unbound before the controller ever becomes invalid, and, second, as it
 +ensures correct suspend/resume ordering. This setup should be done in the
 +driver's probe function, and may be used to defer probing in case the SSAM
 +subsystem is not ready yet, for example:
@@ -825,7 +825,7 @@ index 000000000000..41c17bb63bef
 +lifetime be guaranteed via |ssam_controller_get| and |ssam_controller_put|.
 +Note that none of these functions, however, guarantee that the controller
 +will not be shut down or suspended. These functions essentially only operate
-+on the reference, i.e. only guarantee a bare minimum of accessability
++on the reference, i.e. only guarantee a bare minimum of accessibility
 +without any guarantees at all on practical operability.
 +
 +
@@ -961,7 +961,7 @@ index 000000000000..41c17bb63bef
 +            *   ssam_request_sync_onstack(ctrl, &rqst, &resp, sizeof(arg_le));
 +            *
 +            * to perform the request, allocating the message buffer directly
-+            * on the stack as opposed to via kzalloc(.
++            * on the stack as opposed to via kzalloc().
 +            */
 +
 +           /*
@@ -1009,12 +1009,12 @@ index 000000000000..41c17bb63bef
 +
 +- :c:func:`SSAM_DEFINE_SYNC_REQUEST_N` for requests without return value and
 +  without argument.
-+- :c:func:`SSAM_DEFINE_SYNC_REQUEST_R` for equests with return value but no
++- :c:func:`SSAM_DEFINE_SYNC_REQUEST_R` for requests with return value but no
 +  argument.
 +- :c:func:`SSAM_DEFINE_SYNC_REQUEST_W` for requests without return value but
 +  with argument.
 +
-+Refer to their respecitve documentation for more details. For each one of
++Refer to their respective documentation for more details. For each one of
 +these macros, a special variant is provided, which targets request types
 +applicable to multiple instances of the same device type:
 +
@@ -1137,7 +1137,7 @@ index 000000000000..41c17bb63bef
 +with the same flag and it is considered a bug to do otherwise.
 diff --git a/Documentation/driver-api/surface_aggregator/clients/cdev.rst b/Documentation/driver-api/surface_aggregator/clients/cdev.rst
 new file mode 100644
-index 000000000000..63b5afcb89b5
+index 000000000000..720c9c03aa0e
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/clients/cdev.rst
 @@ -0,0 +1,85 @@
@@ -1153,7 +1153,7 @@ index 000000000000..63b5afcb89b5
 +==============================
 +
 +The ``surface_aggregator_cdev`` module provides a misc-device for the SSAM
-+controller to allow for a (more or less) direct connection from userspace to
++controller to allow for a (more or less) direct connection from user-space to
 +the SAM EC. It is intended to be used for development and debugging, and
 +therefore should not be used or relied upon in any other way. Note that this
 +module is not loaded automatically, but instead must be loaded manually.
@@ -2180,7 +2180,7 @@ index 000000000000..6c020b87ad62
 +API and interface options for other kernel drivers.
 diff --git a/Documentation/driver-api/surface_aggregator/overview.rst b/Documentation/driver-api/surface_aggregator/overview.rst
 new file mode 100644
-index 000000000000..06d49ce001e7
+index 000000000000..b4ef7e25748c
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/overview.rst
 @@ -0,0 +1,76 @@
@@ -2251,7 +2251,7 @@ index 000000000000..06d49ce001e7
 +
 +As already elaborated above, the Surface Serial Hub (SSH) is the
 +communication interface for SAM on 5th- and all later-generation Surface
-+devices. On the highest level, communication can be sparated into two main
++devices. On the highest level, communication can be separated into two main
 +types: Requests, messages sent from host to EC that may trigger a direct
 +response from the EC (explicitly associated with the request), and events
 +(sometimes also referred to as notifications), sent from EC to host without
