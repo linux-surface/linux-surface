@@ -3,8 +3,9 @@
 
 pkgbase=linux-surface
 pkgver=5.9.8.arch1
-pkgrel=1
+pkgrel=2
 pkgdesc='Linux'
+_shortver=${pkgver%.*}
 _fullver=${pkgver%.*}-${pkgver##*.}
 _srctag=v${_fullver}
 url="https://git.archlinux.org/linux.git/log/?h=$_srctag"
@@ -96,7 +97,7 @@ _package() {
   depends=(coreutils kmod initramfs)
   optdepends=('crda: to set the correct wireless channels of your country'
               'linux-firmware: firmware images needed for some devices')
-  provides=(VIRTUALBOX-GUEST-MODULES WIREGUARD-MODULE)
+  provides=(VIRTUALBOX-GUEST-MODULES WIREGUARD-MODULE linux=${_shortver})
   replaces=(virtualbox-guest-modules-arch wireguard-arch)
 
   cd $_srcname
@@ -127,6 +128,7 @@ _package() {
 
 _package-headers() {
   pkgdesc="Headers and scripts for building modules for the $pkgdesc kernel"
+  provides=("linux-headers=${_shortver}")
 
   cd $_srcname
   local builddir="$pkgdir/usr/lib/modules/$(<version)/build"
