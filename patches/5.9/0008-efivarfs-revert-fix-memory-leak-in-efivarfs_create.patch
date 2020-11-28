@@ -1,4 +1,4 @@
-From e3a4b0234c813584d5bca2d9731b20a8e325e6d9 Mon Sep 17 00:00:00 2001
+From 2dce2b10919b1e74820410e97ba13caaa4bfc05e Mon Sep 17 00:00:00 2001
 From: Ard Biesheuvel <ardb@kernel.org>
 Date: Wed, 25 Nov 2020 08:53:03 +0100
 Subject: [PATCH] efivarfs: revert "fix memory leak in efivarfs_create()"
@@ -17,22 +17,9 @@ Fixes: fe5186cf12e3 ("efivarfs: fix memory leak in efivarfs_create()")
 Reported-by: David Laight <David.Laight@aculab.com>
 Signed-off-by: Ard Biesheuvel <ardb@kernel.org>
 ---
- fs/efivarfs/inode.c | 1 +
  fs/efivarfs/super.c | 1 -
- 2 files changed, 1 insertion(+), 1 deletion(-)
+ 1 file changed, 1 deletion(-)
 
-diff --git a/fs/efivarfs/inode.c b/fs/efivarfs/inode.c
-index 96c0c86f3fff..38324427a2b3 100644
---- a/fs/efivarfs/inode.c
-+++ b/fs/efivarfs/inode.c
-@@ -103,6 +103,7 @@ static int efivarfs_create(struct inode *dir, struct dentry *dentry,
- 	var->var.VariableName[i] = '\0';
- 
- 	inode->i_private = var;
-+	kmemleak_ignore(var);
- 
- 	err = efivar_entry_add(var, &efivarfs_list);
- 	if (err)
 diff --git a/fs/efivarfs/super.c b/fs/efivarfs/super.c
 index f943fd0b0699..15880a68faad 100644
 --- a/fs/efivarfs/super.c
