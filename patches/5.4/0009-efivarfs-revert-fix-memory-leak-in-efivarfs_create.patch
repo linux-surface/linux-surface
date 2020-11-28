@@ -1,0 +1,37 @@
+From 46e81109fdc3bf5e042564437ea7b84801d8f92b Mon Sep 17 00:00:00 2001
+From: Ard Biesheuvel <ardb@kernel.org>
+Date: Wed, 25 Nov 2020 08:53:03 +0100
+Subject: [PATCH] efivarfs: revert "fix memory leak in efivarfs_create()"
+
+The memory leak addressed by commit fe5186cf12e3 is a false positive:
+all allocations are recorded in a linked list, and freed when the
+filesystem is unmounted. This leads to double frees, and as reported
+by David, leads to crashes if SLUB is configured to self destruct when
+double frees occur.
+
+So drop the redundant kfree() again, and instead, mark the offending
+pointer variable so the allocation is ignored by kmemleak.
+
+Cc: Vamshi K Sthambamkadi <vamshi.k.sthambamkadi@gmail.com>
+Fixes: fe5186cf12e3 ("efivarfs: fix memory leak in efivarfs_create()")
+Reported-by: David Laight <David.Laight@aculab.com>
+Signed-off-by: Ard Biesheuvel <ardb@kernel.org>
+---
+ fs/efivarfs/super.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/fs/efivarfs/super.c b/fs/efivarfs/super.c
+index edcd6769a94b..9760a52800b4 100644
+--- a/fs/efivarfs/super.c
++++ b/fs/efivarfs/super.c
+@@ -21,7 +21,6 @@ LIST_HEAD(efivarfs_list);
+ static void efivarfs_evict_inode(struct inode *inode)
+ {
+ 	clear_inode(inode);
+-	kfree(inode->i_private);
+ }
+ 
+ static const struct super_operations efivarfs_ops = {
+-- 
+2.29.2
+
