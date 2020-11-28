@@ -2,8 +2,8 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc33 kernel-5.9.10-200.fc33
-%global kernel_tag_fc32 kernel-5.9.10-100.fc32
+%global kernel_tag_fc33 kernel-5.9.11-200.fc33
+%global kernel_tag_fc32 kernel-5.9.11-100.fc32
 
 %global kernel_release_fc33 1
 %global kernel_release_fc32 1
@@ -11,7 +11,7 @@
 %global fedora_title_fc33 33 (Thirty Three)
 %global fedora_title_fc32 32 (Thirty Two)
 
-%global ls_patches_commit e6fdaf8ddd82b3e18725b60e29a0a0bc3b05714c
+%global ls_patches_commit acd1277597331e25823a5085624e095c55106e96
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -91,6 +91,7 @@ Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-gpe.patch
 Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam-over-hid.patch
 Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam.patch
 Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-typecover.patch
+Patch7:     %{surface_source}/%{kernel_patches}/0008-efivarfs-revert-fix-memory-leak-in-efivarfs_create.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
