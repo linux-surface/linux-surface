@@ -318,7 +318,7 @@ index 2417dd1dee33..a6c583362b92 100644
 -- 
 2.29.2
 
-From c1fbe3bacb995a86249a20f967f252b12e2aa51a Mon Sep 17 00:00:00 2001
+From 2034562da8f4d79f9fbaa30bdf8eba6d594c3e1c Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] misc: Add support for Surface System Aggregator Module
@@ -351,39 +351,39 @@ Patchset: surface-sam
  drivers/misc/Makefile                         |    1 +
  drivers/misc/surface_aggregator/Kconfig       |   67 +
  drivers/misc/surface_aggregator/Makefile      |   18 +
- drivers/misc/surface_aggregator/bus.c         |  425 +++
+ drivers/misc/surface_aggregator/bus.c         |  416 +++
  drivers/misc/surface_aggregator/bus.h         |   27 +
  .../misc/surface_aggregator/clients/Kconfig   |  151 +
  .../misc/surface_aggregator/clients/Makefile  |   11 +
- .../clients/surface_acpi_notify.c             |  884 ++++++
+ .../clients/surface_acpi_notify.c             |  886 ++++++
  .../clients/surface_aggregator_cdev.c         |  299 ++
- .../clients/surface_aggregator_registry.c     |  657 +++++
- .../clients/surface_battery.c                 | 1192 ++++++++
- .../surface_aggregator/clients/surface_dtx.c  | 1278 ++++++++
- .../surface_aggregator/clients/surface_hid.c  |  921 ++++++
- .../clients/surface_hotplug.c                 |  269 ++
+ .../clients/surface_aggregator_registry.c     |  653 +++++
+ .../clients/surface_battery.c                 | 1188 ++++++++
+ .../surface_aggregator/clients/surface_dtx.c  | 1277 +++++++++
+ .../surface_aggregator/clients/surface_hid.c  |  924 ++++++
+ .../clients/surface_hotplug.c                 |  267 ++
  .../clients/surface_perfmode.c                |  122 +
- drivers/misc/surface_aggregator/controller.c  | 2572 +++++++++++++++++
- drivers/misc/surface_aggregator/controller.h  |  288 ++
- drivers/misc/surface_aggregator/core.c        |  830 ++++++
- drivers/misc/surface_aggregator/ssh_msgb.h    |  198 ++
- .../surface_aggregator/ssh_packet_layer.c     | 2060 +++++++++++++
- .../surface_aggregator/ssh_packet_layer.h     |  189 ++
- drivers/misc/surface_aggregator/ssh_parser.c  |  229 ++
- drivers/misc/surface_aggregator/ssh_parser.h  |  157 +
- .../surface_aggregator/ssh_request_layer.c    | 1264 ++++++++
- .../surface_aggregator/ssh_request_layer.h    |  142 +
- drivers/misc/surface_aggregator/trace.h       |  648 +++++
+ drivers/misc/surface_aggregator/controller.c  | 2543 +++++++++++++++++
+ drivers/misc/surface_aggregator/controller.h  |  285 ++
+ drivers/misc/surface_aggregator/core.c        |  834 ++++++
+ drivers/misc/surface_aggregator/ssh_msgb.h    |  205 ++
+ .../surface_aggregator/ssh_packet_layer.c     | 2055 +++++++++++++
+ .../surface_aggregator/ssh_packet_layer.h     |  188 ++
+ drivers/misc/surface_aggregator/ssh_parser.c  |  228 ++
+ drivers/misc/surface_aggregator/ssh_parser.h  |  155 +
+ .../surface_aggregator/ssh_request_layer.c    | 1265 ++++++++
+ .../surface_aggregator/ssh_request_layer.h    |  141 +
+ drivers/misc/surface_aggregator/trace.h       |  632 ++++
  include/linux/mod_devicetable.h               |    5 +-
  include/linux/surface_acpi_notify.h           |   39 +
- include/linux/surface_aggregator/controller.h |  832 ++++++
- include/linux/surface_aggregator/device.h     |  430 +++
- include/linux/surface_aggregator/serial_hub.h |  675 +++++
+ include/linux/surface_aggregator/controller.h |  824 ++++++
+ include/linux/surface_aggregator/device.h     |  423 +++
+ include/linux/surface_aggregator/serial_hub.h |  672 +++++
  include/uapi/linux/surface_aggregator/cdev.h  |   58 +
- include/uapi/linux/surface_aggregator/dtx.h   |  150 +
+ include/uapi/linux/surface_aggregator/dtx.h   |  146 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 48 files changed, 18948 insertions(+), 7 deletions(-)
+ 48 files changed, 18865 insertions(+), 7 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -2476,10 +2476,10 @@ index 000000000000..b48ffc37ab52
 +endif
 diff --git a/drivers/misc/surface_aggregator/bus.c b/drivers/misc/surface_aggregator/bus.c
 new file mode 100644
-index 000000000000..231e41bc84e5
+index 000000000000..2255d01ca3f4
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/bus.c
-@@ -0,0 +1,425 @@
+@@ -0,0 +1,416 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface System Aggregator Module bus and device integration.
@@ -2496,14 +2496,13 @@ index 000000000000..231e41bc84e5
 +#include "bus.h"
 +#include "controller.h"
 +
-+
 +static ssize_t modalias_show(struct device *dev, struct device_attribute *attr,
 +			     char *buf)
 +{
 +	struct ssam_device *sdev = to_ssam_device(dev);
 +
 +	// FIXME: we should use sysfs_emit here, but that's not available on < 5.10
-+	return scnprintf(buf, PAGE_SIZE, "ssam:d%02Xc%02Xt%02Xi%02xf%02X\n",
++	return scnprintf(buf, PAGE_SIZE, "ssam:d%02Xc%02Xt%02Xi%02Xf%02X\n",
 +			sdev->uid.domain, sdev->uid.category, sdev->uid.target,
 +			sdev->uid.instance, sdev->uid.function);
 +}
@@ -2519,7 +2518,7 @@ index 000000000000..231e41bc84e5
 +{
 +	struct ssam_device *sdev = to_ssam_device(dev);
 +
-+	return add_uevent_var(env, "MODALIAS=ssam:d%02Xc%02Xt%02Xi%02xf%02X",
++	return add_uevent_var(env, "MODALIAS=ssam:d%02Xc%02Xt%02Xi%02Xf%02X",
 +			      sdev->uid.domain, sdev->uid.category,
 +			      sdev->uid.target, sdev->uid.instance,
 +			      sdev->uid.function);
@@ -2540,7 +2539,6 @@ index 000000000000..231e41bc84e5
 +	.release = ssam_device_release,
 +};
 +EXPORT_SYMBOL_GPL(ssam_device_type);
-+
 +
 +/**
 + * ssam_device_alloc() - Allocate and initialize a SSAM client device.
@@ -2651,7 +2649,6 @@ index 000000000000..231e41bc84e5
 +}
 +EXPORT_SYMBOL_GPL(ssam_device_remove);
 +
-+
 +/**
 + * ssam_device_id_compatible() - Check if a device ID matches a UID.
 + * @id:  The device ID as potential match.
@@ -2694,13 +2691,13 @@ index 000000000000..231e41bc84e5
 + */
 +static bool ssam_device_id_is_null(const struct ssam_device_id *id)
 +{
-+	return id->match_flags == 0
-+		&& id->domain == 0
-+		&& id->category == 0
-+		&& id->target == 0
-+		&& id->instance == 0
-+		&& id->function == 0
-+		&& id->driver_data == 0;
++	return id->match_flags == 0 &&
++		id->domain == 0 &&
++		id->category == 0 &&
++		id->target == 0 &&
++		id->instance == 0 &&
++		id->function == 0 &&
++		id->driver_data == 0;
 +}
 +
 +/**
@@ -2711,9 +2708,8 @@ index 000000000000..231e41bc84e5
 + * Find the first match for the provided device UID in the provided ID table
 + * and return it. Returns %NULL if no match could be found.
 + */
-+const struct ssam_device_id *ssam_device_id_match(
-+		const struct ssam_device_id *table,
-+		const struct ssam_device_uid uid)
++const struct ssam_device_id *ssam_device_id_match(const struct ssam_device_id *table,
++						  const struct ssam_device_uid uid)
 +{
 +	const struct ssam_device_id *id;
 +
@@ -2741,8 +2737,7 @@ index 000000000000..231e41bc84e5
 + * Return: Returns the first match for the UID of the device in the device
 + * driver's match table, or %NULL if no such match could be found.
 + */
-+const struct ssam_device_id *ssam_device_get_match(
-+		const struct ssam_device *dev)
++const struct ssam_device_id *ssam_device_get_match(const struct ssam_device *dev)
 +{
 +	const struct ssam_device_driver *sdrv;
 +
@@ -2787,7 +2782,6 @@ index 000000000000..231e41bc84e5
 +}
 +EXPORT_SYMBOL_GPL(ssam_device_get_match_data);
 +
-+
 +static int ssam_bus_match(struct device *dev, struct device_driver *drv)
 +{
 +	struct ssam_device_driver *sdrv = to_ssam_device_driver(drv);
@@ -2823,7 +2817,6 @@ index 000000000000..231e41bc84e5
 +};
 +EXPORT_SYMBOL_GPL(ssam_bus_type);
 +
-+
 +/**
 + * __ssam_device_driver_register() - Register a SSAM client device driver.
 + * @sdrv:  The driver to register.
@@ -2854,7 +2847,6 @@ index 000000000000..231e41bc84e5
 +	driver_unregister(&sdrv->driver);
 +}
 +EXPORT_SYMBOL_GPL(ssam_device_driver_unregister);
-+
 +
 +static int ssam_remove_device(struct device *dev, void *_data)
 +{
@@ -2888,7 +2880,6 @@ index 000000000000..231e41bc84e5
 +	dev = ssam_controller_device(ctrl);
 +	device_for_each_child_reverse(dev, NULL, ssam_remove_device);
 +}
-+
 +
 +/**
 + * ssam_bus_register() - Register and set-up the SSAM client device bus.
@@ -3114,10 +3105,10 @@ index 000000000000..7320922ba755
 +obj-$(CONFIG_SURFACE_PERFMODE) 			+= surface_perfmode.o
 diff --git a/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c b/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c
 new file mode 100644
-index 000000000000..c7fc3eb7ea0e
+index 000000000000..8cd67a669c86
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c
-@@ -0,0 +1,884 @@
+@@ -0,0 +1,886 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Driver for the Surface ACPI Notify (SAN) interface/shim.
@@ -3143,7 +3134,6 @@ index 000000000000..c7fc3eb7ea0e
 +
 +#include <linux/surface_aggregator/controller.h>
 +#include <linux/surface_acpi_notify.h>
-+
 +
 +struct san_data {
 +	struct device *dev;
@@ -3268,6 +3258,7 @@ index 000000000000..c7fc3eb7ea0e
 +
 +#define SAN_DSM_REVISION	0
 +
++/* 93b666c5-70c6-469f-a215-3d487c91ab3c */
 +static const guid_t SAN_DSM_UUID =
 +	GUID_INIT(0x93b666c5, 0x70c6, 0x469f, 0xa2, 0x15, 0x3d,
 +		  0x48, 0x7c, 0x91, 0xab, 0x3c);
@@ -3298,7 +3289,7 @@ index 000000000000..c7fc3eb7ea0e
 +struct san_event_work {
 +	struct delayed_work work;
 +	struct device *dev;
-+	struct ssam_event event;	// must be last
++	struct ssam_event event;	/* must be last */
 +};
 +
 +static int san_acpi_notify_event(struct device *dev, u64 func,
@@ -3311,7 +3302,7 @@ index 000000000000..c7fc3eb7ea0e
 +	if (!acpi_check_dsm(san, &SAN_DSM_UUID, SAN_DSM_REVISION, 1 << func))
 +		return 0;
 +
-+	dev_dbg(dev, "notify event 0x%02llx\n", func);
++	dev_dbg(dev, "notify event %#04llx\n", func);
 +
 +	obj = acpi_evaluate_dsm_typed(san, &SAN_DSM_UUID, SAN_DSM_REVISION,
 +				      func, param, ACPI_TYPE_BUFFER);
@@ -3440,9 +3431,10 @@ index 000000000000..c7fc3eb7ea0e
 +		return false;
 +	}
 +
-+	if (status)
-+		dev_err(dev, "error handling power event (cid = %x)\n",
++	if (status) {
++		dev_err(dev, "error handling power event (cid = %#04x)\n",
 +			event->command_id);
++	}
 +
 +	return true;
 +}
@@ -3508,7 +3500,7 @@ index 000000000000..c7fc3eb7ea0e
 +	}
 +
 +	if (status) {
-+		dev_err(dev, "error handling thermal event (cid = %x)\n",
++		dev_err(dev, "error handling thermal event (cid = %#04x)\n",
 +			event->command_id);
 +	}
 +
@@ -3531,39 +3523,39 @@ index 000000000000..c7fc3eb7ea0e
 +} __packed;
 +
 +struct gsb_data_rqsx {
-+	u8 cv;				// command value (san_gsb_request_cv)
-+	u8 tc;				// target category
-+	u8 tid;				// target ID
-+	u8 iid;				// instance ID
-+	u8 snc;				// expect-response-flag?
-+	u8 cid;				// command ID
-+	u16 cdl;			// payload length
-+	u8 pld[];			// payload
++	u8 cv;				/* Command value (san_gsb_request_cv). */
++	u8 tc;				/* Target category. */
++	u8 tid;				/* Target ID. */
++	u8 iid;				/* Instance ID. */
++	u8 snc;				/* Expect-response-flag. */
++	u8 cid;				/* Command ID. */
++	u16 cdl;			/* Payload length. */
++	u8 pld[];			/* Payload. */
 +} __packed;
 +
 +struct gsb_data_etwl {
-+	u8 cv;				// command value (should be 0x02)
-+	u8 etw3;			// unknown
-+	u8 etw4;			// unknown
-+	u8 msg[];			// error message (ASCIIZ)
++	u8 cv;				/* Command value (should be 0x02). */
++	u8 etw3;			/* Unknown. */
++	u8 etw4;			/* Unknown. */
++	u8 msg[];			/* Error message (ASCIIZ). */
 +} __packed;
 +
 +struct gsb_data_out {
-+	u8 status;			// _SSH communication status
-+	u8 len;				// _SSH payload length
-+	u8 pld[];			// _SSH payload
++	u8 status;			/* _SSH communication status. */
++	u8 len;				/* _SSH payload length. */
++	u8 pld[];			/* _SSH payload. */
 +} __packed;
 +
 +union gsb_buffer_data {
-+	struct gsb_data_in   in;	// common input
-+	struct gsb_data_rqsx rqsx;	// RQSX input
-+	struct gsb_data_etwl etwl;	// ETWL input
-+	struct gsb_data_out  out;	// output
++	struct gsb_data_in   in;	/* Common input. */
++	struct gsb_data_rqsx rqsx;	/* RQSX input. */
++	struct gsb_data_etwl etwl;	/* ETWL input. */
++	struct gsb_data_out  out;	/* Output. */
 +};
 +
 +struct gsb_buffer {
-+	u8 status;			// GSB AttribRawProcess status
-+	u8 len;				// GSB AttribRawProcess length
++	u8 status;			/* GSB AttribRawProcess status. */
++	u8 len;				/* GSB AttribRawProcess length. */
 +	union gsb_buffer_data data;
 +} __packed;
 +
@@ -3589,19 +3581,20 @@ index 000000000000..c7fc3eb7ea0e
 +		return AE_OK;
 +	}
 +
-+	dev_err(d->dev, "ETWL(0x%02x, 0x%02x): %.*s\n", etwl->etw3, etwl->etw4,
++	dev_err(d->dev, "ETWL(%#04x, %#04x): %.*s\n", etwl->etw3, etwl->etw4,
 +		(unsigned int)(b->len - sizeof(struct gsb_data_etwl)),
 +		(char *)etwl->msg);
 +
-+	// indicate success
++	/* Indicate success. */
 +	b->status = 0x00;
 +	b->len = 0x00;
 +
 +	return AE_OK;
 +}
 +
-+static struct gsb_data_rqsx *san_validate_rqsx(struct device *dev,
-+		const char *type, struct gsb_buffer *b)
++static
++struct gsb_data_rqsx *san_validate_rqsx(struct device *dev, const char *type,
++					struct gsb_buffer *b)
 +{
 +	struct gsb_data_rqsx *rqsx = &b->data.rqsx;
 +
@@ -3700,7 +3693,7 @@ index 000000000000..c7fc3eb7ea0e
 +	rsp.length = 0;
 +	rsp.pointer = &rspbuf[0];
 +
-+	// handle suspended device
++	/* Handle suspended device. */
 +	if (d->dev->power.is_suspended) {
 +		dev_warn(d->dev, "rqst: device is suspended, not executing\n");
 +		return san_rqst_fixup_suspended(d, &rqst, buffer);
@@ -3747,25 +3740,25 @@ index 000000000000..c7fc3eb7ea0e
 +	return AE_OK;
 +}
 +
-+static acpi_status san_opreg_handler(u32 function,
-+		acpi_physical_address command, u32 bits, u64 *value64,
-+		void *opreg_context, void *region_context)
++static acpi_status san_opreg_handler(u32 function, acpi_physical_address command,
++				     u32 bits, u64 *value64, void *opreg_context,
++				     void *region_context)
 +{
 +	struct san_data *d = to_san_data(opreg_context, info);
 +	struct gsb_buffer *buffer = (struct gsb_buffer *)value64;
 +	int accessor_type = (function & 0xFFFF0000) >> 16;
 +
 +	if (command != SAN_GSB_COMMAND) {
-+		dev_warn(d->dev, "unsupported command: 0x%02llx\n", command);
++		dev_warn(d->dev, "unsupported command: %#04llx\n", command);
 +		return AE_OK;
 +	}
 +
 +	if (accessor_type != ACPI_GSB_ACCESS_ATTRIB_RAW_PROCESS) {
-+		dev_err(d->dev, "invalid access type: 0x%02x\n", accessor_type);
++		dev_err(d->dev, "invalid access type: %#04x\n", accessor_type);
 +		return AE_OK;
 +	}
 +
-+	// buffer must have at least contain the command-value
++	/* Buffer must have at least contain the command-value. */
 +	if (buffer->len == 0) {
 +		dev_err(d->dev, "request-package too small\n");
 +		return AE_OK;
@@ -3782,7 +3775,7 @@ index 000000000000..c7fc3eb7ea0e
 +		return san_rqsg(d, buffer);
 +
 +	default:
-+		dev_warn(d->dev, "unsupported SAN0 request (cv: 0x%02x)\n",
++		dev_warn(d->dev, "unsupported SAN0 request (cv: %#04x)\n",
 +			 buffer->data.in.cv);
 +		return AE_OK;
 +	}
@@ -3887,17 +3880,16 @@ index 000000000000..c7fc3eb7ea0e
 +	if (!is_san_consumer(pdev, handle))
 +		return AE_OK;
 +
-+	// ignore ACPI devices that are not present
++	/* Ignore ACPI devices that are not present. */
 +	if (acpi_bus_get_device(handle, &adev) != 0)
 +		return AE_OK;
 +
 +	san_consumer_dbg(&pdev->dev, handle, "creating device link\n");
 +
-+	// try to set up device links, ignore but log errors
++	/* Try to set up device links, ignore but log errors. */
 +	link = device_link_add(&adev->dev, &pdev->dev, flags);
 +	if (!link) {
-+		san_consumer_warn(&pdev->dev, handle,
-+				  "failed to create device link\n");
++		san_consumer_warn(&pdev->dev, handle, "failed to create device link\n");
 +		return AE_OK;
 +	}
 +
@@ -3941,7 +3933,8 @@ index 000000000000..c7fc3eb7ea0e
 +	platform_set_drvdata(pdev, data);
 +
 +	astatus = acpi_install_address_space_handler(san, ACPI_ADR_SPACE_GSBUS,
-+			&san_opreg_handler, NULL, &data->info);
++						     &san_opreg_handler, NULL,
++						     &data->info);
 +	if (ACPI_FAILURE(astatus))
 +		return -ENXIO;
 +
@@ -4004,7 +3997,7 @@ index 000000000000..c7fc3eb7ea0e
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_aggregator_cdev.c b/drivers/misc/surface_aggregator/clients/surface_aggregator_cdev.c
 new file mode 100644
-index 000000000000..573f8a10b840
+index 000000000000..40c30627f33a
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_aggregator_cdev.c
 @@ -0,0 +1,299 @@
@@ -4090,7 +4083,7 @@ index 000000000000..573f8a10b840
 +	plddata = u64_to_user_ptr(rqst.payload.data);
 +	rspdata = u64_to_user_ptr(rqst.response.data);
 +
-+	// setup basic request fields
++	/* Setup basic request fields. */
 +	spec.target_category = rqst.target_category;
 +	spec.target_id = rqst.target_id;
 +	spec.command_id = rqst.command_id;
@@ -4103,7 +4096,7 @@ index 000000000000..573f8a10b840
 +	rsp.length = 0;
 +	rsp.pointer = NULL;
 +
-+	// get request payload from user-space
++	/* Get request payload from user-space. */
 +	if (spec.length) {
 +		if (!plddata) {
 +			ret = -EINVAL;
@@ -4123,7 +4116,7 @@ index 000000000000..573f8a10b840
 +		}
 +	}
 +
-+	// allocate response buffer
++	/* Allocate response buffer. */
 +	if (rsp.capacity) {
 +		if (!rspdata) {
 +			ret = -EINVAL;
@@ -4138,17 +4131,17 @@ index 000000000000..573f8a10b840
 +		}
 +	}
 +
-+	// perform request
++	/* Perform request. */
 +	status = ssam_request_sync(cdev->ctrl, &spec, &rsp);
 +	if (status)
 +		goto out;
 +
-+	// copy response to user-space
++	/* Copy response to user-space. */
 +	if (rsp.length && copy_to_user(rspdata, rsp.pointer, rsp.length))
 +		ret = -EFAULT;
 +
 +out:
-+	// always try to set response-length and status
++	/* Always try to set response-length and status. */
 +	tmp = put_user(rsp.length, &r->response.length);
 +	if (tmp)
 +		ret = tmp;
@@ -4157,7 +4150,7 @@ index 000000000000..573f8a10b840
 +	if (tmp)
 +		ret = tmp;
 +
-+	// cleanup
++	/* Cleanup. */
 +	kfree(spec.payload);
 +	kfree(rsp.pointer);
 +
@@ -4182,7 +4175,7 @@ index 000000000000..573f8a10b840
 +	struct ssam_cdev *cdev = file->private_data;
 +	long status;
 +
-+	// ensure that controller is valid for as long as we need it
++	/* Ensure that controller is valid for as long as we need it. */
 +	if (down_read_killable(&cdev->lock))
 +		return -ERESTARTSYS;
 +
@@ -4309,10 +4302,10 @@ index 000000000000..573f8a10b840
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c b/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
 new file mode 100644
-index 000000000000..0c674ed2dd53
+index 000000000000..0165f350d28e
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
-@@ -0,0 +1,657 @@
+@@ -0,0 +1,653 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface System Aggregator Module (SSAM) client device registry.
@@ -4410,7 +4403,6 @@ index 000000000000..0c674ed2dd53
 +	.name = "ssam:01:15:02:06:00",
 +	.parent = &ssam_node_hub_base,
 +};
-+
 +
 +static const struct software_node *ssam_node_group_sb2[] = {
 +	&ssam_node_root,
@@ -4615,7 +4607,6 @@ index 000000000000..0c674ed2dd53
 +	struct ssam_event_notifier notif;
 +};
 +
-+
 +static SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_query_opmode, u8, {
 +	.target_category = SSAM_SSH_TC_BAS,
 +	.target_id       = 0x01,
@@ -4646,7 +4637,6 @@ index 000000000000..0c674ed2dd53
 +	return 0;
 +}
 +
-+
 +static ssize_t ssam_base_hub_state_show(struct device *dev,
 +					struct device_attribute *attr,
 +					char *buf)
@@ -4674,7 +4664,6 @@ index 000000000000..0c674ed2dd53
 +const struct attribute_group ssam_base_hub_group = {
 +	.attrs = ssam_base_hub_attrs,
 +};
-+
 +
 +static int ssam_base_hub_update(struct ssam_device *sdev,
 +				enum ssam_base_hub_state new)
@@ -4769,7 +4758,7 @@ index 000000000000..0c674ed2dd53
 +	hub->sdev = sdev;
 +	hub->state = SSAM_BASE_HUB_UNINITIALIZED;
 +
-+	hub->notif.base.priority = 1000;  // this notifier should run first
++	hub->notif.base.priority = 1000;  /* This notifier should run first. */
 +	hub->notif.base.fn = ssam_base_hub_notif;
 +	hub->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
 +	hub->notif.event.id.target_category = SSAM_SSH_TC_BAS,
@@ -4972,10 +4961,10 @@ index 000000000000..0c674ed2dd53
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_battery.c b/drivers/misc/surface_aggregator/clients/surface_battery.c
 new file mode 100644
-index 000000000000..7ed9ba3f98d7
+index 000000000000..ac26a1094c6f
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_battery.c
-@@ -0,0 +1,1192 @@
+@@ -0,0 +1,1188 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface battery and AC device driver.
@@ -5004,7 +4993,7 @@ index 000000000000..7ed9ba3f98d7
 +
 +static unsigned int cache_time = 1000;
 +module_param(cache_time, uint, 0644);
-+MODULE_PARM_DESC(cache_time, "battery state chaching time in milliseconds [default: 1000]");
++MODULE_PARM_DESC(cache_time, "battery state caching time in milliseconds [default: 1000]");
 +
 +
 +/* -- SAM Interface. -------------------------------------------------------- */
@@ -5097,7 +5086,7 @@ index 000000000000..7ed9ba3f98d7
 +	.command_id      = 0x04,
 +});
 +
-+/* Get platform power soruce for battery (DPTF PSRC) */
++/* Get platform power source for battery (DPTF PSRC). */
 +static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_psrc, __le32, {
 +	.target_category = SSAM_SSH_TC_BAT,
 +	.command_id      = 0x0d,
@@ -5237,7 +5226,7 @@ index 000000000000..7ed9ba3f98d7
 +
 +	status = ssam_retry(ssam_bat_get_bix, bat->sdev, &bat->bix);
 +
-+	// enforce NULL terminated strings in case anything goes wrong...
++	/* Enforce NULL terminated strings in case anything goes wrong... */
 +	bat->bix.model[ARRAY_SIZE(bat->bix.model) - 1] = 0;
 +	bat->bix.serial[ARRAY_SIZE(bat->bix.serial) - 1] = 0;
 +	bat->bix.type[ARRAY_SIZE(bat->bix.type) - 1] = 0;
@@ -5371,10 +5360,10 @@ index 000000000000..7ed9ba3f98d7
 +	u32 full_cap = sprw_battery_get_full_cap_safe(bat);
 +	u32 remaining_cap = get_unaligned_le32(&bat->bst.remaining_cap);
 +
-+	return full_cap != SPWR_BATTERY_VALUE_UNKNOWN && full_cap != 0
-+		&& remaining_cap != SPWR_BATTERY_VALUE_UNKNOWN
-+		&& remaining_cap >= full_cap
-+		&& state == 0;
++	return full_cap != SPWR_BATTERY_VALUE_UNKNOWN && full_cap != 0 &&
++		remaining_cap != SPWR_BATTERY_VALUE_UNKNOWN &&
++		remaining_cap >= full_cap &&
++		state == 0;
 +}
 +
 +static int spwr_battery_recheck_full(struct spwr_battery_device *bat)
@@ -5391,7 +5380,7 @@ index 000000000000..7ed9ba3f98d7
 +	if (status)
 +		goto out;
 +
-+	// if battery has been attached, (re-)initialize alarm
++	/* If battery has been attached, (re-)initialize alarm. */
 +	if (!present && spwr_battery_present(bat)) {
 +		u32 cap_warn = get_unaligned_le32(&bat->bix.design_cap_warn);
 +
@@ -5471,10 +5460,10 @@ index 000000000000..7ed9ba3f98d7
 +
 +	bat = container_of(nf, struct spwr_battery_device, notif);
 +
-+	dev_dbg(&bat->sdev->dev, "power event (cid = 0x%02x, iid = %d, tid = %d)\n",
++	dev_dbg(&bat->sdev->dev, "power event (cid = %#04x, iid = %#04x, tid = %#04x)\n",
 +		event->command_id, event->instance_id, event->target_id);
 +
-+	// handled here, needs to be handled for all targets/instances
++	/* Handled here, needs to be handled for all targets/instances. */
 +	if (event->command_id == SAM_EVENT_CID_BAT_ADP) {
 +		status = spwr_battery_recheck_adapter(bat);
 +		return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
@@ -5525,7 +5514,7 @@ index 000000000000..7ed9ba3f98d7
 +
 +	ac = container_of(nf, struct spwr_ac_device, notif);
 +
-+	dev_dbg(&ac->sdev->dev, "power event (cid = 0x%02x, iid = %d, tid = %d)\n",
++	dev_dbg(&ac->sdev->dev, "power event (cid = %#04x, iid = %#04x, tid = %#04x)\n",
 +		event->command_id, event->instance_id, event->target_id);
 +
 +	/*
@@ -5678,7 +5667,7 @@ index 000000000000..7ed9ba3f98d7
 +	if (status)
 +		goto out;
 +
-+	// abort if battery is not present
++	/* Abort if battery is not present. */
 +	if (!spwr_battery_present(bat) && psp != POWER_SUPPLY_PROP_PRESENT) {
 +		status = -ENODEV;
 +		goto out;
@@ -5787,7 +5776,6 @@ index 000000000000..7ed9ba3f98d7
 +	return status;
 +}
 +
-+
 +static ssize_t spwr_battery_alarm_show(struct device *dev,
 +				       struct device_attribute *attr,
 +				       char *buf)
@@ -5827,11 +5815,8 @@ index 000000000000..7ed9ba3f98d7
 +	.store = spwr_battery_alarm_store,
 +};
 +
-+
-+static void spwr_ac_init(struct spwr_ac_device *ac,
-+			    struct ssam_device *sdev,
-+			    struct ssam_event_registry registry,
-+			    const char *name)
++static void spwr_ac_init(struct spwr_ac_device *ac, struct ssam_device *sdev,
++			 struct ssam_event_registry registry, const char *name)
 +{
 +	mutex_init(&ac->lock);
 +	strncpy(ac->name, name, ARRAY_SIZE(ac->name) - 1);
@@ -5864,7 +5849,7 @@ index 000000000000..7ed9ba3f98d7
 +	__le32 sta;
 +	int status;
 +
-+	// make sure the device is there and functioning properly
++	/* Make sure the device is there and functioning properly. */
 +	status = ssam_retry(ssam_bat_get_sta, ac->sdev, &sta);
 +	if (status)
 +		return status;
@@ -5927,7 +5912,7 @@ index 000000000000..7ed9ba3f98d7
 +	__le32 sta;
 +	int status;
 +
-+	// make sure the device is there and functioning properly
++	/* Make sure the device is there and functioning properly. */
 +	status = ssam_retry(ssam_bat_get_sta, bat->sdev, &sta);
 +	if (status)
 +		return status;
@@ -6170,10 +6155,10 @@ index 000000000000..7ed9ba3f98d7
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_dtx.c b/drivers/misc/surface_aggregator/clients/surface_dtx.c
 new file mode 100644
-index 000000000000..84308a0ed767
+index 000000000000..b7a3b8ce7726
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_dtx.c
-@@ -0,0 +1,1278 @@
+@@ -0,0 +1,1277 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface Book (gen. 2 and later) detachment system (DTX) driver.
@@ -6181,7 +6166,7 @@ index 000000000000..84308a0ed767
 + * Provides a user-space interface to properly handle clipboard/tablet
 + * (containing screen and processor) detachment from the base of the device
 + * (containing the keyboard and optionally a discrete GPU). Allows to
-+ * acknowledge (to speed things up), abort (e.g. in case the dGPU is stil in
++ * acknowledge (to speed things up), abort (e.g. in case the dGPU is still in
 + * use), or request detachment via user-space.
 + *
 + * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
@@ -6232,7 +6217,7 @@ index 000000000000..84308a0ed767
 +};
 +
 +enum ssam_bas_cancel_reason {
-+	SSAM_BAS_CANCEL_REASON_NOT_FEASIBLE		= 0x00,  // low battery
++	SSAM_BAS_CANCEL_REASON_NOT_FEASIBLE		= 0x00,  /* Low battery. */
 +	SSAM_BAS_CANCEL_REASON_TIMEOUT			= 0x02,
 +	SSAM_BAS_CANCEL_REASON_FAILED_TO_OPEN		= 0x03,
 +	SSAM_BAS_CANCEL_REASON_FAILED_TO_REMAIN_OPEN	= 0x04,
@@ -6399,7 +6384,7 @@ index 000000000000..84308a0ed767
 +		return SDTX_DETACH_NOT_FEASIBLE;
 +
 +	default:
-+		dev_err(ddev->dev, "unknown base state: 0x%02x\n", state);
++		dev_err(ddev->dev, "unknown base state: %#04x\n", state);
 +		return SDTX_UNKNOWN(state);
 +	}
 +}
@@ -6423,7 +6408,7 @@ index 000000000000..84308a0ed767
 +		return SDTX_ERR_FAILED_TO_CLOSE;
 +
 +	default:
-+		dev_err(ddev->dev, "unknown latch status: 0x%02x\n", status);
++		dev_err(ddev->dev, "unknown latch status: %#04x\n", status);
 +		return SDTX_UNKNOWN(status);
 +	}
 +}
@@ -6447,7 +6432,7 @@ index 000000000000..84308a0ed767
 +		return SDTX_ERR_FAILED_TO_CLOSE;
 +
 +	default:
-+		dev_err(ddev->dev, "unknown cancel reason: 0x%02x\n", reason);
++		dev_err(ddev->dev, "unknown cancel reason: %#04x\n", reason);
 +		return SDTX_UNKNOWN(reason);
 +	}
 +}
@@ -6576,7 +6561,7 @@ index 000000000000..84308a0ed767
 +
 +	ddev = container_of(file->private_data, struct sdtx_device, mdev);
 +
-+	// initialize client
++	/* Initialize client. */
 +	client = kzalloc(sizeof(*client), GFP_KERNEL);
 +	if (!client)
 +		return -ENOMEM;
@@ -6590,10 +6575,10 @@ index 000000000000..84308a0ed767
 +
 +	file->private_data = client;
 +
-+	// attach client
++	/* Attach client. */
 +	down_write(&ddev->client_lock);
 +
-+	// do not add a new client if the device has been shut down
++	/* Do not add a new client if the device has been shut down. */
 +	if (test_bit(SDTX_DEVICE_SHUTDOWN_BIT, &ddev->flags)) {
 +		up_write(&ddev->client_lock);
 +		sdtx_device_put(client->ddev);
@@ -6612,7 +6597,7 @@ index 000000000000..84308a0ed767
 +{
 +	struct sdtx_client *client = file->private_data;
 +
-+	// detach client
++	/* Detach client. */
 +	down_write(&client->ddev->client_lock);
 +	list_del(&client->node);
 +	up_write(&client->ddev->client_lock);
@@ -6635,14 +6620,14 @@ index 000000000000..84308a0ed767
 +	if (down_read_killable(&ddev->lock))
 +		return -ERESTARTSYS;
 +
-+	// make sure we're not shut down
++	/* Make sure we're not shut down. */
 +	if (test_bit(SDTX_DEVICE_SHUTDOWN_BIT, &ddev->flags)) {
 +		up_read(&ddev->lock);
 +		return -ENODEV;
 +	}
 +
 +	do {
-+		// check availability, wait if necessary
++		/* Check availability, wait if necessary. */
 +		if (kfifo_is_empty(&client->buffer)) {
 +			up_read(&ddev->lock);
 +
@@ -6650,23 +6635,23 @@ index 000000000000..84308a0ed767
 +				return -EAGAIN;
 +
 +			status = wait_event_interruptible(ddev->waitq,
-+					!kfifo_is_empty(&client->buffer)
-+					|| test_bit(SDTX_DEVICE_SHUTDOWN_BIT,
-+						    &ddev->flags));
++					!kfifo_is_empty(&client->buffer) ||
++					test_bit(SDTX_DEVICE_SHUTDOWN_BIT,
++						 &ddev->flags));
 +			if (status < 0)
 +				return status;
 +
 +			if (down_read_killable(&client->ddev->lock))
 +				return -ERESTARTSYS;
 +
-+			// need to check that we're not shut down again
++			/* Need to check that we're not shut down again. */
 +			if (test_bit(SDTX_DEVICE_SHUTDOWN_BIT, &ddev->flags)) {
 +				up_read(&ddev->lock);
 +				return -ENODEV;
 +			}
 +		}
 +
-+		// try to read from fifo
++		/* Try to read from FIFO. */
 +		if (mutex_lock_interruptible(&client->read_lock)) {
 +			up_read(&ddev->lock);
 +			return -ERESTARTSYS;
@@ -6680,7 +6665,7 @@ index 000000000000..84308a0ed767
 +			return status;
 +		}
 +
-+		// we might not have gotten anything, check this here
++		/* We might not have gotten anything, check this here. */
 +		if (copied == 0 && (file->f_flags & O_NONBLOCK)) {
 +			up_read(&ddev->lock);
 +			return -EAGAIN;
@@ -6751,7 +6736,6 @@ index 000000000000..84308a0ed767
 +
 +static void sdtx_update_device_mode(struct sdtx_device *ddev, unsigned long delay);
 +
-+
 +struct sdtx_status_event {
 +	struct sdtx_event e;
 +	__u16 v;
@@ -6798,7 +6782,7 @@ index 000000000000..84308a0ed767
 +	union sdtx_generic_event event;
 +	size_t len;
 +
-+	// validate event payload length
++	/* Validate event payload length. */
 +	switch (in->command_id) {
 +	case SAM_EVENT_CID_DTX_CONNECTION:
 +		len = 2;
@@ -6821,21 +6805,22 @@ index 000000000000..84308a0ed767
 +	};
 +
 +	if (in->length != len) {
-+		dev_err(ddev->dev, "unexpected payload size for event 0x%02x: "
-+			"got %u, expected %zu", in->command_id, in->length, len);
++		dev_err(ddev->dev,
++			"unexpected payload size for event %#04x: got %u, expected %zu\n",
++			in->command_id, in->length, len);
 +		return 0;
 +	}
 +
 +	mutex_lock(&ddev->write_lock);
 +
-+	// translate event
++	/* Translate event. */
 +	switch (in->command_id) {
 +	case SAM_EVENT_CID_DTX_CONNECTION:
 +		clear_bit(SDTX_DEVICE_DIRTY_BASE_BIT, &ddev->flags);
 +
-+		// if state has not changed: do not send new event
-+		if (ddev->state.base.state == in->data[0]
-+		    && ddev->state.base.base_id == in->data[1])
++		/* If state has not changed: do not send new event. */
++		if (ddev->state.base.state == in->data[0] &&
++		    ddev->state.base.base_id == in->data[1])
 +			goto out;
 +
 +		ddev->state.base.state = in->data[0];
@@ -6861,7 +6846,7 @@ index 000000000000..84308a0ed767
 +	case SAM_EVENT_CID_DTX_LATCH_STATUS:
 +		clear_bit(SDTX_DEVICE_DIRTY_LATCH_BIT, &ddev->flags);
 +
-+		// if state has not changed: do not send new event
++		/* If state has not changed: do not send new event. */
 +		if (ddev->state.latch_status == in->data[0])
 +			goto out;
 +
@@ -6875,7 +6860,7 @@ index 000000000000..84308a0ed767
 +
 +	sdtx_push_event(ddev, &event.common);
 +
-+	// update device mode on base connection change
++	/* Update device mode on base connection change. */
 +	if (in->command_id == SAM_EVENT_CID_DTX_CONNECTION) {
 +		unsigned long delay;
 +
@@ -6893,10 +6878,10 @@ index 000000000000..84308a0ed767
 +
 +static bool sdtx_device_mode_invalid(u8 mode, u8 base_state)
 +{
-+	return ((base_state == SSAM_BAS_BASE_STATE_ATTACHED)
-+			&& (mode == SDTX_DEVICE_MODE_TABLET))
-+		|| ((base_state == SSAM_BAS_BASE_STATE_DETACH_SUCCESS)
-+			&& (mode != SDTX_DEVICE_MODE_TABLET));
++	return ((base_state == SSAM_BAS_BASE_STATE_ATTACHED) &&
++		(mode == SDTX_DEVICE_MODE_TABLET)) ||
++	       ((base_state == SSAM_BAS_BASE_STATE_DETACH_SUCCESS) &&
++		(mode != SDTX_DEVICE_MODE_TABLET));
 +}
 +
 +static void sdtx_device_mode_workfn(struct work_struct *work)
@@ -6909,14 +6894,14 @@ index 000000000000..84308a0ed767
 +
 +	ddev = container_of(work, struct sdtx_device, mode_work.work);
 +
-+	// get operation mode
++	/* Get operation mode. */
 +	status = ssam_retry(ssam_bas_get_device_mode, ddev->ctrl, &mode);
 +	if (status) {
 +		dev_err(ddev->dev, "failed to get device mode: %d\n", status);
 +		return;
 +	}
 +
-+	// get base info
++	/* Get base info. */
 +	status = ssam_retry(ssam_bas_get_base, ddev->ctrl, &base);
 +	if (status) {
 +		dev_err(ddev->dev, "failed to get base info: %d\n", status);
@@ -6938,7 +6923,7 @@ index 000000000000..84308a0ed767
 +	mutex_lock(&ddev->write_lock);
 +	clear_bit(SDTX_DEVICE_DIRTY_MODE_BIT, &ddev->flags);
 +
-+	// avoid sending duplicate device-mode events
++	/* Avoid sending duplicate device-mode events. */
 +	if (ddev->state.device_mode == mode) {
 +		mutex_unlock(&ddev->write_lock);
 +		return;
@@ -6952,7 +6937,7 @@ index 000000000000..84308a0ed767
 +
 +	sdtx_push_event(ddev, &event.e);
 +
-+	// send SW_TABLET_MODE event
++	/* Send SW_TABLET_MODE event. */
 +	tablet = mode != SDTX_DEVICE_MODE_LAPTOP;
 +	input_report_switch(ddev->mode_switch, SW_TABLET_MODE, tablet);
 +	input_sync(ddev->mode_switch);
@@ -6965,15 +6950,14 @@ index 000000000000..84308a0ed767
 +	schedule_delayed_work(&ddev->mode_work, delay);
 +}
 +
-+
 +static void __sdtx_device_state_update_base(struct sdtx_device *ddev,
 +					    struct ssam_bas_base_info info)
 +{
 +	struct sdtx_base_info_event event;
 +
-+	// prevent duplicate events
-+	if (ddev->state.base.state == info.state
-+	    && ddev->state.base.base_id == info.base_id)
++	/* Prevent duplicate events. */
++	if (ddev->state.base.state == info.state &&
++	    ddev->state.base.base_id == info.base_id)
 +		return;
 +
 +	ddev->state.base = info;
@@ -7003,20 +6987,20 @@ index 000000000000..84308a0ed767
 +		return;
 +	}
 +
-+	// prevent duplicate events
++	/* Prevent duplicate events. */
 +	if (ddev->state.device_mode == mode)
 +		return;
 +
 +	ddev->state.device_mode = mode;
 +
-+	// send event
++	/* Send event. */
 +	event.e.length = sizeof(u16);
 +	event.e.code = SDTX_EVENT_DEVICE_MODE;
 +	event.v = mode;
 +
 +	sdtx_push_event(ddev, &event.e);
 +
-+	// send SW_TABLET_MODE event
++	/* Send SW_TABLET_MODE event. */
 +	tablet = mode != SDTX_DEVICE_MODE_LAPTOP;
 +	input_report_switch(ddev->mode_switch, SW_TABLET_MODE, tablet);
 +	input_sync(ddev->mode_switch);
@@ -7026,7 +7010,7 @@ index 000000000000..84308a0ed767
 +{
 +	struct sdtx_status_event event;
 +
-+	// prevent duplicate events
++	/* Prevent duplicate events. */
 +	if (ddev->state.latch_status == status)
 +		return;
 +
@@ -7048,7 +7032,7 @@ index 000000000000..84308a0ed767
 +
 +	ddev = container_of(work, struct sdtx_device, state_work.work);
 +
-+	// mark everyting as dirty
++	/* Mark everything as dirty. */
 +	set_bit(SDTX_DEVICE_DIRTY_BASE_BIT, &ddev->flags);
 +	set_bit(SDTX_DEVICE_DIRTY_MODE_BIT, &ddev->flags);
 +	set_bit(SDTX_DEVICE_DIRTY_LATCH_BIT, &ddev->flags);
@@ -7114,7 +7098,7 @@ index 000000000000..84308a0ed767
 +{
 +	int status, tablet_mode;
 +
-+	// basic initialization
++	/* Basic initialization. */
 +	kref_init(&ddev->kref);
 +	ddev->dev = dev;
 +	ddev->ctrl = ctrl;
@@ -7148,7 +7132,7 @@ index 000000000000..84308a0ed767
 +	 * be able to detect state changes there if no change event has been
 +	 * received between driver initialization and first device suspension.
 +	 *
-+	 * Note that we also need to do this before registring the event
++	 * Note that we also need to do this before registering the event
 +	 * notifier, as that may access the state values.
 +	 */
 +	status = ssam_retry(ssam_bas_get_base, ddev->ctrl, &ddev->state.base);
@@ -7165,7 +7149,7 @@ index 000000000000..84308a0ed767
 +	if (status)
 +		return status;
 +
-+	// set up tablet mode switch
++	/* Set up tablet mode switch. */
 +	ddev->mode_switch = input_allocate_device();
 +	if (!ddev->mode_switch)
 +		return -ENOMEM;
@@ -7185,19 +7169,19 @@ index 000000000000..84308a0ed767
 +		return status;
 +	}
 +
-+	// set up event notifier
++	/* Set up event notifier. */
 +	status = ssam_notifier_register(ddev->ctrl, &ddev->notif);
 +	if (status)
 +		goto err_notif;
 +
-+	// register miscdevice
++	/* Register miscdevice. */
 +	status = misc_register(&ddev->mdev);
 +	if (status)
 +		goto err_mdev;
 +
 +	/*
 +	 * Update device state in case it has changed between getting the
-+	 * initial mode and registring the event notifier.
++	 * initial mode and registering the event notifier.
 +	 */
 +	sdtx_update_device_state(ddev, 0);
 +	return 0;
@@ -7233,16 +7217,16 @@ index 000000000000..84308a0ed767
 +{
 +	struct sdtx_client *client;
 +
-+	// disable notifiers, prevent new events from arriving
++	/* Disable notifiers, prevent new events from arriving. */
 +	ssam_notifier_unregister(ddev->ctrl, &ddev->notif);
 +
-+	// stop mode_work, prevent access to mode_switch
++	/* Stop mode_work, prevent access to mode_switch. */
 +	cancel_delayed_work_sync(&ddev->mode_work);
 +
-+	// stop state_work
++	/* Stop state_work. */
 +	cancel_delayed_work_sync(&ddev->state_work);
 +
-+	// with mode_work canceled, we can unregister the mode_switch
++	/* With mode_work canceled, we can unregister the mode_switch. */
 +	input_unregister_device(ddev->mode_switch);
 +
 +	/*
@@ -7251,14 +7235,14 @@ index 000000000000..84308a0ed767
 +	 */
 +	set_bit(SDTX_DEVICE_SHUTDOWN_BIT, &ddev->flags);
 +
-+	// wake up async clients
++	/* Wake up async clients. */
 +	down_write(&ddev->client_lock);
 +	list_for_each_entry(client, &ddev->client_list, node) {
 +		kill_fasync(&client->fasync, SIGIO, POLL_HUP);
 +	}
 +	up_write(&ddev->client_lock);
 +
-+	// wake up blocking clients
++	/* Wake up blocking clients. */
 +	wake_up_interruptible(&ddev->waitq);
 +
 +	/*
@@ -7271,7 +7255,7 @@ index 000000000000..84308a0ed767
 +	ddev->ctrl = NULL;
 +	up_write(&ddev->lock);
 +
-+	// finally remove the misc-device
++	/* Finally remove the misc-device. */
 +	misc_deregister(&ddev->mdev);
 +
 +	/*
@@ -7295,7 +7279,7 @@ index 000000000000..84308a0ed767
 +	 * display-off state) and release them when resumed (i.e. transitioned
 +	 * to display-on state). During hibernation, however, the EC will be
 +	 * shut down and does not store events. Furthermore, events might be
-+	 * dropped during prolonged suspension (it is scurrently unknown how
++	 * dropped during prolonged suspension (it is currently unknown how
 +	 * big this event buffer is and how it behaves on overruns).
 +	 *
 +	 * To prevent any problems, we update the device state here. We do
@@ -7326,7 +7310,7 @@ index 000000000000..84308a0ed767
 +	struct ssam_controller *ctrl;
 +	struct sdtx_device *ddev;
 +
-+	// link to EC
++	/* Link to EC. */
 +	ctrl = ssam_client_bind(&pdev->dev);
 +	if (IS_ERR(ctrl))
 +		return PTR_ERR(ctrl) == -ENODEV ? -EPROBE_DEFER : PTR_ERR(ctrl);
@@ -7454,10 +7438,10 @@ index 000000000000..84308a0ed767
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_hid.c b/drivers/misc/surface_aggregator/clients/surface_hid.c
 new file mode 100644
-index 000000000000..f41b7a578fbb
+index 000000000000..7d0362ae31d4
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_hid.c
-@@ -0,0 +1,921 @@
+@@ -0,0 +1,924 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface System Aggregator Module (SSAM) HID device driver.
@@ -7482,7 +7466,6 @@ index 000000000000..f41b7a578fbb
 +#include <linux/surface_aggregator/controller.h>
 +#include <linux/surface_aggregator/device.h>
 +
-+
 +enum surface_hid_descriptor_entry {
 +	SURFACE_HID_DESC_HID    = 0,
 +	SURFACE_HID_DESC_REPORT = 1,
@@ -7490,13 +7473,13 @@ index 000000000000..f41b7a578fbb
 +};
 +
 +struct surface_hid_descriptor {
-+	__u8 desc_len;			// = 9
-+	__u8 desc_type;			// = HID_DT_HID
++	__u8 desc_len;			/* = 9 */
++	__u8 desc_type;			/* = HID_DT_HID */
 +	__le16 hid_version;
 +	__u8 country_code;
-+	__u8 num_descriptors;		// = 1
++	__u8 num_descriptors;		/* = 1 */
 +
-+	__u8 report_desc_type;		// = HID_DT_REPORT
++	__u8 report_desc_type;		/* = HID_DT_REPORT */
 +	__le16 report_desc_len;
 +} __packed;
 +
@@ -7611,7 +7594,7 @@ index 000000000000..f41b7a578fbb
 +		offset = get_unaligned_le32(&slice->offset);
 +		length = get_unaligned_le32(&slice->length);
 +
-+		// don't mess stuff up in case we receive garbage
++		/* Don't mess stuff up in case we receive garbage. */
 +		if (length > buffer_len || offset > len)
 +			return -EPROTO;
 +
@@ -7625,8 +7608,9 @@ index 000000000000..f41b7a578fbb
 +	}
 +
 +	if (offset != len) {
-+		dev_err(shid->dev, "unexpected descriptor length: got %u, "
-+			"expected %zu\n", offset, len);
++		dev_err(shid->dev,
++			"unexpected descriptor length: got %u, expected %zu\n",
++			offset, len);
 +		return -EPROTO;
 +	}
 +
@@ -7732,7 +7716,7 @@ index 000000000000..f41b7a578fbb
 +
 +/* -- SAM interface (KBD). -------------------------------------------------- */
 +
-+#define KBD_FEATURE_REPORT_SIZE		7  // 6 + report ID
++#define KBD_FEATURE_REPORT_SIZE		7  /* 6 + report ID */
 +
 +enum surface_kbd_cid {
 +	SURFACE_KBD_CID_GET_DESCRIPTOR     = 0x00,
@@ -7767,8 +7751,9 @@ index 000000000000..f41b7a578fbb
 +		return status;
 +
 +	if (rsp.length != len) {
-+		dev_err(shid->dev, "invalid descriptor length: got %zu, "
-+			"expected, %zu\n", rsp.length, len);
++		dev_err(shid->dev,
++			"invalid descriptor length: got %zu, expected, %zu\n",
++			rsp.length, len);
 +		return -EPROTO;
 +	}
 +
@@ -7818,8 +7803,9 @@ index 000000000000..f41b7a578fbb
 +		return status;
 +
 +	if (rsp.length != len) {
-+		dev_err(shid->dev, "invalid feature report length: got %zu, "
-+			"expected, %zu\n", rsp.length, len);
++		dev_err(shid->dev,
++			"invalid feature report length: got %zu, expected, %zu\n",
++			rsp.length, len);
 +		return -EPROTO;
 +	}
 +
@@ -7838,7 +7824,7 @@ index 000000000000..f41b7a578fbb
 +}
 +
 +static u32 ssam_kbd_event_fn(struct ssam_event_notifier *nf,
-+				const struct ssam_event *event)
++			     const struct ssam_event *event)
 +{
 +	struct surface_hid_device *shid;
 +	int status;
@@ -7878,19 +7864,19 @@ index 000000000000..f41b7a578fbb
 +	unsigned int offset, size;
 +	int i;
 +
-+	// get led field
++	/* Get led field. */
 +	field = hidinput_get_led_field(hid);
 +	if (!field)
 +		return -ENOENT;
 +
-+	// check if we got the correct report
++	/* Check if we got the correct report. */
 +	if (len != hid_report_len(field->report))
 +		return -ENOENT;
 +
 +	if (report_id != field->report->id)
 +		return -ENOENT;
 +
-+	// get caps lock led index
++	/* Get caps lock led index. */
 +	for (i = 0; i < field->report_count; i++)
 +		if ((field->usage[i].hid & 0xffff) == 0x02)
 +			break;
@@ -7898,7 +7884,7 @@ index 000000000000..f41b7a578fbb
 +	if (i == field->report_count)
 +		return -ENOENT;
 +
-+	// extract value
++	/* Extract value. */
 +	size = field->report_size;
 +	offset = field->report_offset + i * size;
 +	return !!hid_field_extract(hid, data + 1, size, offset);
@@ -7912,7 +7898,7 @@ index 000000000000..f41b7a578fbb
 +
 +	caps_led = skbd_get_caps_led_value(shid->hid, report_id, data, len);
 +	if (caps_led < 0)
-+		return -EIO;	// only caps output reports are supported
++		return -EIO;	/* Only caps output reports are supported. */
 +
 +	status = ssam_kbd_set_caps_led(shid, caps_led);
 +	if (status < 0)
@@ -7966,29 +7952,30 @@ index 000000000000..f41b7a578fbb
 +		return status;
 +
 +	if (shid->hid_desc.desc_len != sizeof(shid->hid_desc)) {
-+		dev_err(shid->dev, "unexpected HID descriptor length: got %u, "
-+			"expected %zu\n", shid->hid_desc.desc_len,
-+			sizeof(shid->hid_desc));
++		dev_err(shid->dev,
++			"unexpected HID descriptor length: got %u, expected %zu\n",
++			shid->hid_desc.desc_len, sizeof(shid->hid_desc));
 +		return -EPROTO;
 +	}
 +
 +	if (shid->hid_desc.desc_type != HID_DT_HID) {
-+		dev_err(shid->dev, "unexpected HID descriptor type: got 0x%x, "
-+			"expected 0x%x\n", shid->hid_desc.desc_type,
-+			HID_DT_HID);
++		dev_err(shid->dev,
++			"unexpected HID descriptor type: got %#04x, expected %#04x\n",
++			shid->hid_desc.desc_type, HID_DT_HID);
 +		return -EPROTO;
 +	}
 +
 +	if (shid->hid_desc.num_descriptors != 1) {
-+		dev_err(shid->dev, "unexpected number of descriptors: got %u, "
-+			"expected 1\n", shid->hid_desc.num_descriptors);
++		dev_err(shid->dev,
++			"unexpected number of descriptors: got %u, expected 1\n",
++			shid->hid_desc.num_descriptors);
 +		return -EPROTO;
 +	}
 +
 +	if (shid->hid_desc.report_desc_type != HID_DT_REPORT) {
-+		dev_err(shid->dev, "unexpected report descriptor type: got 0x%x, "
-+			"expected 0x%x\n", shid->hid_desc.report_desc_type,
-+			HID_DT_REPORT);
++		dev_err(shid->dev,
++			"unexpected report descriptor type: got %#04x, expected %#04x\n",
++			shid->hid_desc.report_desc_type, HID_DT_REPORT);
 +		return -EPROTO;
 +	}
 +
@@ -8005,9 +7992,9 @@ index 000000000000..f41b7a578fbb
 +		return status;
 +
 +	if (get_unaligned_le32(&shid->attrs.length) != sizeof(shid->attrs)) {
-+		dev_err(shid->dev, "unexpected attribute length: got %u, "
-+			"expected %zu\n", get_unaligned_le32(&shid->attrs.length),
-+			sizeof(shid->attrs));
++		dev_err(shid->dev,
++			"unexpected attribute length: got %u, expected %zu\n",
++			get_unaligned_le32(&shid->attrs.length), sizeof(shid->attrs));
 +		return -EPROTO;
 +	}
 +
@@ -8028,7 +8015,7 @@ index 000000000000..f41b7a578fbb
 +{
 +	struct surface_hid_device *shid = hid->driver_data;
 +
-+	// Note: This call will log errors for us, so ignore them here.
++	/* Note: This call will log errors for us, so ignore them here. */
 +	ssam_notifier_unregister(shid->ctrl, &shid->notif);
 +}
 +
@@ -8060,9 +8047,9 @@ index 000000000000..f41b7a578fbb
 +	return status;
 +}
 +
-+static int surface_hid_raw_request(struct hid_device *hid,
-+		unsigned char reportnum, u8 *buf, size_t len,
-+		unsigned char rtype, int reqtype)
++static int surface_hid_raw_request(struct hid_device *hid, unsigned char reportnum,
++				   u8 *buf, size_t len, unsigned char rtype,
++				   int reqtype)
 +{
 +	struct surface_hid_device *shid = hid->driver_data;
 +
@@ -8223,7 +8210,7 @@ index 000000000000..f41b7a578fbb
 +
 +	shid->notif.base.priority = 1;
 +	shid->notif.base.fn = ssam_hid_event_fn;
-+	shid->notif.event.reg = SSAM_EVENT_REGISTRY_REG,
++	shid->notif.event.reg = SSAM_EVENT_REGISTRY_REG;
 +	shid->notif.event.id.target_category = sdev->uid.category;
 +	shid->notif.event.id.instance = sdev->uid.instance;
 +	shid->notif.event.mask = SSAM_EVENT_MASK_STRICT;
@@ -8291,7 +8278,7 @@ index 000000000000..f41b7a578fbb
 +	struct ssam_controller *ctrl;
 +	struct surface_hid_device *shid;
 +
-+	// add device link to EC
++	/* Add device link to EC. */
 +	ctrl = ssam_client_bind(&pdev->dev);
 +	if (IS_ERR(ctrl))
 +		return PTR_ERR(ctrl) == -ENODEV ? -EPROBE_DEFER : PTR_ERR(ctrl);
@@ -8381,20 +8368,20 @@ index 000000000000..f41b7a578fbb
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_hotplug.c b/drivers/misc/surface_aggregator/clients/surface_hotplug.c
 new file mode 100644
-index 000000000000..9afddfc6a358
+index 000000000000..572fba30cd77
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_hotplug.c
-@@ -0,0 +1,269 @@
+@@ -0,0 +1,267 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface Book (gen. 2 and later) hot-plug driver.
 + *
 + * Surface Book devices (can) have a hot-pluggable discrete GPU (dGPU). This
-+ * driver is responsible for out-of-band hot-plug event signalling on these
++ * driver is responsible for out-of-band hot-plug event signaling on these
 + * devices. It is specifically required when the hot-plug device is in D3cold
 + * and can thus not generate PCIe hot-plug events itself.
 + *
-+ * Event signalling is handled via ACPI, which will generate the appropriate
++ * Event signaling is handled via ACPI, which will generate the appropriate
 + * device-check notifications to be picked up by the PCIe hot-plug driver.
 + *
 + * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
@@ -8425,6 +8412,7 @@ index 000000000000..9afddfc6a358
 +	{ },
 +};
 +
++/* 5515a847-ed55-4b27-8352-cd320e10360a */
 +static const guid_t shps_dsm_guid =
 +	GUID_INIT(0x5515a847, 0xed55, 0x4b27, 0x83, 0x52, 0xcd,
 +		  0x32, 0x0e, 0x10, 0x36, 0x0a);
@@ -8488,24 +8476,25 @@ index 000000000000..9afddfc6a358
 +	param.integer.value = value;
 +
 +	result = acpi_evaluate_dsm(handle, &shps_dsm_guid, SHPS_DSM_REVISION,
-+			SHPS_DSM_FN_IRQ_BASE_PRESENCE + type, &param);
++				   SHPS_DSM_FN_IRQ_BASE_PRESENCE + type, &param);
 +
 +	if (!result) {
 +		mutex_unlock(&sdev->lock[type]);
-+		dev_err(&pdev->dev, "IRQ notification via DSM failed"
-+			" (irq=%d, gpio=%d)\n", type, value);
++		dev_err(&pdev->dev,
++			"IRQ notification via DSM failed (irq=%d, gpio=%d)\n",
++			type, value);
 +		return;
 +	}
 +
 +	if (result->type != ACPI_TYPE_BUFFER) {
-+		dev_err(&pdev->dev, "IRQ notification via DSM failed:"
-+			" unexpected result type (irq=%d, gpio=%d)\n",
++		dev_err(&pdev->dev,
++			"IRQ notification via DSM failed: unexpected result type (irq=%d, gpio=%d)\n",
 +			type, value);
 +	}
 +
 +	if (result->buffer.length != 1 || result->buffer.pointer[0] != 0) {
-+		dev_err(&pdev->dev, "IRQ notification via DSM failed:"
-+			"unexpected result value (irq=%d, gpio=%d)\n",
++		dev_err(&pdev->dev,
++			"IRQ notification via DSM failed: unexpected result value (irq=%d, gpio=%d)\n",
 +			type, value);
 +	}
 +
@@ -8519,22 +8508,23 @@ index 000000000000..9afddfc6a358
 +	struct shps_device *sdev = platform_get_drvdata(pdev);
 +	int type;
 +
-+	// figure out which IRQ we're handling
++	/* Figure out which IRQ we're handling. */
 +	for (type = 0; type < SHPS_NUM_IRQS; type++)
 +		if (irq == sdev->irq[type])
 +			break;
 +
-+	// we should have found our interrupt, if not: this is a bug
++	/* We should have found our interrupt, if not: this is a bug. */
 +	if (WARN(type >= SHPS_NUM_IRQS, "invalid IRQ number: %d\n", irq))
 +		return IRQ_HANDLED;
 +
-+	// forward interrupt to ACPI via DSM
++	/* Forward interrupt to ACPI via DSM. */
 +	shps_dsm_notify_irq(pdev, type);
 +	return IRQ_HANDLED;
 +}
 +
 +static int shps_setup_irq(struct platform_device *pdev, enum shps_irq_type type)
 +{
++	unsigned long flags = IRQF_ONESHOT | IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING;
 +	struct shps_device *sdev = platform_get_drvdata(pdev);
 +	struct gpio_desc *gpiod;
 +	acpi_handle handle = ACPI_HANDLE(&pdev->dev);
@@ -8542,11 +8532,11 @@ index 000000000000..9afddfc6a358
 +	const int dsm = SHPS_DSM_FN_IRQ_BASE_PRESENCE + type;
 +	int status, irq;
 +
-+	// initialize as "not present"
++	/* Initialize as "not present". */
 +	sdev->gpio[type] = NULL;
 +	sdev->irq[type] = SHPS_IRQ_NOT_PRESENT;
 +
-+	// only set up interrupts that we actually need
++	/* Only set up interrupts that we actually need. */
 +	if (!acpi_check_dsm(handle, &shps_dsm_guid, SHPS_DSM_REVISION, BIT(dsm))) {
 +		dev_dbg(&pdev->dev, "IRQ notification via DSM not present (irq=%d)\n",
 +			type);
@@ -8566,8 +8556,7 @@ index 000000000000..9afddfc6a358
 +		return -ENOMEM;
 +
 +	status = devm_request_threaded_irq(&pdev->dev, irq, NULL, shps_handle_irq,
-+			IRQF_ONESHOT | IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
-+			irq_name, pdev);
++					   flags, irq_name, pdev);
 +	if (status)
 +		return status;
 +
@@ -8584,16 +8573,12 @@ index 000000000000..9afddfc6a358
 +	struct shps_device *sdev;
 +	int status, i;
 +
-+	if (gpiod_count(&pdev->dev, NULL) < 0) {
-+		dev_err(&pdev->dev, "gpiod_count returned < 0\n");
++	if (gpiod_count(&pdev->dev, NULL) < 0)
 +		return -ENODEV;
-+	}
 +
 +	status = devm_acpi_dev_add_driver_gpios(&pdev->dev, shps_acpi_gpios);
-+	if (status) {
-+		dev_err(&pdev->dev, "failed to add gpios: %d\n", status);
++	if (status)
 +		return status;
-+	}
 +
 +	sdev = devm_kzalloc(&pdev->dev, sizeof(*sdev), GFP_KERNEL);
 +	if (!sdev)
@@ -8601,7 +8586,7 @@ index 000000000000..9afddfc6a358
 +
 +	platform_set_drvdata(pdev, sdev);
 +
-+	// set up IRQs
++	/* Set up IRQs. */
 +	for (i = 0; i < SHPS_NUM_IRQS; i++) {
 +		mutex_init(&sdev->lock[i]);
 +
@@ -8613,7 +8598,7 @@ index 000000000000..9afddfc6a358
 +		}
 +	}
 +
-+	// ensure everything is up-to-date
++	/* Ensure everything is up-to-date. */
 +	for (i = 0; i < SHPS_NUM_IRQS; i++)
 +		if (sdev->irq[i] != SHPS_IRQ_NOT_PRESENT)
 +			shps_dsm_notify_irq(pdev, i);
@@ -8626,7 +8611,7 @@ index 000000000000..9afddfc6a358
 +	struct shps_device *sdev = platform_get_drvdata(pdev);
 +	int i;
 +
-+	// ensure that IRQs have been fully handled and won't trigger any more
++	/* Ensure that IRQs have been fully handled and won't trigger any more. */
 +	for (i = 0; i < SHPS_NUM_IRQS; i++)
 +		if (sdev->irq[i] != SHPS_IRQ_NOT_PRESENT)
 +			disable_irq(sdev->irq[i]);
@@ -8652,11 +8637,11 @@ index 000000000000..9afddfc6a358
 +module_platform_driver(surface_hotplug_driver);
 +
 +MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
-+MODULE_DESCRIPTION("Surface Hot-Plug Signalling Driver for Surface Book Devices");
++MODULE_DESCRIPTION("Surface Hot-Plug Signaling Driver for Surface Book Devices");
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_perfmode.c b/drivers/misc/surface_aggregator/clients/surface_perfmode.c
 new file mode 100644
-index 000000000000..e13f4995b28b
+index 000000000000..cac7227f27ea
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_perfmode.c
 @@ -0,0 +1,122 @@
@@ -8664,9 +8649,9 @@ index 000000000000..e13f4995b28b
 +/*
 + * Surface performance-mode driver.
 + *
-+ * Proides a user-space interface for the performance mode control provided by
-+ * the Surface System Aggregator Module (SSAM), influencing cooling behavior
-+ * of the device and potentially managing power limits.
++ * Provides a user-space interface for the performance mode control provided
++ * by the Surface System Aggregator Module (SSAM), influencing cooling
++ * behavior of the device and potentially managing power limits.
 + *
 + * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 + */
@@ -8784,10 +8769,10 @@ index 000000000000..e13f4995b28b
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/controller.c b/drivers/misc/surface_aggregator/controller.c
 new file mode 100644
-index 000000000000..539e0db277bf
+index 000000000000..e39b11c0c007
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/controller.c
-@@ -0,0 +1,2572 @@
+@@ -0,0 +1,2543 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Main SSAM/SSH controller structure and functionality.
@@ -8804,6 +8789,7 @@ index 000000000000..539e0db277bf
 +#include <linux/limits.h>
 +#include <linux/list.h>
 +#include <linux/mutex.h>
++#include <linux/rculist.h>
 +#include <linux/rbtree.h>
 +#include <linux/rwsem.h>
 +#include <linux/serdev.h>
@@ -8895,7 +8881,6 @@ index 000000000000..539e0db277bf
 + * discover and identify new/currently unimplemented features.
 + */
 +
-+
 +/**
 + * ssam_event_matches_notifier() - Test if an event matches a notifier.
 + * @notif: The event notifier to test against.
@@ -8936,24 +8921,17 @@ index 000000000000..539e0db277bf
 + */
 +static int ssam_nfblk_call_chain(struct ssam_nf_head *nh, struct ssam_event *event)
 +{
-+	struct ssam_notifier_block *nb, *next_nb;
 +	struct ssam_event_notifier *nf;
 +	int ret = 0, idx;
 +
 +	idx = srcu_read_lock(&nh->srcu);
 +
-+	nb = rcu_dereference_raw(nh->head);
-+	while (nb) {
-+		nf = container_of(nb, struct ssam_event_notifier, base);
-+		next_nb = rcu_dereference_raw(nb->next);
-+
++	list_for_each_entry_rcu(nf, &nh->head, base.node) {
 +		if (ssam_event_matches_notifier(nf, event)) {
-+			ret = (ret & SSAM_NOTIF_STATE_MASK) | nb->fn(nf, event);
++			ret = (ret & SSAM_NOTIF_STATE_MASK) | nf->base.fn(nf, event);
 +			if (ret & SSAM_NOTIF_STOP)
 +				break;
 +		}
-+
-+		nb = next_nb;
 +	}
 +
 +	srcu_read_unlock(&nh->srcu, idx);
@@ -8961,108 +8939,78 @@ index 000000000000..539e0db277bf
 +}
 +
 +/**
-+ * __ssam_nfblk_insert() - Insert a new notifier block into the given notifier
++ * ssam_nfblk_insert() - Insert a new notifier block into the given notifier
 + * list.
 + * @nh: The notifier head into which the block should be inserted.
 + * @nb: The notifier block to add.
 + *
 + * Note: This function must be synchronized by the caller with respect to other
-+ * insert and/or remove calls.
++ * insert, find, and/or remove calls.
 + *
 + * Return: Returns zero on success, %-EEXIST if the notifier block has already
 + * been registered.
 + */
-+static int __ssam_nfblk_insert(struct ssam_nf_head *nh, struct ssam_notifier_block *nb)
++static int ssam_nfblk_insert(struct ssam_nf_head *nh, struct ssam_notifier_block *nb)
 +{
-+	struct ssam_notifier_block **link = &nh->head;
++	struct ssam_notifier_block *p;
++	struct list_head *h;
 +
-+	while (*link) {
-+		if (unlikely(*link == nb)) {
++	/* Runs under lock, no need for RCU variant. */
++	list_for_each(h, &nh->head) {
++		p = list_entry(h, struct ssam_notifier_block, node);
++
++		if (unlikely(p == nb)) {
 +			WARN(1, "double register detected");
 +			return -EEXIST;
 +		}
 +
-+		if (nb->priority > (*link)->priority)
++		if (nb->priority > p->priority)
 +			break;
-+
-+		link = &((*link)->next);
 +	}
 +
-+	nb->next = *link;
-+	rcu_assign_pointer(*link, nb);
-+
++	list_add_tail_rcu(&nb->node, h);
 +	return 0;
 +}
 +
 +/**
-+ * __ssam_nfblk_find_link() - Find a notifier block link on the given list.
-+ * @nh: The notifier head on which the search should be conducted.
++ * ssam_nfblk_find() - Check if a notifier block is registered on the given
++ * notifier head.
++ * list.
++ * @nh: The notifier head on which to search.
 + * @nb: The notifier block to search for.
 + *
-+ * Note: This function must be synchronized by the caller with respect to
-+ * insert and/or remove calls.
++ * Note: This function must be synchronized by the caller with respect to other
++ * insert, find, and/or remove calls.
 + *
-+ * Return: Returns a pointer to the link (i.e. pointer pointing) to the given
-+ * notifier block, from the previous node in the list, or %NULL if the given
-+ * notifier block is not contained in the notifier list.
++ * Return: Returns true if the given notifier block is registered on the given
++ * notifier head, false otherwise.
 + */
-+static struct ssam_notifier_block **__ssam_nfblk_find_link(
-+		struct ssam_nf_head *nh, struct ssam_notifier_block *nb)
++static bool ssam_nfblk_find(struct ssam_nf_head *nh, struct ssam_notifier_block *nb)
 +{
-+	struct ssam_notifier_block **link = &nh->head;
++	struct ssam_notifier_block *p;
 +
-+	while (*link) {
-+		if (*link == nb)
-+			return link;
-+
-+		link = &((*link)->next);
++	/* Runs under lock, no need for RCU variant. */
++	list_for_each_entry(p, &nh->head, node) {
++		if (p == nb)
++			return true;
 +	}
 +
-+	return NULL;
++	return false;
 +}
 +
 +/**
-+ * __ssam_nfblk_erase() - Erase a notifier block link in the given notifier
-+ * list.
-+ * @link: The link to be erased.
++ * ssam_nfblk_remove() - Remove a notifier block from its notifier list.
++ * @nb: The notifier block to be removed.
 + *
 + * Note: This function must be synchronized by the caller with respect to
-+ * other insert and/or remove/erase/find calls. The caller _must_ ensure SRCU
++ * other insert, find and/or remove calls. The caller _must_ ensure SRCU
 + * synchronization by calling synchronize_srcu() with ``nh->srcu`` after
 + * leaving the critical section, to ensure that the removed notifier block is
 + * not in use any more.
 + */
-+static void __ssam_nfblk_erase(struct ssam_notifier_block **link)
++static void ssam_nfblk_remove(struct ssam_notifier_block *nb)
 +{
-+	rcu_assign_pointer(*link, (*link)->next);
-+}
-+
-+
-+/**
-+ * __ssam_nfblk_remove() - Remove a notifier block from the given notifier list.
-+ * @nh: The notifier head from which the block should be removed.
-+ * @nb: The notifier block to remove.
-+ *
-+ * Note: This function must be synchronized by the caller with respect to
-+ * other insert and/or remove calls. On success, the caller *must* ensure SRCU
-+ * synchronization by calling synchronize_srcu() with ``nh->srcu`` after
-+ * leaving the critical section, to ensure that the removed notifier block is
-+ * not in use any more.
-+ *
-+ * Return: Returns zero on success, %-ENOENT if the specified notifier block
-+ * could not be found on the notifier list.
-+ */
-+static int __ssam_nfblk_remove(struct ssam_nf_head *nh,
-+			       struct ssam_notifier_block *nb)
-+{
-+	struct ssam_notifier_block **link;
-+
-+	link = __ssam_nfblk_find_link(nh, nb);
-+	if (!link)
-+		return -ENOENT;
-+
-+	__ssam_nfblk_erase(link);
-+	return 0;
++	list_del_rcu(&nb->node);
 +}
 +
 +/**
@@ -9077,7 +9025,7 @@ index 000000000000..539e0db277bf
 +	if (status)
 +		return status;
 +
-+	nh->head = NULL;
++	INIT_LIST_HEAD(&nh->head);
 +	return 0;
 +}
 +
@@ -9119,7 +9067,6 @@ index 000000000000..539e0db277bf
 +	u8 flags;
 +};
 +
-+
 +/**
 + * ssam_nf_refcount_inc() - Increment reference-/activation-count of the given
 + * event.
@@ -9140,9 +9087,9 @@ index 000000000000..539e0db277bf
 + * with %-ENOSPC if there have already been %INT_MAX events of the specified
 + * ID and type registered, or %-ENOMEM if the entry could not be allocated.
 + */
-+static struct ssam_nf_refcount_entry *ssam_nf_refcount_inc(
-+		struct ssam_nf *nf, struct ssam_event_registry reg,
-+		struct ssam_event_id id)
++static struct ssam_nf_refcount_entry
++*ssam_nf_refcount_inc(struct ssam_nf *nf, struct ssam_event_registry reg,
++		      struct ssam_event_id id)
 +{
 +	struct ssam_nf_refcount_entry *entry;
 +	struct ssam_nf_refcount_key key;
@@ -9202,9 +9149,9 @@ index 000000000000..539e0db277bf
 + * Return: Returns the refcount entry on success or %NULL if the entry has not
 + * been found.
 + */
-+static struct ssam_nf_refcount_entry *ssam_nf_refcount_dec(
-+		struct ssam_nf *nf, struct ssam_event_registry reg,
-+		struct ssam_event_id id)
++static struct ssam_nf_refcount_entry
++*ssam_nf_refcount_dec(struct ssam_nf *nf, struct ssam_event_registry reg,
++		      struct ssam_event_id id)
 +{
 +	struct ssam_nf_refcount_entry *entry;
 +	struct ssam_nf_refcount_key key;
@@ -9270,7 +9217,7 @@ index 000000000000..539e0db277bf
 +	int status, nf_ret;
 +
 +	if (!ssh_rqid_is_event(rqid)) {
-+		dev_warn(dev, "event: unsupported rqid: 0x%04x\n", rqid);
++		dev_warn(dev, "event: unsupported rqid: %#06x\n", rqid);
 +		return;
 +	}
 +
@@ -9279,15 +9226,15 @@ index 000000000000..539e0db277bf
 +	status = ssam_notifier_to_errno(nf_ret);
 +
 +	if (status < 0) {
-+		dev_err(dev, "event: error handling event: %d "
-+			"(tc: 0x%02x, tid: 0x%02x, cid: 0x%02x, iid: 0x%02x)\n",
++		dev_err(dev,
++			"event: error handling event: %d (tc: %#04x, tid: %#04x, cid: %#04x, iid: %#04x)\n",
 +			status, event->target_category, event->target_id,
 +			event->command_id, event->instance_id);
 +	}
 +
 +	if (!(nf_ret & SSAM_NOTIF_HANDLED)) {
-+		dev_warn(dev, "event: unhandled event (rqid: 0x%02x, "
-+			 "tc: 0x%02x, tid: 0x%02x, cid: 0x%02x, iid: 0x%02x)\n",
++		dev_warn(dev,
++			 "event: unhandled event (rqid: %#04x, tc: %#04x, tid: %#04x, cid: %#04x, iid: %#04x)\n",
 +			 rqid, event->target_category, event->target_id,
 +			 event->command_id, event->instance_id);
 +	}
@@ -9440,7 +9387,6 @@ index 000000000000..539e0db277bf
 +	return item;
 +}
 +
-+
 +/**
 + * ssam_event_queue_push() - Push an event item to the event queue.
 + * @q:    The event queue.
@@ -9500,14 +9446,15 @@ index 000000000000..539e0db277bf
 + * this function returns %NULL. If the target ID is not supported, this
 + * function will fall back to the default target ID (``tid = 1``).
 + */
-+static struct ssam_event_queue *ssam_cplt_get_event_queue(
-+		struct ssam_cplt *cplt, u8 tid, u16 rqid)
++static
++struct ssam_event_queue *ssam_cplt_get_event_queue(struct ssam_cplt *cplt,
++						   u8 tid, u16 rqid)
 +{
 +	u16 event = ssh_rqid_to_event(rqid);
 +	u16 tidx = ssh_tid_to_index(tid);
 +
 +	if (!ssh_rqid_is_event(rqid)) {
-+		dev_err(cplt->dev, "event: unsupported request ID: 0x%04x\n", rqid);
++		dev_err(cplt->dev, "event: unsupported request ID: %#06x\n", rqid);
 +		return NULL;
 +	}
 +
@@ -9589,7 +9536,7 @@ index 000000000000..539e0db277bf
 +	nf = &queue->cplt->event.notif;
 +	dev = queue->cplt->dev;
 +
-+	// limit number of processed events to avoid livelocking
++	/* Limit number of processed events to avoid livelocking. */
 +	do {
 +		item = ssam_event_queue_pop(queue);
 +		if (!item)
@@ -9716,7 +9663,6 @@ index 000000000000..539e0db277bf
 +}
 +EXPORT_SYMBOL_GPL(ssam_controller_put);
 +
-+
 +/**
 + * ssam_controller_statelock() - Lock the controller against state transitions.
 + * @c: The controller to lock.
@@ -9778,7 +9724,6 @@ index 000000000000..539e0db277bf
 +	up_write(&c->lock);
 +}
 +
-+
 +static void ssam_handle_event(struct ssh_rtl *rtl,
 +			      const struct ssh_command *cmd,
 +			      const struct ssam_span *data)
@@ -9805,10 +9750,8 @@ index 000000000000..539e0db277bf
 +	.handle_event = ssam_handle_event,
 +};
 +
-+
 +static bool ssam_notifier_is_empty(struct ssam_controller *ctrl);
 +static void ssam_notifier_unregister_all(struct ssam_controller *ctrl);
-+
 +
 +#define SSAM_SSH_DSM_REVISION	0
 +
@@ -9888,24 +9831,27 @@ index 000000000000..539e0db277bf
 + *
 + * Return: Returns zero on success, a negative error code on failure.
 + */
-+static int ssam_controller_caps_load_from_acpi(
-+		acpi_handle handle, struct ssam_controller_caps *caps)
++static
++int ssam_controller_caps_load_from_acpi(acpi_handle handle,
++					struct ssam_controller_caps *caps)
 +{
 +	u32 d3_closes_handle = false;
 +	u64 funcs;
 +	int status;
 +
-+	// set defaults
++	/* Set defaults. */
 +	caps->ssh_power_profile = U32_MAX;
 +	caps->screen_on_sleep_idle_timeout = U32_MAX;
 +	caps->screen_off_sleep_idle_timeout = U32_MAX;
 +	caps->d3_closes_handle = false;
 +	caps->ssh_buffer_size = U32_MAX;
 +
++	/* Pre-load supported DSM functions. */
 +	status = ssam_dsm_get_functions(handle, &funcs);
 +	if (status)
 +		return status;
 +
++	/* Load actual values from ACPI, if present. */
 +	status = ssam_dsm_load_u32(handle, funcs, SSH_DSM_FN_SSH_POWER_PROFILE,
 +				   &caps->ssh_power_profile);
 +	if (status)
@@ -9980,12 +9926,12 @@ index 000000000000..539e0db277bf
 +	ssh_seq_reset(&ctrl->counter.seq);
 +	ssh_rqid_reset(&ctrl->counter.rqid);
 +
-+	// initialize event/request completion system
++	/* Initialize event/request completion system. */
 +	status = ssam_cplt_init(&ctrl->cplt, &serdev->dev);
 +	if (status)
 +		return status;
 +
-+	// initialize request and packet transport layers
++	/* Initialize request and packet transport layers. */
 +	status = ssh_rtl_init(&ctrl->rtl, serdev, &ssam_rtl_ops);
 +	if (status) {
 +		ssam_cplt_destroy(&ctrl->cplt);
@@ -10073,14 +10019,20 @@ index 000000000000..539e0db277bf
 +	if (s == SSAM_CONTROLLER_UNINITIALIZED || s == SSAM_CONTROLLER_STOPPED)
 +		return;
 +
-+	// try to flush pending events and requests while everything still works
++	/*
++	 * Try to flush pending events and requests while everything still
++	 * works. Note: There may still be packets and/or requests in the
++	 * system after this call (e.g. via control packets submitted by the
++	 * packet transport layer or flush timeout / failure, ...). Those will
++	 * be handled with the ssh_rtl_shutdown() call below.
++	 */
 +	status = ssh_rtl_flush(&ctrl->rtl, SSAM_CTRL_SHUTDOWN_FLUSH_TIMEOUT);
 +	if (status) {
 +		ssam_err(ctrl, "failed to flush request transport layer: %d\n",
 +			 status);
 +	}
 +
-+	// try to flush out all currently completing requests and events
++	/* Try to flush all currently completing requests and events. */
 +	ssam_cplt_flush(&ctrl->cplt);
 +
 +	/*
@@ -10096,7 +10048,10 @@ index 000000000000..539e0db277bf
 +	 */
 +	ssam_notifier_unregister_all(ctrl);
 +
-+	// cancel rem. requests, ensure no new ones can be queued, stop threads
++	/*
++	 * Cancel remaining requests. Ensure no new ones can be queued and stop
++	 * threads.
++	 */
 +	ssh_rtl_shutdown(&ctrl->rtl);
 +
 +	/*
@@ -10138,7 +10093,7 @@ index 000000000000..539e0db277bf
 +	 * ensure that those remaining are being completed and freed.
 +	 */
 +
-+	// actually free resources
++	/* Actually free resources. */
 +	ssam_cplt_destroy(&ctrl->cplt);
 +	ssh_rtl_destroy(&ctrl->rtl);
 +
@@ -10262,7 +10217,6 @@ index 000000000000..539e0db277bf
 +}
 +EXPORT_SYMBOL_GPL(ssam_request_write_data);
 +
-+
 +static void ssam_request_sync_complete(struct ssh_request *rqst,
 +				       const struct ssh_command *cmd,
 +				       const struct ssam_span *data, int status)
@@ -10281,7 +10235,7 @@ index 000000000000..539e0db277bf
 +		return;
 +	}
 +
-+	if (!data)	// handle requests without a response
++	if (!data)	/* Handle requests without a response. */
 +		return;
 +
 +	if (!r->resp || !r->resp->pointer) {
@@ -10291,8 +10245,9 @@ index 000000000000..539e0db277bf
 +	}
 +
 +	if (data->len > r->resp->capacity) {
-+		rtl_err(rtl, "rsp: response buffer too small, capacity: %zu bytes,"
-+			" got: %zu bytes\n", r->resp->capacity, data->len);
++		rtl_err(rtl,
++			"rsp: response buffer too small, capacity: %zu bytes, got: %zu bytes\n",
++			r->resp->capacity, data->len);
 +		r->status = -ENOSPC;
 +		return;
 +	}
@@ -10310,7 +10265,6 @@ index 000000000000..539e0db277bf
 +	.release = ssam_request_sync_release,
 +	.complete = ssam_request_sync_complete,
 +};
-+
 +
 +/**
 + * ssam_request_sync_alloc() - Allocate a synchronous request.
@@ -10601,7 +10555,7 @@ index 000000000000..539e0db277bf
 +	u16 rqid = ssh_tc_to_rqid(id.target_category);
 +	u8 buf = 0;
 +
-+	// only allow RQIDs that lie within event spectrum
++	/* Only allow RQIDs that lie within the event spectrum. */
 +	if (!ssh_rqid_is_event(rqid))
 +		return -EINVAL;
 +
@@ -10654,16 +10608,15 @@ index 000000000000..539e0db277bf
 +	status = __ssam_ssh_event_request(ctrl, reg, reg.cid_enable, id, flags);
 +
 +	if (status < 0 && status != -EINVAL) {
-+		ssam_err(ctrl, "failed to enable event source (tc: 0x%02x, "
-+			 "iid: 0x%02x, reg: 0x%02x)\n", id.target_category,
-+			 id.instance, reg.target_category);
++		ssam_err(ctrl,
++			 "failed to enable event source (tc: %#04x, iid: %#04x, reg: %#04x)\n",
++			 id.target_category, id.instance, reg.target_category);
 +	}
 +
 +	if (status > 0) {
-+		ssam_err(ctrl, "unexpected result while enabling event source: "
-+			 "0x%02x (tc: 0x%02x, iid: 0x%02x, reg: 0x%02x)\n",
-+			 status, id.target_category, id.instance,
-+			 reg.target_category);
++		ssam_err(ctrl,
++			 "unexpected result while enabling event source: %#04x (tc: %#04x, iid: %#04x, reg: %#04x)\n",
++			 status, id.target_category, id.instance, reg.target_category);
 +		return -EPROTO;
 +	}
 +
@@ -10696,16 +10649,15 @@ index 000000000000..539e0db277bf
 +	status = __ssam_ssh_event_request(ctrl, reg, reg.cid_enable, id, flags);
 +
 +	if (status < 0 && status != -EINVAL) {
-+		ssam_err(ctrl, "failed to disable event source (tc: 0x%02x, "
-+			 "iid: 0x%02x, reg: 0x%02x)\n", id.target_category,
-+			 id.instance, reg.target_category);
++		ssam_err(ctrl,
++			 "failed to disable event source (tc: %#04x, iid: %#04x, reg: %#04x)\n",
++			 id.target_category, id.instance, reg.target_category);
 +	}
 +
 +	if (status > 0) {
-+		ssam_err(ctrl, "unexpected result while disabling event source: "
-+			 "0x%02x (tc: 0x%02x, iid: 0x%02x, reg: 0x%02x)\n",
-+			 status, id.target_category, id.instance,
-+			 reg.target_category);
++		ssam_err(ctrl,
++			 "unexpected result while disabling event source: %#04x (tc: %#04x, iid: %#04x, reg: %#04x)\n",
++			 status, id.target_category, id.instance, reg.target_category);
 +		return -EPROTO;
 +	}
 +
@@ -10775,7 +10727,7 @@ index 000000000000..539e0db277bf
 +		return status;
 +
 +	if (response != 0) {
-+		ssam_err(ctrl, "unexpected response from display-off notification: 0x%02x\n",
++		ssam_err(ctrl, "unexpected response from display-off notification: %#04x\n",
 +			 response);
 +		return -EPROTO;
 +	}
@@ -10814,7 +10766,7 @@ index 000000000000..539e0db277bf
 +		return status;
 +
 +	if (response != 0) {
-+		ssam_err(ctrl, "unexpected response from display-on notification: 0x%02x\n",
++		ssam_err(ctrl, "unexpected response from display-on notification: %#04x\n",
 +			 response);
 +		return -EPROTO;
 +	}
@@ -10856,7 +10808,7 @@ index 000000000000..539e0db277bf
 +		return status;
 +
 +	if (response != 0) {
-+		ssam_err(ctrl, "unexpected response from D0-exit notification: 0x%02x\n",
++		ssam_err(ctrl, "unexpected response from D0-exit notification: %#04x\n",
 +			 response);
 +		return -EPROTO;
 +	}
@@ -10898,7 +10850,7 @@ index 000000000000..539e0db277bf
 +		return status;
 +
 +	if (response != 0) {
-+		ssam_err(ctrl, "unexpected response from D0-entry notification: 0x%02x\n",
++		ssam_err(ctrl, "unexpected response from D0-entry notification: %#04x\n",
 +			 response);
 +		return -EPROTO;
 +	}
@@ -10948,11 +10900,11 @@ index 000000000000..539e0db277bf
 +		return PTR_ERR(entry);
 +	}
 +
-+	ssam_dbg(ctrl, "enabling event (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x, rc: %d)\n",
++	ssam_dbg(ctrl, "enabling event (reg: %#04x, tc: %#04x, iid: %#04x, rc: %d)\n",
 +		 n->event.reg.target_category, n->event.id.target_category,
 +		 n->event.id.instance, entry->refcount);
 +
-+	status = __ssam_nfblk_insert(nf_head, &n->base);
++	status = ssam_nfblk_insert(nf_head, &n->base);
 +	if (status) {
 +		entry = ssam_nf_refcount_dec(nf, n->event.reg, n->event.id);
 +		if (entry->refcount == 0)
@@ -10966,7 +10918,7 @@ index 000000000000..539e0db277bf
 +		status = ssam_ssh_event_enable(ctrl, n->event.reg, n->event.id,
 +					       n->event.flags);
 +		if (status) {
-+			__ssam_nfblk_remove(nf_head, &n->base);
++			ssam_nfblk_remove(&n->base);
 +			kfree(ssam_nf_refcount_dec(nf, n->event.reg, n->event.id));
 +			mutex_unlock(&nf->lock);
 +			synchronize_srcu(&nf_head->srcu);
@@ -10976,15 +10928,14 @@ index 000000000000..539e0db277bf
 +		entry->flags = n->event.flags;
 +
 +	} else if (entry->flags != n->event.flags) {
-+		ssam_warn(ctrl, "inconsistent flags when enabling event: got 0x%02x,"
-+			  " expected 0x%02x (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x)",
++		ssam_warn(ctrl,
++			  "inconsistent flags when enabling event: got %#04x, expected %#04x (reg: %#04x, tc: %#04x, iid: %#04x)\n",
 +			  n->event.flags, entry->flags, n->event.reg.target_category,
 +			  n->event.id.target_category, n->event.id.instance);
 +	}
 +
 +	mutex_unlock(&nf->lock);
 +	return 0;
-+
 +}
 +EXPORT_SYMBOL_GPL(ssam_notifier_register);
 +
@@ -11006,7 +10957,6 @@ index 000000000000..539e0db277bf
 +			     struct ssam_event_notifier *n)
 +{
 +	u16 rqid = ssh_tc_to_rqid(n->event.id.target_category);
-+	struct ssam_notifier_block **link;
 +	struct ssam_nf_refcount_entry *entry;
 +	struct ssam_nf_head *nf_head;
 +	struct ssam_nf *nf;
@@ -11020,25 +10970,30 @@ index 000000000000..539e0db277bf
 +
 +	mutex_lock(&nf->lock);
 +
-+	link = __ssam_nfblk_find_link(nf_head, &n->base);
-+	if (!link) {
++	if (!ssam_nfblk_find(nf_head, &n->base)) {
 +		mutex_unlock(&nf->lock);
 +		return -ENOENT;
 +	}
 +
 +	entry = ssam_nf_refcount_dec(nf, n->event.reg, n->event.id);
 +	if (WARN_ON(!entry)) {
-+		mutex_unlock(&nf->lock);
-+		return -ENOENT;
++		/*
++		 * If this does not return an entry, there's a logic error
++		 * somewhere: The notifier block is registered, but the event
++		 * refcount entry is not there. Remove the notifier block
++		 * anyways.
++		 */
++		status = -ENOENT;
++		goto remove;
 +	}
 +
-+	ssam_dbg(ctrl, "disabling event (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x, rc: %d)\n",
++	ssam_dbg(ctrl, "disabling event (reg: %#04x, tc: %#04x, iid: %#04x, rc: %d)\n",
 +		 n->event.reg.target_category, n->event.id.target_category,
 +		 n->event.id.instance, entry->refcount);
 +
 +	if (entry->flags != n->event.flags) {
-+		ssam_warn(ctrl, "inconsistent flags when enabling event: got 0x%02x,"
-+			  " expected 0x%02x (reg: 0x%02x, tc: 0x%02x, iid: 0x%02x)",
++		ssam_warn(ctrl,
++			  "inconsistent flags when disabling event: got %#04x, expected %#04x (reg: %#04x, tc: %#04x, iid: %#04x)\n",
 +			  n->event.flags, entry->flags, n->event.reg.target_category,
 +			  n->event.id.target_category, n->event.id.instance);
 +	}
@@ -11049,7 +11004,8 @@ index 000000000000..539e0db277bf
 +		kfree(entry);
 +	}
 +
-+	__ssam_nfblk_erase(link);
++remove:
++	ssam_nfblk_remove(&n->base);
 +	mutex_unlock(&nf->lock);
 +	synchronize_srcu(&nf_head->srcu);
 +
@@ -11085,7 +11041,7 @@ index 000000000000..539e0db277bf
 +	int status;
 +
 +	mutex_lock(&nf->lock);
-+	for (n = rb_first(&nf->refcount); n != NULL; n = rb_next(n)) {
++	for (n = rb_first(&nf->refcount); n; n = rb_next(n)) {
 +		struct ssam_nf_refcount_entry *e;
 +
 +		e = rb_entry(n, struct ssam_nf_refcount_entry, node);
@@ -11099,7 +11055,7 @@ index 000000000000..539e0db277bf
 +	return 0;
 +
 +err:
-+	for (n = rb_prev(n); n != NULL; n = rb_prev(n)) {
++	for (n = rb_prev(n); n; n = rb_prev(n)) {
 +		struct ssam_nf_refcount_entry *e;
 +
 +		e = rb_entry(n, struct ssam_nf_refcount_entry, node);
@@ -11129,12 +11085,12 @@ index 000000000000..539e0db277bf
 +	struct rb_node *n;
 +
 +	mutex_lock(&nf->lock);
-+	for (n = rb_first(&nf->refcount); n != NULL; n = rb_next(n)) {
++	for (n = rb_first(&nf->refcount); n; n = rb_next(n)) {
 +		struct ssam_nf_refcount_entry *e;
 +
 +		e = rb_entry(n, struct ssam_nf_refcount_entry, node);
 +
-+		// ignore errors, will get logged in call
++		/* Ignore errors, will get logged in call. */
 +		ssam_ssh_event_enable(ctrl, e->key.reg, e->key.id, e->flags);
 +	}
 +	mutex_unlock(&nf->lock);
@@ -11175,7 +11131,7 @@ index 000000000000..539e0db277bf
 +
 +	mutex_lock(&nf->lock);
 +	rbtree_postorder_for_each_entry_safe(e, n, &nf->refcount, node) {
-+		// ignore errors, will get logged in call
++		/* Ignore errors, will get logged in call. */
 +		ssam_ssh_event_disable(ctrl, e->key.reg, e->key.id, e->flags);
 +		kfree(e);
 +	}
@@ -11362,10 +11318,10 @@ index 000000000000..539e0db277bf
 +}
 diff --git a/drivers/misc/surface_aggregator/controller.h b/drivers/misc/surface_aggregator/controller.h
 new file mode 100644
-index 000000000000..cfb0f658d66c
+index 000000000000..8297d34e7489
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/controller.h
-@@ -0,0 +1,288 @@
+@@ -0,0 +1,285 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * Main SSAM/SSH controller structure and functionality.
@@ -11417,12 +11373,11 @@ index 000000000000..cfb0f658d66c
 +/**
 + * struct ssam_nf_head - Notifier head for SSAM events.
 + * @srcu: The SRCU struct for synchronization.
-+ * @head: Head-pointer for the single-linked list of notifier blocks registered
-+ *        under this head.
++ * @head: List-head for notifier blocks registered under this head.
 + */
 +struct ssam_nf_head {
 +	struct srcu_struct srcu;
-+	struct ssam_notifier_block __rcu *head;
++	struct list_head head;
 +};
 +
 +/**
@@ -11461,7 +11416,7 @@ index 000000000000..cfb0f658d66c
 +		void (*free)(struct ssam_event_item *event);
 +	} ops;
 +
-+	struct ssam_event event;	// must be last
++	struct ssam_event event;	/* must be last */
 +};
 +
 +/**
@@ -11594,7 +11549,6 @@ index 000000000000..cfb0f658d66c
 +#define ssam_warn(ctrl, fmt, ...) rtl_warn(&(ctrl)->rtl, fmt, ##__VA_ARGS__)
 +#define ssam_err(ctrl, fmt, ...)  rtl_err(&(ctrl)->rtl, fmt, ##__VA_ARGS__)
 +
-+
 +/**
 + * ssam_controller_receive_buf() - Provide input-data to the controller.
 + * @ctrl: The controller.
@@ -11623,7 +11577,6 @@ index 000000000000..cfb0f658d66c
 +{
 +	ssh_ptl_tx_wakeup_transfer(&ctrl->rtl.ptl);
 +}
-+
 +
 +int ssam_controller_init(struct ssam_controller *ctrl, struct serdev_device *s);
 +int ssam_controller_start(struct ssam_controller *ctrl);
@@ -11656,10 +11609,10 @@ index 000000000000..cfb0f658d66c
 +#endif /* _SURFACE_AGGREGATOR_CONTROLLER_H */
 diff --git a/drivers/misc/surface_aggregator/core.c b/drivers/misc/surface_aggregator/core.c
 new file mode 100644
-index 000000000000..460569c5300b
+index 000000000000..335037ca805c
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/core.c
-@@ -0,0 +1,830 @@
+@@ -0,0 +1,834 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface Serial Hub (SSH) driver for communication with the Surface/System
@@ -11765,7 +11718,6 @@ index 000000000000..460569c5300b
 +	__ssam_controller = NULL;
 +	spin_unlock(&__ssam_controller_lock);
 +}
-+
 +
 +/**
 + * ssam_client_link() - Link an arbitrary client device to the controller.
@@ -11979,20 +11931,20 @@ index 000000000000..460569c5300b
 +
 +	uart = &rsc->data.uart_serial_bus;
 +
-+	// set up serdev device
++	/* Set up serdev device. */
 +	serdev_device_set_baudrate(serdev, uart->default_baud_rate);
 +
-+	// serdev currently only supports RTSCTS flow control
-+	if (uart->flow_control & (~((u8) ACPI_UART_FLOW_CONTROL_HW))) {
-+		dev_warn(&serdev->dev, "setup: unsupported flow control (value: 0x%02x)\n",
++	/* serdev currently only supports RTSCTS flow control. */
++	if (uart->flow_control & (~((u8)ACPI_UART_FLOW_CONTROL_HW))) {
++		dev_warn(&serdev->dev, "setup: unsupported flow control (value: %#04x)\n",
 +			 uart->flow_control);
 +	}
 +
-+	// set RTSCTS flow control
++	/* Set RTSCTS flow control. */
 +	flow_control = uart->flow_control & ACPI_UART_FLOW_CONTROL_HW;
 +	serdev_device_set_flow_control(serdev, flow_control);
 +
-+	// serdev currently only supports EVEN/ODD parity
++	/* serdev currently only supports EVEN/ODD parity. */
 +	switch (uart->parity) {
 +	case ACPI_UART_PARITY_NONE:
 +		status = serdev_device_set_parity(serdev, SERDEV_PARITY_NONE);
@@ -12004,18 +11956,19 @@ index 000000000000..460569c5300b
 +		status = serdev_device_set_parity(serdev, SERDEV_PARITY_ODD);
 +		break;
 +	default:
-+		dev_warn(&serdev->dev, "setup: unsupported parity (value: 0x%02x)\n",
++		dev_warn(&serdev->dev, "setup: unsupported parity (value: %#04x)\n",
 +			 uart->parity);
 +		break;
 +	}
 +
 +	if (status) {
-+		dev_err(&serdev->dev, "setup: failed to set parity (value: 0x%02x, error: %d)\n",
++		dev_err(&serdev->dev, "setup: failed to set parity (value: %#04x, error: %d)\n",
 +			uart->parity, status);
 +		return AE_ERROR;
 +	}
 +
-+	return AE_CTRL_TERMINATE;       // we've found the resource and are done
++	/* We've found the resource and are done. */
++	return AE_CTRL_TERMINATE;
 +}
 +
 +static acpi_status ssam_serdev_setup_via_acpi(acpi_handle handle,
@@ -12296,17 +12249,17 @@ index 000000000000..460569c5300b
 +	if (status)
 +		return status;
 +
-+	// allocate controller
++	/* Allocate controller. */
 +	ctrl = kzalloc(sizeof(*ctrl), GFP_KERNEL);
 +	if (!ctrl)
 +		return -ENOMEM;
 +
-+	// initialize controller
++	/* Initialize controller. */
 +	status = ssam_controller_init(ctrl, serdev);
 +	if (status)
 +		goto err_ctrl_init;
 +
-+	// set up serdev device
++	/* Set up serdev device. */
 +	serdev_device_set_drvdata(serdev, ctrl);
 +	serdev_device_set_client_ops(serdev, &ssam_serdev_ops);
 +	status = serdev_device_open(serdev);
@@ -12319,12 +12272,15 @@ index 000000000000..460569c5300b
 +		goto err_devinit;
 +	}
 +
-+	// start controller
++	/* Start controller. */
 +	status = ssam_controller_start(ctrl);
 +	if (status)
 +		goto err_devinit;
 +
-+	// initial SAM requests: log version, notify default/init power states
++	/*
++	 * Initial SAM requests: Log version and notify default/init power
++	 * states.
++	 */
 +	status = ssam_log_firmware_version(ctrl);
 +	if (status)
 +		goto err_initrq;
@@ -12341,14 +12297,14 @@ index 000000000000..460569c5300b
 +	if (status)
 +		goto err_initrq;
 +
-+	// setup IRQ
++	/* Set up IRQ. */
 +	status = ssam_irq_setup(ctrl);
 +	if (status)
 +		goto err_irq;
 +
-+	// finally, set main controller reference
++	/* Finally, set main controller reference. */
 +	status = ssam_try_set_controller(ctrl);
-+	if (WARN_ON(status))	// currently, we're the only provider
++	if (WARN_ON(status))	/* Currently, we're the only provider. */
 +		goto err_mainref;
 +
 +	/*
@@ -12386,17 +12342,19 @@ index 000000000000..460569c5300b
 +	struct ssam_controller *ctrl = serdev_device_get_drvdata(serdev);
 +	int status;
 +
-+	// clear static reference, so that no one else can get a new one
++	/* Clear static reference so that no one else can get a new one. */
 +	ssam_clear_controller();
 +
++	/* Disable and free IRQ. */
 +	ssam_irq_free(ctrl);
++
 +	sysfs_remove_group(&serdev->dev.kobj, &ssam_sam_group);
 +	ssam_controller_lock(ctrl);
 +
-+	// remove all client devices
++	/* Remove all client devices. */
 +	ssam_controller_remove_clients(ctrl);
 +
-+	// act as if suspending to disable events
++	/* Act as if suspending to silence events. */
 +	status = ssam_ctrl_notif_display_off(ctrl);
 +	if (status) {
 +		dev_err(&serdev->dev, "display-off notification failed: %d\n",
@@ -12409,20 +12367,19 @@ index 000000000000..460569c5300b
 +			status);
 +	}
 +
-+	// shut down controller and remove serdev device reference from it
++	/* Shut down controller and remove serdev device reference from it. */
 +	ssam_controller_shutdown(ctrl);
 +
-+	// shut down actual transport
++	/* Shut down actual transport. */
 +	serdev_device_wait_until_sent(serdev, 0);
 +	serdev_device_close(serdev);
 +
-+	// drop our controller reference
++	/* Drop our controller reference. */
 +	ssam_controller_unlock(ctrl);
 +	ssam_controller_put(ctrl);
 +
 +	device_set_wakeup_capable(&serdev->dev, false);
 +}
-+
 +
 +static const struct acpi_device_id ssam_serial_hub_match[] = {
 +	{ "MSHW0084", 0 },
@@ -12492,10 +12449,10 @@ index 000000000000..460569c5300b
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/ssh_msgb.h b/drivers/misc/surface_aggregator/ssh_msgb.h
 new file mode 100644
-index 000000000000..1bfdf045b4a7
+index 000000000000..1221f642dda1
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_msgb.h
-@@ -0,0 +1,198 @@
+@@ -0,0 +1,205 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * SSH message builder functions.
@@ -12511,7 +12468,6 @@ index 000000000000..1bfdf045b4a7
 +
 +#include <linux/surface_aggregator/controller.h>
 +#include <linux/surface_aggregator/serial_hub.h>
-+
 +
 +/**
 + * struct msgbuf - Buffer struct to construct SSH messages.
@@ -12551,6 +12507,18 @@ index 000000000000..1bfdf045b4a7
 +	return msgb->ptr - msgb->begin;
 +}
 +
++static inline void __msgb_push_u8(struct msgbuf *msgb, u8 value)
++{
++	*msgb->ptr = value;
++	msgb->ptr += sizeof(u8);
++}
++
++static inline void __msgb_push_u16(struct msgbuf *msgb, u16 value)
++{
++	put_unaligned_le16(value, msgb->ptr);
++	msgb->ptr += sizeof(u16);
++}
++
 +/**
 + * msgb_push_u16() - Push a u16 value to the buffer.
 + * @msgb:  The message buffer.
@@ -12561,8 +12529,7 @@ index 000000000000..1bfdf045b4a7
 +	if (WARN_ON(msgb->ptr + sizeof(u16) > msgb->end))
 +		return;
 +
-+	put_unaligned_le16(value, msgb->ptr);
-+	msgb->ptr += sizeof(u16);
++	__msgb_push_u16(msgb, value);
 +}
 +
 +/**
@@ -12610,11 +12577,10 @@ index 000000000000..1bfdf045b4a7
 +	if (WARN_ON(msgb->ptr + sizeof(struct ssh_frame) > msgb->end))
 +		return;
 +
-+	put_unaligned(ty,  begin + offsetof(struct ssh_frame, type));
-+	put_unaligned(len, begin + offsetof(struct ssh_frame, len));
-+	put_unaligned(seq, begin + offsetof(struct ssh_frame, seq));
++	__msgb_push_u8(msgb, ty);	/* Frame type. */
++	__msgb_push_u16(msgb, len);	/* Frame payload length. */
++	__msgb_push_u8(msgb, seq);	/* Frame sequence ID. */
 +
-+	msgb->ptr += sizeof(struct ssh_frame);
 +	msgb_push_crc(msgb, begin, msgb->ptr - begin);
 +}
 +
@@ -12625,13 +12591,13 @@ index 000000000000..1bfdf045b4a7
 + */
 +static inline void msgb_push_ack(struct msgbuf *msgb, u8 seq)
 +{
-+	// SYN
++	/* SYN. */
 +	msgb_push_syn(msgb);
 +
-+	// ACK-type frame + CRC
++	/* ACK-type frame + CRC. */
 +	msgb_push_frame(msgb, SSH_FRAME_TYPE_ACK, 0x00, seq);
 +
-+	// payload CRC (ACK-type frames do not have a payload)
++	/* Payload CRC (ACK-type frames do not have a payload). */
 +	msgb_push_crc(msgb, msgb->ptr, 0);
 +}
 +
@@ -12641,13 +12607,13 @@ index 000000000000..1bfdf045b4a7
 + */
 +static inline void msgb_push_nak(struct msgbuf *msgb)
 +{
-+	// SYN
++	/* SYN. */
 +	msgb_push_syn(msgb);
 +
-+	// NAK-type frame + CRC
++	/* NAK-type frame + CRC. */
 +	msgb_push_frame(msgb, SSH_FRAME_TYPE_NAK, 0x00, 0x00);
 +
-+	// payload CRC (ACK-type frames do not have a payload)
++	/* Payload CRC (ACK-type frames do not have a payload). */
 +	msgb_push_crc(msgb, msgb->ptr, 0);
 +}
 +
@@ -12662,44 +12628,42 @@ index 000000000000..1bfdf045b4a7
 +				 const struct ssam_request *rqst)
 +{
 +	const u8 type = SSH_FRAME_TYPE_DATA_SEQ;
-+	u8 *p;
++	u8 *cmd;
 +
-+	// SYN
++	/* SYN. */
 +	msgb_push_syn(msgb);
 +
-+	// command frame + crc
++	/* Command frame + CRC. */
 +	msgb_push_frame(msgb, type, sizeof(struct ssh_command) + rqst->length, seq);
 +
-+	// frame payload: command struct + payload
++	/* Frame payload: Command struct + payload. */
 +	if (WARN_ON(msgb->ptr + sizeof(struct ssh_command) > msgb->end))
 +		return;
 +
-+	p = msgb->ptr;
++	cmd = msgb->ptr;
 +
-+	put_unaligned(SSH_PLD_TYPE_CMD,      p + offsetof(struct ssh_command, type));
-+	put_unaligned(rqst->target_category, p + offsetof(struct ssh_command, tc));
-+	put_unaligned(rqst->target_id,       p + offsetof(struct ssh_command, tid_out));
-+	put_unaligned(0x00,                  p + offsetof(struct ssh_command, tid_in));
-+	put_unaligned(rqst->instance_id,     p + offsetof(struct ssh_command, iid));
-+	put_unaligned(rqid,                  p + offsetof(struct ssh_command, rqid));
-+	put_unaligned(rqst->command_id,      p + offsetof(struct ssh_command, cid));
++	__msgb_push_u8(msgb, SSH_PLD_TYPE_CMD);		/* Payload type. */
++	__msgb_push_u8(msgb, rqst->target_category);	/* Target category. */
++	__msgb_push_u8(msgb, rqst->target_id);		/* Target ID (out). */
++	__msgb_push_u8(msgb, 0x00);			/* Target ID (in). */
++	__msgb_push_u8(msgb, rqst->instance_id);	/* Instance ID. */
++	__msgb_push_u16(msgb, rqid);			/* Request ID. */
++	__msgb_push_u8(msgb, rqst->command_id);		/* Command ID. */
 +
-+	msgb->ptr += sizeof(struct ssh_command);
-+
-+	// command payload
++	/* Command payload. */
 +	msgb_push_buf(msgb, rqst->payload, rqst->length);
 +
-+	// crc for command struct + payload
-+	msgb_push_crc(msgb, p, msgb->ptr - p);
++	/* CRC for command struct + payload. */
++	msgb_push_crc(msgb, cmd, msgb->ptr - cmd);
 +}
 +
 +#endif /* _SURFACE_AGGREGATOR_SSH_MSGB_H */
 diff --git a/drivers/misc/surface_aggregator/ssh_packet_layer.c b/drivers/misc/surface_aggregator/ssh_packet_layer.c
 new file mode 100644
-index 000000000000..7a5ed16b90d7
+index 000000000000..96141a174792
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_packet_layer.c
-@@ -0,0 +1,2060 @@
+@@ -0,0 +1,2055 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * SSH packet transport layer.
@@ -12715,6 +12679,7 @@ index 000000000000..7a5ed16b90d7
 +#include <linux/kref.h>
 +#include <linux/kthread.h>
 +#include <linux/ktime.h>
++#include <linux/limits.h>
 +#include <linux/list.h>
 +#include <linux/serdev.h>
 +#include <linux/slab.h>
@@ -12728,7 +12693,6 @@ index 000000000000..7a5ed16b90d7
 +#include "ssh_parser.h"
 +
 +#include "trace.h"
-+
 +
 +/*
 + * To simplify reasoning about the code below, we define a few concepts. The
@@ -12928,7 +12892,6 @@ index 000000000000..7a5ed16b90d7
 + */
 +#define SSH_PTL_RX_FIFO_LEN			4096
 +
-+
 +#ifdef CONFIG_SURFACE_AGGREGATOR_ERROR_INJECTION
 +
 +/**
@@ -13028,7 +12991,6 @@ index 000000000000..7a5ed16b90d7
 +}
 +ALLOW_ERROR_INJECTION(ssh_ptl_should_corrupt_rx_data, TRUE);
 +
-+
 +static bool __ssh_ptl_should_drop_ack_packet(struct ssh_packet *packet)
 +{
 +	if (likely(!ssh_ptl_should_drop_ack_packet()))
@@ -13060,7 +13022,7 @@ index 000000000000..7a5ed16b90d7
 +
 +	trace_ssam_ei_tx_drop_dsq_packet(packet);
 +	ptl_info(packet->ptl,
-+		"packet error injection: dropping sequenced data packet %p\n",
++		 "packet error injection: dropping sequenced data packet %p\n",
 +		 packet);
 +
 +	return true;
@@ -13068,7 +13030,7 @@ index 000000000000..7a5ed16b90d7
 +
 +static bool ssh_ptl_should_drop_packet(struct ssh_packet *packet)
 +{
-+	// ignore packets that don't carry any data (i.e. flush)
++	/* Ignore packets that don't carry any data (i.e. flush). */
 +	if (!packet->data.ptr || !packet->data.len)
 +		return false;
 +
@@ -13096,8 +13058,8 @@ index 000000000000..7a5ed16b90d7
 +	if (unlikely(status)) {
 +		trace_ssam_ei_tx_fail_write(packet, status);
 +		ptl_info(packet->ptl,
-+			 "packet error injection: simulating transmit error %d,"
-+			 " packet %p\n", status, packet);
++			 "packet error injection: simulating transmit error %d, packet %p\n",
++			 status, packet);
 +
 +		return status;
 +	}
@@ -13107,11 +13069,11 @@ index 000000000000..7a5ed16b90d7
 +
 +static void ssh_ptl_tx_inject_invalid_data(struct ssh_packet *packet)
 +{
-+	// ignore packets that don't carry any data (i.e. flush)
++	/* Ignore packets that don't carry any data (i.e. flush). */
 +	if (!packet->data.ptr || !packet->data.len)
 +		return;
 +
-+	// only allow sequenced data packets to be modified
++	/* Only allow sequenced data packets to be modified. */
 +	if (packet->data.ptr[SSH_MSGOFFSET_FRAME(type)] != SSH_FRAME_TYPE_DATA_SEQ)
 +		return;
 +
@@ -13136,7 +13098,7 @@ index 000000000000..7a5ed16b90d7
 +{
 +	struct ssam_span frame;
 +
-+	// check if there actually is something to corrupt
++	/* Check if there actually is something to corrupt. */
 +	if (!sshp_find_syn(data, &frame))
 +		return;
 +
@@ -13145,7 +13107,7 @@ index 000000000000..7a5ed16b90d7
 +
 +	trace_ssam_ei_rx_corrupt_syn(data->len);
 +
-+	data->ptr[1] = 0xb3;	// set second byte of SYN to "random" value
++	data->ptr[1] = 0xb3;	/* Set second byte of SYN to "random" value. */
 +}
 +
 +static void ssh_ptl_rx_inject_invalid_data(struct ssh_ptl *ptl,
@@ -13154,11 +13116,11 @@ index 000000000000..7a5ed16b90d7
 +	size_t payload_len, message_len;
 +	struct ssh_frame *sshf;
 +
-+	// ignore incomplete messages, will get handled once it's complete
++	/* Ignore incomplete messages, will get handled once it's complete. */
 +	if (frame->len < SSH_MESSAGE_LENGTH(0))
 +		return;
 +
-+	// ignore incomplete messages, part 2
++	/* Ignore incomplete messages, part 2. */
 +	payload_len = get_unaligned_le16(&frame->ptr[SSH_MSGOFFSET_FRAME(len)]);
 +	message_len = SSH_MESSAGE_LENGTH(payload_len);
 +	if (frame->len < message_len)
@@ -13210,7 +13172,6 @@ index 000000000000..7a5ed16b90d7
 +
 +#endif /* CONFIG_SURFACE_AGGREGATOR_ERROR_INJECTION */
 +
-+
 +static void __ssh_ptl_packet_release(struct kref *kref)
 +{
 +	struct ssh_packet *p = container_of(kref, struct ssh_packet, refcnt);
@@ -13260,7 +13221,6 @@ index 000000000000..7a5ed16b90d7
 +	return packet->data.ptr[SSH_MSGOFFSET_FRAME(seq)];
 +}
 +
-+
 +/**
 + * ssh_packet_init() - Initialize SSH packet.
 + * @packet:   The packet to initialize.
@@ -13292,7 +13252,6 @@ index 000000000000..7a5ed16b90d7
 +
 +	packet->ops = ops;
 +}
-+
 +
 +static struct kmem_cache *ssh_ctrl_packet_cache;
 +
@@ -13366,7 +13325,6 @@ index 000000000000..7a5ed16b90d7
 +	.release = ssh_ctrl_packet_free,
 +};
 +
-+
 +static void ssh_ptl_timeout_reaper_mod(struct ssh_ptl *ptl, ktime_t now,
 +				       ktime_t expires)
 +{
@@ -13374,7 +13332,7 @@ index 000000000000..7a5ed16b90d7
 +	ktime_t aexp = ktime_add(expires, SSH_PTL_PACKET_TIMEOUT_RESOLUTION);
 +	ktime_t old_exp, old_act;
 +
-+	// re-adjust / schedule reaper if it is above resolution delta
++	/* Re-adjust / schedule reaper if it is above resolution delta. */
 +	old_act = READ_ONCE(ptl->rtx_timeout.expires);
 +	if (ktime_after(aexp, old_act))
 +		return;
@@ -13384,12 +13342,12 @@ index 000000000000..7a5ed16b90d7
 +		old_act = cmpxchg64(&ptl->rtx_timeout.expires, old_exp, expires);
 +	} while (old_exp != old_act && ktime_before(aexp, old_act));
 +
-+	// if we updated the reaper expiration, modify work timeout
++	/* If we updated the reaper expiration, modify work timeout. */
 +	if (old_exp == old_act && old_act != expires)
 +		mod_delayed_work(system_wq, &ptl->rtx_timeout.reaper, delta);
 +}
 +
-+/* must be called with queue lock held */
++/* Must be called with queue lock held. */
 +static void ssh_packet_next_try(struct ssh_packet *p)
 +{
 +	u8 base = ssh_packet_priority_get_base(p->priority);
@@ -13403,7 +13361,7 @@ index 000000000000..7a5ed16b90d7
 +	WRITE_ONCE(p->priority, __SSH_PACKET_PRIORITY(base, try + 1));
 +}
 +
-+/* must be called with queue lock held */
++/* Must be called with queue lock held. */
 +static struct list_head *__ssh_ptl_queue_find_entrypoint(struct ssh_packet *p)
 +{
 +	struct list_head *head;
@@ -13443,21 +13401,20 @@ index 000000000000..7a5ed16b90d7
 +	return head;
 +}
 +
-+/* must be called with queue lock held */
++/* Must be called with queue lock held. */
 +static int __ssh_ptl_queue_push(struct ssh_packet *packet)
 +{
 +	struct ssh_ptl *ptl = packet->ptl;
 +	struct list_head *head;
 +
-+
 +	if (test_bit(SSH_PTL_SF_SHUTDOWN_BIT, &ptl->state))
 +		return -ESHUTDOWN;
 +
-+	// avoid further transitions when canceling/completing
++	/* Avoid further transitions when canceling/completing. */
 +	if (test_bit(SSH_PACKET_SF_LOCKED_BIT, &packet->state))
 +		return -EINVAL;
 +
-+	// if this packet has already been queued, do not add it
++	/* If this packet has already been queued, do not add it. */
 +	if (test_and_set_bit(SSH_PACKET_SF_QUEUED_BIT, &packet->state))
 +		return -EALREADY;
 +
@@ -13495,10 +13452,9 @@ index 000000000000..7a5ed16b90d7
 +	ssh_packet_put(packet);
 +}
 +
-+
-+static void ssh_ptl_pending_push(struct ssh_packet *packet)
++static void ssh_ptl_pending_push(struct ssh_packet *p)
 +{
-+	struct ssh_ptl *ptl = packet->ptl;
++	struct ssh_ptl *ptl = p->ptl;
 +	const ktime_t timestamp = ktime_get_coarse_boottime();
 +	const ktime_t timeout = ptl->rtx_timeout.timeout;
 +
@@ -13511,27 +13467,29 @@ index 000000000000..7a5ed16b90d7
 +
 +	spin_lock(&ptl->pending.lock);
 +
-+	// if we are canceling/completing this packet, do not add it
-+	if (test_bit(SSH_PACKET_SF_LOCKED_BIT, &packet->state)) {
++	/* If we are canceling/completing this packet, do not add it. */
++	if (test_bit(SSH_PACKET_SF_LOCKED_BIT, &p->state)) {
 +		spin_unlock(&ptl->pending.lock);
 +		return;
 +	}
 +
-+	// in case it is already pending (e.g. re-submission), do not add it
-+	if (test_and_set_bit(SSH_PACKET_SF_PENDING_BIT, &packet->state)) {
-+		spin_unlock(&ptl->pending.lock);
-+		return;
++	/*
++	 * On re-submission, the packet has already been added the pending
++	 * set. We still need to update the timestamp as the packet timeout is
++	 * reset for each (re-)submission.
++	 */
++	p->timestamp = timestamp;
++
++	/* In case it is already pending (e.g. re-submission), do not add it. */
++	if (!test_and_set_bit(SSH_PACKET_SF_PENDING_BIT, &p->state)) {
++		atomic_inc(&ptl->pending.count);
++		list_add_tail(&ssh_packet_get(p)->pending_node, &ptl->pending.head);
 +	}
-+
-+	packet->timestamp = timestamp;
-+
-+	atomic_inc(&ptl->pending.count);
-+	list_add_tail(&ssh_packet_get(packet)->pending_node, &ptl->pending.head);
 +
 +	spin_unlock(&ptl->pending.lock);
 +
-+	// arm/update timeout reaper
-+	ssh_ptl_timeout_reaper_mod(packet->ptl, timestamp, timestamp + timeout);
++	/* Arm/update timeout reaper. */
++	ssh_ptl_timeout_reaper_mod(ptl, timestamp, timestamp + timeout);
 +}
 +
 +static void ssh_ptl_pending_remove(struct ssh_packet *packet)
@@ -13553,8 +13511,7 @@ index 000000000000..7a5ed16b90d7
 +	ssh_packet_put(packet);
 +}
 +
-+
-+/* warning: does not check/set "completed" bit */
++/* Warning: Does not check/set "completed" bit. */
 +static void __ssh_ptl_complete(struct ssh_packet *p, int status)
 +{
 +	struct ssh_ptl *ptl = READ_ONCE(p->ptl);
@@ -13587,7 +13544,6 @@ index 000000000000..7a5ed16b90d7
 +	__ssh_ptl_complete(p, status);
 +}
 +
-+
 +static bool ssh_ptl_tx_can_process(struct ssh_packet *packet)
 +{
 +	struct ssh_ptl *ptl = packet->ptl;
@@ -13595,15 +13551,15 @@ index 000000000000..7a5ed16b90d7
 +	if (test_bit(SSH_PACKET_TY_FLUSH_BIT, &packet->state))
 +		return !atomic_read(&ptl->pending.count);
 +
-+	// we can always process non-blocking packets
++	/* We can always process non-blocking packets. */
 +	if (!test_bit(SSH_PACKET_TY_BLOCKING_BIT, &packet->state))
 +		return true;
 +
-+	// if we are already waiting for this packet, send it again
++	/* If we are already waiting for this packet, send it again. */
 +	if (test_bit(SSH_PACKET_SF_PENDING_BIT, &packet->state))
 +		return true;
 +
-+	// otherwise: check if we have the capacity to send
++	/* Otherwise: Check if we have the capacity to send. */
 +	return atomic_read(&ptl->pending.count) < SSH_PTL_MAX_PENDING;
 +}
 +
@@ -13639,7 +13595,7 @@ index 000000000000..7a5ed16b90d7
 +		list_del(&p->queue_node);
 +
 +		set_bit(SSH_PACKET_SF_TRANSMITTING_BIT, &p->state);
-+		// ensure that state never gets zero
++		/* Ensure that state never gets zero. */
 +		smp_mb__before_atomic();
 +		clear_bit(SSH_PACKET_SF_QUEUED_BIT, &p->state);
 +
@@ -13684,13 +13640,13 @@ index 000000000000..7a5ed16b90d7
 +
 +	ptl_dbg(ptl, "ptl: successfully transmitted packet %p\n", packet);
 +
-+	// transition state to "transmitted"
++	/* Transition state to "transmitted". */
 +	set_bit(SSH_PACKET_SF_TRANSMITTED_BIT, &packet->state);
-+	// ensure that state never gets zero
++	/* Ensure that state never gets zero. */
 +	smp_mb__before_atomic();
 +	clear_bit(SSH_PACKET_SF_TRANSMITTING_BIT, &packet->state);
 +
-+	// if the packet is unsequenced, we're done: lock and complete
++	/* If the packet is unsequenced, we're done: Lock and complete. */
 +	if (!test_bit(SSH_PACKET_TY_SEQUENCED_BIT, &packet->state)) {
 +		set_bit(SSH_PACKET_SF_LOCKED_BIT, &packet->state);
 +		ssh_ptl_remove_and_complete(packet, 0);
@@ -13705,9 +13661,9 @@ index 000000000000..7a5ed16b90d7
 +
 +static void ssh_ptl_tx_compl_error(struct ssh_packet *packet, int status)
 +{
-+	// transmission failure: lock the packet and try to complete it
++	/* Transmission failure: Lock the packet and try to complete it. */
 +	set_bit(SSH_PACKET_SF_LOCKED_BIT, &packet->state);
-+	// ensure that state never gets zero
++	/* Ensure that state never gets zero. */
 +	smp_mb__before_atomic();
 +	clear_bit(SSH_PACKET_SF_TRANSMITTING_BIT, &packet->state);
 +
@@ -13728,7 +13684,6 @@ index 000000000000..7a5ed16b90d7
 +	int status;
 +
 +	status = wait_for_completion_interruptible(&ptl->tx.thread_cplt_pkt);
-+
 +	reinit_completion(&ptl->tx.thread_cplt_pkt);
 +
 +	/*
@@ -13744,9 +13699,8 @@ index 000000000000..7a5ed16b90d7
 +{
 +	long status;
 +
-+	status =  wait_for_completion_interruptible_timeout(
-+			&ptl->tx.thread_cplt_tx, timeout);
-+
++	status = wait_for_completion_interruptible_timeout(&ptl->tx.thread_cplt_tx,
++							   timeout);
 +	reinit_completion(&ptl->tx.thread_cplt_tx);
 +
 +	/*
@@ -13763,15 +13717,15 @@ index 000000000000..7a5ed16b90d7
 +	long timeout = SSH_PTL_TX_TIMEOUT;
 +	size_t offset = 0;
 +
-+	// note: flush-packets don't have any data
++	/* Note: Flush-packets don't have any data. */
 +	if (unlikely(!packet->data.ptr))
 +		return 0;
 +
-+	// error injection: drop packet to simulate transmission problem
++	/* Error injection: drop packet to simulate transmission problem. */
 +	if (ssh_ptl_should_drop_packet(packet))
 +		return 0;
 +
-+	// error injection: simulate invalid packet data
++	/* Error injection: simulate invalid packet data. */
 +	ssh_ptl_tx_inject_invalid_data(packet);
 +
 +	ptl_dbg(ptl, "tx: sending data (length: %zu)\n", packet->data.len);
@@ -13814,16 +13768,16 @@ index 000000000000..7a5ed16b90d7
 +		struct ssh_packet *packet;
 +		int status;
 +
-+		// try to get the next packet
++		/* Try to get the next packet. */
 +		packet = ssh_ptl_tx_next(ptl);
 +
-+		// if no packet can be processed, we are done
++		/* If no packet can be processed, we are done. */
 +		if (IS_ERR(packet)) {
 +			ssh_ptl_tx_wait_packet(ptl);
 +			continue;
 +		}
 +
-+		// transfer and complete packet
++		/* Transfer and complete packet. */
 +		status = ssh_ptl_tx_packet(ptl, packet);
 +		if (status)
 +			ssh_ptl_tx_compl_error(packet, status);
@@ -13900,7 +13854,6 @@ index 000000000000..7a5ed16b90d7
 +	return status;
 +}
 +
-+
 +static struct ssh_packet *ssh_ptl_ack_pop(struct ssh_ptl *ptl, u8 seq_id)
 +{
 +	struct ssh_packet *packet = ERR_PTR(-ENOENT);
@@ -13930,7 +13883,7 @@ index 000000000000..7a5ed16b90d7
 +		 * removing its node and decrementing the pending counter.
 +		 */
 +		set_bit(SSH_PACKET_SF_ACKED_BIT, &p->state);
-+		// ensure that state never gets zero
++		/* Ensure that state never gets zero. */
 +		smp_mb__before_atomic();
 +		clear_bit(SSH_PACKET_SF_PENDING_BIT, &p->state);
 +
@@ -13948,8 +13901,8 @@ index 000000000000..7a5ed16b90d7
 +static void ssh_ptl_wait_until_transmitted(struct ssh_packet *packet)
 +{
 +	wait_event(packet->ptl->tx.packet_wq,
-+		   test_bit(SSH_PACKET_SF_TRANSMITTED_BIT, &packet->state)
-+		   || test_bit(SSH_PACKET_SF_LOCKED_BIT, &packet->state));
++		   test_bit(SSH_PACKET_SF_TRANSMITTED_BIT, &packet->state) ||
++		   test_bit(SSH_PACKET_SF_LOCKED_BIT, &packet->state));
 +}
 +
 +static void ssh_ptl_acknowledge(struct ssh_ptl *ptl, u8 seq)
@@ -14007,7 +13960,6 @@ index 000000000000..7a5ed16b90d7
 +		ssh_ptl_tx_wakeup_packet(ptl);
 +}
 +
-+
 +/**
 + * ssh_ptl_submit() - Submit a packet to the transport layer.
 + * @ptl: The packet transport layer to submit the packet to.
@@ -14028,7 +13980,7 @@ index 000000000000..7a5ed16b90d7
 +
 +	trace_ssam_packet_submit(p);
 +
-+	// validate packet fields
++	/* Validate packet fields. */
 +	if (test_bit(SSH_PACKET_TY_FLUSH_BIT, &p->state)) {
 +		if (p->data.ptr || test_bit(SSH_PACKET_TY_SEQUENCED_BIT, &p->state))
 +			return -EINVAL;
@@ -14044,17 +13996,17 @@ index 000000000000..7a5ed16b90d7
 +	 * submission, thus we cannot expect it to be NULL.
 +	 */
 +	ptl_old = READ_ONCE(p->ptl);
-+	if (ptl_old == NULL)
++	if (!ptl_old)
 +		WRITE_ONCE(p->ptl, ptl);
 +	else if (WARN_ON(ptl_old != ptl))
-+		return -EALREADY;	// submitted on different PTL
++		return -EALREADY;	/* Submitted on different PTL. */
 +
 +	status = ssh_ptl_queue_push(p);
 +	if (status)
 +		return status;
 +
-+	if (!test_bit(SSH_PACKET_TY_BLOCKING_BIT, &p->state)
-+	    || (atomic_read(&ptl->pending.count) < SSH_PTL_MAX_PENDING))
++	if (!test_bit(SSH_PACKET_TY_BLOCKING_BIT, &p->state) ||
++	    (atomic_read(&ptl->pending.count) < SSH_PTL_MAX_PENDING))
 +		ssh_ptl_tx_wakeup_packet(ptl);
 +
 +	return 0;
@@ -14123,7 +14075,7 @@ index 000000000000..7a5ed16b90d7
 +
 +	spin_lock(&ptl->pending.lock);
 +
-+	// re-queue all pending packets
++	/* Re-queue all pending packets. */
 +	list_for_each_entry(p, &ptl->pending.head, pending_node) {
 +		/*
 +		 * Re-submission fails if the packet is out of tries, has been
@@ -14261,9 +14213,12 @@ index 000000000000..7a5ed16b90d7
 +		if (status != -ECANCELED)
 +			continue;
 +
-+		// no more tries left: cancel the packet
++		/* No more tries left: Cancel the packet. */
 +
-+		// if someone else has locked the packet already, don't use it
++		/*
++		 * If someone else has locked the packet already, don't use it
++		 * and let the other party complete it.
++		 */
 +		if (test_and_set_bit(SSH_PACKET_SF_LOCKED_BIT, &p->state))
 +			continue;
 +
@@ -14284,19 +14239,22 @@ index 000000000000..7a5ed16b90d7
 +
 +	spin_unlock(&ptl->pending.lock);
 +
-+	// cancel and complete the packet
++	/* Cancel and complete the packet. */
 +	list_for_each_entry_safe(p, n, &claimed, pending_node) {
 +		if (!test_and_set_bit(SSH_PACKET_SF_COMPLETED_BIT, &p->state)) {
 +			ssh_ptl_queue_remove(p);
 +			__ssh_ptl_complete(p, -ETIMEDOUT);
 +		}
 +
-+		// drop the reference we've obtained by removing it from pending
++		/*
++		 * Drop the reference we've obtained by removing it from
++		 * the pending set.
++		 */
 +		list_del(&p->pending_node);
 +		ssh_packet_put(p);
 +	}
 +
-+	// ensure that reaper doesn't run again immediately
++	/* Ensure that reaper doesn't run again immediately. */
 +	next = max(next, ktime_add(now, SSH_PTL_PACKET_TIMEOUT_RESOLUTION));
 +	if (next != KTIME_MAX)
 +		ssh_ptl_timeout_reaper_mod(ptl, now, next);
@@ -14305,12 +14263,14 @@ index 000000000000..7a5ed16b90d7
 +		ssh_ptl_tx_wakeup_packet(ptl);
 +}
 +
-+
 +static bool ssh_ptl_rx_retransmit_check(struct ssh_ptl *ptl, u8 seq)
 +{
 +	int i;
 +
-+	// check if SEQ has been seen recently (i.e. packet was re-transmitted)
++	/*
++	 * Check if SEQ has been seen recently (i.e. packet was
++	 * re-transmitted and we should ignore it).
++	 */
 +	for (i = 0; i < ARRAY_SIZE(ptl->rx.blocked.seqs); i++) {
 +		if (likely(ptl->rx.blocked.seqs[i] != seq))
 +			continue;
@@ -14319,7 +14279,7 @@ index 000000000000..7a5ed16b90d7
 +		return true;
 +	}
 +
-+	// update list of blocked sequence IDs
++	/* Update list of blocked sequence IDs. */
 +	ptl->rx.blocked.seqs[ptl->rx.blocked.offset] = seq;
 +	ptl->rx.blocked.offset = (ptl->rx.blocked.offset + 1)
 +				  % ARRAY_SIZE(ptl->rx.blocked.seqs);
@@ -14393,10 +14353,10 @@ index 000000000000..7a5ed16b90d7
 +	bool syn_found;
 +	int status;
 +
-+	// error injection: modify data to simulate corrupt SYN bytes
++	/* Error injection: Modify data to simulate corrupt SYN bytes. */
 +	ssh_ptl_rx_inject_invalid_syn(ptl, source);
 +
-+	// find SYN
++	/* Find SYN. */
 +	syn_found = sshp_find_syn(source, &aligned);
 +
 +	if (unlikely(aligned.ptr - source->ptr) > 0) {
@@ -14426,15 +14386,15 @@ index 000000000000..7a5ed16b90d7
 +	if (unlikely(!syn_found))
 +		return aligned.ptr - source->ptr;
 +
-+	// error injection: modify data to simulate corruption
++	/* Error injection: Modify data to simulate corruption. */
 +	ssh_ptl_rx_inject_invalid_data(ptl, &aligned);
 +
-+	// parse and validate frame
++	/* Parse and validate frame. */
 +	status = sshp_parse_frame(&ptl->serdev->dev, &aligned, &frame, &payload,
 +				  SSH_PTL_RX_BUF_LEN);
-+	if (status)	// invalid frame: skip to next syn
++	if (status)	/* Invalid frame: skip to next SYN. */
 +		return aligned.ptr - source->ptr + sizeof(u16);
-+	if (!frame)	// not enough data
++	if (!frame)	/* Not enough data. */
 +		return aligned.ptr - source->ptr;
 +
 +	trace_ssam_rx_frame_received(frame);
@@ -14457,7 +14417,7 @@ index 000000000000..7a5ed16b90d7
 +		break;
 +
 +	default:
-+		ptl_warn(ptl, "ptl: received frame with unknown type 0x%02x\n",
++		ptl_warn(ptl, "ptl: received frame with unknown type %#04x\n",
 +			 frame->type);
 +		break;
 +	}
@@ -14475,12 +14435,12 @@ index 000000000000..7a5ed16b90d7
 +		size_t n;
 +
 +		wait_event_interruptible(ptl->rx.wq,
-+					 !kfifo_is_empty(&ptl->rx.fifo)
-+					 || kthread_should_stop());
++					 !kfifo_is_empty(&ptl->rx.fifo) ||
++					 kthread_should_stop());
 +		if (kthread_should_stop())
 +			break;
 +
-+		// copy from fifo to evaluation buffer
++		/* Copy from fifo to evaluation buffer. */
 +		n = sshp_buf_read_from_fifo(&ptl->rx.buf, &ptl->rx.fifo);
 +
 +		ptl_dbg(ptl, "rx: received data (size: %zu)\n", n);
@@ -14488,17 +14448,17 @@ index 000000000000..7a5ed16b90d7
 +				     ptl->rx.buf.ptr + ptl->rx.buf.len - n,
 +				     n, false);
 +
-+		// parse until we need more bytes or buffer is empty
++		/* Parse until we need more bytes or buffer is empty. */
 +		while (offs < ptl->rx.buf.len) {
 +			sshp_buf_span_from(&ptl->rx.buf, offs, &span);
 +			n = ssh_ptl_rx_eval(ptl, &span);
 +			if (n == 0)
-+				break;	// need more bytes
++				break;	/* Need more bytes. */
 +
 +			offs += n;
 +		}
 +
-+		// throw away the evaluated parts
++		/* Throw away the evaluated parts. */
 +		sshp_buf_drop(&ptl->rx.buf, offs);
 +	}
 +
@@ -14575,7 +14535,6 @@ index 000000000000..7a5ed16b90d7
 +	return used;
 +}
 +
-+
 +/**
 + * ssh_ptl_shutdown() - Shut down the packet transport layer.
 + * @ptl: The packet transport layer.
@@ -14596,7 +14555,7 @@ index 000000000000..7a5ed16b90d7
 +	struct ssh_packet *p, *n;
 +	int status;
 +
-+	// ensure that no new packets (including ACK/NAK) can be submitted
++	/* Ensure that no new packets (including ACK/NAK) can be submitted. */
 +	set_bit(SSH_PTL_SF_SHUTDOWN_BIT, &ptl->state);
 +	/*
 +	 * Ensure that the layer gets marked as shut-down before actually
@@ -14638,11 +14597,11 @@ index 000000000000..7a5ed16b90d7
 +	 * (also handles cancellation).
 +	 */
 +
-+	// mark queued packets as locked and move them to complete_q
++	/* Mark queued packets as locked and move them to complete_q. */
 +	spin_lock(&ptl->queue.lock);
 +	list_for_each_entry_safe(p, n, &ptl->queue.head, queue_node) {
 +		set_bit(SSH_PACKET_SF_LOCKED_BIT, &p->state);
-+		// ensure that state does not get zero
++		/* Ensure that state does not get zero. */
 +		smp_mb__before_atomic();
 +		clear_bit(SSH_PACKET_SF_QUEUED_BIT, &p->state);
 +
@@ -14651,11 +14610,11 @@ index 000000000000..7a5ed16b90d7
 +	}
 +	spin_unlock(&ptl->queue.lock);
 +
-+	// mark pending packets as locked and move them to complete_p
++	/* Mark pending packets as locked and move them to complete_p. */
 +	spin_lock(&ptl->pending.lock);
 +	list_for_each_entry_safe(p, n, &ptl->pending.head, pending_node) {
 +		set_bit(SSH_PACKET_SF_LOCKED_BIT, &p->state);
-+		// ensure that state does not get zero
++		/* Ensure that state does not get zero. */
 +		smp_mb__before_atomic();
 +		clear_bit(SSH_PACKET_SF_PENDING_BIT, &p->state);
 +
@@ -14665,7 +14624,7 @@ index 000000000000..7a5ed16b90d7
 +	atomic_set(&ptl->pending.count, 0);
 +	spin_unlock(&ptl->pending.lock);
 +
-+	// complete and drop packets on complete_q
++	/* Complete and drop packets on complete_q. */
 +	list_for_each_entry(p, &complete_q, queue_node) {
 +		if (!test_and_set_bit(SSH_PACKET_SF_COMPLETED_BIT, &p->state))
 +			__ssh_ptl_complete(p, -ESHUTDOWN);
@@ -14673,7 +14632,7 @@ index 000000000000..7a5ed16b90d7
 +		ssh_packet_put(p);
 +	}
 +
-+	// complete and drop packets on complete_p
++	/* Complete and drop packets on complete_p. */
 +	list_for_each_entry(p, &complete_p, pending_node) {
 +		if (!test_and_set_bit(SSH_PACKET_SF_COMPLETED_BIT, &p->state))
 +			__ssh_ptl_complete(p, -ESHUTDOWN);
@@ -14730,9 +14689,9 @@ index 000000000000..7a5ed16b90d7
 +
 +	ptl->ops = *ops;
 +
-+	// initialize list of recent/blocked SEQs with invalid sequence IDs
++	/* Initialize list of recent/blocked SEQs with invalid sequence IDs. */
 +	for (i = 0; i < ARRAY_SIZE(ptl->rx.blocked.seqs); i++)
-+		ptl->rx.blocked.seqs[i] = 0xFFFF;
++		ptl->rx.blocked.seqs[i] = U16_MAX;
 +	ptl->rx.blocked.offset = 0;
 +
 +	status = kfifo_alloc(&ptl->rx.fifo, SSH_PTL_RX_FIFO_LEN, GFP_KERNEL);
@@ -14762,10 +14721,10 @@ index 000000000000..7a5ed16b90d7
 +}
 diff --git a/drivers/misc/surface_aggregator/ssh_packet_layer.h b/drivers/misc/surface_aggregator/ssh_packet_layer.h
 new file mode 100644
-index 000000000000..fd9bd2aa2028
+index 000000000000..c844cac0f4d7
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_packet_layer.h
-@@ -0,0 +1,189 @@
+@@ -0,0 +1,188 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * SSH packet transport layer.
@@ -14788,7 +14747,6 @@ index 000000000000..fd9bd2aa2028
 +
 +#include <linux/surface_aggregator/serial_hub.h>
 +#include "ssh_parser.h"
-+
 +
 +/**
 + * enum ssh_ptl_state_flags - State-flags for &struct ssh_ptl.
@@ -14886,11 +14844,12 @@ index 000000000000..fd9bd2aa2028
 +	struct ssh_ptl_ops ops;
 +};
 +
-+
 +#define __ssam_prcond(func, p, fmt, ...)		\
 +	do {						\
-+		if (p)					\
-+			func(p, fmt, ##__VA_ARGS__);	\
++		typeof(p) __p = (p);			\
++							\
++		if (__p)				\
++			func(__p, fmt, ##__VA_ARGS__);	\
 +	} while (0)
 +
 +#define ptl_dbg(p, fmt, ...)  dev_dbg(&(p)->serdev->dev, fmt, ##__VA_ARGS__)
@@ -14901,7 +14860,6 @@ index 000000000000..fd9bd2aa2028
 +
 +#define to_ssh_ptl(ptr, member) \
 +	container_of(ptr, struct ssh_ptl, member)
-+
 +
 +int ssh_ptl_init(struct ssh_ptl *ptl, struct serdev_device *serdev,
 +		 struct ssh_ptl_ops *ops);
@@ -14957,10 +14915,10 @@ index 000000000000..fd9bd2aa2028
 +#endif /* _SURFACE_AGGREGATOR_SSH_PACKET_LAYER_H */
 diff --git a/drivers/misc/surface_aggregator/ssh_parser.c b/drivers/misc/surface_aggregator/ssh_parser.c
 new file mode 100644
-index 000000000000..0e52344bcc7a
+index 000000000000..703b0b99b8e4
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_parser.c
-@@ -0,0 +1,229 @@
+@@ -0,0 +1,228 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * SSH message parser.
@@ -14975,7 +14933,6 @@ index 000000000000..0e52344bcc7a
 +
 +#include <linux/surface_aggregator/serial_hub.h>
 +#include "ssh_parser.h"
-+
 +
 +/**
 + * sshp_validate_crc() - Validate a CRC in raw message data.
@@ -15085,7 +15042,7 @@ index 000000000000..0e52344bcc7a
 +	struct ssam_span sf;
 +	struct ssam_span sp;
 +
-+	// initialize output
++	/* Initialize output. */
 +	*frame = NULL;
 +	payload->ptr = NULL;
 +	payload->len = 0;
@@ -15095,23 +15052,23 @@ index 000000000000..0e52344bcc7a
 +		return -ENOMSG;
 +	}
 +
-+	// check for minimum packet length
++	/* Check for minimum packet length. */
 +	if (unlikely(source->len < SSH_MESSAGE_LENGTH(0))) {
 +		dev_dbg(dev, "rx: parser: not enough data for frame\n");
 +		return 0;
 +	}
 +
-+	// pin down frame
++	/* Pin down frame. */
 +	sf.ptr = source->ptr + sizeof(u16);
 +	sf.len = sizeof(struct ssh_frame);
 +
-+	// validate frame CRC
++	/* Validate frame CRC. */
 +	if (unlikely(!sshp_validate_crc(&sf, sf.ptr + sf.len))) {
 +		dev_warn(dev, "rx: parser: invalid frame CRC\n");
 +		return -EBADMSG;
 +	}
 +
-+	// ensure packet does not exceed maximum length
++	/* Ensure packet does not exceed maximum length. */
 +	sp.len = get_unaligned_le16(&((struct ssh_frame *)sf.ptr)->len);
 +	if (unlikely(SSH_MESSAGE_LENGTH(sp.len) > maxlen)) {
 +		dev_warn(dev, "rx: parser: frame too large: %llu bytes\n",
@@ -15119,16 +15076,16 @@ index 000000000000..0e52344bcc7a
 +		return -EMSGSIZE;
 +	}
 +
-+	// pin down payload
++	/* Pin down payload. */
 +	sp.ptr = sf.ptr + sf.len + sizeof(u16);
 +
-+	// check for frame + payload length
++	/* Check for frame + payload length. */
 +	if (source->len < SSH_MESSAGE_LENGTH(sp.len)) {
 +		dev_dbg(dev, "rx: parser: not enough data for payload\n");
 +		return 0;
 +	}
 +
-+	// validate payload crc
++	/* Validate payload CRC. */
 +	if (unlikely(!sshp_validate_crc(&sp, sp.ptr + sp.len))) {
 +		dev_warn(dev, "rx: parser: invalid payload CRC\n");
 +		return -EBADMSG;
@@ -15137,7 +15094,7 @@ index 000000000000..0e52344bcc7a
 +	*frame = (struct ssh_frame *)sf.ptr;
 +	*payload = sp;
 +
-+	dev_dbg(dev, "rx: parser: valid frame found (type: 0x%02x, len: %u)\n",
++	dev_dbg(dev, "rx: parser: valid frame found (type: %#04x, len: %u)\n",
 +		(*frame)->type, (*frame)->len);
 +
 +	return 0;
@@ -15171,7 +15128,7 @@ index 000000000000..0e52344bcc7a
 +		       struct ssh_command **command,
 +		       struct ssam_span *command_data)
 +{
-+	// check for minimum length
++	/* Check for minimum length. */
 +	if (unlikely(source->len < sizeof(struct ssh_command))) {
 +		*command = NULL;
 +		command_data->ptr = NULL;
@@ -15185,17 +15142,17 @@ index 000000000000..0e52344bcc7a
 +	command_data->ptr = source->ptr + sizeof(struct ssh_command);
 +	command_data->len = source->len - sizeof(struct ssh_command);
 +
-+	dev_dbg(dev, "rx: parser: valid command found (tc: 0x%02x, cid: 0x%02x)\n",
++	dev_dbg(dev, "rx: parser: valid command found (tc: %#04x, cid: %#04x)\n",
 +		(*command)->tc, (*command)->cid);
 +
 +	return 0;
 +}
 diff --git a/drivers/misc/surface_aggregator/ssh_parser.h b/drivers/misc/surface_aggregator/ssh_parser.h
 new file mode 100644
-index 000000000000..71c43ab07bf6
+index 000000000000..395c61ef890b
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_parser.h
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,155 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * SSH message parser.
@@ -15263,7 +15220,6 @@ index 000000000000..71c43ab07bf6
 +
 +	sshp_buf_init(buf, ptr, cap);
 +	return 0;
-+
 +}
 +
 +/**
@@ -15341,7 +15297,6 @@ index 000000000000..71c43ab07bf6
 +	span->len = buf->len - offset;
 +}
 +
-+
 +bool sshp_find_syn(const struct ssam_span *src, struct ssam_span *rem);
 +
 +int sshp_parse_frame(const struct device *dev, const struct ssam_span *source,
@@ -15355,10 +15310,10 @@ index 000000000000..71c43ab07bf6
 +#endif /* _SURFACE_AGGREGATOR_SSH_PARSER_h */
 diff --git a/drivers/misc/surface_aggregator/ssh_request_layer.c b/drivers/misc/surface_aggregator/ssh_request_layer.c
 new file mode 100644
-index 000000000000..9188526278e2
+index 000000000000..966150542ae8
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_request_layer.c
-@@ -0,0 +1,1264 @@
+@@ -0,0 +1,1265 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * SSH request transport layer.
@@ -15385,7 +15340,6 @@ index 000000000000..9188526278e2
 +#include "ssh_request_layer.h"
 +
 +#include "trace.h"
-+
 +
 +/*
 + * SSH_RTL_REQUEST_TIMEOUT - Request timeout.
@@ -15414,6 +15368,12 @@ index 000000000000..9188526278e2
 + */
 +#define SSH_RTL_MAX_PENDING		3
 +
++/*
++ * SSH_RTL_TX_BATCH - Maximum number of requests processed per work execution.
++ * Used to prevent livelocking of the workqueue. Value chosen via educated
++ * guess, may be adjusted.
++ */
++#define SSH_RTL_TX_BATCH		10
 +
 +#ifdef CONFIG_SURFACE_AGGREGATOR_ERROR_INJECTION
 +
@@ -15439,7 +15399,6 @@ index 000000000000..9188526278e2
 +
 +#endif
 +
-+
 +static u16 ssh_request_get_rqid(struct ssh_request *rqst)
 +{
 +	return get_unaligned_le16(rqst->packet.data.ptr
@@ -15453,7 +15412,6 @@ index 000000000000..9188526278e2
 +
 +	return ssh_request_get_rqid(rqst);
 +}
-+
 +
 +static void ssh_rtl_queue_remove(struct ssh_request *rqst)
 +{
@@ -15482,7 +15440,6 @@ index 000000000000..9188526278e2
 +
 +	return empty;
 +}
-+
 +
 +static void ssh_rtl_pending_remove(struct ssh_request *rqst)
 +{
@@ -15526,15 +15483,14 @@ index 000000000000..9188526278e2
 +	return 0;
 +}
 +
-+
 +static void ssh_rtl_complete_with_status(struct ssh_request *rqst, int status)
 +{
 +	struct ssh_rtl *rtl = ssh_request_rtl(rqst);
 +
 +	trace_ssam_request_complete(rqst, status);
 +
-+	// rtl/ptl may not be set if we're canceling before submitting
-+	rtl_dbg_cond(rtl, "rtl: completing request (rqid: 0x%04x, status: %d)\n",
++	/* rtl/ptl may not be set if we're canceling before submitting. */
++	rtl_dbg_cond(rtl, "rtl: completing request (rqid: %#06x, status: %d)\n",
 +		     ssh_request_get_rqid_safe(rqst), status);
 +
 +	rqst->ops->complete(rqst, NULL, NULL, status);
@@ -15548,12 +15504,11 @@ index 000000000000..9188526278e2
 +
 +	trace_ssam_request_complete(rqst, 0);
 +
-+	rtl_dbg(rtl, "rtl: completing request with response (rqid: 0x%04x)\n",
++	rtl_dbg(rtl, "rtl: completing request with response (rqid: %#06x)\n",
 +		ssh_request_get_rqid(rqst));
 +
 +	rqst->ops->complete(rqst, cmd, data, 0);
 +}
-+
 +
 +static bool ssh_rtl_tx_can_process(struct ssh_request *rqst)
 +{
@@ -15572,7 +15527,7 @@ index 000000000000..9188526278e2
 +
 +	spin_lock(&rtl->queue.lock);
 +
-+	// find first non-locked request and remove it
++	/* Find first non-locked request and remove it. */
 +	list_for_each_entry_safe(p, n, &rtl->queue.head, node) {
 +		if (unlikely(test_bit(SSH_REQUEST_SF_LOCKED_BIT, &p->state)))
 +			continue;
@@ -15582,9 +15537,9 @@ index 000000000000..9188526278e2
 +			break;
 +		}
 +
-+		// remove from queue and mark as transmitting
++		/* Remove from queue and mark as transmitting. */
 +		set_bit(SSH_REQUEST_SF_TRANSMITTING_BIT, &p->state);
-+		// ensure state never gets zero
++		/* Ensure state never gets zero. */
 +		smp_mb__before_atomic();
 +		clear_bit(SSH_REQUEST_SF_QUEUED_BIT, &p->state);
 +
@@ -15603,19 +15558,19 @@ index 000000000000..9188526278e2
 +	struct ssh_request *rqst;
 +	int status;
 +
-+	// get and prepare next request for transmit
++	/* Get and prepare next request for transmit. */
 +	rqst = ssh_rtl_tx_next(rtl);
 +	if (IS_ERR(rqst))
 +		return PTR_ERR(rqst);
 +
-+	// add to/mark as pending
++	/* Add it to/mark it as pending. */
 +	status = ssh_rtl_tx_pending_push(rqst);
 +	if (status) {
 +		ssh_request_put(rqst);
 +		return -EAGAIN;
 +	}
 +
-+	// submit packet
++	/* Submit packet. */
 +	status = ssh_ptl_submit(&rtl->ptl, &rqst->packet);
 +	if (status == -ESHUTDOWN) {
 +		/*
@@ -15677,17 +15632,18 @@ index 000000000000..9188526278e2
 +static void ssh_rtl_tx_work_fn(struct work_struct *work)
 +{
 +	struct ssh_rtl *rtl = to_ssh_rtl(work, tx.work);
-+	int i, status;
++	unsigned int iterations = SSH_RTL_TX_BATCH;
++	int status;
 +
 +	/*
 +	 * Try to be nice and not block/live-lock the workqueue: Run a maximum
 +	 * of 10 tries, then re-submit if necessary. This should not be
 +	 * necessary for normal execution, but guarantee it anyway.
 +	 */
-+	for (i = 0; i < 10; i++) {
++	do {
 +		status = ssh_rtl_tx_try_process_one(rtl);
 +		if (status == -ENOENT || status == -EBUSY)
-+			return;		// no more requests to process
++			return;		/* No more requests to process. */
 +
 +		if (status == -ESHUTDOWN) {
 +			/*
@@ -15699,12 +15655,11 @@ index 000000000000..9188526278e2
 +		}
 +
 +		WARN_ON(status != 0 && status != -EAGAIN);
-+	}
++	} while (--iterations);
 +
-+	// out of tries, reschedule
++	/* Out of tries, reschedule. */
 +	ssh_rtl_tx_schedule(rtl);
 +}
-+
 +
 +/**
 + * ssh_rtl_submit() - Submit a request to the transport layer.
@@ -15749,7 +15704,7 @@ index 000000000000..9188526278e2
 +	 * push operation has been completed (via lock) due to that. Only then,
 +	 * we can safely try to remove it.
 +	 */
-+	if (cmpxchg(&rqst->packet.ptl, NULL, &rtl->ptl) != NULL) {
++	if (cmpxchg(&rqst->packet.ptl, NULL, &rtl->ptl)) {
 +		spin_unlock(&rtl->queue.lock);
 +		return -EALREADY;
 +	}
@@ -15791,7 +15746,7 @@ index 000000000000..9188526278e2
 +	ktime_t aexp = ktime_add(expires, SSH_RTL_REQUEST_TIMEOUT_RESOLUTION);
 +	ktime_t old_exp, old_act;
 +
-+	// re-adjust / schedule reaper if it is above resolution delta
++	/* Re-adjust/schedule reaper if it is above resolution delta. */
 +	old_act = READ_ONCE(rtl->rtx_timeout.expires);
 +	if (ktime_after(aexp, old_act))
 +		return;
@@ -15801,7 +15756,7 @@ index 000000000000..9188526278e2
 +		old_act = cmpxchg64(&rtl->rtx_timeout.expires, old_exp, expires);
 +	} while (old_exp != old_act && ktime_before(aexp, old_act));
 +
-+	// if we updated the reaper expiration, modify work timeout
++	/* If we updated the reaper expiration, modify work timeout. */
 +	if (old_exp == old_act && old_act != expires)
 +		mod_delayed_work(system_wq, &rtl->rtx_timeout.reaper, delta);
 +}
@@ -15830,7 +15785,6 @@ index 000000000000..9188526278e2
 +	ssh_rtl_timeout_reaper_mod(rtl, timestamp, timestamp + timeout);
 +}
 +
-+
 +static void ssh_rtl_complete(struct ssh_rtl *rtl,
 +			     const struct ssh_command *command,
 +			     const struct ssam_span *command_data)
@@ -15847,11 +15801,11 @@ index 000000000000..9188526278e2
 +	 */
 +	spin_lock(&rtl->pending.lock);
 +	list_for_each_entry_safe(p, n, &rtl->pending.head, node) {
-+		// we generally expect requests to be processed in order
++		/* We generally expect requests to be processed in order. */
 +		if (unlikely(ssh_request_get_rqid(p) != rqid))
 +			continue;
 +
-+		// simulate response timeout
++		/* Simulate response timeout. */
 +		if (ssh_rtl_should_drop_response()) {
 +			spin_unlock(&rtl->pending.lock);
 +
@@ -15867,7 +15821,7 @@ index 000000000000..9188526278e2
 +		 */
 +		set_bit(SSH_REQUEST_SF_LOCKED_BIT, &p->state);
 +		set_bit(SSH_REQUEST_SF_RSPRCVD_BIT, &p->state);
-+		// ensure state never gets zero
++		/* Ensure state never gets zero. */
 +		smp_mb__before_atomic();
 +		clear_bit(SSH_REQUEST_SF_PENDING_BIT, &p->state);
 +
@@ -15880,12 +15834,12 @@ index 000000000000..9188526278e2
 +	spin_unlock(&rtl->pending.lock);
 +
 +	if (!r) {
-+		rtl_warn(rtl, "rtl: dropping unexpected command message (rqid = 0x%04x)\n",
++		rtl_warn(rtl, "rtl: dropping unexpected command message (rqid = %#06x)\n",
 +			 rqid);
 +		return;
 +	}
 +
-+	// if the request hasn't been completed yet, we will do this now
++	/* If the request hasn't been completed yet, we will do this now. */
 +	if (test_and_set_bit(SSH_REQUEST_SF_COMPLETED_BIT, &r->state)) {
 +		ssh_request_put(r);
 +		ssh_rtl_tx_schedule(rtl);
@@ -15913,7 +15867,7 @@ index 000000000000..9188526278e2
 +	 * run on the same thread. Thus an exact determination is impossible.
 +	 */
 +	if (!test_bit(SSH_REQUEST_SF_TRANSMITTED_BIT, &r->state)) {
-+		rtl_err(rtl, "rtl: received response before ACK for request (rqid = 0x%04x)\n",
++		rtl_err(rtl, "rtl: received response before ACK for request (rqid = %#06x)\n",
 +			rqid);
 +
 +		/*
@@ -15944,7 +15898,6 @@ index 000000000000..9188526278e2
 +
 +	ssh_rtl_tx_schedule(rtl);
 +}
-+
 +
 +static bool ssh_rtl_cancel_nonpending(struct ssh_request *r)
 +{
@@ -16013,7 +15966,7 @@ index 000000000000..9188526278e2
 +
 +	spin_unlock(&rtl->queue.lock);
 +
-+	ssh_request_put(r);	// drop reference obtained from queue
++	ssh_request_put(r);	/* Drop reference obtained from queue. */
 +
 +	if (test_and_set_bit(SSH_REQUEST_SF_COMPLETED_BIT, &r->state))
 +		return true;
@@ -16024,7 +15977,7 @@ index 000000000000..9188526278e2
 +
 +static bool ssh_rtl_cancel_pending(struct ssh_request *r)
 +{
-+	// if the packet is already locked, it's going to be removed shortly
++	/* If the packet is already locked, it's going to be removed shortly. */
 +	if (test_and_set_bit(SSH_REQUEST_SF_LOCKED_BIT, &r->state))
 +		return true;
 +
@@ -16108,14 +16061,13 @@ index 000000000000..9188526278e2
 +	else
 +		canceled = ssh_rtl_cancel_nonpending(rqst);
 +
-+	// note: rtl may be NULL if request has not been submitted yet
++	/* Note: rtl may be NULL if request has not been submitted yet. */
 +	rtl = ssh_request_rtl(rqst);
 +	if (canceled && rtl)
 +		ssh_rtl_tx_schedule(rtl);
 +
 +	return canceled;
 +}
-+
 +
 +static void ssh_rtl_packet_callback(struct ssh_packet *p, int status)
 +{
@@ -16142,13 +16094,13 @@ index 000000000000..9188526278e2
 +		return;
 +	}
 +
-+	// update state: mark as transmitted and clear transmitting
++	/* Update state: Mark as transmitted and clear transmitting. */
 +	set_bit(SSH_REQUEST_SF_TRANSMITTED_BIT, &r->state);
-+	// ensure state never gets zero
++	/* Ensure state never gets zero. */
 +	smp_mb__before_atomic();
 +	clear_bit(SSH_REQUEST_SF_TRANSMITTING_BIT, &r->state);
 +
-+	// if we expect a response, we just need to start the timeout
++	/* If we expect a response, we just need to start the timeout. */
 +	if (test_bit(SSH_REQUEST_TY_HAS_RESPONSE_BIT, &r->state)) {
 +		/*
 +		 * Note: This is the only place where the timestamp gets set,
@@ -16175,7 +16127,6 @@ index 000000000000..9188526278e2
 +
 +	ssh_rtl_tx_schedule(ssh_request_rtl(r));
 +}
-+
 +
 +static ktime_t ssh_request_get_expiration(struct ssh_request *r, ktime_t timeout)
 +{
@@ -16224,7 +16175,7 @@ index 000000000000..9188526278e2
 +			continue;
 +		}
 +
-+		// avoid further transitions if locked
++		/* Avoid further transitions if locked. */
 +		if (test_and_set_bit(SSH_REQUEST_SF_LOCKED_BIT, &r->state))
 +			continue;
 +
@@ -16244,7 +16195,7 @@ index 000000000000..9188526278e2
 +	}
 +	spin_unlock(&rtl->pending.lock);
 +
-+	// cancel and complete the request
++	/* Cancel and complete the request. */
 +	list_for_each_entry_safe(r, n, &claimed, node) {
 +		trace_ssam_request_timeout(r);
 +
@@ -16256,12 +16207,15 @@ index 000000000000..9188526278e2
 +		if (!test_and_set_bit(SSH_REQUEST_SF_COMPLETED_BIT, &r->state))
 +			ssh_rtl_complete_with_status(r, -ETIMEDOUT);
 +
-+		// drop the reference we've obtained by removing it from pending
++		/*
++		 * Drop the reference we've obtained by removing it from the
++		 * pending set.
++		 */
 +		list_del(&r->node);
 +		ssh_request_put(r);
 +	}
 +
-+	// ensure that reaper doesn't run again immediately
++	/* Ensure that the reaper doesn't run again immediately. */
 +	next = max(next, ktime_add(now, SSH_RTL_REQUEST_TIMEOUT_RESOLUTION));
 +	if (next != KTIME_MAX)
 +		ssh_rtl_timeout_reaper_mod(rtl, now, next);
@@ -16269,13 +16223,12 @@ index 000000000000..9188526278e2
 +	ssh_rtl_tx_schedule(rtl);
 +}
 +
-+
 +static void ssh_rtl_rx_event(struct ssh_rtl *rtl, const struct ssh_command *cmd,
 +			     const struct ssam_span *data)
 +{
 +	trace_ssam_rx_event_received(cmd, data->len);
 +
-+	rtl_dbg(rtl, "rtl: handling event (rqid: 0x%04x)\n",
++	rtl_dbg(rtl, "rtl: handling event (rqid: %#06x)\n",
 +		get_unaligned_le16(&cmd->rqid));
 +
 +	rtl->ops.handle_event(rtl, cmd, data);
@@ -16310,12 +16263,11 @@ index 000000000000..9188526278e2
 +		break;
 +
 +	default:
-+		ptl_err(p, "rtl: rx: unknown frame payload type (type: 0x%02x)\n",
++		ptl_err(p, "rtl: rx: unknown frame payload type (type: %#04x)\n",
 +			data->ptr[0]);
 +		break;
 +	}
 +}
-+
 +
 +static void ssh_rtl_packet_release(struct ssh_packet *p)
 +{
@@ -16361,7 +16313,6 @@ index 000000000000..9188526278e2
 +	rqst->timestamp = KTIME_MAX;
 +	rqst->ops = ops;
 +}
-+
 +
 +/**
 + * ssh_rtl_init() - Initialize request transport layer.
@@ -16529,12 +16480,11 @@ index 000000000000..9188526278e2
 +		wait_for_completion(&rqst.completion);
 +	}
 +
-+	WARN_ON(rqst.status != 0 && rqst.status != -ECANCELED
-+		&& rqst.status != -ESHUTDOWN && rqst.status != -EINTR);
++	WARN_ON(rqst.status != 0 && rqst.status != -ECANCELED &&
++		rqst.status != -ESHUTDOWN && rqst.status != -EINTR);
 +
 +	return rqst.status == -ECANCELED ? -ETIMEDOUT : rqst.status;
 +}
-+
 +
 +/**
 + * ssh_rtl_shutdown() - Shut down request transport layer.
@@ -16564,11 +16514,11 @@ index 000000000000..9188526278e2
 +	 */
 +	smp_mb__after_atomic();
 +
-+	// remove requests from queue
++	/* Remove requests from queue. */
 +	spin_lock(&rtl->queue.lock);
 +	list_for_each_entry_safe(r, n, &rtl->queue.head, node) {
 +		set_bit(SSH_REQUEST_SF_LOCKED_BIT, &r->state);
-+		// ensure state never gets zero
++		/* Ensure state never gets zero. */
 +		smp_mb__before_atomic();
 +		clear_bit(SSH_REQUEST_SF_QUEUED_BIT, &r->state);
 +
@@ -16602,7 +16552,7 @@ index 000000000000..9188526278e2
 +		spin_lock(&rtl->pending.lock);
 +		list_for_each_entry_safe(r, n, &rtl->pending.head, node) {
 +			set_bit(SSH_REQUEST_SF_LOCKED_BIT, &r->state);
-+			// ensure state never gets zero
++			/* Ensure state never gets zero. */
 +			smp_mb__before_atomic();
 +			clear_bit(SSH_REQUEST_SF_PENDING_BIT, &r->state);
 +
@@ -16612,23 +16562,29 @@ index 000000000000..9188526278e2
 +		spin_unlock(&rtl->pending.lock);
 +	}
 +
-+	// finally, cancel and complete the requests we claimed before
++	/* Finally, cancel and complete the requests we claimed before. */
 +	list_for_each_entry_safe(r, n, &claimed, node) {
-+		// test_and_set because we still might compete with cancellation
++		/*
++		 * We need test_and_set() because we still might compete with
++		 * cancellation.
++		 */
 +		if (!test_and_set_bit(SSH_REQUEST_SF_COMPLETED_BIT, &r->state))
 +			ssh_rtl_complete_with_status(r, -ESHUTDOWN);
 +
-+		// drop reference we've obtained by removing it from the lists
++		/*
++		 * Drop the reference we've obtained by removing it from the
++		 * lists.
++		 */
 +		list_del(&r->node);
 +		ssh_request_put(r);
 +	}
 +}
 diff --git a/drivers/misc/surface_aggregator/ssh_request_layer.h b/drivers/misc/surface_aggregator/ssh_request_layer.h
 new file mode 100644
-index 000000000000..4fcdd0bda4d4
+index 000000000000..ab357b2b3735
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_request_layer.h
-@@ -0,0 +1,142 @@
+@@ -0,0 +1,141 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * SSH request transport layer.
@@ -16649,7 +16605,6 @@ index 000000000000..4fcdd0bda4d4
 +#include <linux/surface_aggregator/controller.h>
 +
 +#include "ssh_packet_layer.h"
-+
 +
 +/**
 + * enum ssh_rtl_state_flags - State-flags for &struct ssh_rtl.
@@ -16773,10 +16728,10 @@ index 000000000000..4fcdd0bda4d4
 +#endif /* _SURFACE_AGGREGATOR_SSH_REQUEST_LAYER_H */
 diff --git a/drivers/misc/surface_aggregator/trace.h b/drivers/misc/surface_aggregator/trace.h
 new file mode 100644
-index 000000000000..fdf415205089
+index 000000000000..eb332bb53ae4
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/trace.h
-@@ -0,0 +1,648 @@
+@@ -0,0 +1,632 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * Trace points for SSAM/SSH.
@@ -16794,7 +16749,6 @@ index 000000000000..fdf415205089
 +
 +#include <asm/unaligned.h>
 +#include <linux/tracepoint.h>
-+
 +
 +TRACE_DEFINE_ENUM(SSH_FRAME_TYPE_DATA_SEQ);
 +TRACE_DEFINE_ENUM(SSH_FRAME_TYPE_DATA_NSQ);
@@ -16866,13 +16820,11 @@ index 000000000000..fdf415205089
 +TRACE_DEFINE_ENUM(SSAM_SSH_TC_KPD);
 +TRACE_DEFINE_ENUM(SSAM_SSH_TC_REG);
 +
-+
 +#define SSAM_PTR_UID_LEN		9
 +#define SSAM_U8_FIELD_NOT_APPLICABLE	((u16)-1)
 +#define SSAM_SEQ_NOT_APPLICABLE		((u16)-1)
 +#define SSAM_RQID_NOT_APPLICABLE	((u32)-1)
 +#define SSAM_SSH_TC_NOT_APPLICABLE	0
-+
 +
 +#ifndef _SURFACE_AGGREGATOR_TRACE_HELPERS
 +#define _SURFACE_AGGREGATOR_TRACE_HELPERS
@@ -16954,7 +16906,6 @@ index 000000000000..fdf415205089
 +		{ SSAM_U8_FIELD_NOT_APPLICABLE,		"N/A" }		\
 +	)
 +
-+
 +#define ssam_show_frame_type(ty)					\
 +	__print_symbolic(ty,						\
 +		{ SSH_FRAME_TYPE_DATA_SEQ,		"DSEQ" },	\
@@ -16987,15 +16938,14 @@ index 000000000000..fdf415205089
 +		{ SSAM_SEQ_NOT_APPLICABLE,		"N/A" }		\
 +	)
 +
-+
 +#define ssam_show_request_type(flags)					\
-+	__print_flags(flags & SSH_REQUEST_FLAGS_TY_MASK, "",		\
++	__print_flags((flags) & SSH_REQUEST_FLAGS_TY_MASK, "",		\
 +		{ BIT(SSH_REQUEST_TY_FLUSH_BIT),	"F" },		\
 +		{ BIT(SSH_REQUEST_TY_HAS_RESPONSE_BIT),	"R" }		\
 +	)
 +
 +#define ssam_show_request_state(flags)					\
-+	__print_flags(flags & SSH_REQUEST_FLAGS_SF_MASK, "",		\
++	__print_flags((flags) & SSH_REQUEST_FLAGS_SF_MASK, "",		\
 +		{ BIT(SSH_REQUEST_SF_LOCKED_BIT),	"L" },		\
 +		{ BIT(SSH_REQUEST_SF_QUEUED_BIT),	"Q" },		\
 +		{ BIT(SSH_REQUEST_SF_PENDING_BIT),	"P" },		\
@@ -17049,7 +16999,6 @@ index 000000000000..fdf415205089
 +		{ SSAM_SSH_TC_REG,			"REG" }		\
 +	)
 +
-+
 +DECLARE_EVENT_CLASS(ssam_frame_class,
 +	TP_PROTO(const struct ssh_frame *frame),
 +
@@ -17067,7 +17016,7 @@ index 000000000000..fdf415205089
 +		__entry->len = get_unaligned_le16(&frame->len);
 +	),
 +
-+	TP_printk("ty=%s, seq=0x%02x, len=%u",
++	TP_printk("ty=%s, seq=%#04x, len=%u",
 +		ssam_show_frame_type(__entry->type),
 +		__entry->seq,
 +		__entry->len
@@ -17079,7 +17028,6 @@ index 000000000000..fdf415205089
 +		TP_PROTO(const struct ssh_frame *frame),	\
 +		TP_ARGS(frame)					\
 +	)
-+
 +
 +DECLARE_EVENT_CLASS(ssam_command_class,
 +	TP_PROTO(const struct ssh_command *cmd, u16 len),
@@ -17102,7 +17050,7 @@ index 000000000000..fdf415205089
 +		__entry->len = len;
 +	),
 +
-+	TP_printk("rqid=0x%04x, tc=%s, cid=0x%02x, iid=0x%02x, len=%u",
++	TP_printk("rqid=%#06x, tc=%s, cid=%#04x, iid=%#04x, len=%u",
 +		__entry->rqid,
 +		ssam_show_ssh_tc(__entry->tc),
 +		__entry->cid,
@@ -17116,7 +17064,6 @@ index 000000000000..fdf415205089
 +		TP_PROTO(const struct ssh_command *cmd, u16 len),	\
 +		TP_ARGS(cmd, len)					\
 +	)
-+
 +
 +DECLARE_EVENT_CLASS(ssam_packet_class,
 +	TP_PROTO(const struct ssh_packet *packet),
@@ -17139,7 +17086,7 @@ index 000000000000..fdf415205089
 +		__entry->seq = ssam_trace_get_packet_seq(packet);
 +	),
 +
-+	TP_printk("uid=%s, seq=%s, ty=%s, pri=0x%02x, len=%u, sta=%s",
++	TP_printk("uid=%s, seq=%s, ty=%s, pri=%#04x, len=%u, sta=%s",
 +		__entry->uid,
 +		ssam_show_packet_seq(__entry->seq),
 +		ssam_show_packet_type(__entry->state),
@@ -17154,7 +17101,6 @@ index 000000000000..fdf415205089
 +		TP_PROTO(const struct ssh_packet *packet),	\
 +		TP_ARGS(packet)					\
 +	)
-+
 +
 +DECLARE_EVENT_CLASS(ssam_packet_status_class,
 +	TP_PROTO(const struct ssh_packet *packet, int status),
@@ -17179,7 +17125,7 @@ index 000000000000..fdf415205089
 +		__entry->seq = ssam_trace_get_packet_seq(packet);
 +	),
 +
-+	TP_printk("uid=%s, seq=%s, ty=%s, pri=0x%02x, len=%u, sta=%s, status=%d",
++	TP_printk("uid=%s, seq=%s, ty=%s, pri=%#04x, len=%u, sta=%s, status=%d",
 +		__entry->uid,
 +		ssam_show_packet_seq(__entry->seq),
 +		ssam_show_packet_type(__entry->state),
@@ -17195,7 +17141,6 @@ index 000000000000..fdf415205089
 +		TP_PROTO(const struct ssh_packet *packet, int status),	\
 +		TP_ARGS(packet, status)					\
 +	)
-+
 +
 +DECLARE_EVENT_CLASS(ssam_request_class,
 +	TP_PROTO(const struct ssh_request *request),
@@ -17214,7 +17159,7 @@ index 000000000000..fdf415205089
 +	TP_fast_assign(
 +		const struct ssh_packet *p = &request->packet;
 +
-+		// use packet for UID so we can match requests to packets
++		/* Use packet for UID so we can match requests to packets. */
 +		__entry->state = READ_ONCE(request->state);
 +		__entry->rqid = ssam_trace_get_request_id(p);
 +		ssam_trace_ptr_uid(p, __entry->uid);
@@ -17240,7 +17185,6 @@ index 000000000000..fdf415205089
 +		TP_ARGS(request)				\
 +	)
 +
-+
 +DECLARE_EVENT_CLASS(ssam_request_status_class,
 +	TP_PROTO(const struct ssh_request *request, int status),
 +
@@ -17259,7 +17203,7 @@ index 000000000000..fdf415205089
 +	TP_fast_assign(
 +		const struct ssh_packet *p = &request->packet;
 +
-+		// use packet for UID so we can match requests to packets
++		/* Use packet for UID so we can match requests to packets. */
 +		__entry->state = READ_ONCE(request->state);
 +		__entry->rqid = ssam_trace_get_request_id(p);
 +		__entry->status = status;
@@ -17287,7 +17231,6 @@ index 000000000000..fdf415205089
 +		TP_ARGS(request, status)				\
 +	)
 +
-+
 +DECLARE_EVENT_CLASS(ssam_alloc_class,
 +	TP_PROTO(void *ptr, size_t len),
 +
@@ -17312,7 +17255,6 @@ index 000000000000..fdf415205089
 +		TP_ARGS(ptr, len)					\
 +	)
 +
-+
 +DECLARE_EVENT_CLASS(ssam_free_class,
 +	TP_PROTO(void *ptr),
 +
@@ -17334,7 +17276,6 @@ index 000000000000..fdf415205089
 +		TP_PROTO(void *ptr),					\
 +		TP_ARGS(ptr)						\
 +	)
-+
 +
 +DECLARE_EVENT_CLASS(ssam_pending_class,
 +	TP_PROTO(unsigned int pending),
@@ -17358,7 +17299,6 @@ index 000000000000..fdf415205089
 +		TP_ARGS(pending)					\
 +	)
 +
-+
 +DECLARE_EVENT_CLASS(ssam_data_class,
 +	TP_PROTO(size_t length),
 +
@@ -17380,7 +17320,6 @@ index 000000000000..fdf415205089
 +		TP_PROTO(size_t length),				\
 +		TP_ARGS(length)						\
 +	)
-+
 +
 +DEFINE_SSAM_FRAME_EVENT(rx_frame_received);
 +DEFINE_SSAM_COMMAND_EVENT(rx_response_received);
@@ -17495,10 +17434,10 @@ index 000000000000..8e3e86c7d78c
 +#endif /* _LINUX_SURFACE_ACPI_NOTIFY_H */
 diff --git a/include/linux/surface_aggregator/controller.h b/include/linux/surface_aggregator/controller.h
 new file mode 100644
-index 000000000000..75a6c6440cdc
+index 000000000000..107a53617c02
 --- /dev/null
 +++ b/include/linux/surface_aggregator/controller.h
-@@ -0,0 +1,832 @@
+@@ -0,0 +1,824 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * Surface System Aggregator Module (SSAM) controller interface.
@@ -17605,7 +17544,6 @@ index 000000000000..75a6c6440cdc
 +};
 +
 +struct ssam_controller;
-+
 +
 +struct ssam_controller *ssam_get_controller(void);
 +struct ssam_controller *ssam_client_bind(struct device *client);
@@ -17717,7 +17655,6 @@ index 000000000000..75a6c6440cdc
 +				  const struct ssam_request *spec,
 +				  struct ssam_response *rsp,
 +				  struct ssam_span *buf);
-+
 +
 +/**
 + * ssam_request_sync_onstack - Execute a synchronous request on the stack.
@@ -17962,8 +17899,8 @@ index 000000000000..75a6c6440cdc
 +										\
 +		if (rsp.length != sizeof(rtype)) {				\
 +			struct device *dev = ssam_controller_device(ctrl);	\
-+			dev_err(dev, "rqst: invalid response length, expected "	\
-+				"%zu, got %zu (tc: 0x%02x, cid: 0x%02x)",	\
++			dev_err(dev,						\
++				"rqst: invalid response length, expected %zu, got %zu (tc: %#04x, cid: %#04x)", \
 +				sizeof(rtype), rsp.length, rqst.target_category,\
 +				rqst.command_id);				\
 +			return -EIO;						\
@@ -17998,8 +17935,7 @@ index 000000000000..75a6c6440cdc
 +#define SSAM_DEFINE_SYNC_REQUEST_MD_N(name, spec...)				\
 +	int name(struct ssam_controller *ctrl, u8 tid, u8 iid)			\
 +	{									\
-+		struct ssam_request_spec_md s					\
-+			= (struct ssam_request_spec_md)spec;			\
++		struct ssam_request_spec_md s = (struct ssam_request_spec_md)spec; \
 +		struct ssam_request rqst;					\
 +										\
 +		rqst.target_category = s.target_category;			\
@@ -18041,8 +17977,7 @@ index 000000000000..75a6c6440cdc
 +#define SSAM_DEFINE_SYNC_REQUEST_MD_W(name, atype, spec...)			\
 +	int name(struct ssam_controller *ctrl, u8 tid, u8 iid, const atype *arg)\
 +	{									\
-+		struct ssam_request_spec_md s					\
-+			= (struct ssam_request_spec_md)spec;			\
++		struct ssam_request_spec_md s = (struct ssam_request_spec_md)spec; \
 +		struct ssam_request rqst;					\
 +										\
 +		rqst.target_category = s.target_category;			\
@@ -18085,8 +18020,7 @@ index 000000000000..75a6c6440cdc
 +#define SSAM_DEFINE_SYNC_REQUEST_MD_R(name, rtype, spec...)			\
 +	int name(struct ssam_controller *ctrl, u8 tid, u8 iid, rtype *ret)	\
 +	{									\
-+		struct ssam_request_spec_md s					\
-+			= (struct ssam_request_spec_md)spec;			\
++		struct ssam_request_spec_md s = (struct ssam_request_spec_md)spec; \
 +		struct ssam_request rqst;					\
 +		struct ssam_response rsp;					\
 +		int status;							\
@@ -18109,8 +18043,8 @@ index 000000000000..75a6c6440cdc
 +										\
 +		if (rsp.length != sizeof(rtype)) {				\
 +			struct device *dev = ssam_controller_device(ctrl);	\
-+			dev_err(dev, "rqst: invalid response length, expected "	\
-+				"%zu, got %zu (tc: 0x%02x, cid: 0x%02x)",	\
++			dev_err(dev,						\
++				"rqst: invalid response length, expected %zu, got %zu (tc: %#04x, cid: %#04x)", \
 +				sizeof(rtype), rsp.length, rqst.target_category,\
 +				rqst.command_id);				\
 +			return -EIO;						\
@@ -18151,7 +18085,6 @@ index 000000000000..75a6c6440cdc
 +	SSAM_NOTIF_STOP    = BIT(1),
 +};
 +
-+
 +struct ssam_event_notifier;
 +
 +typedef u32 (*ssam_notifier_fn_t)(struct ssam_event_notifier *nf,
@@ -18160,7 +18093,7 @@ index 000000000000..75a6c6440cdc
 +/**
 + * struct ssam_notifier_block - Base notifier block for SSAM event
 + * notifications.
-+ * @next:     The next notifier block in order of priority.
++ * @node:     The node for the list of notifiers.
 + * @fn:       The callback function of this notifier. This function takes the
 + *            respective notifier block and event as input and should return
 + *            a notifier value, which can either be obtained from the flags
@@ -18173,7 +18106,7 @@ index 000000000000..75a6c6440cdc
 + *            priority) callbacks.
 + */
 +struct ssam_notifier_block {
-+	struct ssam_notifier_block __rcu *next;
++	struct list_head node;
 +	ssam_notifier_fn_t fn;
 +	int priority;
 +};
@@ -18270,11 +18203,10 @@ index 000000000000..75a6c6440cdc
 +	SSAM_EVENT_MASK_INSTANCE = BIT(1),
 +
 +	SSAM_EVENT_MASK_NONE = 0,
-+	SSAM_EVENT_MASK_STRICT
-+		= SSAM_EVENT_MASK_TARGET
++	SSAM_EVENT_MASK_STRICT =
++		  SSAM_EVENT_MASK_TARGET
 +		| SSAM_EVENT_MASK_INSTANCE,
 +};
-+
 +
 +/**
 + * SSAM_EVENT_REGISTRY() - Define a new event registry.
@@ -18302,7 +18234,6 @@ index 000000000000..75a6c6440cdc
 +
 +#define SSAM_EVENT_REGISTRY_REG \
 +	SSAM_EVENT_REGISTRY(SSAM_SSH_TC_REG, 0x02, 0x01, 0x02)
-+
 +
 +/**
 + * struct ssam_event_notifier - Notifier block for SSAM events.
@@ -18333,10 +18264,10 @@ index 000000000000..75a6c6440cdc
 +#endif /* _LINUX_SURFACE_AGGREGATOR_CONTROLLER_H */
 diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
 new file mode 100644
-index 000000000000..fcbc9ed25433
+index 000000000000..7221d4a9c1c1
 --- /dev/null
 +++ b/include/linux/surface_aggregator/device.h
-@@ -0,0 +1,430 @@
+@@ -0,0 +1,423 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * Surface System Aggregator Module (SSAM) bus and client-device subsystem.
@@ -18464,7 +18395,6 @@ index 000000000000..fcbc9ed25433
 +#define SSAM_VDEV(cat, tid, iid, fun) \
 +	SSAM_DEVICE(SSAM_DOMAIN_VIRTUAL, SSAM_VIRTUAL_TC_##cat, tid, iid, fun)
 +
-+
 +/**
 + * SSAM_SDEV() - Initialize a &struct ssam_device_id as physical SSH device
 + * with the given parameters.
@@ -18487,7 +18417,6 @@ index 000000000000..fcbc9ed25433
 + */
 +#define SSAM_SDEV(cat, tid, iid, fun) \
 +	SSAM_DEVICE(SSAM_DOMAIN_SERIALHUB, SSAM_SSH_TC_##cat, tid, iid, fun)
-+
 +
 +/**
 + * struct ssam_device - SSAM client device.
@@ -18520,7 +18449,6 @@ index 000000000000..fcbc9ed25433
 +
 +extern struct bus_type ssam_bus_type;
 +extern const struct device_type ssam_device_type;
-+
 +
 +/**
 + * is_ssam_device() - Check if the given device is a SSAM client device.
@@ -18569,13 +18497,10 @@ index 000000000000..fcbc9ed25433
 +	return container_of(d, struct ssam_device_driver, driver);
 +}
 +
++const struct ssam_device_id *ssam_device_id_match(const struct ssam_device_id *table,
++						  const struct ssam_device_uid uid);
 +
-+const struct ssam_device_id *ssam_device_id_match(
-+		const struct ssam_device_id *table,
-+		const struct ssam_device_uid uid);
-+
-+const struct ssam_device_id *ssam_device_get_match(
-+		const struct ssam_device *dev);
++const struct ssam_device_id *ssam_device_get_match(const struct ssam_device *dev);
 +
 +const void *ssam_device_get_match_data(const struct ssam_device *dev);
 +
@@ -18639,7 +18564,6 @@ index 000000000000..fcbc9ed25433
 +{
 +	dev_set_drvdata(&sdev->dev, data);
 +}
-+
 +
 +int __ssam_device_driver_register(struct ssam_device_driver *d, struct module *o);
 +void ssam_device_driver_unregister(struct ssam_device_driver *d);
@@ -18769,10 +18693,10 @@ index 000000000000..fcbc9ed25433
 +#endif /* _LINUX_SURFACE_AGGREGATOR_DEVICE_H */
 diff --git a/include/linux/surface_aggregator/serial_hub.h b/include/linux/surface_aggregator/serial_hub.h
 new file mode 100644
-index 000000000000..7b3fa4d34cc4
+index 000000000000..64276fbfa1d5
 --- /dev/null
 +++ b/include/linux/surface_aggregator/serial_hub.h
-@@ -0,0 +1,675 @@
+@@ -0,0 +1,672 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * Surface Serial Hub (SSH) protocol and communication interface.
@@ -18913,7 +18837,7 @@ index 000000000000..7b3fa4d34cc4
 + *
 + * Return: Returns the length of a SSH message with payload of specified size.
 + */
-+#define SSH_MESSAGE_LENGTH(payload_size) (SSH_MSG_LEN_BASE + payload_size)
++#define SSH_MESSAGE_LENGTH(payload_size) (SSH_MSG_LEN_BASE + (payload_size))
 +
 +/**
 + * SSH_COMMAND_MESSAGE_LENGTH() - Compute length of SSH command message.
@@ -18923,7 +18847,7 @@ index 000000000000..7b3fa4d34cc4
 + * specified size.
 + */
 +#define SSH_COMMAND_MESSAGE_LENGTH(payload_size) \
-+	SSH_MESSAGE_LENGTH(sizeof(struct ssh_command) + payload_size)
++	SSH_MESSAGE_LENGTH(sizeof(struct ssh_command) + (payload_size))
 +
 +/**
 + * SSH_MSGOFFSET_FRAME() - Compute offset in SSH message to specified field in
@@ -19067,15 +18991,15 @@ index 000000000000..7b3fa4d34cc4
 + * Windows driver.
 + */
 +enum ssam_ssh_tc {
-+				// category 0x00 is invalid for EC use
-+	SSAM_SSH_TC_SAM = 0x01,	// generic system functionality, real-time clock
-+	SSAM_SSH_TC_BAT = 0x02,	// battery/power subsystem
-+	SSAM_SSH_TC_TMP = 0x03,	// thermal subsystem
++				/* Category 0x00 is invalid for EC use. */
++	SSAM_SSH_TC_SAM = 0x01,	/* Generic system functionality, real-time clock. */
++	SSAM_SSH_TC_BAT = 0x02,	/* Battery/power subsystem. */
++	SSAM_SSH_TC_TMP = 0x03,	/* Thermal subsystem. */
 +	SSAM_SSH_TC_PMC = 0x04,
 +	SSAM_SSH_TC_FAN = 0x05,
 +	SSAM_SSH_TC_PoM = 0x06,
 +	SSAM_SSH_TC_DBG = 0x07,
-+	SSAM_SSH_TC_KBD = 0x08,	// legacy keyboard (Laptop 1/2)
++	SSAM_SSH_TC_KBD = 0x08,	/* Legacy keyboard (Laptop 1/2). */
 +	SSAM_SSH_TC_FWU = 0x09,
 +	SSAM_SSH_TC_UNI = 0x0a,
 +	SSAM_SSH_TC_LPC = 0x0b,
@@ -19084,11 +19008,11 @@ index 000000000000..7b3fa4d34cc4
 +	SSAM_SSH_TC_KIP = 0x0e,
 +	SSAM_SSH_TC_EXT = 0x0f,
 +	SSAM_SSH_TC_BLD = 0x10,
-+	SSAM_SSH_TC_BAS = 0x11,	// detachment system (Surface Book 2/3)
++	SSAM_SSH_TC_BAS = 0x11,	/* Detachment system (Surface Book 2/3). */
 +	SSAM_SSH_TC_SEN = 0x12,
 +	SSAM_SSH_TC_SRQ = 0x13,
 +	SSAM_SSH_TC_MCU = 0x14,
-+	SSAM_SSH_TC_HID = 0x15,	// generic HID input subsystem
++	SSAM_SSH_TC_HID = 0x15,	/* Generic HID input subsystem. */
 +	SSAM_SSH_TC_TCH = 0x16,
 +	SSAM_SSH_TC_BKL = 0x17,
 +	SSAM_SSH_TC_TAM = 0x18,
@@ -19100,7 +19024,7 @@ index 000000000000..7b3fa4d34cc4
 +	SSAM_SSH_TC_AUD = 0x1e,
 +	SSAM_SSH_TC_SMC = 0x1f,
 +	SSAM_SSH_TC_KPD = 0x20,
-+	SSAM_SSH_TC_REG = 0x21,	// extended event registry
++	SSAM_SSH_TC_REG = 0x21,	/* Extended event registry. */
 +};
 +
 +
@@ -19167,7 +19091,6 @@ index 000000000000..7b3fa4d34cc4
 +	return (priority & 0xf0) >> 4;
 +}
 +
-+
 +enum ssh_packet_flags {
 +	/* state flags */
 +	SSH_PACKET_SF_LOCKED_BIT,
@@ -19201,7 +19124,6 @@ index 000000000000..7b3fa4d34cc4
 +		| BIT(SSH_PACKET_TY_SEQUENCED_BIT)
 +		| BIT(SSH_PACKET_TY_BLOCKING_BIT),
 +};
-+
 +
 +struct ssh_ptl;
 +struct ssh_packet;
@@ -19323,7 +19245,6 @@ index 000000000000..7b3fa4d34cc4
 +		  BIT(SSH_REQUEST_TY_FLUSH_BIT)
 +		| BIT(SSH_REQUEST_TY_HAS_RESPONSE_BIT),
 +};
-+
 +
 +struct ssh_rtl;
 +struct ssh_request;
@@ -19514,10 +19435,10 @@ index 000000000000..1a8bc0249f8e
 +#endif /* _UAPI_LINUX_SURFACE_AGGREGATOR_CDEV_H */
 diff --git a/include/uapi/linux/surface_aggregator/dtx.h b/include/uapi/linux/surface_aggregator/dtx.h
 new file mode 100644
-index 000000000000..fb6c49e254af
+index 000000000000..fc0ba6cbe3e8
 --- /dev/null
 +++ b/include/uapi/linux/surface_aggregator/dtx.h
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,146 @@
 +/* SPDX-License-Identifier: GPL-2.0+ WITH Linux-syscall-note */
 +/*
 + * Surface DTX (clipboard detachment system driver) user-space interface.
@@ -19534,7 +19455,6 @@ index 000000000000..fb6c49e254af
 +
 +#include <linux/ioctl.h>
 +#include <linux/types.h>
-+
 +
 +/* Status/error categories */
 +#define SDTX_CATEGORY_STATUS		0x0000
@@ -19569,7 +19489,6 @@ index 000000000000..fb6c49e254af
 +#define SDTX_ERR_FAILED_TO_REMAIN_OPEN	SDTX_ERR_HW(0x02)
 +#define SDTX_ERR_FAILED_TO_CLOSE	SDTX_ERR_HW(0x03)
 +
-+
 +/* Base types */
 +#define SDTX_DEVICE_TYPE_HID		0x0100
 +#define SDTX_DEVICE_TYPE_SSH		0x0200
@@ -19579,7 +19498,6 @@ index 000000000000..fb6c49e254af
 +
 +#define SDTX_BASE_TYPE_HID(id)		((id) | SDTX_DEVICE_TYPE_HID)
 +#define SDTX_BASE_TYPE_SSH(id)		((id) | SDTX_DEVICE_TYPE_SSH)
-+
 +
 +/**
 + * enum sdtx_device_mode - Mode describing how (and if) the clipboard is
@@ -19649,7 +19567,6 @@ index 000000000000..fb6c49e254af
 +	__u16 state;
 +	__u16 base_id;
 +} __attribute__((__packed__));
-+
 +
 +/* IOCTLs */
 +#define SDTX_IOCTL_EVENTS_ENABLE	_IO(0xa5, 0x21)
