@@ -1,4 +1,4 @@
-From fd2526a6e86754774d40a3729cf12d4343448325 Mon Sep 17 00:00:00 2001
+From 17c415ea2b79fcfb7060a655c601d7b40a7ef99b Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 29 Oct 2020 22:04:38 +0100
 Subject: [PATCH] PCI: Allow D3cold for hot-plug ports on Surface Books
@@ -83,7 +83,7 @@ index b2fed944903e..e288e5058520 100644
 -- 
 2.29.2
 
-From 0253be4dab53b5bb18ab137e561be619916ac71f Mon Sep 17 00:00:00 2001
+From cfaac0fe00bef4c3c179711dc3ca979b71c2dc64 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 9 Nov 2020 14:23:00 +0100
 Subject: [PATCH] PCI: Run platform power transition on initial D0 entry
@@ -143,7 +143,7 @@ index e288e5058520..d260c0fcf2d5 100644
 -- 
 2.29.2
 
-From d0c37a5d6da4148fe5290f5463101c92210204d9 Mon Sep 17 00:00:00 2001
+From e6bb44005128dcb88b9c138881fdf0112f184614 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 31 Oct 2020 20:46:33 +0100
 Subject: [PATCH] PCI: Add sysfs attribute for PCI device power state
@@ -216,7 +216,7 @@ index 6d78df981d41..17f186ce8e87 100644
 -- 
 2.29.2
 
-From 60412fae510ff6932d49c9b7c213fc8463b035a9 Mon Sep 17 00:00:00 2001
+From 7512286e41932110772357e2025e266dfbac687a Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] misc: surface_sam: Add file2alias support for Surface SAM
@@ -318,7 +318,7 @@ index 2417dd1dee33..a6c583362b92 100644
 -- 
 2.29.2
 
-From 2034562da8f4d79f9fbaa30bdf8eba6d594c3e1c Mon Sep 17 00:00:00 2001
+From c6b3237cc57ac3b7c1d65f9848b6a21c46acba38 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] misc: Add support for Surface System Aggregator Module
@@ -358,7 +358,7 @@ Patchset: surface-sam
  .../clients/surface_acpi_notify.c             |  886 ++++++
  .../clients/surface_aggregator_cdev.c         |  299 ++
  .../clients/surface_aggregator_registry.c     |  653 +++++
- .../clients/surface_battery.c                 | 1188 ++++++++
+ .../clients/surface_battery.c                 | 1178 ++++++++
  .../surface_aggregator/clients/surface_dtx.c  | 1277 +++++++++
  .../surface_aggregator/clients/surface_hid.c  |  924 ++++++
  .../clients/surface_hotplug.c                 |  267 ++
@@ -367,12 +367,12 @@ Patchset: surface-sam
  drivers/misc/surface_aggregator/controller.h  |  285 ++
  drivers/misc/surface_aggregator/core.c        |  834 ++++++
  drivers/misc/surface_aggregator/ssh_msgb.h    |  205 ++
- .../surface_aggregator/ssh_packet_layer.c     | 2055 +++++++++++++
- .../surface_aggregator/ssh_packet_layer.h     |  188 ++
+ .../surface_aggregator/ssh_packet_layer.c     | 2046 +++++++++++++
+ .../surface_aggregator/ssh_packet_layer.h     |  190 ++
  drivers/misc/surface_aggregator/ssh_parser.c  |  228 ++
  drivers/misc/surface_aggregator/ssh_parser.h  |  155 +
- .../surface_aggregator/ssh_request_layer.c    | 1265 ++++++++
- .../surface_aggregator/ssh_request_layer.h    |  141 +
+ .../surface_aggregator/ssh_request_layer.c    | 1256 ++++++++
+ .../surface_aggregator/ssh_request_layer.h    |  143 +
  drivers/misc/surface_aggregator/trace.h       |  632 ++++
  include/linux/mod_devicetable.h               |    5 +-
  include/linux/surface_acpi_notify.h           |   39 +
@@ -383,7 +383,7 @@ Patchset: surface-sam
  include/uapi/linux/surface_aggregator/dtx.h   |  146 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 48 files changed, 18865 insertions(+), 7 deletions(-)
+ 48 files changed, 18841 insertions(+), 7 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -4961,10 +4961,10 @@ index 000000000000..0165f350d28e
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_battery.c b/drivers/misc/surface_aggregator/clients/surface_battery.c
 new file mode 100644
-index 000000000000..ac26a1094c6f
+index 000000000000..f22fb2ceb786
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_battery.c
-@@ -0,0 +1,1188 @@
+@@ -0,0 +1,1178 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface battery and AC device driver.
@@ -5418,26 +5418,16 @@ index 000000000000..ac26a1094c6f
 +
 +static int spwr_battery_recheck_adapter(struct spwr_battery_device *bat)
 +{
-+	u32 full_cap = sprw_battery_get_full_cap_safe(bat);
-+	u32 remaining_cap = get_unaligned_le32(&bat->bst.remaining_cap);
-+
-+	if (full_cap == 0 || full_cap == SPWR_BATTERY_VALUE_UNKNOWN)
-+		return 0;
-+
-+	if (remaining_cap == SPWR_BATTERY_VALUE_UNKNOWN)
-+		return 0;
-+
 +	/*
-+	 * Handle battery update quirk:
-+	 * When the battery is fully charged and the adapter is plugged in or
-+	 * removed, the EC does not send a separate event for the state
-+	 * (charging/discharging) change. Furthermore it may take some time until
-+	 * the state is updated on the battery. Schedule an update to solve this.
++	 * Handle battery update quirk: When the battery is fully charged (or
++	 * charged up to the limit imposed by the UEFI battery limit) and the
++	 * adapter is plugged in or removed, the EC does not send a separate
++	 * event for the state (charging/discharging) change. Furthermore it
++	 * may take some time until the state is updated on the battery.
++	 * Schedule an update to solve this.
 +	 */
 +
-+	if (remaining_cap >= full_cap)
-+		schedule_delayed_work(&bat->update_work, SPWR_AC_BAT_UPDATE_DELAY);
-+
++	schedule_delayed_work(&bat->update_work, SPWR_AC_BAT_UPDATE_DELAY);
 +	return 0;
 +}
 +
@@ -8769,7 +8759,7 @@ index 000000000000..cac7227f27ea
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/controller.c b/drivers/misc/surface_aggregator/controller.c
 new file mode 100644
-index 000000000000..e39b11c0c007
+index 000000000000..09302bfba530
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/controller.c
 @@ -0,0 +1,2543 @@
@@ -8883,7 +8873,7 @@ index 000000000000..e39b11c0c007
 +
 +/**
 + * ssam_event_matches_notifier() - Test if an event matches a notifier.
-+ * @notif: The event notifier to test against.
++ * @n: The event notifier to test against.
 + * @event: The event to test.
 + *
 + * Return: Returns %true iff the given event matches the given notifier
@@ -12660,10 +12650,10 @@ index 000000000000..1221f642dda1
 +#endif /* _SURFACE_AGGREGATOR_SSH_MSGB_H */
 diff --git a/drivers/misc/surface_aggregator/ssh_packet_layer.c b/drivers/misc/surface_aggregator/ssh_packet_layer.c
 new file mode 100644
-index 000000000000..96141a174792
+index 000000000000..0205be9380bf
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_packet_layer.c
-@@ -0,0 +1,2055 @@
+@@ -0,0 +1,2046 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * SSH packet transport layer.
@@ -13330,21 +13320,16 @@ index 000000000000..96141a174792
 +{
 +	unsigned long delta = msecs_to_jiffies(ktime_ms_delta(expires, now));
 +	ktime_t aexp = ktime_add(expires, SSH_PTL_PACKET_TIMEOUT_RESOLUTION);
-+	ktime_t old_exp, old_act;
 +
-+	/* Re-adjust / schedule reaper if it is above resolution delta. */
-+	old_act = READ_ONCE(ptl->rtx_timeout.expires);
-+	if (ktime_after(aexp, old_act))
-+		return;
++	spin_lock(&ptl->rtx_timeout.lock);
 +
-+	do {
-+		old_exp = old_act;
-+		old_act = cmpxchg64(&ptl->rtx_timeout.expires, old_exp, expires);
-+	} while (old_exp != old_act && ktime_before(aexp, old_act));
-+
-+	/* If we updated the reaper expiration, modify work timeout. */
-+	if (old_exp == old_act && old_act != expires)
++	/* Re-adjust / schedule reaper only if it is above resolution delta. */
++	if (ktime_before(aexp, ptl->rtx_timeout.expires)) {
++		ptl->rtx_timeout.expires = expires;
 +		mod_delayed_work(system_wq, &ptl->rtx_timeout.reaper, delta);
++	}
++
++	spin_unlock(&ptl->rtx_timeout.lock);
 +}
 +
 +/* Must be called with queue lock held. */
@@ -14174,14 +14159,9 @@ index 000000000000..96141a174792
 +	 * Mark reaper as "not pending". This is done before checking any
 +	 * packets to avoid lost-update type problems.
 +	 */
-+	WRITE_ONCE(ptl->rtx_timeout.expires, KTIME_MAX);
-+	/*
-+	 * Ensure that the reaper is marked as deactivated before we continue
-+	 * checking packets to prevent lost-update problems when a packet is
-+	 * added to the pending set and ssh_ptl_timeout_reaper_mod is called
-+	 * during execution of the part below.
-+	 */
-+	smp_mb__after_atomic();
++	spin_lock(&ptl->rtx_timeout.lock);
++	ptl->rtx_timeout.expires = KTIME_MAX;
++	spin_unlock(&ptl->rtx_timeout.lock);
 +
 +	spin_lock(&ptl->pending.lock);
 +
@@ -14683,6 +14663,7 @@ index 000000000000..96141a174792
 +	ptl->rx.thread = NULL;
 +	init_waitqueue_head(&ptl->rx.wq);
 +
++	spin_lock_init(&ptl->rtx_timeout.lock);
 +	ptl->rtx_timeout.timeout = SSH_PTL_PACKET_TIMEOUT;
 +	ptl->rtx_timeout.expires = KTIME_MAX;
 +	INIT_DELAYED_WORK(&ptl->rtx_timeout.reaper, ssh_ptl_timeout_reap);
@@ -14721,10 +14702,10 @@ index 000000000000..96141a174792
 +}
 diff --git a/drivers/misc/surface_aggregator/ssh_packet_layer.h b/drivers/misc/surface_aggregator/ssh_packet_layer.h
 new file mode 100644
-index 000000000000..c844cac0f4d7
+index 000000000000..e8757d03f279
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_packet_layer.h
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,190 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * SSH packet transport layer.
@@ -14795,6 +14776,7 @@ index 000000000000..c844cac0f4d7
 + * @rx.blocked.seqs:   Array of blocked sequence IDs.
 + * @rx.blocked.offset: Offset indicating where a new ID should be inserted.
 + * @rtx_timeout:   Retransmission timeout subsystem.
++ * @rtx_timeout.lock:    Lock for modifying the retransmission timeout reaper.
 + * @rtx_timeout.timeout: Timeout interval for retransmission.
 + * @rtx_timeout.expires: Time specifying when the reaper work is next scheduled.
 + * @rtx_timeout.reaper:  Work performing timeout checks and subsequent actions.
@@ -14836,6 +14818,7 @@ index 000000000000..c844cac0f4d7
 +	} rx;
 +
 +	struct {
++		spinlock_t lock;
 +		ktime_t timeout;
 +		ktime_t expires;
 +		struct delayed_work reaper;
@@ -15310,10 +15293,10 @@ index 000000000000..395c61ef890b
 +#endif /* _SURFACE_AGGREGATOR_SSH_PARSER_h */
 diff --git a/drivers/misc/surface_aggregator/ssh_request_layer.c b/drivers/misc/surface_aggregator/ssh_request_layer.c
 new file mode 100644
-index 000000000000..966150542ae8
+index 000000000000..bf1782c85063
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_request_layer.c
-@@ -0,0 +1,1265 @@
+@@ -0,0 +1,1256 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * SSH request transport layer.
@@ -15744,21 +15727,16 @@ index 000000000000..966150542ae8
 +{
 +	unsigned long delta = msecs_to_jiffies(ktime_ms_delta(expires, now));
 +	ktime_t aexp = ktime_add(expires, SSH_RTL_REQUEST_TIMEOUT_RESOLUTION);
-+	ktime_t old_exp, old_act;
 +
-+	/* Re-adjust/schedule reaper if it is above resolution delta. */
-+	old_act = READ_ONCE(rtl->rtx_timeout.expires);
-+	if (ktime_after(aexp, old_act))
-+		return;
++	spin_lock(&rtl->rtx_timeout.lock);
 +
-+	do {
-+		old_exp = old_act;
-+		old_act = cmpxchg64(&rtl->rtx_timeout.expires, old_exp, expires);
-+	} while (old_exp != old_act && ktime_before(aexp, old_act));
-+
-+	/* If we updated the reaper expiration, modify work timeout. */
-+	if (old_exp == old_act && old_act != expires)
++	/* Re-adjust / schedule reaper only if it is above resolution delta. */
++	if (ktime_before(aexp, rtl->rtx_timeout.expires)) {
++		rtl->rtx_timeout.expires = expires;
 +		mod_delayed_work(system_wq, &rtl->rtx_timeout.reaper, delta);
++	}
++
++	spin_unlock(&rtl->rtx_timeout.lock);
 +}
 +
 +static void ssh_rtl_timeout_start(struct ssh_request *rqst)
@@ -16153,14 +16131,9 @@ index 000000000000..966150542ae8
 +	 * Mark reaper as "not pending". This is done before checking any
 +	 * requests to avoid lost-update type problems.
 +	 */
-+	WRITE_ONCE(rtl->rtx_timeout.expires, KTIME_MAX);
-+	/*
-+	 * Ensure that the reaper is marked as deactivated before we continue
-+	 * checking requests to prevent lost-update problems when a request is
-+	 * added to the pending set and ssh_rtl_timeout_reaper_mod is called
-+	 * during execution of the part below.
-+	 */
-+	smp_mb__after_atomic();
++	spin_lock(&rtl->rtx_timeout.lock);
++	rtl->rtx_timeout.expires = KTIME_MAX;
++	spin_unlock(&rtl->rtx_timeout.lock);
 +
 +	spin_lock(&rtl->pending.lock);
 +	list_for_each_entry_safe(r, n, &rtl->pending.head, node) {
@@ -16349,6 +16322,7 @@ index 000000000000..966150542ae8
 +
 +	INIT_WORK(&rtl->tx.work, ssh_rtl_tx_work_fn);
 +
++	spin_lock_init(&rtl->rtx_timeout.lock);
 +	rtl->rtx_timeout.timeout = SSH_RTL_REQUEST_TIMEOUT;
 +	rtl->rtx_timeout.expires = KTIME_MAX;
 +	INIT_DELAYED_WORK(&rtl->rtx_timeout.reaper, ssh_rtl_timeout_reap);
@@ -16581,10 +16555,10 @@ index 000000000000..966150542ae8
 +}
 diff --git a/drivers/misc/surface_aggregator/ssh_request_layer.h b/drivers/misc/surface_aggregator/ssh_request_layer.h
 new file mode 100644
-index 000000000000..ab357b2b3735
+index 000000000000..9c2efdd8ae70
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_request_layer.h
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,143 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * SSH request transport layer.
@@ -16643,6 +16617,7 @@ index 000000000000..ab357b2b3735
 + * @tx:            Transmitter subsystem.
 + * @tx.work:       Transmitter work item.
 + * @rtx_timeout:   Retransmission timeout subsystem.
++ * @rtx_timeout.lock:    Lock for modifying the retransmission timeout reaper.
 + * @rtx_timeout.timeout: Timeout interval for retransmission.
 + * @rtx_timeout.expires: Time specifying when the reaper work is next scheduled.
 + * @rtx_timeout.reaper:  Work performing timeout checks and subsequent actions.
@@ -16668,6 +16643,7 @@ index 000000000000..ab357b2b3735
 +	} tx;
 +
 +	struct {
++		spinlock_t lock;
 +		ktime_t timeout;
 +		ktime_t expires;
 +		struct delayed_work reaper;
