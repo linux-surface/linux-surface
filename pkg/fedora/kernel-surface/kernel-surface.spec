@@ -91,7 +91,6 @@ Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-gpe.patch
 Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam-over-hid.patch
 Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam.patch
 Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-typecover.patch
-Patch7:     %{surface_source}/%{kernel_patches}/0008-efivarfs-revert-fix-memory-leak-in-efivarfs_create.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
