@@ -1,222 +1,4 @@
-From 17c415ea2b79fcfb7060a655c601d7b40a7ef99b Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Thu, 29 Oct 2020 22:04:38 +0100
-Subject: [PATCH] PCI: Allow D3cold for hot-plug ports on Surface Books
-
-The Microsoft Surface Book series of devices have a tablet part (so
-called clipboard) that can be detached from the base of the device.
-While the clipboard contains the CPU, the base can contain a discrete
-GPU (dGPU). This dGPU is connected via a PCIe hot-plug port.
-
-Currently D3cold is disallowed for all hot-plug ports. On the Surface
-Book 2 and 3, this leads to increased power consumption during suspend
-and when the dGPU is not used (i.e. runtime suspended). This can be
-observed not only in battery drain, but also by the dGPU getting notably
-warm while suspended and not in D3cold.
-
-Testing shows that the Surface Books behave well with D3cold enabled for
-hot-plug ports, alleviating the aforementioned issues. Thus white-list
-D3cold for hot-plug ports on those devices.
-
-Note: PCIe hot-plug signalling while the device is in D3cold is handled
-via ACPI, out-of-band interrupts, and the surface_hotplug driver
-(combined). The device will work without the surface_hotplug driver,
-however, device removal/addition will only be detected on device resume.
-
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
-Patchset: surface-sam
----
- drivers/pci/pci.c | 31 +++++++++++++++++++++++++++++--
- 1 file changed, 29 insertions(+), 2 deletions(-)
-
-diff --git a/drivers/pci/pci.c b/drivers/pci/pci.c
-index b2fed944903e..e288e5058520 100644
---- a/drivers/pci/pci.c
-+++ b/drivers/pci/pci.c
-@@ -2814,6 +2814,32 @@ static const struct dmi_system_id bridge_d3_blacklist[] = {
- 	{ }
- };
- 
-+static const struct dmi_system_id bridge_d3_hotplug_whitelist[] = {
-+#ifdef CONFIG_X86
-+	{
-+		/*
-+		 * Microsoft Surface Books have a hot-plug root port for the
-+		 * discrete GPU (the device containing it can be detached form
-+		 * the top-part, containing the cpu).
-+		 *
-+		 * If this discrete GPU is not transitioned into D3cold for
-+		 * suspend, the device will become notably warm and also
-+		 * consume a lot more power than desirable.
-+		 *
-+		 * We assume that since those devices have been confirmed
-+		 * working with D3, future Surface devices will too. So let's
-+		 * keep this match generic.
-+		 */
-+		.ident = "Microsoft Surface",
-+		.matches = {
-+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
-+			DMI_MATCH(DMI_PRODUCT_NAME, "Surface"),
-+		},
-+	},
-+#endif
-+	{ }
-+};
-+
- /**
-  * pci_bridge_d3_possible - Is it possible to put the bridge into D3
-  * @bridge: Bridge to check
-@@ -2854,10 +2880,11 @@ bool pci_bridge_d3_possible(struct pci_dev *bridge)
- 		/*
- 		 * Hotplug ports handled natively by the OS were not validated
- 		 * by vendors for runtime D3 at least until 2018 because there
--		 * was no OS support.
-+		 * was no OS support. Explicitly whitelist systems that have
-+		 * been confirmed working.
- 		 */
- 		if (bridge->is_hotplug_bridge)
--			return false;
-+			return dmi_check_system(bridge_d3_hotplug_whitelist);
- 
- 		if (dmi_check_system(bridge_d3_blacklist))
- 			return false;
--- 
-2.29.2
-
-From cfaac0fe00bef4c3c179711dc3ca979b71c2dc64 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Mon, 9 Nov 2020 14:23:00 +0100
-Subject: [PATCH] PCI: Run platform power transition on initial D0 entry
-
-On some devices and platforms, the initial platform power state is not
-in sync with the power state of the PCI device.
-
-pci_enable_device_flags() updates the state of a PCI device by reading
-from the the PCI_PM_CTRL register. This may change the stored power
-state of the device without running the appropriate platform power
-transition.
-
-Due to the stored power-state being changed, the later call to
-pci_set_power_state(..., PCI_D0) in do_pci_enable_device() can evaluate
-to a no-op if the stored state has been changed to D0 via that. This
-will then prevent the appropriate platform power transition to be run,
-which can on some devices and platforms lead to platform and PCI power
-state being entirely different, i.e. out-of-sync. On ACPI platforms,
-this can lead to power resources not being turned on, even though they
-are marked as required for D0.
-
-Specifically, on the Microsoft Surface Book 2 and 3, some ACPI power
-regions that should be "on" for the D0 state (and others) are
-initialized as "off" in ACPI, whereas the PCI device is in D0. As the
-state is updated in pci_enable_device_flags() without ensuring that the
-platform state is also updated, the power resource will never be
-properly turned on. Instead, it lives in a sort of on-but-marked-as-off
-zombie-state, which confuses things down the line when attempting to
-transition the device into D3cold: As the resource is already marked as
-off, it won't be turned off and the device does not fully enter D3cold,
-causing increased power consumption during (runtime-)suspend.
-
-By replacing pci_set_power_state() in do_pci_enable_device() with
-pci_power_up(), we can force pci_platform_power_transition() to be
-called, which will then check if the platform power state needs updating
-and appropriate actions need to be taken.
-
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
-Patchset: surface-sam
----
- drivers/pci/pci.c | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
-
-diff --git a/drivers/pci/pci.c b/drivers/pci/pci.c
-index e288e5058520..d260c0fcf2d5 100644
---- a/drivers/pci/pci.c
-+++ b/drivers/pci/pci.c
-@@ -1791,7 +1791,7 @@ static int do_pci_enable_device(struct pci_dev *dev, int bars)
- 	u16 cmd;
- 	u8 pin;
- 
--	err = pci_set_power_state(dev, PCI_D0);
-+	err = pci_power_up(dev);
- 	if (err < 0 && err != -EIO)
- 		return err;
- 
--- 
-2.29.2
-
-From e6bb44005128dcb88b9c138881fdf0112f184614 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Sat, 31 Oct 2020 20:46:33 +0100
-Subject: [PATCH] PCI: Add sysfs attribute for PCI device power state
-
-While most PCI power-states can be queried from user-space via lspci,
-this has some limits. Specifically, lspci fails to provide an accurate
-value when the device is in D3cold as it has to resume the device before
-it can access its power state via the configuration space, leading to it
-reporting D0 or another on-state. Thus lspci can, for example, not be
-used to diagnose power-consumption issues for devices that can enter
-D3cold or to ensure that devices properly enter D3cold at all.
-
-To alleviate this issue, introduce a new sysfs device attribute for the
-PCI power state, showing the current power state as seen by the kernel.
-
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
-Patchset: surface-sam
----
- Documentation/ABI/testing/sysfs-bus-pci |  9 +++++++++
- drivers/pci/pci-sysfs.c                 | 12 ++++++++++++
- 2 files changed, 21 insertions(+)
-
-diff --git a/Documentation/ABI/testing/sysfs-bus-pci b/Documentation/ABI/testing/sysfs-bus-pci
-index 450296cc7948..881040af2611 100644
---- a/Documentation/ABI/testing/sysfs-bus-pci
-+++ b/Documentation/ABI/testing/sysfs-bus-pci
-@@ -360,3 +360,12 @@ Contact:	Heiner Kallweit <hkallweit1@gmail.com>
- Description:	If ASPM is supported for an endpoint, these files can be
- 		used to disable or enable the individual power management
- 		states. Write y/1/on to enable, n/0/off to disable.
-+
-+What:		/sys/bus/pci/devices/.../power_state
-+Date:		November 2020
-+Contact:	Linux PCI developers <linux-pci@vger.kernel.org>
-+Description:
-+		This file contains the current PCI power state of the device.
-+		The value comes from the PCI kernel device state and can be one
-+		of: "unknown", "error", "D0", D1", "D2", "D3hot", "D3cold".
-+		The file is read only.
-diff --git a/drivers/pci/pci-sysfs.c b/drivers/pci/pci-sysfs.c
-index 6d78df981d41..17f186ce8e87 100644
---- a/drivers/pci/pci-sysfs.c
-+++ b/drivers/pci/pci-sysfs.c
-@@ -124,6 +124,17 @@ static ssize_t cpulistaffinity_show(struct device *dev,
- }
- static DEVICE_ATTR_RO(cpulistaffinity);
- 
-+/* PCI power state */
-+static ssize_t power_state_show(struct device *dev,
-+				struct device_attribute *attr, char *buf)
-+{
-+	struct pci_dev *pci_dev = to_pci_dev(dev);
-+	pci_power_t state = READ_ONCE(pci_dev->current_state);
-+
-+	return sprintf(buf, "%s\n", pci_power_name(state));
-+}
-+static DEVICE_ATTR_RO(power_state);
-+
- /* show resources */
- static ssize_t resource_show(struct device *dev, struct device_attribute *attr,
- 			     char *buf)
-@@ -581,6 +592,7 @@ static ssize_t driver_override_show(struct device *dev,
- static DEVICE_ATTR_RW(driver_override);
- 
- static struct attribute *pci_dev_attrs[] = {
-+	&dev_attr_power_state.attr,
- 	&dev_attr_resource.attr,
- 	&dev_attr_vendor.attr,
- 	&dev_attr_device.attr,
--- 
-2.29.2
-
-From 7512286e41932110772357e2025e266dfbac687a Mon Sep 17 00:00:00 2001
+From 1c147292552ad7d9f06abaed56d297625247e8c9 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] misc: surface_sam: Add file2alias support for Surface SAM
@@ -318,7 +100,7 @@ index 2417dd1dee33..a6c583362b92 100644
 -- 
 2.29.2
 
-From c6b3237cc57ac3b7c1d65f9848b6a21c46acba38 Mon Sep 17 00:00:00 2001
+From 73eae507e63f3322f4f3d86f2d2d2905e515832e Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] misc: Add support for Surface System Aggregator Module
@@ -337,41 +119,40 @@ Patchset: surface-sam
 ---
  Documentation/driver-api/index.rst            |    1 +
  .../surface_aggregator/client-api.rst         |   38 +
- .../driver-api/surface_aggregator/client.rst  |  394 +++
- .../surface_aggregator/clients/cdev.rst       |   85 +
+ .../driver-api/surface_aggregator/client.rst  |  393 +++
+ .../surface_aggregator/clients/cdev.rst       |   87 +
  .../surface_aggregator/clients/dtx.rst        |  712 +++++
  .../surface_aggregator/clients/index.rst      |   22 +
  .../surface_aggregator/clients/san.rst        |   44 +
  .../driver-api/surface_aggregator/index.rst   |   21 +
  .../surface_aggregator/internal-api.rst       |   67 +
- .../surface_aggregator/internal.rst           |   50 +
- .../surface_aggregator/overview.rst           |   76 +
- .../driver-api/surface_aggregator/ssh.rst     |  343 +++
+ .../surface_aggregator/internal.rst           |  577 ++++
+ .../surface_aggregator/overview.rst           |   77 +
+ .../driver-api/surface_aggregator/ssh.rst     |  344 +++
  drivers/misc/Kconfig                          |    1 +
  drivers/misc/Makefile                         |    1 +
  drivers/misc/surface_aggregator/Kconfig       |   67 +
  drivers/misc/surface_aggregator/Makefile      |   18 +
  drivers/misc/surface_aggregator/bus.c         |  416 +++
  drivers/misc/surface_aggregator/bus.h         |   27 +
- .../misc/surface_aggregator/clients/Kconfig   |  151 +
- .../misc/surface_aggregator/clients/Makefile  |   11 +
+ .../misc/surface_aggregator/clients/Kconfig   |  134 +
+ .../misc/surface_aggregator/clients/Makefile  |   10 +
  .../clients/surface_acpi_notify.c             |  886 ++++++
- .../clients/surface_aggregator_cdev.c         |  299 ++
+ .../clients/surface_aggregator_cdev.c         |  303 ++
  .../clients/surface_aggregator_registry.c     |  653 +++++
- .../clients/surface_battery.c                 | 1178 ++++++++
- .../surface_aggregator/clients/surface_dtx.c  | 1277 +++++++++
+ .../clients/surface_battery.c                 | 1168 ++++++++
+ .../surface_aggregator/clients/surface_dtx.c  | 1277 ++++++++
  .../surface_aggregator/clients/surface_hid.c  |  924 ++++++
- .../clients/surface_hotplug.c                 |  267 ++
  .../clients/surface_perfmode.c                |  122 +
- drivers/misc/surface_aggregator/controller.c  | 2543 +++++++++++++++++
+ drivers/misc/surface_aggregator/controller.c  | 2579 +++++++++++++++++
  drivers/misc/surface_aggregator/controller.h  |  285 ++
- drivers/misc/surface_aggregator/core.c        |  834 ++++++
+ drivers/misc/surface_aggregator/core.c        |  840 ++++++
  drivers/misc/surface_aggregator/ssh_msgb.h    |  205 ++
- .../surface_aggregator/ssh_packet_layer.c     | 2046 +++++++++++++
+ .../surface_aggregator/ssh_packet_layer.c     | 2057 +++++++++++++
  .../surface_aggregator/ssh_packet_layer.h     |  190 ++
  drivers/misc/surface_aggregator/ssh_parser.c  |  228 ++
  drivers/misc/surface_aggregator/ssh_parser.h  |  155 +
- .../surface_aggregator/ssh_request_layer.c    | 1256 ++++++++
+ .../surface_aggregator/ssh_request_layer.c    | 1264 ++++++++
  .../surface_aggregator/ssh_request_layer.h    |  143 +
  drivers/misc/surface_aggregator/trace.h       |  632 ++++
  include/linux/mod_devicetable.h               |    5 +-
@@ -379,11 +160,11 @@ Patchset: surface-sam
  include/linux/surface_aggregator/controller.h |  824 ++++++
  include/linux/surface_aggregator/device.h     |  423 +++
  include/linux/surface_aggregator/serial_hub.h |  672 +++++
- include/uapi/linux/surface_aggregator/cdev.h  |   58 +
+ include/uapi/linux/surface_aggregator/cdev.h  |   78 +
  include/uapi/linux/surface_aggregator/dtx.h   |  146 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 48 files changed, 18841 insertions(+), 7 deletions(-)
+ 47 files changed, 19161 insertions(+), 7 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -407,7 +188,6 @@ Patchset: surface-sam
  create mode 100644 drivers/misc/surface_aggregator/clients/surface_battery.c
  create mode 100644 drivers/misc/surface_aggregator/clients/surface_dtx.c
  create mode 100644 drivers/misc/surface_aggregator/clients/surface_hid.c
- create mode 100644 drivers/misc/surface_aggregator/clients/surface_hotplug.c
  create mode 100644 drivers/misc/surface_aggregator/clients/surface_perfmode.c
  create mode 100644 drivers/misc/surface_aggregator/controller.c
  create mode 100644 drivers/misc/surface_aggregator/controller.h
@@ -485,10 +265,10 @@ index 000000000000..a1117d57036a
 +    :export:
 diff --git a/Documentation/driver-api/surface_aggregator/client.rst b/Documentation/driver-api/surface_aggregator/client.rst
 new file mode 100644
-index 000000000000..f1275bf53837
+index 000000000000..26d13085a117
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/client.rst
-@@ -0,0 +1,394 @@
+@@ -0,0 +1,393 @@
 +.. SPDX-License-Identifier: GPL-2.0+
 +
 +.. |ssam_controller| replace:: :c:type:`struct ssam_controller <ssam_controller>`
@@ -539,8 +319,8 @@ index 000000000000..f1275bf53837
 +=======================
 +
 +All communication with the SAM EC is handled via the |ssam_controller|
-+representing that EC to the kernel. Drivers targetting a non-SSAM device
-+(and thus not being a |ssam_device_driver|) need to explicitly establish a
++representing that EC to the kernel. Drivers targeting a non-SSAM device (and
++thus not being a |ssam_device_driver|) need to explicitly establish a
 +connection/relation to that controller. This can be done via the
 +|ssam_client_bind| function. Said function returns a reference to the SSAM
 +controller, but, more importantly, also establishes a device link between
@@ -558,11 +338,10 @@ index 000000000000..f1275bf53837
 +   static int client_driver_probe(struct platform_device *pdev)
 +   {
 +           struct ssam_controller *ctrl;
-+           int status;
 +
-+           status = ssam_client_bind(&pdev->dev, &ctrl);
-+           if (status)
-+                   return status == -ENXIO ? -EPROBE_DEFER : status;
++           ctrl = ssam_client_bind(&pdev->dev);
++           if (IS_ERR(ctrl))
++                   return PTR_ERR(ctrl) == -ENODEV ? -EPROBE_DEFER : PTR_ERR(ctrl);
 +
 +           // ...
 +
@@ -624,7 +403,7 @@ index 000000000000..f1275bf53837
 +(:c:type:`SSAM_DOMAIN_VIRTUAL <ssam_device_domain>`), such as client-device
 +hubs, that have no real representation on the SAM EC and are solely used on
 +the kernel/driver-side. For physical devices, ``category`` represents the
-+target category, ``target`` the target ID, and ``instace`` the instance ID
++target category, ``target`` the target ID, and ``instance`` the instance ID
 +used to access the physical SAM device. In addition, ``function`` references
 +a specific device functionality, but has no meaning to the SAM EC. The
 +(default) name of a client device is generated based on its UID.
@@ -640,7 +419,7 @@ index 000000000000..f1275bf53837
 +but should also be valid for as long as the client device exists. Note,
 +however, that access outside of the bound client driver must ensure that the
 +controller device is not suspended while making any requests or
-+(un)registering event notifiers (and thus should generally be avoided). This
++(un-)registering event notifiers (and thus should generally be avoided). This
 +is guaranteed when the controller is accessed from inside the bound client
 +driver.
 +
@@ -700,8 +479,6 @@ index 000000000000..f1275bf53837
 +            * above.
 +            */
 +           status = ssam_request_sync(ctrl, &rqst, &resp);
-+           if (status)
-+               return status;
 +
 +           /*
 +            * Alternatively use
@@ -709,12 +486,13 @@ index 000000000000..f1275bf53837
 +            *   ssam_request_sync_onstack(ctrl, &rqst, &resp, sizeof(arg_le));
 +            *
 +            * to perform the request, allocating the message buffer directly
-+            * on the stack as opposed to via kzalloc().
++            * on the stack as opposed to allocation via kzalloc().
 +            */
 +
 +           /*
 +            * Convert request response back to native format. Note that in the
-+            * error case, this value is not touched.
++            * error case, this value is not touched by the SSAM core, i.e.
++            * 'ret_le' will be zero as specified in its initialization.
 +            */
 +           *ret = le32_to_cpu(ret_le);
 +
@@ -812,9 +590,10 @@ index 000000000000..f1275bf53837
 +should be enabled, an event ID specifying for which target category and,
 +optionally and depending on the registry used, for which instance ID events
 +should be enabled, and finally, flags describing how the EC will send these
-+events. Additionally, a priority for the respective notifier may be
-+specified, which determines its order in relation to any other notifier
-+registered for the same target category.
++events. If the specific registry does not enable events by instance ID, the
++instance ID must be set to zero. Additionally, a priority for the respective
++notifier may be specified, which determines its order in relation to any
++other notifier registered for the same target category.
 +
 +By default, event notifiers will receive all events for the specific target
 +category, regardless of the instance ID specified when registering the
@@ -885,16 +664,16 @@ index 000000000000..f1275bf53837
 +with the same flag and it is considered a bug to do otherwise.
 diff --git a/Documentation/driver-api/surface_aggregator/clients/cdev.rst b/Documentation/driver-api/surface_aggregator/clients/cdev.rst
 new file mode 100644
-index 000000000000..720c9c03aa0e
+index 000000000000..248c1372d879
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/clients/cdev.rst
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,87 @@
 +.. SPDX-License-Identifier: GPL-2.0+
 +
 +.. |u8| replace:: :c:type:`u8 <u8>`
 +.. |u16| replace:: :c:type:`u16 <u16>`
 +.. |ssam_cdev_request| replace:: :c:type:`struct ssam_cdev_request <ssam_cdev_request>`
-+.. |ssam_request_flags| replace:: :c:type:`enum ssam_request_flags <ssam_request_flags>`
++.. |ssam_cdev_request_flags| replace:: :c:type:`enum ssam_cdev_request_flags <ssam_cdev_request_flags>`
 +
 +==============================
 +User-Space EC Interface (cdev)
@@ -910,6 +689,9 @@ index 000000000000..720c9c03aa0e
 +device-file. All functionality of this interface is provided via IOCTLs.
 +These IOCTLs and their respective input/output parameter structs are defined in
 +``include/uapi/linux/surface_aggregator/cdev.h``.
++
++A small python library and scripts for accessing this interface can be found
++at https://github.com/linux-surface/surface-aggregator-module/tree/master/scripts/ssam.
 +
 +
 +Controller IOCTLs
@@ -952,17 +734,17 @@ index 000000000000..720c9c03aa0e
 +buffer (if its capacity allows it) and overwrite the length field with the
 +actual size of the response, in bytes.
 +
-+Additionally, if the request has a response, this should be indicated via
-+the request flags, as is done with in-kernel requests. Request flags can be
-+set via the ``flags`` member and the values correspond to the values found
-+in |ssam_request_flags|.
++Additionally, if the request has a response, this must be indicated via the
++request flags, as is done with in-kernel requests. Request flags can be set
++via the ``flags`` member and the values correspond to the values found in
++|ssam_cdev_request_flags|.
 +
 +Finally, the status of the request itself is returned in the ``status``
-+member (a negative value indicating failure). Note that failure indication
-+of the IOCTL is separated from failure indication of the request: The IOCTL
-+returns a negative status code if anything failed during setup of the
-+request (``-EFAULT``) or if the provided argument or any of its fields are
-+invalid (``-EINVAL``). In this case, the status value of the request
++member (a negative errno value indicating failure). Note that failure
++indication of the IOCTL is separated from failure indication of the request:
++The IOCTL returns a negative status code if anything failed during setup of
++the request (``-EFAULT``) or if the provided argument or any of its fields
++are invalid (``-EINVAL``). In this case, the status value of the request
 +argument may be set, providing more detail on what went wrong (e.g.
 +``-ENOMEM`` for out-of-memory), but this value may also be zero. The IOCTL
 +will return with a zero status code in case the request has been set up,
@@ -973,7 +755,6 @@ index 000000000000..720c9c03aa0e
 +A full definition of the argument struct is provided below:
 +
 +.. kernel-doc:: include/uapi/linux/surface_aggregator/cdev.h
-+   :functions: ssam_cdev_request
 diff --git a/Documentation/driver-api/surface_aggregator/clients/dtx.rst b/Documentation/driver-api/surface_aggregator/clients/dtx.rst
 new file mode 100644
 index 000000000000..e974c2b04e9f
@@ -1772,7 +1553,7 @@ index 000000000000..1bf830ad367d
 +    :export:
 diff --git a/Documentation/driver-api/surface_aggregator/index.rst b/Documentation/driver-api/surface_aggregator/index.rst
 new file mode 100644
-index 000000000000..9fa70eedca59
+index 000000000000..6f3e1094904d
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/index.rst
 @@ -0,0 +1,21 @@
@@ -1786,10 +1567,10 @@ index 000000000000..9fa70eedca59
 +   :maxdepth: 2
 +
 +   overview
-+   ssh
 +   client
-+   internal
 +   clients/index
++   ssh
++   internal
 +
 +.. only::  subproject and html
 +
@@ -1872,17 +1653,59 @@ index 000000000000..db6a70119f49
 +.. kernel-doc:: drivers/misc/surface_aggregator/trace.h
 diff --git a/Documentation/driver-api/surface_aggregator/internal.rst b/Documentation/driver-api/surface_aggregator/internal.rst
 new file mode 100644
-index 000000000000..6c020b87ad62
+index 000000000000..72704734982a
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/internal.rst
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,577 @@
 +.. SPDX-License-Identifier: GPL-2.0+
++
++.. |ssh_ptl| replace:: :c:type:`struct ssh_ptl <ssh_ptl>`
++.. |ssh_ptl_submit| replace:: :c:func:`ssh_ptl_submit`
++.. |ssh_ptl_cancel| replace:: :c:func:`ssh_ptl_cancel`
++.. |ssh_ptl_shutdown| replace:: :c:func:`ssh_ptl_shutdown`
++.. |ssh_ptl_rx_rcvbuf| replace:: :c:func:`ssh_ptl_rx_rcvbuf`
++.. |ssh_rtl| replace:: :c:type:`struct ssh_rtl <ssh_rtl>`
++.. |ssh_rtl_submit| replace:: :c:func:`ssh_rtl_submit`
++.. |ssh_rtl_cancel| replace:: :c:func:`ssh_rtl_cancel`
++.. |ssh_rtl_shutdown| replace:: :c:func:`ssh_rtl_shutdown`
++.. |ssh_packet| replace:: :c:type:`struct ssh_packet <ssh_packet>`
++.. |ssh_packet_get| replace:: :c:func:`ssh_packet_get`
++.. |ssh_packet_put| replace:: :c:func:`ssh_packet_put`
++.. |ssh_packet_ops| replace:: :c:type:`struct ssh_packet_ops <ssh_packet_ops>`
++.. |ssh_packet_base_priority| replace:: :c:type:`enum ssh_packet_base_priority <ssh_packet_base_priority>`
++.. |ssh_packet_flags| replace:: :c:type:`enum ssh_packet_flags <ssh_packet_flags>`
++.. |SSH_PACKET_PRIORITY| replace:: :c:func:`SSH_PACKET_PRIORITY`
++.. |ssh_frame| replace:: :c:type:`struct ssh_frame <ssh_frame>`
++.. |ssh_command| replace:: :c:type:`struct ssh_command <ssh_command>`
++.. |ssh_request| replace:: :c:type:`struct ssh_request <ssh_request>`
++.. |ssh_request_get| replace:: :c:func:`ssh_request_get`
++.. |ssh_request_put| replace:: :c:func:`ssh_request_put`
++.. |ssh_request_ops| replace:: :c:type:`struct ssh_request_ops <ssh_request_ops>`
++.. |ssh_request_init| replace:: :c:func:`ssh_request_init`
++.. |ssh_request_flags| replace:: :c:type:`enum ssh_request_flags <ssh_request_flags>`
++.. |ssam_controller| replace:: :c:type:`struct ssam_controller <ssam_controller>`
++.. |ssam_device| replace:: :c:type:`struct ssam_device <ssam_device>`
++.. |ssam_device_driver| replace:: :c:type:`struct ssam_device_driver <ssam_device_driver>`
++.. |ssam_client_bind| replace:: :c:func:`ssam_client_bind`
++.. |ssam_client_link| replace:: :c:func:`ssam_client_link`
++.. |ssam_request_sync| replace:: :c:type:`struct ssam_request_sync <ssam_request_sync>`
++.. |ssam_event_registry| replace:: :c:type:`struct ssam_event_registry <ssam_event_registry>`
++.. |ssam_event_id| replace:: :c:type:`struct ssam_event_id <ssam_event_id>`
++.. |ssam_nf| replace:: :c:type:`struct ssam_nf <ssam_nf>`
++.. |ssam_nf_refcount_inc| replace:: :c:func:`ssam_nf_refcount_inc`
++.. |ssam_nf_refcount_dec| replace:: :c:func:`ssam_nf_refcount_dec`
++.. |ssam_notifier_register| replace:: :c:func:`ssam_notifier_register`
++.. |ssam_notifier_unregister| replace:: :c:func:`ssam_notifier_unregister`
++.. |ssam_cplt| replace:: :c:type:`struct ssam_cplt <ssam_cplt>`
++.. |ssam_event_queue| replace:: :c:type:`struct ssam_event_queue <ssam_event_queue>`
++.. |ssam_request_sync_submit| replace:: :c:func:`ssam_request_sync_submit`
 +
 +=====================
 +Core Driver Internals
 +=====================
 +
-+For the API documentation, refer to:
++Architectural overview of the Surface System Aggregator Module (SSAM) core
++and Surface Serial Hub (SSH) driver. For the API documentation, refer to:
 +
 +.. toctree::
 +   :maxdepth: 2
@@ -1900,7 +1723,7 @@ index 000000000000..6c020b87ad62
 +(PTL)*, directly building on top of the serial device (serdev)
 +infrastructure of the kernel. As the name indicates, this layer deals with
 +the packet transport logic and handles things like packet validation, packet
-+acknowledgement (ACKing), packet (retransmission) timeouts, and relaying
++acknowledgment (ACKing), packet (retransmission) timeouts, and relaying
 +packet payloads to higher-level layers.
 +
 +Above this sits the *request transport layer (RTL)*. This layer is centered
@@ -1920,18 +1743,503 @@ index 000000000000..6c020b87ad62
 +While the controller layer already provides an interface for other kernel
 +drivers, the client *bus* extends this interface to provide support for
 +native SSAM devices, i.e. devices that are not defined in ACPI and not
-+implemented as platform devices, via :c:type:`struct ssam_device <ssam_device>`
-+and :c:type:`struct ssam_device_driver <ssam_device_driver>`. This aims to
++implemented as platform devices, via |ssam_device| and |ssam_device_driver|
 +simplify management of client devices and client drivers.
 +
 +Refer to :doc:`client` for documentation regarding the client device/driver
-+API and interface options for other kernel drivers.
++API and interface options for other kernel drivers. It is recommended to
++familiarize oneself with that chapter and the :doc:`ssh` before continuing
++with the architectural overview below.
++
++
++Packet Transport Layer
++======================
++
++The packet transport layer is represented via |ssh_ptl| and is structured
++around the following key concepts:
++
++Packets
++-------
++
++Packets are the fundamental transmission unit of the SSH protocol. They are
++managed by the packet transport layer, which is essentially the lowest layer
++of the driver and is built upon by other components of the SSAM core.
++Packets to be transmitted by the SSAM core are represented via |ssh_packet|
++(in contrast, packets received by the core do not have any specific
++structure and are managed entirely via the raw |ssh_frame|).
++
++This structure contains the required fields to manage the packet inside the
++transport layer, as well as a reference to the buffer containing the data to
++be transmitted (i.e. the message wrapped in |ssh_frame|). Most notably, it
++contains an internal reference count, which is used for managing its
++lifetime (accessible via |ssh_packet_get| and |ssh_packet_put|). When this
++counter reaches zero, the ``release()`` callback provided to the packet via
++its |ssh_packet_ops| reference is executed, which may then deallocate the
++packet or its enclosing structure (e.g. |ssh_request|).
++
++In addition to the ``release`` callback, the |ssh_packet_ops| reference also
++provides a ``complete()`` callback, which is run once the packet has been
++completed and provides the status of this completion, i.e. zero on success
++or a negative errno value in case of an error. Once the packet has been
++submitted to the packet transport layer, the ``complete()`` callback is
++always guaranteed to be executed before the ``release()`` callback, i.e. the
++packet will always be completed, either successfully, with an error, or due
++to cancellation, before it will be released.
++
++The state of a packet is managed via its ``state`` flags
++(|ssh_packet_flags|), which also contains the packet type. In particular,
++the following bits are noteworthy:
++
++* ``SSH_PACKET_SF_LOCKED_BIT``: This bit is set when completion, either
++  through error or success, is imminent. It indicates that no further
++  references of the packet should be taken and any existing references
++  should be dropped as soon as possible. The process setting this bit is
++  responsible for removing any references to this packet from the packet
++  queue and pending set.
++
++* ``SSH_PACKET_SF_COMPLETED_BIT``: This bit is set by the process running the
++  ``complete()`` callback and is used to ensure that this callback only runs
++  once.
++
++* ``SSH_PACKET_SF_QUEUED_BIT``: This bit is set when the packet is queued on
++  the packet queue and cleared when it is dequeued.
++
++* ``SSH_PACKET_SF_PENDING_BIT``: This bit is set when the packet is added to
++  the pending set and cleared when it is removed from it.
++
++Packet Queue
++------------
++
++The packet queue is the first of the two fundamental collections in the
++packet transport layer. It is a priority queue, with priority of the
++respective packets based on the packet type (major) and number of tries
++(minor). See |SSH_PACKET_PRIORITY| for more details on the priority value.
++
++All packets to be transmitted by the transport layer must be submitted to
++this queue via |ssh_ptl_submit|. Note that this includes control packets
++sent by the transport layer itself. Internally, data packets can be
++re-submitted to this queue due to timeouts or NAK packets sent by the EC.
++
++Pending Set
++-----------
++
++The pending set is the second of the two fundamental collections in the
++packet transport layer. It stores references to packets that have already
++been transmitted, but wait for acknowledgment (e.g. the corresponding ACK
++packet) by the EC.
++
++Note that a packet may both be pending and queued if it has been
++re-submitted due to a packet acknowledgment timeout or NAK. On such a
++re-submission, packets are not removed from the pending set.
++
++Transmitter Thread
++------------------
++
++The transmitter thread is responsible for most of the actual work regarding
++packet transmission. In each iteration, it (waits for and) checks if the
++next packet on the queue (if any) can be transmitted and, if so, removes it
++from the queue and increments its counter for the number of transmission
++attempts, i.e. tries. If the packet is sequenced, i.e. requires an ACK by
++the EC, the packet is added to the pending set. Next, the packet's data is
++submitted to the serdev subsystem. In case of an error or timeout during
++this submission, the packet is completed by the transmitter thread with the
++status value of the callback set accordingly. In case the packet is
++unsequenced, i.e. does not require an ACK by the EC, the packet is completed
++with success on the transmitter thread.
++
++Transmission of sequenced packets is limited by the number of concurrently
++pending packets, i.e. a limit on how many packets may be waiting for an ACK
++from the EC in parallel. This limit is currently set to one (see :doc:`ssh`
++for the reasoning behind this). Control packets (i.e. ACK and NAK) can
++always be transmitted.
++
++Receiver Thread
++---------------
++
++Any data received from the EC is put into a FIFO buffer for further
++processing. This processing happens on the receiver thread. The receiver
++thread parses and validates the received message into its |ssh_frame| and
++corresponding payload. It prepares and submits the necessary ACK (and on
++validation error or invalid data NAK) packets for the received messages.
++
++This thread also handles further processing, such as matching ACK messages
++to the corresponding pending packet (via sequence ID) and completing it, as
++well as initiating re-submission of all currently pending packets on
++receival of a NAK message (re-submission in case of a NAK is similar to
++re-submission due to timeout, see below for more details on that). Note that
++the successful completion of a sequenced packet will always run on the
++receiver thread (whereas any failure-indicating completion will run on the
++process where the failure occurred).
++
++Any payload data is forwarded via a callback to the next upper layer, i.e.
++the request transport layer.
++
++Timeout Reaper
++--------------
++
++The packet acknowledgment timeout is a per-packet timeout for sequenced
++packets, started when the respective packet begins (re-)transmission (i.e.
++this timeout is armed once per transmission attempt on the transmitter
++thread). It is used to trigger re-submission or, when the number of tries
++has been exceeded, cancellation of the packet in question.
++
++This timeout is handled via a dedicated reaper task, which is essentially a
++work item (re-)scheduled to run when the next packet is set to time out. The
++work item then checks the set of pending packets for any packets that have
++exceeded the timeout and, if there are any remaining packets, re-schedules
++itself to the next appropriate point in time.
++
++If a timeout has been detected by the reaper, the packet will either be
++re-submitted if it still has some remaining tries left, or completed with
++``-ETIMEDOUT`` as status if not. Note that re-submission, in this case and
++triggered by receival of a NAK, means that the packet is added to the queue
++with a now incremented number of tries, yielding a higher priority. The
++timeout for the packet will be disabled until the next transmission attempt
++and the packet remains on the pending set.
++
++Note that due to transmission and packet acknowledgment timeouts, the packet
++transport layer is always guaranteed to make progress, if only through
++timing out packets, and will never fully block.
++
++Concurrency and Locking
++-----------------------
++
++There are two main locks in the packet transport layer: One guarding access
++to the packet queue and one guarding access to the pending set. These
++collections may only be accessed and modified under the respective lock. If
++access to both collections is needed, the pending lock must be acquired
++before the queue lock to avoid deadlocks.
++
++In addition to guarding the collections, after initial packet submission
++certain packet fields may only be accessed under one of the locks.
++Specifically, the packet priority must only be accessed while holding the
++queue lock and the packet timestamp must only be accessed while holding the
++pending lock.
++
++Other parts of the packet transport layer are guarded independently. State
++flags are managed by atomic bit operations and, if necessary, memory
++barriers. Modifications to the timeout reaper work item and expiration date
++are guarded by their own lock.
++
++The reference of the packet to the packet transport layer (``ptl``) is
++somewhat special. It is either set when the upper layer request is submitted
++or, if there is none, when the packet is first submitted. After it is set,
++it will not change its value. Functions that may run concurrently with
++submission, i.e. cancellation, can not rely on the ``ptl`` reference to be
++set. Access to it in these functions is guarded by ``READ_ONCE()``, whereas
++setting ``ptl`` is equally guarded with ``WRITE_ONCE()`` for symmetry.
++
++Some packet fields may be read outside of the respective locks guarding
++them, specifically priority and state for tracing. In those cases, proper
++access is ensured by employing ``WRITE_ONCE()`` and ``READ_ONCE()``. Such
++read-only access is only allowed when stale values are not critical.
++
++With respect to the interface for higher layers, packet submission
++(|ssh_ptl_submit|), packet cancellation (|ssh_ptl_cancel|), data receival
++(|ssh_ptl_rx_rcvbuf|), and layer shutdown (|ssh_ptl_shutdown|) may always be
++executed concurrently with respect to each other. Note that packet
++submission may not run concurrently with itself for the same packet.
++Equally, shutdown and data receival may also not run concurrently with
++themselves (but may run concurrently with each other).
++
++
++Request Transport Layer
++=======================
++
++The request transport layer is represented via |ssh_rtl| and builds on top
++of the packet transport layer. It deals with requests, i.e. SSH packets sent
++by the host containing a |ssh_command| as frame payload. This layer
++separates responses to requests from events, which are also sent by the EC
++via a |ssh_command| payload. While responses are handled in this layer,
++events are relayed to the next upper layer, i.e. the controller layer, via
++the corresponding callback. The request transport layer is structured around
++the following key concepts:
++
++Request
++-------
++
++Requests are packets with a command-type payload, sent from host to EC to
++query data from or trigger an action on it (or both simultaneously). They
++are represented by |ssh_request|, wrapping the underlying |ssh_packet|
++storing its message data (i.e. SSH frame with command payload). Note that
++all top-level representations, e.g. |ssam_request_sync| are built upon this
++struct.
++
++As |ssh_request| extends |ssh_packet|, its lifetime is also managed by the
++reference counter inside the packet struct (which can be accessed via
++|ssh_request_get| and |ssh_request_put|). Once the counter reaches zero, the
++``release()`` callback of the |ssh_request_ops| reference of the request is
++called.
++
++Requests can have an optional response that is equally sent via a SSH
++message with command-type payload (from EC to host). The party constructing
++the request must know if a response is expected and mark this in the request
++flags provided to |ssh_request_init|, so that the request transport layer
++can wait for this response.
++
++Similar to |ssh_packet|, |ssh_request| also has a ``complete()`` callback
++provided via its request ops reference and is guaranteed to be completed
++before it is released once it has been submitted to the request transport
++layer via |ssh_rtl_submit|. For a request without a response, successful
++completion will occur once the underlying packet has been successfully
++transmitted by the packet transport layer (i.e. from within the packet
++completion callback). For a request with response, successful completion
++will occur once the response has been received and matched to the request
++via its request ID (which happens on the packet layer's data-received
++callback running on the receiver thread). If the request is completed with
++an error, the status value will be set to the corresponding (negative) errno
++value.
++
++The state of a request is again managed via its ``state`` flags
++(|ssh_request_flags|), which also encode the request type. In particular,
++the following bits are noteworthy:
++
++* ``SSH_REQUEST_SF_LOCKED_BIT``: This bit is set when completion, either
++  through error or success, is imminent. It indicates that no further
++  references of the request should be taken and any existing references
++  should be dropped as soon as possible. The process setting this bit is
++  responsible for removing any references to this request from the request
++  queue and pending set.
++
++* ``SSH_REQUEST_SF_COMPLETED_BIT``: This bit is set by the process running the
++  ``complete()`` callback and is used to ensure that this callback only runs
++  once.
++
++* ``SSH_REQUEST_SF_QUEUED_BIT``: This bit is set when the request is queued on
++  the request queue and cleared when it is dequeued.
++
++* ``SSH_REQUEST_SF_PENDING_BIT``: This bit is set when the request is added to
++  the pending set and cleared when it is removed from it.
++
++Request Queue
++-------------
++
++The request queue is the first of the two fundamental collections in the
++request transport layer. In contrast to the packet queue of the packet
++transport layer, it is not a priority queue and the simple first come first
++serve principle applies.
++
++All requests to be transmitted by the request transport layer must be
++submitted to this queue via |ssh_rtl_submit|. Once submitted, requests may
++not be re-submitted, and will not be re-submitted automatically on timeout.
++Instead, the request is completed with a timeout error. If desired, the
++caller can create and submit a new request for another try, but it must not
++submit the same request again.
++
++Pending Set
++-----------
++
++The pending set is the second of the two fundamental collections in the
++request transport layer. This collection stores references to all pending
++requests, i.e. requests awaiting a response from the EC (similar to what the
++pending set of the packet transport layer does for packets).
++
++Transmitter Task
++----------------
++
++The transmitter task is scheduled when a new request is available for
++transmission. It checks if the next request on the request queue can be
++transmitted and, if so, submits its underlying packet to the packet
++transport layer. This check ensures that only a limited number of
++requests can be pending, i.e. waiting for a response, at the same time. If
++the request requires a response, the request is added to the pending set
++before its packet is submitted.
++
++Packet Completion Callback
++--------------------------
++
++The packet completion callback is executed once the underlying packet of a
++request has been completed. In case of an error completion, the
++corresponding request is completed with the error value provided in this
++callback.
++
++On successful packet completion, further processing depends on the request.
++If the request expects a response, it is marked as transmitted and the
++request timeout is started. If the request does not expect a response, it is
++completed with success.
++
++Data-Received Callback
++----------------------
++
++The data received callback notifies the request transport layer of data
++being received by the underlying packet transport layer via a data-type
++frame. In general, this is expected to be a command-type payload.
++
++If the request ID of the command is one of the request IDs reserved for
++events (one to ``SSH_NUM_EVENTS``, inclusively), it is forwarded to the
++event callback registered in the request transport layer. If the request ID
++indicates a response to a request, the respective request is looked up in
++the pending set and, if found and marked as transmitted, completed with
++success.
++
++Timeout Reaper
++--------------
++
++The request-response-timeout is a per-request timeout for requests expecting
++a response. It is used to ensure that a request does not wait indefinitely
++on a response from the EC and is started after the underlying packet has
++been successfully completed.
++
++This timeout is, similar to the packet acknowledgment timeout on the packet
++transport layer, handled via a dedicated reaper task. This task is
++essentially a work-item (re-)scheduled to run when the next request is set
++to time out. The work item then scans the set of pending requests for any
++requests that have timed out and completes them with ``-ETIMEDOUT`` as
++status. Requests will not be re-submitted automatically. Instead, the issuer
++of the request must construct and submit a new request, if so desired.
++
++Note that this timeout, in combination with packet transmission and
++acknowledgment timeouts, guarantees that the request layer will always make
++progress, even if only through timing out packets, and never fully block.
++
++Concurrency and Locking
++-----------------------
++
++Similar to the packet transport layer, there are two main locks in the
++request transport layer: One guarding access to the request queue and one
++guarding access to the pending set. These collections may only be accessed
++and modified under the respective lock.
++
++Other parts of the request transport layer are guarded independently. State
++flags are (again) managed by atomic bit operations and, if necessary, memory
++barriers. Modifications to the timeout reaper work item and expiration date
++are guarded by their own lock.
++
++Some request fields may be read outside of the respective locks guarding
++them, specifically the state for tracing. In those cases, proper access is
++ensured by employing ``WRITE_ONCE()`` and ``READ_ONCE()``. Such read-only
++access is only allowed when stale values are not critical.
++
++With respect to the interface for higher layers, request submission
++(|ssh_rtl_submit|), request cancellation (|ssh_rtl_cancel|), and layer
++shutdown (|ssh_rtl_shutdown|) may always be executed concurrently with
++respect to each other. Note that request submission may not run concurrently
++with itself for the same request (and also may only be called once per
++request). Equally, shutdown may also not run concurrently with itself.
++
++
++Controller Layer
++================
++
++The controller layer extends on the request transport layer to provide an
++easy-to-use interface for client drivers. It is represented by
++|ssam_controller| and the SSH driver. While the lower level transport layers
++take care of transmitting and handling packets and requests, the controller
++layer takes on more of a management role. Specifically, it handles device
++initialization, power management, and event handling, including event
++delivery and registration via the (event) completion system (|ssam_cplt|).
++
++Event Registration
++------------------
++
++In general, an event (or rather a class of events) has to be explicitly
++requested by the host before the EC will send it (HID input events seem to
++be the exception). This is done via an event-enable request (similarly,
++events should be disabled via an event-disable request once no longer
++desired).
++
++The specific request used to enable (or disable) an event is given via an
++event registry, i.e. the governing authority of this event (so to speak),
++represented by |ssam_event_registry|. As parameters to this request, the
++target category and, depending on the event registry, instance ID of the
++event to be enabled must be provided. This (optional) instance ID must be
++zero if the registry does not use it. Together, target category and instance
++ID form the event ID, represented by |ssam_event_id|. In short, both, event
++registry and event ID, are required to uniquely identify a respective class
++of events.
++
++Note that a further *request ID* parameter must be provided for the
++enable-event request. This parameter does not influence the class of events
++being enabled, but instead is set as the request ID (RQID) on each event of
++this class sent by the EC. It is used to identify events (as a limited
++number of request IDs is reserved for use in events only, specifically one
++to ``SSH_NUM_EVENTS`` inclusively) and also map events to their specific
++class. Currently, the controller always sets this parameter to the target
++category specified in |ssam_event_id|.
++
++As multiple client drivers may rely on the same (or overlapping) classes of
++events and enable/disable calls are strictly binary (i.e. on/off), the
++controller has to manage access to these events. It does so via reference
++counting, storing the counter inside an RB-tree based mapping with event
++registry and ID as key (there is no known list of valid event registry and
++event ID combinations). See |ssam_nf|, |ssam_nf_refcount_inc|, and
++|ssam_nf_refcount_dec| for details.
++
++This management is done together with notifier registration (described in
++the next section) via the top-level |ssam_notifier_register| and
++|ssam_notifier_unregister| functions.
++
++Event Delivery
++--------------
++
++To receive events, a client driver has to register an event notifier via
++|ssam_notifier_register|. This increments the reference counter for that
++specific class of events (as detailed in the previous section), enables the
++class on the EC (if it has not been enabled already), and installs the
++provided notifier callback.
++
++Notifier callbacks are stored in lists, with one (RCU) list per target
++category (provided via the event ID; NB: there is a fixed known number of
++target categories). There is no known association from the combination of
++event registry and event ID to the command data (target ID, target category,
++command ID, and instance ID) that can be provided by an event class, apart
++from target category and instance ID given via the event ID.
++
++Note that due to the way notifiers are (or rather have to be) stored, client
++drivers may receive events that they have not requested and need to account
++for them. Specifically, they will, by default, receive all events from the
++same target category. To simplify dealing with this, filtering of events by
++target ID (provided via the event registry) and instance ID (provided via
++the event ID) can be requested when registering a notifier. This filtering
++is applied when iterating over the notifiers at the time they are executed.
++
++All notifier callbacks are executed on a dedicated workqueue, the so-called
++completion workqueue. After an event has been received via the callback
++installed in the request layer (running on the receiver thread of the packet
++transport layer), it will be put on its respective event queue
++(|ssam_event_queue|). From this event queue the completion work item of that
++queue (running on the completion workqueue) will pick up the event and
++execute the notifier callback. This is done to avoid blocking on the
++receiver thread.
++
++There is one event queue per combination of target ID and target category.
++This is done to ensure that notifier callbacks are executed in sequence for
++events of the same target ID and target category. Callbacks can be executed
++in parallel for events with a different combination of target ID and target
++category.
++
++Concurrency and Locking
++-----------------------
++
++Most of the concurrency related safety guarantees of the controller are
++provided by the lower-level request transport layer. In addition to this,
++event (un-)registration is guarded by its own lock.
++
++Access to the controller state is guarded by the state lock. This lock is a
++read/write semaphore. The reader part can be used to ensure that the state
++does not change while functions depending on the state to stay the same
++(e.g. |ssam_notifier_register|, |ssam_notifier_unregister|,
++|ssam_request_sync_submit|, and derivatives) are executed and this guarantee
++is not already provided otherwise (e.g. through |ssam_client_bind| or
++|ssam_client_link|). The writer part guards any transitions that will change
++the state, i.e. initialization, destruction, suspension, and resumption.
++
++The controller state may be accessed (read-only) outside the state lock for
++smoke-testing against invalid API usage (e.g. in |ssam_request_sync_submit|).
++Note that such checks are not supposed to (and will not) protect against all
++invalid usages, but rather aim to help catch them. In those cases, proper
++variable access is ensured by employing ``WRITE_ONCE()`` and ``READ_ONCE()``.
++
++Assuming any preconditions on the state not changing have been satisfied,
++all non-initialization and non-shutdown functions may run concurrently with
++each other. This includes |ssam_notifier_register|, |ssam_notifier_unregister|,
++|ssam_request_sync_submit|, as well as all functions building on top of those.
 diff --git a/Documentation/driver-api/surface_aggregator/overview.rst b/Documentation/driver-api/surface_aggregator/overview.rst
 new file mode 100644
-index 000000000000..b4ef7e25748c
+index 000000000000..1e9d57e50063
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/overview.rst
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,77 @@
 +.. SPDX-License-Identifier: GPL-2.0+
 +
 +========
@@ -1963,7 +2271,7 @@ index 000000000000..b4ef7e25748c
 +Laptop 3 and Surface Book 3, is responsible for all major HID input (i.e.
 +keyboard and touchpad).
 +
-+While the features have not changed much on a coarse level since the 5th
++While features have not changed much on a coarse level since the 5th
 +generation, internal interfaces have undergone some rather large changes. On
 +5th and 6th generation devices, both battery and temperature information is
 +exposed to ACPI via a shim driver (referred to as Surface ACPI Notify, or
@@ -1984,9 +2292,9 @@ index 000000000000..b4ef7e25748c
 +communicate via HID, specifically using a HID-over-I2C device, whereas on
 +5th and later generations, communication takes place via a USART serial
 +device. In accordance to the drivers found on other operating systems, we
-+refer to the serial device and its driver as Surface Serial Hub (SSH) and
-+when needed to differentiate between both types of SAM as SAM-over-SSH, in
-+contrast to SAM-over-HID for the former variant.
++refer to the serial device and its driver as Surface Serial Hub (SSH). When
++needed, we differentiate between both types of SAM by referring to them as
++SAM-over-SSH and SAM-over-HID.
 +
 +Currently, this subsystem only supports SAM-over-SSH. The SSH communication
 +interface is described in more detail below. The HID interface has not been
@@ -2005,15 +2313,16 @@ index 000000000000..b4ef7e25748c
 +(sometimes also referred to as notifications), sent from EC to host without
 +being a direct response to a previous request. We may also refer to requests
 +without response as commands. In general, events need to be enabled via one
-+of multiple dedicated commands before they are sent by the EC.
++of multiple dedicated requests before they are sent by the EC.
 +
-+See :doc:`ssh` for a more technical protocol documentation.
++See :doc:`ssh` for a more technical protocol documentation and
++:doc:`internal` for an overview of the internal driver architecture.
 diff --git a/Documentation/driver-api/surface_aggregator/ssh.rst b/Documentation/driver-api/surface_aggregator/ssh.rst
 new file mode 100644
-index 000000000000..0b68228010e9
+index 000000000000..bf007d6c9873
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/ssh.rst
-@@ -0,0 +1,343 @@
+@@ -0,0 +1,344 @@
 +.. SPDX-License-Identifier: GPL-2.0+
 +
 +.. |u8| replace:: :c:type:`u8 <u8>`
@@ -2038,9 +2347,9 @@ index 000000000000..0b68228010e9
 +===========================
 +
 +The Surface Serial Hub (SSH) is the central communication interface for the
-+embedded Surface Aggregator Module controller (SAM or EC) on newer Surface
-+generations. We will refer to this protocol and interface as SAM-over-SSH,
-+as opposed to SAM-over-HID for the older generations.
++embedded Surface Aggregator Module controller (SAM or EC), found on newer
++Surface generations. We will refer to this protocol and interface as
++SAM-over-SSH, as opposed to SAM-over-HID for the older generations.
 +
 +On Surface devices with SAM-over-SSH, SAM is connected to the host via UART
 +and defined in ACPI as device with ID ``MSHW0084``. On these devices,
@@ -2200,8 +2509,9 @@ index 000000000000..0b68228010e9
 +    rx: -------------------------------------------------------------------
 +
 +Here, an error can be detected, but not corrected or indicated to the
-+sending party. These exchanges are symmetric, i.e. switching rx and tx
-+results again in a valid exchange. Currently, no longer exchanges are known.
++sending party. These exchanges are symmetric, i.e. switching ``rx`` and
++``tx`` results again in a valid exchange. Currently, no longer exchanges are
++known.
 +
 +
 +Commands: Requests, Responses, and Events
@@ -2260,12 +2570,12 @@ index 000000000000..0b68228010e9
 +Command-type payloads are used by the host to send commands and requests to
 +the EC as well as by the EC to send responses and events back to the host.
 +We differentiate between requests (sent by the host), responses (sent by the
-+EC in response to a request), and events (sent by the EC without a
-+preceeding request).
++EC in response to a request), and events (sent by the EC without a preceding
++request).
 +
 +Commands and events are uniquely identified by their target category
 +(``TC``) and command ID (``CID``). The target category specifies a general
-+category for the command (e.g. system in general, vs. battery and ac, vs.
++category for the command (e.g. system in general, vs. battery and AC, vs.
 +temperature, and so on), while the command ID specifies the command inside
 +that category. Only the combination of |TC| + |CID| is unique. Additionally,
 +commands have an instance ID (``IID``), which is used to differentiate
@@ -2311,7 +2621,7 @@ index 000000000000..0b68228010e9
 +
 +Note that, even though requests and events should be uniquely identifiable
 +by target category and command ID alone, the EC may require specific
-+priority and instance ID values to accept a command. A command that is
++target ID and instance ID values to accept a command. A command that is
 +accepted for ``TID=1``, for example, may not be accepted for ``TID=2``
 +and vice versa.
 +
@@ -2322,7 +2632,7 @@ index 000000000000..0b68228010e9
 +The protocol can, in theory, handle up to ``U8_MAX`` frames in parallel,
 +with up to ``U16_MAX`` pending requests (neglecting request IDs reserved for
 +events). In practice, however, this is more limited. From our testing
-+(altough via a python and thus a user-space program), it seems that the EC
++(although via a python and thus a user-space program), it seems that the EC
 +can handle up to four requests (mostly) reliably in parallel at a certain
 +time. With five or more requests in parallel, consistent discarding of
 +commands (ACKed frame but no command response) has been observed. For five
@@ -2476,7 +2786,7 @@ index 000000000000..b48ffc37ab52
 +endif
 diff --git a/drivers/misc/surface_aggregator/bus.c b/drivers/misc/surface_aggregator/bus.c
 new file mode 100644
-index 000000000000..2255d01ca3f4
+index 000000000000..fecfa1b6a140
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/bus.c
 @@ -0,0 +1,416 @@
@@ -2658,7 +2968,7 @@ index 000000000000..2255d01ca3f4
 + * the provided UID is compatible to the given ID following the match rules
 + * described in its &ssam_device_id.match_flags member.
 + *
-+ * Return: Returns %true iff the given UID is compatible to the match rule
++ * Return: Returns %true if the given UID is compatible to the match rule
 + * described by the given ID, %false otherwise.
 + */
 +static bool ssam_device_id_compatible(const struct ssam_device_id *id,
@@ -2931,10 +3241,10 @@ index 000000000000..7712baaed6a5
 +#endif /* _SURFACE_AGGREGATOR_BUS_H */
 diff --git a/drivers/misc/surface_aggregator/clients/Kconfig b/drivers/misc/surface_aggregator/clients/Kconfig
 new file mode 100644
-index 000000000000..3c438cb3f0ca
+index 000000000000..4d2b0528ca2e
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/Kconfig
-@@ -0,0 +1,151 @@
+@@ -0,0 +1,134 @@
 +# SPDX-License-Identifier: GPL-2.0+
 +# Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 +
@@ -3052,23 +3362,6 @@ index 000000000000..3c438cb3f0ca
 +	  some devices, specifically the Surface Book 3 and Surface Laptop 3,
 +	  will not be supported.
 +
-+config SURFACE_HOTPLUG
-+	tristate "Surface Hot-Plug System Driver"
-+	depends on SURFACE_AGGREGATOR
-+	depends on SURFACE_ACPI_NOTIFY
-+	depends on GPIO_SYSFS
-+	default m
-+	help
-+	  Driver for the Surface discrete GPU (dGPU) hot-plug system.
-+
-+	  This driver manages the dGPU power on the Surface Books, including
-+	  when hot-plugging it by detaching the clipboard (display part
-+	  containing the CPU) from the base (containing the keyboard and dGPU)
-+	  of the device when it is running. This driver also provides a
-+	  user-space interface via which the dGPU power-state (on/off) can be
-+	  set, allowing users to turn off the dGPU in order to reduce power
-+	  consumption.
-+
 +config SURFACE_PERFMODE
 +	tristate "Surface Performance-Mode Driver"
 +	depends on SURFACE_AGGREGATOR_BUS
@@ -3088,10 +3381,10 @@ index 000000000000..3c438cb3f0ca
 +	  controlling said mode via the corresponding client device.
 diff --git a/drivers/misc/surface_aggregator/clients/Makefile b/drivers/misc/surface_aggregator/clients/Makefile
 new file mode 100644
-index 000000000000..7320922ba755
+index 000000000000..4249af06d738
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/Makefile
-@@ -0,0 +1,11 @@
+@@ -0,0 +1,10 @@
 +# SPDX-License-Identifier: GPL-2.0+
 +# Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
 +
@@ -3101,7 +3394,6 @@ index 000000000000..7320922ba755
 +obj-$(CONFIG_SURFACE_BATTERY)			+= surface_battery.o
 +obj-$(CONFIG_SURFACE_DTX)			+= surface_dtx.o
 +obj-$(CONFIG_SURFACE_HID)			+= surface_hid.o
-+obj-$(CONFIG_SURFACE_HOTPLUG)			+= surface_hotplug.o
 +obj-$(CONFIG_SURFACE_PERFMODE) 			+= surface_perfmode.o
 diff --git a/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c b/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c
 new file mode 100644
@@ -3997,10 +4289,10 @@ index 000000000000..8cd67a669c86
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_aggregator_cdev.c b/drivers/misc/surface_aggregator/clients/surface_aggregator_cdev.c
 new file mode 100644
-index 000000000000..40c30627f33a
+index 000000000000..340d15b148b9
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_aggregator_cdev.c
-@@ -0,0 +1,299 @@
+@@ -0,0 +1,303 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Provides user-space access to the SSAM EC via the /dev/surface/aggregator
@@ -4088,9 +4380,15 @@ index 000000000000..40c30627f33a
 +	spec.target_id = rqst.target_id;
 +	spec.command_id = rqst.command_id;
 +	spec.instance_id = rqst.instance_id;
-+	spec.flags = rqst.flags;
++	spec.flags = 0;
 +	spec.length = rqst.payload.length;
 +	spec.payload = NULL;
++
++	if (rqst.flags & SSAM_CDEV_REQUEST_HAS_RESPONSE)
++		spec.flags |= SSAM_REQUEST_HAS_RESPONSE;
++
++	if (rqst.flags & SSAM_CDEV_REQUEST_UNSEQUENCED)
++		spec.flags |= SSAM_REQUEST_UNSEQUENCED;
 +
 +	rsp.capacity = rqst.response.length;
 +	rsp.length = 0;
@@ -4105,8 +4403,7 @@ index 000000000000..40c30627f33a
 +
 +		spec.payload = kzalloc(spec.length, GFP_KERNEL);
 +		if (!spec.payload) {
-+			status = -ENOMEM;
-+			ret = -EFAULT;
++			ret = -ENOMEM;
 +			goto out;
 +		}
 +
@@ -4125,8 +4422,7 @@ index 000000000000..40c30627f33a
 +
 +		rsp.pointer = kzalloc(rsp.capacity, GFP_KERNEL);
 +		if (!rsp.pointer) {
-+			status = -ENOMEM;
-+			ret = -EFAULT;
++			ret = -ENOMEM;
 +			goto out;
 +		}
 +	}
@@ -4961,10 +5257,10 @@ index 000000000000..0165f350d28e
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_battery.c b/drivers/misc/surface_aggregator/clients/surface_battery.c
 new file mode 100644
-index 000000000000..f22fb2ceb786
+index 000000000000..77f7842e05a4
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_battery.c
-@@ -0,0 +1,1178 @@
+@@ -0,0 +1,1168 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface battery and AC device driver.
@@ -5972,26 +6268,16 @@ index 000000000000..f22fb2ceb786
 +
 +/* -- Power management. ----------------------------------------------------- */
 +
-+#ifdef CONFIG_PM_SLEEP
-+
-+static int surface_battery_resume(struct device *dev)
++static int __maybe_unused surface_battery_resume(struct device *dev)
 +{
 +	return spwr_battery_recheck_full(dev_get_drvdata(dev));
 +}
++SIMPLE_DEV_PM_OPS(surface_battery_pm_ops, NULL, surface_battery_resume);
 +
-+static int surface_ac_resume(struct device *dev)
++static int __maybe_unused surface_ac_resume(struct device *dev)
 +{
 +	return spwr_ac_recheck(dev_get_drvdata(dev));
 +}
-+
-+#else /* CONFIG_PM_SLEEP */
-+
-+#define surface_battery_resume	NULL
-+#define surface_ac_resume	NULL
-+
-+#endif /* CONFIG_PM_SLEEP */
-+
-+SIMPLE_DEV_PM_OPS(surface_battery_pm_ops, NULL, surface_battery_resume);
 +SIMPLE_DEV_PM_OPS(surface_ac_pm_ops, NULL, surface_ac_resume);
 +
 +
@@ -8356,279 +8642,6 @@ index 000000000000..7d0362ae31d4
 +MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 +MODULE_DESCRIPTION("HID transport-/device-driver for Surface System Aggregator Module");
 +MODULE_LICENSE("GPL");
-diff --git a/drivers/misc/surface_aggregator/clients/surface_hotplug.c b/drivers/misc/surface_aggregator/clients/surface_hotplug.c
-new file mode 100644
-index 000000000000..572fba30cd77
---- /dev/null
-+++ b/drivers/misc/surface_aggregator/clients/surface_hotplug.c
-@@ -0,0 +1,267 @@
-+// SPDX-License-Identifier: GPL-2.0+
-+/*
-+ * Surface Book (gen. 2 and later) hot-plug driver.
-+ *
-+ * Surface Book devices (can) have a hot-pluggable discrete GPU (dGPU). This
-+ * driver is responsible for out-of-band hot-plug event signaling on these
-+ * devices. It is specifically required when the hot-plug device is in D3cold
-+ * and can thus not generate PCIe hot-plug events itself.
-+ *
-+ * Event signaling is handled via ACPI, which will generate the appropriate
-+ * device-check notifications to be picked up by the PCIe hot-plug driver.
-+ *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
-+ */
-+
-+#include <linux/acpi.h>
-+#include <linux/gpio.h>
-+#include <linux/interrupt.h>
-+#include <linux/kernel.h>
-+#include <linux/module.h>
-+#include <linux/mutex.h>
-+#include <linux/platform_device.h>
-+
-+static const struct acpi_gpio_params shps_base_presence_int   = { 0, 0, false };
-+static const struct acpi_gpio_params shps_base_presence       = { 1, 0, false };
-+static const struct acpi_gpio_params shps_device_power_int    = { 2, 0, false };
-+static const struct acpi_gpio_params shps_device_power        = { 3, 0, false };
-+static const struct acpi_gpio_params shps_device_presence_int = { 4, 0, false };
-+static const struct acpi_gpio_params shps_device_presence     = { 5, 0, false };
-+
-+static const struct acpi_gpio_mapping shps_acpi_gpios[] = {
-+	{ "base_presence-int-gpio",   &shps_base_presence_int,   1 },
-+	{ "base_presence-gpio",       &shps_base_presence,       1 },
-+	{ "device_power-int-gpio",    &shps_device_power_int,    1 },
-+	{ "device_power-gpio",        &shps_device_power,        1 },
-+	{ "device_presence-int-gpio", &shps_device_presence_int, 1 },
-+	{ "device_presence-gpio",     &shps_device_presence,     1 },
-+	{ },
-+};
-+
-+/* 5515a847-ed55-4b27-8352-cd320e10360a */
-+static const guid_t shps_dsm_guid =
-+	GUID_INIT(0x5515a847, 0xed55, 0x4b27, 0x83, 0x52, 0xcd,
-+		  0x32, 0x0e, 0x10, 0x36, 0x0a);
-+
-+#define SHPS_DSM_REVISION		1
-+
-+enum shps_dsm_fn {
-+	SHPS_DSM_FN_PCI_NUM_ENTRIES	= 0x01,
-+	SHPS_DSM_FN_PCI_GET_ENTRIES	= 0x02,
-+	SHPS_DSM_FN_IRQ_BASE_PRESENCE	= 0x03,
-+	SHPS_DSM_FN_IRQ_DEVICE_POWER	= 0x04,
-+	SHPS_DSM_FN_IRQ_DEVICE_PRESENCE	= 0x05,
-+};
-+
-+enum shps_irq_type {
-+	/* NOTE: Must be in order of DSM function */
-+	SHPS_IRQ_TYPE_BASE_PRESENCE	= 0,
-+	SHPS_IRQ_TYPE_DEVICE_POWER	= 1,
-+	SHPS_IRQ_TYPE_DEVICE_PRESENCE	= 2,
-+
-+	SHPS_NUM_IRQS,
-+};
-+
-+static const char *const shps_gpio_names[] = {
-+	[SHPS_IRQ_TYPE_BASE_PRESENCE]	= "base_presence",
-+	[SHPS_IRQ_TYPE_DEVICE_POWER]	= "device_power",
-+	[SHPS_IRQ_TYPE_DEVICE_PRESENCE]	= "device_presence",
-+};
-+
-+struct shps_device {
-+	struct mutex lock[SHPS_NUM_IRQS];
-+	struct gpio_desc *gpio[SHPS_NUM_IRQS];
-+	unsigned int irq[SHPS_NUM_IRQS];
-+};
-+
-+#define SHPS_IRQ_NOT_PRESENT		((unsigned int)-1)
-+
-+static void shps_dsm_notify_irq(struct platform_device *pdev,
-+				enum shps_irq_type type)
-+{
-+	struct shps_device *sdev = platform_get_drvdata(pdev);
-+	acpi_handle handle = ACPI_HANDLE(&pdev->dev);
-+	union acpi_object *result;
-+	union acpi_object param;
-+	int value;
-+
-+	mutex_lock(&sdev->lock[type]);
-+
-+	value = gpiod_get_value_cansleep(sdev->gpio[type]);
-+	if (value < 0) {
-+		mutex_unlock(&sdev->lock[type]);
-+		dev_err(&pdev->dev, "failed to get gpio: %d (irq=%d)\n",
-+			type, value);
-+		return;
-+	}
-+
-+	dev_dbg(&pdev->dev, "IRQ notification via DSM (irq=%d, value=%d)\n",
-+		type, value);
-+
-+	param.type = ACPI_TYPE_INTEGER;
-+	param.integer.value = value;
-+
-+	result = acpi_evaluate_dsm(handle, &shps_dsm_guid, SHPS_DSM_REVISION,
-+				   SHPS_DSM_FN_IRQ_BASE_PRESENCE + type, &param);
-+
-+	if (!result) {
-+		mutex_unlock(&sdev->lock[type]);
-+		dev_err(&pdev->dev,
-+			"IRQ notification via DSM failed (irq=%d, gpio=%d)\n",
-+			type, value);
-+		return;
-+	}
-+
-+	if (result->type != ACPI_TYPE_BUFFER) {
-+		dev_err(&pdev->dev,
-+			"IRQ notification via DSM failed: unexpected result type (irq=%d, gpio=%d)\n",
-+			type, value);
-+	}
-+
-+	if (result->buffer.length != 1 || result->buffer.pointer[0] != 0) {
-+		dev_err(&pdev->dev,
-+			"IRQ notification via DSM failed: unexpected result value (irq=%d, gpio=%d)\n",
-+			type, value);
-+	}
-+
-+	mutex_unlock(&sdev->lock[type]);
-+	ACPI_FREE(result);
-+}
-+
-+static irqreturn_t shps_handle_irq(int irq, void *data)
-+{
-+	struct platform_device *pdev = data;
-+	struct shps_device *sdev = platform_get_drvdata(pdev);
-+	int type;
-+
-+	/* Figure out which IRQ we're handling. */
-+	for (type = 0; type < SHPS_NUM_IRQS; type++)
-+		if (irq == sdev->irq[type])
-+			break;
-+
-+	/* We should have found our interrupt, if not: this is a bug. */
-+	if (WARN(type >= SHPS_NUM_IRQS, "invalid IRQ number: %d\n", irq))
-+		return IRQ_HANDLED;
-+
-+	/* Forward interrupt to ACPI via DSM. */
-+	shps_dsm_notify_irq(pdev, type);
-+	return IRQ_HANDLED;
-+}
-+
-+static int shps_setup_irq(struct platform_device *pdev, enum shps_irq_type type)
-+{
-+	unsigned long flags = IRQF_ONESHOT | IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING;
-+	struct shps_device *sdev = platform_get_drvdata(pdev);
-+	struct gpio_desc *gpiod;
-+	acpi_handle handle = ACPI_HANDLE(&pdev->dev);
-+	const char *irq_name;
-+	const int dsm = SHPS_DSM_FN_IRQ_BASE_PRESENCE + type;
-+	int status, irq;
-+
-+	/* Initialize as "not present". */
-+	sdev->gpio[type] = NULL;
-+	sdev->irq[type] = SHPS_IRQ_NOT_PRESENT;
-+
-+	/* Only set up interrupts that we actually need. */
-+	if (!acpi_check_dsm(handle, &shps_dsm_guid, SHPS_DSM_REVISION, BIT(dsm))) {
-+		dev_dbg(&pdev->dev, "IRQ notification via DSM not present (irq=%d)\n",
-+			type);
-+		return 0;
-+	}
-+
-+	gpiod = devm_gpiod_get(&pdev->dev, shps_gpio_names[type], GPIOD_ASIS);
-+	if (IS_ERR(gpiod))
-+		return PTR_ERR(gpiod);
-+
-+	irq = gpiod_to_irq(gpiod);
-+	if (irq < 0)
-+		return irq;
-+
-+	irq_name = devm_kasprintf(&pdev->dev, GFP_KERNEL, "shps-irq-%d", type);
-+	if (!irq_name)
-+		return -ENOMEM;
-+
-+	status = devm_request_threaded_irq(&pdev->dev, irq, NULL, shps_handle_irq,
-+					   flags, irq_name, pdev);
-+	if (status)
-+		return status;
-+
-+	dev_dbg(&pdev->dev, "set up irq %d as type %d\n", irq, type);
-+
-+	sdev->gpio[type] = gpiod;
-+	sdev->irq[type] = irq;
-+
-+	return 0;
-+}
-+
-+static int surface_hotplug_probe(struct platform_device *pdev)
-+{
-+	struct shps_device *sdev;
-+	int status, i;
-+
-+	if (gpiod_count(&pdev->dev, NULL) < 0)
-+		return -ENODEV;
-+
-+	status = devm_acpi_dev_add_driver_gpios(&pdev->dev, shps_acpi_gpios);
-+	if (status)
-+		return status;
-+
-+	sdev = devm_kzalloc(&pdev->dev, sizeof(*sdev), GFP_KERNEL);
-+	if (!sdev)
-+		return -ENOMEM;
-+
-+	platform_set_drvdata(pdev, sdev);
-+
-+	/* Set up IRQs. */
-+	for (i = 0; i < SHPS_NUM_IRQS; i++) {
-+		mutex_init(&sdev->lock[i]);
-+
-+		status = shps_setup_irq(pdev, i);
-+		if (status) {
-+			dev_err(&pdev->dev, "failed to set up IRQ %d: %d\n",
-+				i, status);
-+			return status;
-+		}
-+	}
-+
-+	/* Ensure everything is up-to-date. */
-+	for (i = 0; i < SHPS_NUM_IRQS; i++)
-+		if (sdev->irq[i] != SHPS_IRQ_NOT_PRESENT)
-+			shps_dsm_notify_irq(pdev, i);
-+
-+	return 0;
-+}
-+
-+static int surface_hotplug_remove(struct platform_device *pdev)
-+{
-+	struct shps_device *sdev = platform_get_drvdata(pdev);
-+	int i;
-+
-+	/* Ensure that IRQs have been fully handled and won't trigger any more. */
-+	for (i = 0; i < SHPS_NUM_IRQS; i++)
-+		if (sdev->irq[i] != SHPS_IRQ_NOT_PRESENT)
-+			disable_irq(sdev->irq[i]);
-+
-+	return 0;
-+}
-+
-+static const struct acpi_device_id surface_hotplug_acpi_match[] = {
-+	{ "MSHW0153", 0 },
-+	{ },
-+};
-+MODULE_DEVICE_TABLE(acpi, surface_hotplug_acpi_match);
-+
-+static struct platform_driver surface_hotplug_driver = {
-+	.probe = surface_hotplug_probe,
-+	.remove = surface_hotplug_remove,
-+	.driver = {
-+		.name = "surface_hotplug",
-+		.acpi_match_table = surface_hotplug_acpi_match,
-+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
-+	},
-+};
-+module_platform_driver(surface_hotplug_driver);
-+
-+MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
-+MODULE_DESCRIPTION("Surface Hot-Plug Signaling Driver for Surface Book Devices");
-+MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_perfmode.c b/drivers/misc/surface_aggregator/clients/surface_perfmode.c
 new file mode 100644
 index 000000000000..cac7227f27ea
@@ -8759,10 +8772,10 @@ index 000000000000..cac7227f27ea
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/controller.c b/drivers/misc/surface_aggregator/controller.c
 new file mode 100644
-index 000000000000..09302bfba530
+index 000000000000..5bcb59ed579d
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/controller.c
-@@ -0,0 +1,2543 @@
+@@ -0,0 +1,2579 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Main SSAM/SSH controller structure and functionality.
@@ -8778,6 +8791,7 @@ index 000000000000..09302bfba530
 +#include <linux/kref.h>
 +#include <linux/limits.h>
 +#include <linux/list.h>
++#include <linux/lockdep.h>
 +#include <linux/mutex.h>
 +#include <linux/rculist.h>
 +#include <linux/rbtree.h>
@@ -8876,7 +8890,7 @@ index 000000000000..09302bfba530
 + * @n: The event notifier to test against.
 + * @event: The event to test.
 + *
-+ * Return: Returns %true iff the given event matches the given notifier
++ * Return: Returns %true if the given event matches the given notifier
 + * according to the rules set in the notifier's event mask, %false otherwise.
 + */
 +static bool ssam_event_matches_notifier(const struct ssam_event_notifier *n,
@@ -8916,7 +8930,8 @@ index 000000000000..09302bfba530
 +
 +	idx = srcu_read_lock(&nh->srcu);
 +
-+	list_for_each_entry_rcu(nf, &nh->head, base.node) {
++	list_for_each_entry_rcu(nf, &nh->head, base.node,
++				srcu_read_lock_held(&nh->srcu)) {
 +		if (ssam_event_matches_notifier(nf, event)) {
 +			ret = (ret & SSAM_NOTIF_STATE_MASK) | nf->base.fn(nf, event);
 +			if (ret & SSAM_NOTIF_STOP)
@@ -8935,7 +8950,7 @@ index 000000000000..09302bfba530
 + * @nb: The notifier block to add.
 + *
 + * Note: This function must be synchronized by the caller with respect to other
-+ * insert, find, and/or remove calls.
++ * insert, find, and/or remove calls by holding ``struct ssam_nf.lock``.
 + *
 + * Return: Returns zero on success, %-EEXIST if the notifier block has already
 + * been registered.
@@ -8970,7 +8985,7 @@ index 000000000000..09302bfba530
 + * @nb: The notifier block to search for.
 + *
 + * Note: This function must be synchronized by the caller with respect to other
-+ * insert, find, and/or remove calls.
++ * insert, find, and/or remove calls by holding ``struct ssam_nf.lock``.
 + *
 + * Return: Returns true if the given notifier block is registered on the given
 + * notifier head, false otherwise.
@@ -8993,10 +9008,10 @@ index 000000000000..09302bfba530
 + * @nb: The notifier block to be removed.
 + *
 + * Note: This function must be synchronized by the caller with respect to
-+ * other insert, find and/or remove calls. The caller _must_ ensure SRCU
-+ * synchronization by calling synchronize_srcu() with ``nh->srcu`` after
-+ * leaving the critical section, to ensure that the removed notifier block is
-+ * not in use any more.
++ * other insert, find, and/or remove calls by holding ``struct ssam_nf.lock``.
++ * Furthermore, the caller _must_ ensure SRCU synchronization by calling
++ * synchronize_srcu() with ``nh->srcu`` after leaving the critical section, to
++ * ensure that the removed notifier block is not in use any more.
 + */
 +static void ssam_nfblk_remove(struct ssam_notifier_block *nb)
 +{
@@ -9068,24 +9083,23 @@ index 000000000000..09302bfba530
 + * event type/ID, allocating a new entry for this event ID if necessary. A
 + * newly allocated entry will have a refcount of one.
 + *
-+ * Note: Must be synchronized by the caller with regards to other
-+ * ssam_nf_refcount_inc() and ssam_nf_refcount_dec() calls, e.g. via
-+ * ``nf->lock``. Note that this lock should also be used to ensure the
-+ * corresponding EC requests are sent, if necessary.
++ * Note: ``nf->lock`` must be held when calling this function.
 + *
 + * Return: Returns the refcount entry on success. Returns an error pointer
 + * with %-ENOSPC if there have already been %INT_MAX events of the specified
 + * ID and type registered, or %-ENOMEM if the entry could not be allocated.
 + */
-+static struct ssam_nf_refcount_entry
-+*ssam_nf_refcount_inc(struct ssam_nf *nf, struct ssam_event_registry reg,
-+		      struct ssam_event_id id)
++static struct ssam_nf_refcount_entry *
++ssam_nf_refcount_inc(struct ssam_nf *nf, struct ssam_event_registry reg,
++		     struct ssam_event_id id)
 +{
 +	struct ssam_nf_refcount_entry *entry;
 +	struct ssam_nf_refcount_key key;
 +	struct rb_node **link = &nf->refcount.rb_node;
 +	struct rb_node *parent = NULL;
 +	int cmp;
++
++	lockdep_assert_held(&nf->lock);
 +
 +	key.reg = reg;
 +	key.id = id;
@@ -9103,6 +9117,7 @@ index 000000000000..09302bfba530
 +			entry->refcount++;
 +			return entry;
 +		} else {
++			WARN_ON(1);
 +			return ERR_PTR(-ENOSPC);
 +		}
 +	}
@@ -9131,22 +9146,21 @@ index 000000000000..09302bfba530
 + * returning its entry. If the returned entry has a refcount of zero, the
 + * caller is responsible for freeing it using kfree().
 + *
-+ * Note: Must be synchronized by the caller with regards to other
-+ * ssam_nf_refcount_inc() and ssam_nf_refcount_dec() calls, e.g. via
-+ * ``nf->lock``. Note that this lock should also be used to ensure the
-+ * corresponding EC requests are sent, if necessary.
++ * Note: ``nf->lock`` must be held when calling this function.
 + *
 + * Return: Returns the refcount entry on success or %NULL if the entry has not
 + * been found.
 + */
-+static struct ssam_nf_refcount_entry
-+*ssam_nf_refcount_dec(struct ssam_nf *nf, struct ssam_event_registry reg,
-+		      struct ssam_event_id id)
++static struct ssam_nf_refcount_entry *
++ssam_nf_refcount_dec(struct ssam_nf *nf, struct ssam_event_registry reg,
++		     struct ssam_event_id id)
 +{
 +	struct ssam_nf_refcount_entry *entry;
 +	struct ssam_nf_refcount_key key;
 +	struct rb_node *node = nf->refcount.rb_node;
 +	int cmp;
++
++	lockdep_assert_held(&nf->lock);
 +
 +	key.reg = reg;
 +	key.id = id;
@@ -9220,9 +9234,7 @@ index 000000000000..09302bfba530
 +			"event: error handling event: %d (tc: %#04x, tid: %#04x, cid: %#04x, iid: %#04x)\n",
 +			status, event->target_category, event->target_id,
 +			event->command_id, event->instance_id);
-+	}
-+
-+	if (!(nf_ret & SSAM_NOTIF_HANDLED)) {
++	} else if (!(nf_ret & SSAM_NOTIF_HANDLED)) {
 +		dev_warn(dev,
 +			 "event: unhandled event (rqid: %#04x, tc: %#04x, tid: %#04x, cid: %#04x, iid: %#04x)\n",
 +			 rqid, event->target_category, event->target_id,
@@ -9624,7 +9636,15 @@ index 000000000000..09302bfba530
 +{
 +	struct ssam_controller *ctrl = to_ssam_controller(kref, kref);
 +
++	/*
++	 * The lock-call here is to satisfy lockdep. At this point we really
++	 * expect this to be the last remaining reference to the controller.
++	 * Anything else is a bug.
++	 */
++	ssam_controller_lock(ctrl);
 +	ssam_controller_destroy(ctrl);
++	ssam_controller_unlock(ctrl);
++
 +	kfree(ctrl);
 +}
 +
@@ -9766,6 +9786,14 @@ index 000000000000..09302bfba530
 +
 +	*funcs = 0;
 +
++	/*
++	 * The _DSM function is only present on newer models. It is not
++	 * present on 5th and 6th generation devices (i.e. up to and including
++	 * Surface Pro 6, Surface Laptop 2, Surface Book 2).
++	 *
++	 * If the _DSM is not present, indicate that no function is supported.
++	 * This will result in default values being set.
++	 */
 +	if (!acpi_has_method(handle, "_DSM"))
 +		return 0;
 +
@@ -9791,7 +9819,7 @@ index 000000000000..09302bfba530
 +	u64 val;
 +
 +	if (!(funcs & BIT(func)))
-+		return 0;
++		return 0; /* Not supported, leave *ret at its default value */
 +
 +	obj = acpi_evaluate_dsm_typed(handle, &SSAM_SSH_DSM_GUID,
 +				      SSAM_SSH_DSM_REVISION, func, NULL,
@@ -9946,12 +9974,14 @@ index 000000000000..09302bfba530
 + * hooked up to the serdev core via &struct serdev_device_ops. Please refer
 + * to ssam_controller_init() for more details on controller initialization.
 + *
-+ * This function must be called from an exclusive context with regards to the
-+ * state, if necessary, by locking the controller via ssam_controller_lock().
++ * This function must be called with the main controller lock held (i.e. by
++ * calling ssam_controller_lock()).
 + */
 +int ssam_controller_start(struct ssam_controller *ctrl)
 +{
 +	int status;
++
++	lockdep_assert_held_write(&ctrl->lock);
 +
 +	if (ctrl->state != SSAM_CONTROLLER_INITIALIZED)
 +		return -EINVAL;
@@ -9998,13 +10028,15 @@ index 000000000000..09302bfba530
 + * notifiers being unregistered, these events will be dropped when the
 + * controller is subsequently destroyed via ssam_controller_destroy().
 + *
-+ * This function must be called from an exclusive context with regards to the
-+ * state, if necessary, by locking the controller via ssam_controller_lock().
++ * This function must be called with the main controller lock held (i.e. by
++ * calling ssam_controller_lock()).
 + */
 +void ssam_controller_shutdown(struct ssam_controller *ctrl)
 +{
 +	enum ssam_controller_state s = ctrl->state;
 +	int status;
++
++	lockdep_assert_held_write(&ctrl->lock);
 +
 +	if (s == SSAM_CONTROLLER_UNINITIALIZED || s == SSAM_CONTROLLER_STOPPED)
 +		return;
@@ -10065,11 +10097,13 @@ index 000000000000..09302bfba530
 + * to other processes. This function is called automatically when the
 + * reference count of the controller reaches zero.
 + *
-+ * Must be called from an exclusive context with regards to the controller
-+ * state.
++ * This function must be called with the main controller lock held (i.e. by
++ * calling ssam_controller_lock()).
 + */
 +void ssam_controller_destroy(struct ssam_controller *ctrl)
 +{
++	lockdep_assert_held_write(&ctrl->lock);
++
 +	if (ctrl->state == SSAM_CONTROLLER_UNINITIALIZED)
 +		return;
 +
@@ -10323,14 +10357,23 @@ index 000000000000..09302bfba530
 + * message data. This has to be done explicitly after this call via
 + * ssam_request_sync_set_data() and the actual message data has to be written
 + * via ssam_request_write_data().
++ *
++ * Return: Returns zero on success or %-EINVAL if the given flags are invalid.
 + */
-+void ssam_request_sync_init(struct ssam_request_sync *rqst,
-+			    enum ssam_request_flags flags)
++int ssam_request_sync_init(struct ssam_request_sync *rqst,
++			   enum ssam_request_flags flags)
 +{
-+	ssh_request_init(&rqst->base, flags, &ssam_request_sync_ops);
++	int status;
++
++	status = ssh_request_init(&rqst->base, flags, &ssam_request_sync_ops);
++	if (status)
++		return status;
++
 +	init_completion(&rqst->comp);
 +	rqst->resp = NULL;
 +	rqst->status = 0;
++
++	return 0;
 +}
 +EXPORT_SYMBOL_GPL(ssam_request_sync_init);
 +
@@ -10409,7 +10452,10 @@ index 000000000000..09302bfba530
 +	if (status)
 +		return status;
 +
-+	ssam_request_sync_init(rqst, spec->flags);
++	status = ssam_request_sync_init(rqst, spec->flags);
++	if (status)
++		return status;
++
 +	ssam_request_sync_set_resp(rqst, rsp);
 +
 +	len = ssam_request_write_data(&buf, ctrl, spec);
@@ -10459,7 +10505,10 @@ index 000000000000..09302bfba530
 +	ssize_t len;
 +	int status;
 +
-+	ssam_request_sync_init(&rqst, spec->flags);
++	status = ssam_request_sync_init(&rqst, spec->flags);
++	if (status)
++		return status;
++
 +	ssam_request_sync_set_resp(&rqst, rsp);
 +
 +	len = ssam_request_write_data(buf, ctrl, spec);
@@ -11599,10 +11648,10 @@ index 000000000000..8297d34e7489
 +#endif /* _SURFACE_AGGREGATOR_CONTROLLER_H */
 diff --git a/drivers/misc/surface_aggregator/core.c b/drivers/misc/surface_aggregator/core.c
 new file mode 100644
-index 000000000000..335037ca805c
+index 000000000000..b3e585484bc5
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/core.c
-@@ -0,0 +1,834 @@
+@@ -0,0 +1,840 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface Serial Hub (SSH) driver for communication with the Surface/System
@@ -12249,6 +12298,8 @@ index 000000000000..335037ca805c
 +	if (status)
 +		goto err_ctrl_init;
 +
++	ssam_controller_lock(ctrl);
++
 +	/* Set up serdev device. */
 +	serdev_device_set_drvdata(serdev, ctrl);
 +	serdev_device_set_client_ops(serdev, &ssam_serdev_ops);
@@ -12266,6 +12317,8 @@ index 000000000000..335037ca805c
 +	status = ssam_controller_start(ctrl);
 +	if (status)
 +		goto err_devinit;
++
++	ssam_controller_unlock(ctrl);
 +
 +	/*
 +	 * Initial SAM requests: Log version and notify default/init power
@@ -12317,11 +12370,13 @@ index 000000000000..335037ca805c
 +err_irq:
 +	sysfs_remove_group(&serdev->dev.kobj, &ssam_sam_group);
 +err_initrq:
++	ssam_controller_lock(ctrl);
 +	ssam_controller_shutdown(ctrl);
 +err_devinit:
 +	serdev_device_close(serdev);
 +err_devopen:
 +	ssam_controller_destroy(ctrl);
++	ssam_controller_unlock(ctrl);
 +err_ctrl_init:
 +	kfree(ctrl);
 +	return status;
@@ -12650,10 +12705,10 @@ index 000000000000..1221f642dda1
 +#endif /* _SURFACE_AGGREGATOR_SSH_MSGB_H */
 diff --git a/drivers/misc/surface_aggregator/ssh_packet_layer.c b/drivers/misc/surface_aggregator/ssh_packet_layer.c
 new file mode 100644
-index 000000000000..0205be9380bf
+index 000000000000..74f0faaa2b27
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_packet_layer.c
-@@ -0,0 +1,2046 @@
+@@ -0,0 +1,2057 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * SSH packet transport layer.
@@ -12671,6 +12726,7 @@ index 000000000000..0205be9380bf
 +#include <linux/ktime.h>
 +#include <linux/limits.h>
 +#include <linux/list.h>
++#include <linux/lockdep.h>
 +#include <linux/serdev.h>
 +#include <linux/slab.h>
 +#include <linux/spinlock.h>
@@ -13338,6 +13394,8 @@ index 000000000000..0205be9380bf
 +	u8 base = ssh_packet_priority_get_base(p->priority);
 +	u8 try = ssh_packet_priority_get_try(p->priority);
 +
++	lockdep_assert_held(&p->ptl->queue.lock);
++
 +	/*
 +	 * Ensure that we write the priority in one go via WRITE_ONCE() so we
 +	 * can access it via READ_ONCE() for tracing. Note that other access
@@ -13351,6 +13409,8 @@ index 000000000000..0205be9380bf
 +{
 +	struct list_head *head;
 +	struct ssh_packet *q;
++
++	lockdep_assert_held(&p->ptl->queue.lock);
 +
 +	/*
 +	 * We generally assume that there are less control (ACK/NAK) packets
@@ -13391,6 +13451,8 @@ index 000000000000..0205be9380bf
 +{
 +	struct ssh_ptl *ptl = packet->ptl;
 +	struct list_head *head;
++
++	lockdep_assert_held(&ptl->queue.lock);
 +
 +	if (test_bit(SSH_PTL_SF_SHUTDOWN_BIT, &ptl->state))
 +		return -ESHUTDOWN;
@@ -14014,6 +14076,8 @@ index 000000000000..0205be9380bf
 +	int status;
 +	u8 try;
 +
++	lockdep_assert_held(&packet->ptl->pending.lock);
++
 +	trace_ssam_packet_resubmit(packet);
 +
 +	spin_lock(&packet->ptl->queue.lock);
@@ -14133,9 +14197,11 @@ index 000000000000..0205be9380bf
 +	}
 +}
 +
-+/* must be called with pending lock held */
++/* Must be called with pending lock held */
 +static ktime_t ssh_packet_get_expiration(struct ssh_packet *p, ktime_t timeout)
 +{
++	lockdep_assert_held(&p->ptl->pending.lock);
++
 +	if (p->timestamp != KTIME_MAX)
 +		return ktime_add(p->timestamp, timeout);
 +	else
@@ -14898,7 +14964,7 @@ index 000000000000..e8757d03f279
 +#endif /* _SURFACE_AGGREGATOR_SSH_PACKET_LAYER_H */
 diff --git a/drivers/misc/surface_aggregator/ssh_parser.c b/drivers/misc/surface_aggregator/ssh_parser.c
 new file mode 100644
-index 000000000000..703b0b99b8e4
+index 000000000000..e2dead8de94a
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_parser.c
 @@ -0,0 +1,228 @@
@@ -14924,10 +14990,10 @@ index 000000000000..703b0b99b8e4
 + *
 + * Computes the CRC of the provided data span (@src), compares it to the CRC
 + * stored at the given address (@crc), and returns the result of this
-+ * comparison, i.e. %true iff equal. This function is intended to run on raw
++ * comparison, i.e. %true if equal. This function is intended to run on raw
 + * input/message data.
 + *
-+ * Return: Returns %true iff the computed CRC matches the stored CRC, %false
++ * Return: Returns %true if the computed CRC matches the stored CRC, %false
 + * otherwise.
 + */
 +static bool sshp_validate_crc(const struct ssam_span *src, const u8 *crc)
@@ -14967,7 +15033,7 @@ index 000000000000..703b0b99b8e4
 + * source span, and return %false. This function should then be re-run once
 + * more data is available.
 + *
-+ * Return: Returns %true iff a complete SSH SYN sequence could be found,
++ * Return: Returns %true if a complete SSH SYN sequence could be found,
 + * %false otherwise.
 + */
 +bool sshp_find_syn(const struct ssam_span *src, struct ssam_span *rem)
@@ -15293,10 +15359,10 @@ index 000000000000..395c61ef890b
 +#endif /* _SURFACE_AGGREGATOR_SSH_PARSER_h */
 diff --git a/drivers/misc/surface_aggregator/ssh_request_layer.c b/drivers/misc/surface_aggregator/ssh_request_layer.c
 new file mode 100644
-index 000000000000..bf1782c85063
+index 000000000000..bb1c862411a2
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_request_layer.c
-@@ -0,0 +1,1256 @@
+@@ -0,0 +1,1264 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * SSH request transport layer.
@@ -16020,7 +16086,7 @@ index 000000000000..bf1782c85063
 + * thread, which may happen during, but also some time after execution of the
 + * cancel function.
 + *
-+ * Return: Returns %true iff the given request has been canceled or completed,
++ * Return: Returns %true if the given request has been canceled or completed,
 + * either by this function or prior to calling this function, %false
 + * otherwise. If @pending is %true, this function will always return %true.
 + */
@@ -16265,11 +16331,17 @@ index 000000000000..bf1782c85063
 + * buffer pointer to %NULL and the message buffer length to zero. This buffer
 + * has to be set separately via ssh_request_set_data() before submission and
 + * must contain a valid SSH request message.
++ *
++ * Return: Returns zero on success or %-EINVAL if the given flags are invalid.
 + */
-+void ssh_request_init(struct ssh_request *rqst, enum ssam_request_flags flags,
-+		      const struct ssh_request_ops *ops)
++int ssh_request_init(struct ssh_request *rqst, enum ssam_request_flags flags,
++		     const struct ssh_request_ops *ops)
 +{
 +	unsigned long type = BIT(SSH_PACKET_TY_BLOCKING_BIT);
++
++	/* Unsequenced requests cannot have a response. */
++	if (flags & SSAM_REQUEST_UNSEQUENCED && flags & SSAM_REQUEST_HAS_RESPONSE)
++		return -EINVAL;
 +
 +	if (!(flags & SSAM_REQUEST_UNSEQUENCED))
 +		type |= BIT(SSH_PACKET_TY_SEQUENCED_BIT);
@@ -16285,6 +16357,8 @@ index 000000000000..bf1782c85063
 +
 +	rqst->timestamp = KTIME_MAX;
 +	rqst->ops = ops;
++
++	return 0;
 +}
 +
 +/**
@@ -16555,7 +16629,7 @@ index 000000000000..bf1782c85063
 +}
 diff --git a/drivers/misc/surface_aggregator/ssh_request_layer.h b/drivers/misc/surface_aggregator/ssh_request_layer.h
 new file mode 100644
-index 000000000000..9c2efdd8ae70
+index 000000000000..cb35815858d1
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_request_layer.h
 @@ -0,0 +1,143 @@
@@ -16698,8 +16772,8 @@ index 000000000000..9c2efdd8ae70
 +void ssh_rtl_shutdown(struct ssh_rtl *rtl);
 +void ssh_rtl_destroy(struct ssh_rtl *rtl);
 +
-+void ssh_request_init(struct ssh_request *rqst, enum ssam_request_flags flags,
-+		      const struct ssh_request_ops *ops);
++int ssh_request_init(struct ssh_request *rqst, enum ssam_request_flags flags,
++		     const struct ssh_request_ops *ops);
 +
 +#endif /* _SURFACE_AGGREGATOR_SSH_REQUEST_LAYER_H */
 diff --git a/drivers/misc/surface_aggregator/trace.h b/drivers/misc/surface_aggregator/trace.h
@@ -17410,7 +17484,7 @@ index 000000000000..8e3e86c7d78c
 +#endif /* _LINUX_SURFACE_ACPI_NOTIFY_H */
 diff --git a/include/linux/surface_aggregator/controller.h b/include/linux/surface_aggregator/controller.h
 new file mode 100644
-index 000000000000..107a53617c02
+index 000000000000..f4b1ba887384
 --- /dev/null
 +++ b/include/linux/surface_aggregator/controller.h
 @@ -0,0 +1,824 @@
@@ -17564,8 +17638,8 @@ index 000000000000..107a53617c02
 +
 +void ssam_request_sync_free(struct ssam_request_sync *rqst);
 +
-+void ssam_request_sync_init(struct ssam_request_sync *rqst,
-+			    enum ssam_request_flags flags);
++int ssam_request_sync_init(struct ssam_request_sync *rqst,
++			   enum ssam_request_flags flags);
 +
 +/**
 + * ssam_request_sync_set_data - Set message data of a synchronous request.
@@ -18240,7 +18314,7 @@ index 000000000000..107a53617c02
 +#endif /* _LINUX_SURFACE_AGGREGATOR_CONTROLLER_H */
 diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
 new file mode 100644
-index 000000000000..7221d4a9c1c1
+index 000000000000..02f3e06c0a60
 --- /dev/null
 +++ b/include/linux/surface_aggregator/device.h
 @@ -0,0 +1,423 @@
@@ -18430,7 +18504,7 @@ index 000000000000..7221d4a9c1c1
 + * is_ssam_device() - Check if the given device is a SSAM client device.
 + * @d: The device to test the type of.
 + *
-+ * Return: Returns %true iff the specified device is of type &struct
++ * Return: Returns %true if the specified device is of type &struct
 + * ssam_device, i.e. the device type points to %ssam_device_type, and %false
 + * otherwise.
 + */
@@ -19347,10 +19421,10 @@ index 000000000000..64276fbfa1d5
 +#endif /* _LINUX_SURFACE_AGGREGATOR_SERIAL_HUB_H */
 diff --git a/include/uapi/linux/surface_aggregator/cdev.h b/include/uapi/linux/surface_aggregator/cdev.h
 new file mode 100644
-index 000000000000..1a8bc0249f8e
+index 000000000000..fbcce04abfe9
 --- /dev/null
 +++ b/include/uapi/linux/surface_aggregator/cdev.h
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,78 @@
 +/* SPDX-License-Identifier: GPL-2.0+ WITH Linux-syscall-note */
 +/*
 + * Surface System Aggregator Module (SSAM) user-space EC interface.
@@ -19369,12 +19443,32 @@ index 000000000000..1a8bc0249f8e
 +#include <linux/types.h>
 +
 +/**
++ * enum ssam_cdev_request_flags - Request flags for SSAM cdev request IOCTL.
++ *
++ * @SSAM_CDEV_REQUEST_HAS_RESPONSE:
++ *	Specifies that the request expects a response. If not set, the request
++ *	will be directly completed after its underlying packet has been
++ *	transmitted. If set, the request transport system waits for a response
++ *	of the request.
++ *
++ * @SSAM_CDEV_REQUEST_UNSEQUENCED:
++ *	Specifies that the request should be transmitted via an unsequenced
++ *	packet. If set, the request must not have a response, meaning that this
++ *	flag and the %SSAM_CDEV_REQUEST_HAS_RESPONSE flag are mutually
++ *	exclusive.
++ */
++enum ssam_cdev_request_flags {
++	SSAM_CDEV_REQUEST_HAS_RESPONSE = 0x01,
++	SSAM_CDEV_REQUEST_UNSEQUENCED  = 0x02,
++};
++
++/**
 + * struct ssam_cdev_request - Controller request IOCTL argument.
 + * @target_category: Target category of the SAM request.
 + * @target_id:       Target ID of the SAM request.
 + * @command_id:      Command ID of the SAM request.
 + * @instance_id:     Instance ID of the SAM request.
-+ * @flags:           SAM Request flags.
++ * @flags:           Request flags (see &enum ssam_cdev_request_flags).
 + * @status:          Request status (output).
 + * @payload:         Request payload (input data).
 + * @payload.data:    Pointer to request payload data.
