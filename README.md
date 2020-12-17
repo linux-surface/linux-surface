@@ -51,6 +51,12 @@ If you want to compile the kernel yourself (e.g. if your distribution is not sup
 If you have questions or need support, please use our [Gitter Community][gitter]!
 For development related questions and discussions, please consider joining our IRC channel on freenode (`freenode/##linux-surface`) or the [equivalent Matrix bridge](https://matrix.to/#/#freenode_##linux-surface:matrix.org).
 
+## License
+This repository contains patches, which are either derivative work targeting a specific already licensed source, i.e. parts of the Linux kernel, or introduce new parts to the Linux kernel.
+These patches fall thus, if not explicitly stated otherwise, under the license of the source they are targeting, or if they introduce new code, the license they explicitly specify inside of the patch.
+Please refer to the specific patch and source in question for further information.
+License texts can be obtained at https://github.com/torvalds/linux/tree/master/LICENSES.
+
 [wiki-setup]: https://github.com/linux-surface/linux-surface/wiki/Installation-and-Setup
 [wiki-setup-post]: https://github.com/linux-surface/linux-surface/wiki/Installation-and-Setup#post-installation
 [wiki-repos]: https://github.com/linux-surface/linux-surface/wiki/Package-Repositories
