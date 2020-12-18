@@ -2,8 +2,8 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc33 kernel-5.9.14-200.fc33
-%global kernel_tag_fc32 kernel-5.9.14-100.fc32
+%global kernel_tag_fc33 kernel-5.9.15-200.fc33
+%global kernel_tag_fc32 kernel-5.9.15-100.fc32
 
 %global kernel_release_fc33 1
 %global kernel_release_fc32 1
@@ -11,7 +11,7 @@
 %global fedora_title_fc33 33 (Thirty Three)
 %global fedora_title_fc32 32 (Thirty Two)
 
-%global ls_patches_commit e287e792173c146be15508a4661fa787e4edd023
+%global ls_patches_commit 15d5485832566404aacba3ed90437ed7fb9017dc
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -90,7 +90,8 @@ Patch2:     %{surface_source}/%{kernel_patches}/0003-ipts.patch
 Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-gpe.patch
 Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam-over-hid.patch
 Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam.patch
-Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-typecover.patch
+Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-hotplug.patch
+Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-typecover.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
