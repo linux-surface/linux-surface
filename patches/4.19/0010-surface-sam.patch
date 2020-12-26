@@ -371,7 +371,7 @@ index 7f40b6aab689..76e3b1d7db45 100644
 -- 
 2.29.2
 
-From c1650b8ce443061adfdd52c477a573513cccd6d2 Mon Sep 17 00:00:00 2001
+From 3dcc500fa62f7f77ed3d149f42966cb2c21b0462 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] misc: Add support for Surface System Aggregator Module
@@ -410,7 +410,7 @@ Patchset: surface-sam
  .../misc/surface_aggregator/clients/Makefile  |   10 +
  .../clients/surface_acpi_notify.c             |  886 ++++++
  .../clients/surface_aggregator_cdev.c         |  303 ++
- .../clients/surface_aggregator_registry.c     |  606 ++++
+ .../clients/surface_aggregator_registry.c     |  616 ++++
  .../clients/surface_battery.c                 | 1164 ++++++++
  .../surface_aggregator/clients/surface_dtx.c  | 1275 ++++++++
  .../surface_aggregator/clients/surface_hid.c  |  918 ++++++
@@ -435,7 +435,7 @@ Patchset: surface-sam
  include/uapi/linux/surface_aggregator/dtx.h   |  146 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 47 files changed, 19100 insertions(+), 7 deletions(-)
+ 47 files changed, 19110 insertions(+), 7 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -4868,10 +4868,10 @@ index 000000000000..bd8f6f106cdd
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c b/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
 new file mode 100644
-index 000000000000..a18f85dd6881
+index 000000000000..eae9be09a6a3
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
-@@ -0,0 +1,606 @@
+@@ -0,0 +1,616 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface System Aggregator Module (SSAM) client device registry.
@@ -5008,6 +5008,12 @@ index 000000000000..a18f85dd6881
 +	{ SSAM_DUID_HID_IID5     },
 +};
 +
++static const struct ssam_hub_cell ssam_devices_slg1[] = {
++	{ SSAM_DUID_TMP_PERF     },
++	{ SSAM_DUID_BAT_AC       },
++	{ SSAM_DUID_BAT_MAIN     },
++};
++
 +static const struct ssam_hub_cell ssam_devices_sp5[] = {
 +	{ SSAM_DUID_TMP_PERF },
 +};
@@ -5027,6 +5033,7 @@ index 000000000000..a18f85dd6881
 +SSAM_DEFINE_PLATFORM_HUB(sl1);
 +SSAM_DEFINE_PLATFORM_HUB(sl2);
 +SSAM_DEFINE_PLATFORM_HUB(sl3);
++SSAM_DEFINE_PLATFORM_HUB(slg1);
 +SSAM_DEFINE_PLATFORM_HUB(sp5);
 +SSAM_DEFINE_PLATFORM_HUB(sp6);
 +SSAM_DEFINE_PLATFORM_HUB(sp7);
@@ -5392,6 +5399,9 @@ index 000000000000..a18f85dd6881
 +
 +	/* Surface Laptop 3 (15", AMD) */
 +	{ "MSHW0110", (unsigned long)&ssam_platform_hub_sl3 },
++
++	/* Surface Laptop Go 1 */
++	{ "MSHW0118", (unsigned long)&ssam_platform_hub_slg1 },
 +
 +	{ },
 +};
