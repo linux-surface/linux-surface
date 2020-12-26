@@ -1,4 +1,4 @@
-From 1c147292552ad7d9f06abaed56d297625247e8c9 Mon Sep 17 00:00:00 2001
+From 09ecd0a5dda6303ee651624092f4c02562d01014 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] misc: surface_sam: Add file2alias support for Surface SAM
@@ -100,7 +100,7 @@ index 2417dd1dee33..a6c583362b92 100644
 -- 
 2.29.2
 
-From 73eae507e63f3322f4f3d86f2d2d2905e515832e Mon Sep 17 00:00:00 2001
+From e95b561277fc7223a61e0300abe942eb329af80e Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] misc: Add support for Surface System Aggregator Module
@@ -139,7 +139,7 @@ Patchset: surface-sam
  .../misc/surface_aggregator/clients/Makefile  |   10 +
  .../clients/surface_acpi_notify.c             |  886 ++++++
  .../clients/surface_aggregator_cdev.c         |  303 ++
- .../clients/surface_aggregator_registry.c     |  653 +++++
+ .../clients/surface_aggregator_registry.c     |  665 +++++
  .../clients/surface_battery.c                 | 1168 ++++++++
  .../surface_aggregator/clients/surface_dtx.c  | 1277 ++++++++
  .../surface_aggregator/clients/surface_hid.c  |  924 ++++++
@@ -164,7 +164,7 @@ Patchset: surface-sam
  include/uapi/linux/surface_aggregator/dtx.h   |  146 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 47 files changed, 19161 insertions(+), 7 deletions(-)
+ 47 files changed, 19173 insertions(+), 7 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -4598,10 +4598,10 @@ index 000000000000..340d15b148b9
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c b/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
 new file mode 100644
-index 000000000000..0165f350d28e
+index 000000000000..b58930751404
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
-@@ -0,0 +1,653 @@
+@@ -0,0 +1,665 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface System Aggregator Module (SSAM) client device registry.
@@ -4746,6 +4746,15 @@ index 000000000000..0165f350d28e
 +	&ssam_node_hid_main_keyboard,
 +	&ssam_node_hid_main_touchpad,
 +	&ssam_node_hid_main_iid5,
++	NULL,
++};
++
++static const struct software_node *ssam_node_group_slg1[] = {
++	&ssam_node_root,
++	&ssam_node_hub_main,
++	&ssam_node_tmp_perf,
++	&ssam_node_bat_ac,
++	&ssam_node_bat_main,
 +	NULL,
 +};
 +
@@ -5147,6 +5156,9 @@ index 000000000000..0165f350d28e
 +
 +	/* Surface Laptop 3 (15", AMD) */
 +	{ "MSHW0110", (unsigned long)ssam_node_group_sl3 },
++
++	/* Surface Laptop Go 1 */
++	{ "MSHW0118", (unsigned long)ssam_node_group_slg1 },
 +
 +	{ },
 +};
