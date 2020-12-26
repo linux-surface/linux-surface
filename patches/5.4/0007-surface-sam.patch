@@ -1,4 +1,4 @@
-From a30e8e979a52540321f30551877dc2a077439c9c Mon Sep 17 00:00:00 2001
+From 72937ef5baaa372328c1efb2f37416c12efbe1ba Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:11:08 +0200
 Subject: [PATCH] ACPI: Fix buffer/integer type mismatch
@@ -60,7 +60,7 @@ index d3d2dbfba680..0b7f617a6e9b 100644
 -- 
 2.29.2
 
-From 8c37118e9283902e1b4b675c6371bcbfb640d511 Mon Sep 17 00:00:00 2001
+From dd33f93a7f6bdbf04db0a205fa792f6928745e86 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 24 Sep 2019 17:38:12 +0200
 Subject: [PATCH] serdev: Add ACPI devices by ResourceSource field
@@ -248,7 +248,7 @@ index a9719858c950..ce5309d00280 100644
 -- 
 2.29.2
 
-From e5cceabc4930b282ba75e7bd15ebeec42de9c483 Mon Sep 17 00:00:00 2001
+From 4af189ef5213e37797aa53f11c67399d4a169d9b Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] misc: surface_sam: Add file2alias support for Surface SAM
@@ -350,7 +350,7 @@ index c91eba751804..bc06f7631200 100644
 -- 
 2.29.2
 
-From 268cb226813b9f521dc31adff6982eb8f01191a4 Mon Sep 17 00:00:00 2001
+From 6e983650de4c0698ffa1f6c5d25ee526d09f0146 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] misc: Add support for Surface System Aggregator Module
@@ -389,7 +389,7 @@ Patchset: surface-sam
  .../misc/surface_aggregator/clients/Makefile  |   10 +
  .../clients/surface_acpi_notify.c             |  886 ++++++
  .../clients/surface_aggregator_cdev.c         |  303 ++
- .../clients/surface_aggregator_registry.c     |  606 ++++
+ .../clients/surface_aggregator_registry.c     |  616 ++++
  .../clients/surface_battery.c                 | 1168 ++++++++
  .../surface_aggregator/clients/surface_dtx.c  | 1277 ++++++++
  .../surface_aggregator/clients/surface_hid.c  |  924 ++++++
@@ -414,7 +414,7 @@ Patchset: surface-sam
  include/uapi/linux/surface_aggregator/dtx.h   |  146 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 47 files changed, 19125 insertions(+), 7 deletions(-)
+ 47 files changed, 19135 insertions(+), 7 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -4847,10 +4847,10 @@ index 000000000000..340d15b148b9
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c b/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
 new file mode 100644
-index 000000000000..a18f85dd6881
+index 000000000000..eae9be09a6a3
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
-@@ -0,0 +1,606 @@
+@@ -0,0 +1,616 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface System Aggregator Module (SSAM) client device registry.
@@ -4987,6 +4987,12 @@ index 000000000000..a18f85dd6881
 +	{ SSAM_DUID_HID_IID5     },
 +};
 +
++static const struct ssam_hub_cell ssam_devices_slg1[] = {
++	{ SSAM_DUID_TMP_PERF     },
++	{ SSAM_DUID_BAT_AC       },
++	{ SSAM_DUID_BAT_MAIN     },
++};
++
 +static const struct ssam_hub_cell ssam_devices_sp5[] = {
 +	{ SSAM_DUID_TMP_PERF },
 +};
@@ -5006,6 +5012,7 @@ index 000000000000..a18f85dd6881
 +SSAM_DEFINE_PLATFORM_HUB(sl1);
 +SSAM_DEFINE_PLATFORM_HUB(sl2);
 +SSAM_DEFINE_PLATFORM_HUB(sl3);
++SSAM_DEFINE_PLATFORM_HUB(slg1);
 +SSAM_DEFINE_PLATFORM_HUB(sp5);
 +SSAM_DEFINE_PLATFORM_HUB(sp6);
 +SSAM_DEFINE_PLATFORM_HUB(sp7);
@@ -5371,6 +5378,9 @@ index 000000000000..a18f85dd6881
 +
 +	/* Surface Laptop 3 (15", AMD) */
 +	{ "MSHW0110", (unsigned long)&ssam_platform_hub_sl3 },
++
++	/* Surface Laptop Go 1 */
++	{ "MSHW0118", (unsigned long)&ssam_platform_hub_slg1 },
 +
 +	{ },
 +};
