@@ -1,268 +1,4 @@
-From 4ad46195b010200b0980832f3d9e99018dda1f95 Mon Sep 17 00:00:00 2001
-From: Sakari Ailus <sakari.ailus@linux.intel.com>
-Date: Mon, 12 Oct 2020 21:04:07 +0300
-Subject: [PATCH] ipu3-cio2: Return actual subdev format
-
-Return actual subdev format on ipu3-cio2 subdev pads. The earlier
-implementation was based on an infinite recursion that exhausted the
-stack.
-
-Reported-by: Tsuchiya Yuto <kitakar@gmail.com>
-Fixes: c2a6a07afe4a ("media: intel-ipu3: cio2: add new MIPI-CSI2 driver")
-Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
-Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
-Reviewed-by: Bingbu Cao <bingbu.cao@intel.com>
-Reviewed-by: Andy Shevchenko <andy.shevchenko@gmail.com>
-Cc: stable@vger.kernel.org # v4.16 and up
-Patchset: cameras
----
- drivers/media/pci/intel/ipu3/ipu3-cio2.c | 24 +++---------------------
- 1 file changed, 3 insertions(+), 21 deletions(-)
-
-diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2.c b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-index 4e598e937dfe..afa472026ba4 100644
---- a/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-+++ b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-@@ -1232,29 +1232,11 @@ static int cio2_subdev_get_fmt(struct v4l2_subdev *sd,
- 			       struct v4l2_subdev_format *fmt)
- {
- 	struct cio2_queue *q = container_of(sd, struct cio2_queue, subdev);
--	struct v4l2_subdev_format format;
--	int ret;
- 
--	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
-+	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
- 		fmt->format = *v4l2_subdev_get_try_format(sd, cfg, fmt->pad);
--		return 0;
--	}
--
--	if (fmt->pad == CIO2_PAD_SINK) {
--		format.which = V4L2_SUBDEV_FORMAT_ACTIVE;
--		ret = v4l2_subdev_call(sd, pad, get_fmt, NULL,
--				       &format);
--
--		if (ret)
--			return ret;
--		/* update colorspace etc */
--		q->subdev_fmt.colorspace = format.format.colorspace;
--		q->subdev_fmt.ycbcr_enc = format.format.ycbcr_enc;
--		q->subdev_fmt.quantization = format.format.quantization;
--		q->subdev_fmt.xfer_func = format.format.xfer_func;
--	}
--
--	fmt->format = q->subdev_fmt;
-+	else
-+		fmt->format = q->subdev_fmt;
- 
- 	return 0;
- }
--- 
-2.29.2
-
-From 388609d7961f7d8a2b249f38529672230687016e Mon Sep 17 00:00:00 2001
-From: Sakari Ailus <sakari.ailus@linux.intel.com>
-Date: Mon, 12 Oct 2020 21:04:08 +0300
-Subject: [PATCH] ipu3-cio2: Serialise access to pad format
-
-Pad format can be accessed from user space. Serialise access to it.
-
-Fixes: c2a6a07afe4a ("media: intel-ipu3: cio2: add new MIPI-CSI2 driver")
-Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
-Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
-Reviewed-by: Bingbu Cao <bingbu.cao@intel.com>
-Reviewed-by: Andy Shevchenko <andy.shevchenko@gmail.com>
-Cc: stable@vger.kernel.org # v4.16 and up
-Patchset: cameras
----
- drivers/media/pci/intel/ipu3/ipu3-cio2.c | 11 +++++++++++
- drivers/media/pci/intel/ipu3/ipu3-cio2.h |  1 +
- 2 files changed, 12 insertions(+)
-
-diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2.c b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-index afa472026ba4..b3a08196e08c 100644
---- a/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-+++ b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-@@ -1233,11 +1233,15 @@ static int cio2_subdev_get_fmt(struct v4l2_subdev *sd,
- {
- 	struct cio2_queue *q = container_of(sd, struct cio2_queue, subdev);
- 
-+	mutex_lock(&q->subdev_lock);
-+
- 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
- 		fmt->format = *v4l2_subdev_get_try_format(sd, cfg, fmt->pad);
- 	else
- 		fmt->format = q->subdev_fmt;
- 
-+	mutex_unlock(&q->subdev_lock);
-+
- 	return 0;
- }
- 
-@@ -1261,6 +1265,8 @@ static int cio2_subdev_set_fmt(struct v4l2_subdev *sd,
- 	if (fmt->pad == CIO2_PAD_SOURCE)
- 		return cio2_subdev_get_fmt(sd, cfg, fmt);
- 
-+	mutex_lock(&q->subdev_lock);
-+
- 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
- 		*v4l2_subdev_get_try_format(sd, cfg, fmt->pad) = fmt->format;
- 	} else {
-@@ -1271,6 +1277,8 @@ static int cio2_subdev_set_fmt(struct v4l2_subdev *sd,
- 		fmt->format = q->subdev_fmt;
- 	}
- 
-+	mutex_unlock(&q->subdev_lock);
-+
- 	return 0;
- }
- 
-@@ -1529,6 +1537,7 @@ static int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
- 
- 	/* Initialize miscellaneous variables */
- 	mutex_init(&q->lock);
-+	mutex_init(&q->subdev_lock);
- 
- 	/* Initialize formats to default values */
- 	fmt = &q->subdev_fmt;
-@@ -1645,6 +1654,7 @@ static int cio2_queue_init(struct cio2_device *cio2, struct cio2_queue *q)
- fail_subdev_media_entity:
- 	cio2_fbpt_exit(q, &cio2->pci_dev->dev);
- fail_fbpt:
-+	mutex_destroy(&q->subdev_lock);
- 	mutex_destroy(&q->lock);
- 
- 	return r;
-@@ -1657,6 +1667,7 @@ static void cio2_queue_exit(struct cio2_device *cio2, struct cio2_queue *q)
- 	v4l2_device_unregister_subdev(&q->subdev);
- 	media_entity_cleanup(&q->subdev.entity);
- 	cio2_fbpt_exit(q, &cio2->pci_dev->dev);
-+	mutex_destroy(&q->subdev_lock);
- 	mutex_destroy(&q->lock);
- }
- 
-diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2.h b/drivers/media/pci/intel/ipu3/ipu3-cio2.h
-index 549b08f88f0c..146492383aa5 100644
---- a/drivers/media/pci/intel/ipu3/ipu3-cio2.h
-+++ b/drivers/media/pci/intel/ipu3/ipu3-cio2.h
-@@ -335,6 +335,7 @@ struct cio2_queue {
- 
- 	/* Subdev, /dev/v4l-subdevX */
- 	struct v4l2_subdev subdev;
-+	struct mutex subdev_lock; /* Serialise acces to subdev_fmt field */
- 	struct media_pad subdev_pads[CIO2_PADS];
- 	struct v4l2_mbus_framefmt subdev_fmt;
- 	atomic_t frame_sequence;
--- 
-2.29.2
-
-From 16eecd290d5bbfa9d1faae4f22b17b1349bb115a Mon Sep 17 00:00:00 2001
-From: Sakari Ailus <sakari.ailus@linux.intel.com>
-Date: Mon, 12 Oct 2020 21:04:09 +0300
-Subject: [PATCH] ipu3-cio2: Validate mbus format in setting subdev format
-
-Validate media bus code, width and height when setting the subdev format.
-
-This effectively reworks how setting subdev format is implemented in the
-driver.
-
-Fixes: c2a6a07afe4a ("media: intel-ipu3: cio2: add new MIPI-CSI2 driver")
-Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
-Reviewed-by: Andy Shevchenko <andy.shevchenko@gmail.com>
-Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
-Cc: stable@vger.kernel.org # v4.16 and up
-Patchset: cameras
----
- drivers/media/pci/intel/ipu3/ipu3-cio2.c | 29 ++++++++++++++++--------
- 1 file changed, 20 insertions(+), 9 deletions(-)
-
-diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2.c b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-index b3a08196e08c..72095f8a4d46 100644
---- a/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-+++ b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-@@ -1257,6 +1257,9 @@ static int cio2_subdev_set_fmt(struct v4l2_subdev *sd,
- 			       struct v4l2_subdev_format *fmt)
- {
- 	struct cio2_queue *q = container_of(sd, struct cio2_queue, subdev);
-+	struct v4l2_mbus_framefmt *mbus;
-+	u32 mbus_code = fmt->format.code;
-+	unsigned int i;
- 
- 	/*
- 	 * Only allow setting sink pad format;
-@@ -1265,18 +1268,26 @@ static int cio2_subdev_set_fmt(struct v4l2_subdev *sd,
- 	if (fmt->pad == CIO2_PAD_SOURCE)
- 		return cio2_subdev_get_fmt(sd, cfg, fmt);
- 
--	mutex_lock(&q->subdev_lock);
-+	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
-+		mbus = v4l2_subdev_get_try_format(sd, cfg, fmt->pad);
-+	else
-+		mbus = &q->subdev_fmt;
- 
--	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
--		*v4l2_subdev_get_try_format(sd, cfg, fmt->pad) = fmt->format;
--	} else {
--		/* It's the sink, allow changing frame size */
--		q->subdev_fmt.width = fmt->format.width;
--		q->subdev_fmt.height = fmt->format.height;
--		q->subdev_fmt.code = fmt->format.code;
--		fmt->format = q->subdev_fmt;
-+	fmt->format.code = formats[0].mbus_code;
-+
-+	for (i = 0; i < ARRAY_SIZE(formats); i++) {
-+		if (formats[i].mbus_code == fmt->format.code) {
-+			fmt->format.code = mbus_code;
-+			break;
-+		}
- 	}
- 
-+	fmt->format.width = min_t(u32, fmt->format.width, CIO2_IMAGE_MAX_WIDTH);
-+	fmt->format.height = min_t(u32, fmt->format.height,
-+				   CIO2_IMAGE_MAX_LENGTH);
-+
-+	mutex_lock(&q->subdev_lock);
-+	*mbus = fmt->format;
- 	mutex_unlock(&q->subdev_lock);
- 
- 	return 0;
--- 
-2.29.2
-
-From 921cc3e979059eafe87bb25c5225a96e2c7a3ae8 Mon Sep 17 00:00:00 2001
-From: Sakari Ailus <sakari.ailus@linux.intel.com>
-Date: Mon, 12 Oct 2020 21:04:10 +0300
-Subject: [PATCH] ipu3-cio2: Make the field on subdev format V4L2_FIELD_NONE
-
-The ipu3-cio2 doesn't make use of the field and this is reflected in V4L2
-buffers as well as the try format. Do this in active format, too.
-
-Fixes: c2a6a07afe4a ("media: intel-ipu3: cio2: add new MIPI-CSI2 driver")
-Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
-Reviewed-by: Bingbu Cao <bingbu.cao@intel.com>
-Reviewed-by: Andy Shevchenko <andy.shevchenko@gmail.com>
-Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
-Cc: stable@vger.kernel.org # v4.16 and up
-Patchset: cameras
----
- drivers/media/pci/intel/ipu3/ipu3-cio2.c | 1 +
- 1 file changed, 1 insertion(+)
-
-diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2.c b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-index 72095f8a4d46..87d040e176f7 100644
---- a/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-+++ b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-@@ -1285,6 +1285,7 @@ static int cio2_subdev_set_fmt(struct v4l2_subdev *sd,
- 	fmt->format.width = min_t(u32, fmt->format.width, CIO2_IMAGE_MAX_WIDTH);
- 	fmt->format.height = min_t(u32, fmt->format.height,
- 				   CIO2_IMAGE_MAX_LENGTH);
-+	fmt->format.field = V4L2_FIELD_NONE;
- 
- 	mutex_lock(&q->subdev_lock);
- 	*mbus = fmt->format;
--- 
-2.29.2
-
-From 735869ecebc25ec10451678f04a25bbcca288c8a Mon Sep 17 00:00:00 2001
+From 6724a7fe43dda838f3701711be5b32c4788e5a42 Mon Sep 17 00:00:00 2001
 From: Sakari Ailus <sakari.ailus@linux.intel.com>
 Date: Mon, 12 Oct 2020 21:04:11 +0300
 Subject: [PATCH] ipu3-cio2: Use unsigned values where appropriate
@@ -578,9 +314,9 @@ index 146492383aa5..7650d7998a3f 100644
  
  struct cio2_csi2_timing {
 -- 
-2.29.2
+2.30.0
 
-From a1d892ca664adc48bfa85108587f6f3d14855c1c Mon Sep 17 00:00:00 2001
+From a4a1839d13e72b1ca7c7f052b06e435d7ac0835c Mon Sep 17 00:00:00 2001
 From: Sakari Ailus <sakari.ailus@linux.intel.com>
 Date: Mon, 12 Oct 2020 21:04:12 +0300
 Subject: [PATCH] ipu3-cio2: Remove explicit type from frame size checks
@@ -596,10 +332,10 @@ Patchset: cameras
  1 file changed, 2 insertions(+), 3 deletions(-)
 
 diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2.c b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-index 87d040e176f7..e42177f8c426 100644
+index 1fcd131482e0..b2679ff185fc 100644
 --- a/drivers/media/pci/intel/ipu3/ipu3-cio2.c
 +++ b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-@@ -1282,9 +1282,8 @@ static int cio2_subdev_set_fmt(struct v4l2_subdev *sd,
+@@ -1283,9 +1283,8 @@ static int cio2_subdev_set_fmt(struct v4l2_subdev *sd,
  		}
  	}
  
@@ -612,9 +348,9 @@ index 87d040e176f7..e42177f8c426 100644
  
  	mutex_lock(&q->subdev_lock);
 -- 
-2.29.2
+2.30.0
 
-From 91a854a6a82da8fee6cf532fb18cfe4544976f23 Mon Sep 17 00:00:00 2001
+From ee88966296444b44a6e02c6048f0225513175682 Mon Sep 17 00:00:00 2001
 From: Sakari Ailus <sakari.ailus@linux.intel.com>
 Date: Mon, 12 Oct 2020 21:04:13 +0300
 Subject: [PATCH] ipu3-cio2: Rename CIO2_IMAGE_MAX_LENGTH as
@@ -634,10 +370,10 @@ Patchset: cameras
  2 files changed, 4 insertions(+), 4 deletions(-)
 
 diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2.c b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-index e42177f8c426..d9baa8bfe54f 100644
+index b2679ff185fc..51c4dd6a8f9a 100644
 --- a/drivers/media/pci/intel/ipu3/ipu3-cio2.c
 +++ b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-@@ -1094,8 +1094,8 @@ static int cio2_v4l2_try_fmt(struct file *file, void *fh, struct v4l2_format *f)
+@@ -1095,8 +1095,8 @@ static int cio2_v4l2_try_fmt(struct file *file, void *fh, struct v4l2_format *f)
  	/* Only supports up to 4224x3136 */
  	if (mpix->width > CIO2_IMAGE_MAX_WIDTH)
  		mpix->width = CIO2_IMAGE_MAX_WIDTH;
@@ -648,7 +384,7 @@ index e42177f8c426..d9baa8bfe54f 100644
  
  	mpix->num_planes = 1;
  	mpix->pixelformat = fmt->fourcc;
-@@ -1283,7 +1283,7 @@ static int cio2_subdev_set_fmt(struct v4l2_subdev *sd,
+@@ -1284,7 +1284,7 @@ static int cio2_subdev_set_fmt(struct v4l2_subdev *sd,
  	}
  
  	fmt->format.width = min(fmt->format.width, CIO2_IMAGE_MAX_WIDTH);
@@ -671,42 +407,9 @@ index 7650d7998a3f..ccf0b85ae36f 100644
  /* 32MB = 8xFBPT_entry */
  #define CIO2_MAX_LOPS					8
 -- 
-2.29.2
+2.30.0
 
-From f4a7f440b3d3ae42c3d3269a9528c056a4f0d8d2 Mon Sep 17 00:00:00 2001
-From: Sakari Ailus <sakari.ailus@linux.intel.com>
-Date: Mon, 12 Oct 2020 21:04:14 +0300
-Subject: [PATCH] ipu3-cio2: Remove traces of returned buffers
-
-If starting a video buffer queue fails, the buffers are returned to
-videobuf2. Remove the reference to the buffer from driver's queue as well.
-
-Fixes: c2a6a07afe4a ("media: intel-ipu3: cio2: add new MIPI-CSI2 driver")
-Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
-Cc: stable@vger.kernel.org # v4.16 and up
-Reviewed-by: Andy Shevchenko <andy.shevchenko@gmail.com>
-Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
-Patchset: cameras
----
- drivers/media/pci/intel/ipu3/ipu3-cio2.c | 1 +
- 1 file changed, 1 insertion(+)
-
-diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2.c b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-index d9baa8bfe54f..51c4dd6a8f9a 100644
---- a/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-+++ b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-@@ -791,6 +791,7 @@ static void cio2_vb2_return_all_buffers(struct cio2_queue *q,
- 			atomic_dec(&q->bufs_queued);
- 			vb2_buffer_done(&q->bufs[i]->vbb.vb2_buf,
- 					state);
-+			q->bufs[i] = NULL;
- 		}
- 	}
- }
--- 
-2.29.2
-
-From cd5845a3875b4c31fa9de291060d9b4155f6c23d Mon Sep 17 00:00:00 2001
+From 3eff25474b3f65e7acfa1c2fc5b4fffae3114f96 Mon Sep 17 00:00:00 2001
 From: Sakari Ailus <sakari.ailus@xxxxxxxxxxxxxxx>
 Date: Tue, 13 Oct 2020 17:25:35 +0300
 Subject: [PATCH] ipu3-cio2: Check receved the size against payload size, not
@@ -758,47 +461,9 @@ index 51c4dd6a8f9a..c557d189200b 100644
  		}
  		atomic_inc(&q->frame_sequence);
 -- 
-2.29.2
+2.30.0
 
-From 2051dc8901ff9b98fc5348288e3817de8e13295d Mon Sep 17 00:00:00 2001
-From: Daniel Scally <djrscally@gmail.com>
-Date: Sat, 5 Dec 2020 17:04:03 +0000
-Subject: [PATCH] Revert "ACPI / resources: Use AE_CTRL_TERMINATE to terminate
- resources walks"
-
-This reverts commit 8a66790b7850a6669129af078768a1d42076a0ef.
-
-Switching this function to AE_CTRL_TERMINATE broke the documented
-behaviour of acpi_dev_get_resources() - AE_CTRL_TERMINATE does not, in
-fact, terminate the resource walk because acpi_walk_resource_buffer()
-ignores it (specifically converting it to AE_OK), referring to that
-value as "an OK termination by the user function". This means that
-acpi_dev_get_resources() does not abort processing when the preproc
-function returns a negative value.
-
-Signed-off-by: Daniel Scally <djrscally@gmail.com>
-Patchset: cameras
----
- drivers/acpi/resource.c | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
-
-diff --git a/drivers/acpi/resource.c b/drivers/acpi/resource.c
-index ad04824ca3ba..f2f5f1dc7c61 100644
---- a/drivers/acpi/resource.c
-+++ b/drivers/acpi/resource.c
-@@ -541,7 +541,7 @@ static acpi_status acpi_dev_process_resource(struct acpi_resource *ares,
- 		ret = c->preproc(ares, c->preproc_data);
- 		if (ret < 0) {
- 			c->error = ret;
--			return AE_CTRL_TERMINATE;
-+			return AE_ABORT_METHOD;
- 		} else if (ret > 0) {
- 			return AE_OK;
- 		}
--- 
-2.29.2
-
-From 04e639830e80e711e141cf1ab0bb7f489e4f9692 Mon Sep 17 00:00:00 2001
+From 2d2ff25aedd907713bbfa66ce02de3edb0d99093 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 24 Oct 2020 22:42:28 +0100
 Subject: [PATCH] property: Return true in fwnode_device_is_available for node
@@ -837,9 +502,9 @@ index 4c43d30145c6..a5ca2306796f 100644
  }
  EXPORT_SYMBOL_GPL(fwnode_device_is_available);
 -- 
-2.29.2
+2.30.0
 
-From 9ae3b927a4c5bbd1eebdff0f5e981c67e3e4d776 Mon Sep 17 00:00:00 2001
+From fbe20186e97d7f425d2280d5d98e0804c91c3710 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 21 Nov 2020 22:06:38 +0000
 Subject: [PATCH] property: Add support for calling
@@ -873,9 +538,9 @@ index a5ca2306796f..4ece6b086e36 100644
  }
  EXPORT_SYMBOL_GPL(fwnode_graph_get_endpoint_by_id);
 -- 
-2.29.2
+2.30.0
 
-From 634fc1f6594456f48c9354c77b0061be33334b19 Mon Sep 17 00:00:00 2001
+From 8c4ccad522391bef6e526313ebe6a48c734e2b7b Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Oct 2020 23:42:09 +0100
 Subject: [PATCH] software_node: Fix failure to put() and get() references to
@@ -917,9 +582,9 @@ index 010828fc785b..615a0c93e116 100644
  
  static struct fwnode_handle *
 -- 
-2.29.2
+2.30.0
 
-From beccdf398ff0bdb15ad49920e3f4c42cebffc85c Mon Sep 17 00:00:00 2001
+From 83d8bf9a179ffdfbea4d49190723c2121e2f6cf7 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 25 Oct 2020 22:49:08 +0000
 Subject: [PATCH] software_node: Enforce parent before child ordering of nodes
@@ -967,9 +632,9 @@ index 615a0c93e116..af7930b3679e 100644
  EXPORT_SYMBOL_GPL(software_node_register_nodes);
  
 -- 
-2.29.2
+2.30.0
 
-From c479a0738d1babc2d9b49ec348228a82bbdf0a3b Mon Sep 17 00:00:00 2001
+From a79416727dfa1e3be06459a9f9a53f09cbde73ee Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 21 Oct 2020 22:16:38 +0100
 Subject: [PATCH] software_node: Alter software_node_unregister_nodes() to
@@ -1025,9 +690,9 @@ index af7930b3679e..d39e1c76d98d 100644
  }
  EXPORT_SYMBOL_GPL(software_node_unregister_nodes);
 -- 
-2.29.2
+2.30.0
 
-From 5ffdeebf4be8058b8e02741ef3946693f494348c Mon Sep 17 00:00:00 2001
+From e2173d849ceec4f6f54386d8c95d5b5bc89c1293 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 21 Oct 2020 22:25:03 +0100
 Subject: [PATCH] software_node: amend software_node_unregister_node_group() to
@@ -1062,9 +727,9 @@ index d39e1c76d98d..9bd0bb77ad5b 100644
  }
  EXPORT_SYMBOL_GPL(software_node_unregister_node_group);
 -- 
-2.29.2
+2.30.0
 
-From e7198435a6b151ee356d9cbb50a56e0b43418ca2 Mon Sep 17 00:00:00 2001
+From 32609e5229c8bb29efde6d1e55ae704a1d932827 Mon Sep 17 00:00:00 2001
 From: Heikki Krogerus <heikki.krogerus@linux.intel.com>
 Date: Tue, 15 Sep 2020 15:47:46 +0100
 Subject: [PATCH] software_node: Add support for fwnode_graph*() family of
@@ -1224,9 +889,9 @@ index 9bd0bb77ad5b..0c7a8d6b9ea8 100644
  
  /* -------------------------------------------------------------------------- */
 -- 
-2.29.2
+2.30.0
 
-From 58c1dec868e59bc7c7cbbd1b7fb88e176b7a6d6e Mon Sep 17 00:00:00 2001
+From 978da96368c650761c10c831f75c8a6d70f7d280 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Oct 2020 23:07:22 +0100
 Subject: [PATCH] lib/test_printf.c: Use helper function to unwind array of
@@ -1258,9 +923,9 @@ index 7ac87f18a10f..7d60f24240a4 100644
  
  static void __init
 -- 
-2.29.2
+2.30.0
 
-From 02035310ef8d574c08feb6de158c62278f59f565 Mon Sep 17 00:00:00 2001
+From 325fd20fa2707b688748b9cc4e3e984c56dd0700 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Oct 2020 23:11:36 +0100
 Subject: [PATCH] ipu3-cio2: Add T: entry to MAINTAINERS
@@ -1287,9 +952,9 @@ index 281de213ef47..5a1c6e959aa8 100644
  F:	drivers/media/pci/intel/ipu3/
  
 -- 
-2.29.2
+2.30.0
 
-From 1b58ed79094bd9768b007c45a6689b088105db70 Mon Sep 17 00:00:00 2001
+From 38dcf34032f38521a24e767d6b9224d15fd456b8 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Oct 2020 22:47:21 +0100
 Subject: [PATCH] ipu3-cio2: Rename ipu3-cio2.c to allow module to be built
@@ -1321,9 +986,9 @@ similarity index 100%
 rename from drivers/media/pci/intel/ipu3/ipu3-cio2.c
 rename to drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
 -- 
-2.29.2
+2.30.0
 
-From 9539d61838f947dc109cd2503f97743c1e605986 Mon Sep 17 00:00:00 2001
+From 74556421e7287ffce9ff0155df832094dd352ed1 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 21 Oct 2020 21:53:05 +0100
 Subject: [PATCH] media: v4l2-core: v4l2-async: Check possible match in
@@ -1360,9 +1025,9 @@ index e3ab003a6c85..6486dbde784f 100644
  	 * Otherwise, check if the sd fwnode and the asd fwnode refer to an
  	 * endpoint or a device. If they're of the same type, there's no match.
 -- 
-2.29.2
+2.30.0
 
-From 40715cb60c093f415ee4dbcc2803e8c5f464cc00 Mon Sep 17 00:00:00 2001
+From 902528ae0440be5e64107effc15efe0b8b4fcc71 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 15 Nov 2020 08:15:34 +0000
 Subject: [PATCH] acpi: Add acpi_dev_get_next_match_dev() and macro to iterate
@@ -1446,10 +1111,10 @@ index d5411a166685..c177165c8db2 100644
  
  /*
 diff --git a/include/acpi/acpi_bus.h b/include/acpi/acpi_bus.h
-index a3abcc4b7d9f..0a028ba967d3 100644
+index 6d1879bf9440..02a716a0af5d 100644
 --- a/include/acpi/acpi_bus.h
 +++ b/include/acpi/acpi_bus.h
-@@ -688,9 +688,16 @@ static inline bool acpi_device_can_poweroff(struct acpi_device *adev)
+@@ -683,9 +683,16 @@ static inline bool acpi_device_can_poweroff(struct acpi_device *adev)
  
  bool acpi_dev_hid_uid_match(struct acpi_device *adev, const char *hid2, const char *uid2);
  
@@ -1467,9 +1132,9 @@ index a3abcc4b7d9f..0a028ba967d3 100644
  {
  	put_device(&adev->dev);
 -- 
-2.29.2
+2.30.0
 
-From a9bc6600acd912e323f543667ba1e37793769618 Mon Sep 17 00:00:00 2001
+From fe93b62c3e4bd129fe8e47c935e637f06e0e412a Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 21 Oct 2020 21:53:44 +0100
 Subject: [PATCH] ipu3-cio2: Add functionality allowing software_node
@@ -1983,9 +1648,9 @@ index ccf0b85ae36f..520a27c9cdad 100644
 +
  #endif
 -- 
-2.29.2
+2.30.0
 
-From 3f11464475af9e734b03b8675e0d684e31ff5004 Mon Sep 17 00:00:00 2001
+From d47ca9659358677aea827a0f403cfc7ccf9ccf6d Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 26 Nov 2020 21:12:41 +0000
 Subject: [PATCH] acpi: utils: Add function to fetch dependent acpi_devices
@@ -2090,10 +1755,10 @@ index c177165c8db2..7099529121db 100644
   * acpi_dev_get_next_match_dev - Return the next match of ACPI device
   * @adev: Pointer to the previous acpi_device matching this hid, uid and hrv
 diff --git a/include/acpi/acpi_bus.h b/include/acpi/acpi_bus.h
-index 0a028ba967d3..f5dfeb030b9c 100644
+index 02a716a0af5d..33deb22294f2 100644
 --- a/include/acpi/acpi_bus.h
 +++ b/include/acpi/acpi_bus.h
-@@ -688,6 +688,8 @@ static inline bool acpi_device_can_poweroff(struct acpi_device *adev)
+@@ -683,6 +683,8 @@ static inline bool acpi_device_can_poweroff(struct acpi_device *adev)
  
  bool acpi_dev_hid_uid_match(struct acpi_device *adev, const char *hid2, const char *uid2);
  
@@ -2103,9 +1768,9 @@ index 0a028ba967d3..f5dfeb030b9c 100644
  acpi_dev_get_next_match_dev(struct acpi_device *adev, const char *hid, const char *uid, s64 hrv);
  struct acpi_device *
 -- 
-2.29.2
+2.30.0
 
-From bcdba54f63ea3119b1466c657e1b8f0aaeb35646 Mon Sep 17 00:00:00 2001
+From 6ed8bea5378b79afcf7fe349b3fc90a794eb92a4 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 16 Nov 2020 21:38:49 +0000
 Subject: [PATCH] i2c: i2c-core-acpi: Add i2c_acpi_dev_name()
@@ -2173,9 +1838,9 @@ index 56622658b215..ab0e505b2ca6 100644
  {
  	return NULL;
 -- 
-2.29.2
+2.30.0
 
-From 48d9cf49b2118f42631a0422afb1d4b3706fc14e Mon Sep 17 00:00:00 2001
+From ede2c404c07285093e1ee9bca9cf354f1df565c8 Mon Sep 17 00:00:00 2001
 From: Dan Scally <djrscally@gmail.com>
 Date: Mon, 16 Nov 2020 21:45:22 +0000
 Subject: [PATCH] i2c: i2c-core-base: Use the new i2c_acpi_dev_name() in
@@ -2204,9 +1869,9 @@ index 573b5da145d1..a6d4ceb01077 100644
  	}
  
 -- 
-2.29.2
+2.30.0
 
-From b7f74359f23210fda6a907cf0aaf6960639456f2 Mon Sep 17 00:00:00 2001
+From dcad0ec65ef469c373bfe3083f39e1450d038df3 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 16 Nov 2020 00:16:56 +0000
 Subject: [PATCH] gpio: gpiolib-acpi: Export acpi_get_gpiod()
@@ -2268,9 +1933,9 @@ index 39263c6b52e1..737115a93138 100644
  
  /* Device properties */
 -- 
-2.29.2
+2.30.0
 
-From db4246bf78f77d8e7fe4826c586c789e4abbc71c Mon Sep 17 00:00:00 2001
+From 3216ecb9f47705838a2d9ba67ec9c56058c81839 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Fri, 27 Nov 2020 10:18:10 +0000
 Subject: [PATCH] ipu3: Add driver for dummy INT3472 ACPI device
@@ -2835,9 +2500,9 @@ index 000000000000..6964726e8e1f
 +	{ "MSHW0070", 2, surface_book_ov5693 },
 +};
 -- 
-2.29.2
+2.30.0
 
-From 1ed9a7521b330f7adbb0efb55e4552f479b71667 Mon Sep 17 00:00:00 2001
+From 240c902de0691faccd3a3c636500857c59a2cac3 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 10 Dec 2020 17:45:49 +0100
 Subject: [PATCH] ipu3: int3472: Add missing IDs for Surface Book 1
@@ -2880,9 +2545,9 @@ index 6964726e8e1f..d9f74a0c94c9 100644
 +	{ "MSHW0072", 2, surface_ov7251 },  /* Surface Book 1/Pro 4, IR     */
  };
 -- 
-2.29.2
+2.30.0
 
-From ba31d14c1bdd8e5ef5fa70761075efdca049cfa5 Mon Sep 17 00:00:00 2001
+From 5453a46fbf2a7ef478fe32f3e6a9e2baedb4f387 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 10 Dec 2020 17:46:22 +0100
 Subject: [PATCH] ipu3: int3472: Add IDs for Surface Book 2
@@ -2908,9 +2573,9 @@ index d9f74a0c94c9..242cc82b9e95 100644
 +	{ "MSHW0152", 2, surface_ov7251 },  /* Surface Book 2 (15"), IR     */
  };
 -- 
-2.29.2
+2.30.0
 
-From 2da3d4b53a3b805e9202d23dfea61662bdeda6d8 Mon Sep 17 00:00:00 2001
+From 8788286d80675ef68270ab3298d6cc390ab3687c Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 15 Dec 2020 17:43:00 +0100
 Subject: [PATCH] ipu3: int3472: Add IDs for Surface Pro 5 and Pro 6
@@ -2935,9 +2600,9 @@ index 242cc82b9e95..1d2e9cea54f4 100644
  	{ "MSHW0141", 2, surface_ov8865 },  /* Surface Book 2 (13"), rear   */
  	{ "MSHW0142", 2, surface_ov7251 },  /* Surface Book 2 (13"), IR     */
 -- 
-2.29.2
+2.30.0
 
-From 67979a1c25b79e77103008d55c782dc15556e15d Mon Sep 17 00:00:00 2001
+From 6b375d2165926370501769b1c3b570741db4f091 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 10 Dec 2020 18:42:44 +0100
 Subject: [PATCH] media: i2c: Add driver for OV5693 sensor
@@ -2949,9 +2614,9 @@ Patchset: cameras
  drivers/media/i2c/Kconfig  |   13 +
  drivers/media/i2c/Makefile |    1 +
  drivers/media/i2c/ad5823.h |   63 ++
- drivers/media/i2c/ov5693.c | 1606 ++++++++++++++++++++++++++++++++++++
+ drivers/media/i2c/ov5693.c | 1610 ++++++++++++++++++++++++++++++++++++
  drivers/media/i2c/ov5693.h | 1415 +++++++++++++++++++++++++++++++
- 5 files changed, 3098 insertions(+)
+ 5 files changed, 3102 insertions(+)
  create mode 100644 drivers/media/i2c/ad5823.h
  create mode 100644 drivers/media/i2c/ov5693.c
  create mode 100644 drivers/media/i2c/ov5693.h
@@ -3063,10 +2728,10 @@ index 000000000000..f1362cd69f6e
 +#endif
 diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
 new file mode 100644
-index 000000000000..0b2b76781b11
+index 000000000000..d6e20909d35e
 --- /dev/null
 +++ b/drivers/media/i2c/ov5693.c
-@@ -0,0 +1,1606 @@
+@@ -0,0 +1,1610 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Support for OmniVision OV5693 1080p HD camera sensor.
@@ -3206,8 +2871,8 @@ index 000000000000..0b2b76781b11
 +		return -ENODEV;
 +	}
 +
-+	if (data_length != OV5693_8BIT && data_length != OV5693_16BIT
-+	    && data_length != OV5693_32BIT) {
++	if (data_length != OV5693_8BIT && data_length != OV5693_16BIT &&
++	    data_length != OV5693_32BIT) {
 +		dev_err(&client->dev, "%s error, invalid data length\n",
 +			__func__);
 +		return -EINVAL;
@@ -3434,8 +3099,8 @@ index 000000000000..0b2b76781b11
 +}
 +
 +static int __ov5693_write_reg_is_consecutive(struct i2c_client *client,
-+	struct ov5693_write_ctrl *ctrl,
-+	const struct ov5693_reg *next)
++					     struct ov5693_write_ctrl *ctrl,
++					     const struct ov5693_reg *next)
 +{
 +	if (ctrl->index == 0)
 +		return 1;
@@ -3652,13 +3317,13 @@ index 000000000000..0b2b76781b11
 +{
 +	u16 index;
 +	int ret;
-+	u16 *pVal = NULL;
++	u16 *p_val = NULL;
 +
 +	for (index = 0; index <= size; index++) {
-+		pVal = (u16 *)(buf + index);
++		p_val = (u16 *)(buf + index);
 +		ret =
 +		    ov5693_read_reg(client, OV5693_8BIT, addr + index,
-+				    pVal);
++				    p_val);
 +		if (ret)
 +			return ret;
 +	}
@@ -3707,8 +3372,9 @@ index 000000000000..0b2b76781b11
 +
 +		//dev_dbg(&client->dev,
 +		//	"BANK[%2d] %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-+		//	i, *b, *(b+1), *(b+2), *(b+3), *(b+4), *(b+5), *(b+6), *(b+7),
-+		//	*(b+8), *(b+9), *(b+10), *(b+11), *(b+12), *(b+13), *(b+14), *(b+15));
++		//	i, *b, *(b + 1), *(b + 2), *(b + 3), *(b + 4), *(b + 5),
++		//	*(b + 6), *(b + 7), *(b + 8), *(b + 9), *(b + 10),
++		//	*(b + 11), *(b + 12), *(b + 13), *(b + 14), *(b + 15));
 +
 +		//Intel OTP map, try to read 320byts first.
 +		if (i == 21) {
@@ -3719,8 +3385,9 @@ index 000000000000..0b2b76781b11
 +			/* (*b) != 0 */
 +			b = buf;
 +			continue;
-+		} else if (i ==
-+			   24) {		//if the first 320bytes data doesn't not exist, try to read the next 32bytes data.
++		} else if (i == 24) {
++			// if the first 320bytes data doesn't not exist,
++			// try to read the next 32bytes data.
 +			if ((*b) == 0) {
 +				dev->otp_size = 32;
 +				break;
@@ -3728,8 +3395,9 @@ index 000000000000..0b2b76781b11
 +			/* (*b) != 0 */
 +			b = buf;
 +			continue;
-+		} else if (i ==
-+			   27) {		//if the prvious 32bytes data doesn't exist, try to read the next 32bytes data again.
++		} else if (i == 27) {
++			// if the prvious 32bytes data doesn't exist,
++			// try to read the next 32bytes data again.
 +			if ((*b) == 0) {
 +				dev->otp_size = 32;
 +				break;
@@ -3883,9 +3551,9 @@ index 000000000000..0b2b76781b11
 +		dev->number_of_steps = value - dev->focus;
 +		dev->focus = value;
 +		dev->timestamp_t_focus_abs = ktime_get();
-+	} else
-+		dev_err(&client->dev,
-+			"%s: i2c failed. ret %d\n", __func__, ret);
++	} else {
++		dev_err(&client->dev, "%s: i2c failed. ret %d\n", __func__, ret);
++	}
 +
 +	return ret;
 +}
@@ -4036,8 +3704,8 @@ index 000000000000..0b2b76781b11
 +	struct ov5693_device *sensor = to_ov5693_sensor(sd);
 +	int ret;
 +
-+        if (sensor->indicator_led)
-+                gpiod_set_value_cansleep(sensor->indicator_led, 1);
++	if (sensor->indicator_led)
++		gpiod_set_value_cansleep(sensor->indicator_led, 1);
 +
 +	ret = regulator_bulk_enable(OV5693_NUM_SUPPLIES, sensor->supplies);
 +	if (ret)
@@ -4048,8 +3716,8 @@ index 000000000000..0b2b76781b11
 +	return 0;
 +
 +fail_power:
-+        if (sensor->indicator_led)
-+                gpiod_set_value_cansleep(sensor->indicator_led, 0);
++	if (sensor->indicator_led)
++		gpiod_set_value_cansleep(sensor->indicator_led, 0);
 +	dev_err(&client->dev, "sensor power-up failed\n");
 +
 +	return ret;
@@ -4061,8 +3729,8 @@ index 000000000000..0b2b76781b11
 +
 +	dev->focus = OV5693_INVALID_CONFIG;
 +
-+        if (dev->indicator_led)
-+                gpiod_set_value_cansleep(dev->indicator_led, 0);
++	if (dev->indicator_led)
++		gpiod_set_value_cansleep(dev->indicator_led, 0);
 +
 +	return regulator_bulk_disable(OV5693_NUM_SUPPLIES, dev->supplies);
 +}
@@ -4500,15 +4168,15 @@ index 000000000000..0b2b76781b11
 +{
 +	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 +	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
-+        unsigned int i = OV5693_NUM_SUPPLIES;
++	unsigned int i = OV5693_NUM_SUPPLIES;
 +
 +	dev_info(&client->dev, "%s...\n", __func__);
 +
-+        gpiod_put(ov5693->reset);
-+        gpiod_put(ov5693->indicator_led);
++	gpiod_put(ov5693->reset);
++	gpiod_put(ov5693->indicator_led);
 +
-+        while (i--)
-+                regulator_put(ov5693->supplies[i].consumer);
++	while (i--)
++		regulator_put(ov5693->supplies[i].consumer);
 +
 +	v4l2_async_unregister_subdev(sd);
 +
@@ -4563,20 +4231,21 @@ index 000000000000..0b2b76781b11
 +
 +static int ov5693_configure_gpios(struct ov5693_device *ov5693)
 +{
-+        ov5693->reset = gpiod_get_index(&ov5693->client->dev, "reset", 0,
-+                                        GPIOD_OUT_HIGH);
-+        if (IS_ERR(ov5693->reset)) {
-+                dev_err(&ov5693->client->dev, "Couldn't find reset GPIO\n");
-+                return -EINVAL;
-+        }
++	ov5693->reset = gpiod_get_index(&ov5693->client->dev, "reset", 0,
++					GPIOD_OUT_HIGH);
++	if (IS_ERR(ov5693->reset)) {
++		dev_err(&ov5693->client->dev, "Couldn't find reset GPIO\n");
++		return -EINVAL;
++	}
 +
-+        ov5693->indicator_led = gpiod_get_index_optional(&ov5693->client->dev, "indicator-led", 0,
-+                                                         GPIOD_OUT_HIGH);
-+        if (IS_ERR(ov5693->indicator_led)) {
-+                dev_err(&ov5693->client->dev, "Couldn't find indicator-led GPIO\n");
-+                return -EINVAL;
-+        }
-+        return 0;
++	ov5693->indicator_led = gpiod_get_index_optional(&ov5693->client->dev,
++							 "indicator-led", 0, GPIOD_OUT_HIGH);
++
++	if (IS_ERR(ov5693->indicator_led)) {
++		dev_err(&ov5693->client->dev, "Couldn't find indicator-led GPIO\n");
++		return -EINVAL;
++	}
++	return 0;
 +}
 +
 +static int ov5693_get_regulators(struct ov5693_device *ov5693)
@@ -4588,7 +4257,7 @@ index 000000000000..0b2b76781b11
 +
 +	return regulator_bulk_get(&ov5693->client->dev,
 +				       OV5693_NUM_SUPPLIES,
-+				       ov5693->supplies); 
++				       ov5693->supplies);
 +}
 +
 +static int ov5693_probe(struct i2c_client *client)
@@ -4602,7 +4271,7 @@ index 000000000000..0b2b76781b11
 +	if (!ov5693)
 +		return -ENOMEM;
 +
-+        ov5693->client = client;
++	ov5693->client = client;
 +
 +	/* check if VCM device exists */
 +	/* TODO: read from SSDB */
@@ -4612,13 +4281,13 @@ index 000000000000..0b2b76781b11
 +
 +	v4l2_i2c_subdev_init(&ov5693->sd, client, &ov5693_ops);
 +
-+        ret = ov5693_configure_gpios(ov5693);
-+        if (ret)
-+                goto out_free;
++	ret = ov5693_configure_gpios(ov5693);
++	if (ret)
++		goto out_free;
 +
-+        ret = ov5693_get_regulators(ov5693);
-+        if (ret)
-+                goto out_put_reset;
++	ret = ov5693_get_regulators(ov5693);
++	if (ret)
++		goto out_put_reset;
 +
 +	ret = ov5693_s_config(&ov5693->sd, client->irq);
 +	if (ret)
@@ -4648,7 +4317,7 @@ index 000000000000..0b2b76781b11
 +media_entity_cleanup:
 +	media_entity_cleanup(&ov5693->sd.entity);
 +out_put_reset:
-+        gpiod_put(ov5693->reset);
++	gpiod_put(ov5693->reset);
 +out_free:
 +	v4l2_device_unregister_subdev(&ov5693->sd);
 +	kfree(ov5693);
@@ -4675,7 +4344,7 @@ index 000000000000..0b2b76781b11
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/media/i2c/ov5693.h b/drivers/media/i2c/ov5693.h
 new file mode 100644
-index 000000000000..9ad9bbe67d0d
+index 000000000000..839b0773e2bc
 --- /dev/null
 +++ b/drivers/media/i2c/ov5693.h
 @@ -0,0 +1,1415 @@
@@ -4781,9 +4450,9 @@ index 000000000000..9ad9bbe67d0d
 +/*Bit[7:4] Group control, Bit[3:0] Group ID*/
 +#define OV5693_GROUP_ACCESS			0x3208
 +/*
-+*Bit[3:0] Bit[19:16] of exposure,
-+*remaining 16 bits lies in Reg0x3501&Reg0x3502
-+*/
++ * Bit[3:0] Bit[19:16] of exposure,
++ * remaining 16 bits lies in Reg0x3501&Reg0x3502
++ */
 +#define OV5693_EXPOSURE_H			0x3500
 +#define OV5693_EXPOSURE_M			0x3501
 +#define OV5693_EXPOSURE_L			0x3502
@@ -4841,11 +4510,11 @@ index 000000000000..9ad9bbe67d0d
 +#define VCM_PROTECTION_OFF     0xeca3
 +#define VCM_PROTECTION_ON      0xdc51
 +#define VCM_DEFAULT_S 0x0
-+#define vcm_step_s(a) (u8)(a & 0xf)
-+#define vcm_step_mclk(a) (u8)((a >> 4) & 0x3)
-+#define vcm_dlc_mclk(dlc, mclk) (u16)((dlc << 3) | mclk | 0xa104)
-+#define vcm_tsrc(tsrc) (u16)(tsrc << 3 | 0xf200)
-+#define vcm_val(data, s) (u16)(data << 4 | s)
++#define vcm_step_s(a) ((u8)((a) & 0xf))
++#define vcm_step_mclk(a) ((u8)(((a) >> 4) & 0x3))
++#define vcm_dlc_mclk(dlc, mclk) ((u16)(((dlc) << 3) | (mclk) | 0xa104))
++#define vcm_tsrc(tsrc) ((u16)((tsrc) << 3 | 0xf200))
++#define vcm_val(data, s) ((u16)((data) << 4 | (s)))
 +#define DIRECT_VCM vcm_dlc_mclk(0, 0)
 +
 +/* Defines for OTP Data Registers */
@@ -4869,15 +4538,15 @@ index 000000000000..9ad9bbe67d0d
 +/* pixel_rate = link_freq * 2 * nr_of_lanes / bits_per_sample
 + * To avoid integer overflow, dividing by bits_per_sample first.
 + */
-+#define OV5693_PIXEL_RATE		(OV5693_LINK_FREQ_640MHZ / 10) * 2 * 2
++#define OV5693_PIXEL_RATE		((OV5693_LINK_FREQ_640MHZ / 10) * 2 * 2)
 +static const s64 link_freq_menu_items[] = {
 +	OV5693_LINK_FREQ_640MHZ
 +};
 +
-+#define OV5693_NUM_SUPPLIES             2
-+static const char * const ov5693_supply_names[] = {
-+        "avdd",
-+        "dovdd",
++#define OV5693_NUM_SUPPLIES 2
++static const char *const ov5693_supply_names[] = {
++	"avdd",
++	"dovdd",
 +};
 +
 +struct regval_list {
@@ -4917,16 +4586,16 @@ index 000000000000..9ad9bbe67d0d
 + * ov5693 device structure.
 + */
 +struct ov5693_device {
-+        struct i2c_client *client;
++	struct i2c_client *client;
 +	struct v4l2_subdev sd;
 +	struct media_pad pad;
 +	struct v4l2_mbus_framefmt format;
 +	struct mutex input_lock;
 +	struct v4l2_ctrl_handler ctrl_handler;
 +
-+        struct gpio_desc *reset;
-+        struct gpio_desc *indicator_led;
-+        struct regulator_bulk_data supplies[OV5693_NUM_SUPPLIES];
++	struct gpio_desc *reset;
++	struct gpio_desc *indicator_led;
++	struct regulator_bulk_data supplies[OV5693_NUM_SUPPLIES];
 +
 +	struct camera_sensor_platform_data *platform_data;
 +	ktime_t timestamp_t_focus_abs;
@@ -5246,8 +4915,8 @@ index 000000000000..9ad9bbe67d0d
 +
 +/*
 + * 1296x976 30fps 17ms VBlanking 2lane 10Bit (Scaling)
-+*DS from 2592x1952
-+*/
++ * DS from 2592x1952
++ */
 +static struct ov5693_reg const ov5693_1296x976[] = {
 +	{OV5693_8BIT, 0x3501, 0x7b},
 +	{OV5693_8BIT, 0x3502, 0x00},
@@ -6095,5 +5764,142 @@ index 000000000000..9ad9bbe67d0d
 +static unsigned long N_RES = N_RES_PREVIEW;
 +#endif
 -- 
-2.29.2
+2.30.0
+
+From 2e5b7ad9aa07ba9431afe9ebbc743f4b6e026953 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Fabian=20W=C3=BCthrich?= <me@fabwu.ch>
+Date: Mon, 28 Dec 2020 22:49:17 +0100
+Subject: [PATCH] ov5693: Add user controls to flip image
+
+Patchset: cameras
+---
+ drivers/media/i2c/ov5693.c | 63 ++++++++++++++++++++++++++++++++++++++
+ drivers/media/i2c/ov5693.h | 10 ++++++
+ 2 files changed, 73 insertions(+)
+
+diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
+index d6e20909d35e..1d3ee422f37a 100644
+--- a/drivers/media/i2c/ov5693.c
++++ b/drivers/media/i2c/ov5693.c
+@@ -831,6 +831,29 @@ static int ov5693_t_focus_rel(struct v4l2_subdev *sd, s32 value)
+ 	return ov5693_t_focus_abs(sd, dev->focus + value);
+ }
+ 
++static int ov5693_update_hflip(struct v4l2_subdev *sd)
++{
++	struct ov5693_device *dev = to_ov5693_sensor(sd);
++	struct i2c_client *client = v4l2_get_subdevdata(sd);
++
++	u8 hflip = dev->hflip ? OV5693_TIMING_REG21_FLIP :
++				      OV5693_TIMING_REG21_NORMAL;
++
++	return ov5693_write_reg(client, OV5693_8BIT, OV5693_TIMING_REG21,
++				hflip);
++}
++
++static int ov5693_update_vflip(struct v4l2_subdev *sd)
++{
++	struct ov5693_device *dev = to_ov5693_sensor(sd);
++	struct i2c_client *client = v4l2_get_subdevdata(sd);
++
++	u8 vflip = dev->vflip ? OV5693_TIMING_REG20_FLIP :
++				      OV5693_TIMING_REG20_NORMAL;
++	return ov5693_write_reg(client, OV5693_8BIT, OV5693_TIMING_REG20,
++				vflip);
++}
++
+ #define DELAY_PER_STEP_NS	1000000
+ #define DELAY_MAX_PER_STEP_NS	(1000000 * 1023)
+ 
+@@ -852,6 +875,18 @@ static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl)
+ 			__func__, ctrl->val);
+ 		ret = ov5693_t_focus_rel(&dev->sd, ctrl->val);
+ 		break;
++	case V4L2_CID_HFLIP:
++		dev_info(&client->dev, "%s: CID_HFLIP:%d.\n", __func__,
++			 ctrl->val);
++		dev->hflip = ctrl->val;
++		ret = ov5693_update_hflip(&dev->sd);
++		break;
++	case V4L2_CID_VFLIP:
++		dev_info(&client->dev, "%s: CID_VFLIP:%d.\n", __func__,
++			 ctrl->val);
++		dev->vflip = ctrl->val;
++		ret = ov5693_update_vflip(&dev->sd);
++		break;
+ 	default:
+ 		ret = -EINVAL;
+ 	}
+@@ -917,6 +952,22 @@ static const struct v4l2_ctrl_config ov5693_controls[] = {
+ 		.def = 0,
+ 		.flags = 0,
+ 	},
++	{
++		.ops = &ctrl_ops,
++		.id = V4L2_CID_HFLIP,
++		.type = V4L2_CTRL_TYPE_BOOLEAN,
++		.name = "sensor flipped horizontally",
++		.max = 1,
++		.step = 1,
++	},
++	{
++		.ops = &ctrl_ops,
++		.id = V4L2_CID_VFLIP,
++		.type = V4L2_CTRL_TYPE_BOOLEAN,
++		.name = "sensor flipped vertically",
++		.max = 1,
++		.step = 1,
++	},
+ };
+ 
+ static int ov5693_init(struct v4l2_subdev *sd)
+@@ -1147,6 +1198,18 @@ static int startup(struct v4l2_subdev *sd)
+ 		return ret;
+ 	}
+ 
++	ret = ov5693_update_hflip(sd);
++	if (ret) {
++		dev_err(&client->dev, "ov5693 hflip err.\n");
++		return ret;
++	}
++
++	ret = ov5693_update_vflip(sd);
++	if (ret) {
++		dev_err(&client->dev, "ov5693 vflip err.\n");
++		return ret;
++	}
++
+ 	return ret;
+ }
+ 
+diff --git a/drivers/media/i2c/ov5693.h b/drivers/media/i2c/ov5693.h
+index 839b0773e2bc..e788a8068f50 100644
+--- a/drivers/media/i2c/ov5693.h
++++ b/drivers/media/i2c/ov5693.h
+@@ -136,6 +136,13 @@
+ #define OV5693_MWB_BLUE_GAIN_H			0x3404
+ #define OV5693_MWB_GAIN_MAX			0x0fff
+ 
++#define OV5693_TIMING_REG21             0x3821 /* horizontal flip */
++#define OV5693_TIMING_REG21_NORMAL      0x18
++#define OV5693_TIMING_REG21_FLIP        0x1E
++#define OV5693_TIMING_REG20             0x3820 /* vertical flip */
++#define OV5693_TIMING_REG20_NORMAL      0x10
++#define OV5693_TIMING_REG20_FLIP        0x16
++
+ #define OV5693_START_STREAMING			0x01
+ #define OV5693_STOP_STREAMING			0x00
+ 
+@@ -261,6 +268,9 @@ struct ov5693_device {
+ 	bool vcm_update;
+ 	enum vcm_type vcm;
+ 
++	bool hflip;
++	bool vflip;
++
+ 	bool has_vcm;
+ };
+ 
+-- 
+2.30.0
 
