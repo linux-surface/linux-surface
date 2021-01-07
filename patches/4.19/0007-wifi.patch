@@ -1,4 +1,4 @@
-From e2cb6002ad0d5b8dadc583b83b6dcbad8112f8f4 Mon Sep 17 00:00:00 2001
+From af8cf419a3eddc4765ad73f62b8f44b9c3a77e67 Mon Sep 17 00:00:00 2001
 From: Chuhong Yuan <hslester96@gmail.com>
 Date: Wed, 24 Jul 2019 19:27:45 +0800
 Subject: [PATCH] mwifiex: pcie: Use dev_get_drvdata
@@ -47,9 +47,9 @@ index 991b9cc18000..2aa0436d3548 100644
  	if (!card->adapter) {
  		dev_err(dev, "adapter structure is not valid\n");
 -- 
-2.29.2
+2.30.0
 
-From 4ef5848b3a6b6e3ad6d25015d714cb0ef043a048 Mon Sep 17 00:00:00 2001
+From 05f4f9d3be82b8bee5961bdfe8082e451f3dcedc Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Thu, 24 Sep 2020 18:02:06 +0900
 Subject: [PATCH] mwifiex: pcie: skip cancel_work_sync() on reset failure path
@@ -204,9 +204,9 @@ index f7ce9b6db6b4..72d0c01ff359 100644
  
  static inline int
 -- 
-2.29.2
+2.30.0
 
-From df82311ad613a566535e4a3eb550c0e1c2bb2448 Mon Sep 17 00:00:00 2001
+From f3ad5b6e2abc0bc20fcc505fab5e9a4aa684d26c Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Mon, 28 Sep 2020 17:46:49 +0900
 Subject: [PATCH] mwifiex: pcie: add DMI-based quirk impl for Surface devices
@@ -412,9 +412,9 @@ index 000000000000..5326ae7e5671
 +
 +void mwifiex_initialize_quirks(struct pcie_service_card *card);
 -- 
-2.29.2
+2.30.0
 
-From 256adaaacce86130cac8b61cd9a3170e4ad014ee Mon Sep 17 00:00:00 2001
+From b57a393c55a6e9edec973f77965838026a2990d1 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Tue, 29 Sep 2020 17:25:22 +0900
 Subject: [PATCH] mwifiex: pcie: add reset_d3cold quirk for Surface gen4+
@@ -613,9 +613,9 @@ index 5326ae7e5671..8b9dcb5070d8 100644
  void mwifiex_initialize_quirks(struct pcie_service_card *card);
 +int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
 -- 
-2.29.2
+2.30.0
 
-From a08b34569754b6910481ed20f61a738580ca1a0d Mon Sep 17 00:00:00 2001
+From 2f6dd1f88e1583b2057179fa8a4efdba3d9efe95 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Tue, 29 Sep 2020 17:32:22 +0900
 Subject: [PATCH] mwifiex: pcie: add reset_wsid quirk for Surface 3
@@ -792,9 +792,9 @@ index 8b9dcb5070d8..3ef7440418e3 100644
  int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
 +int mwifiex_pcie_reset_wsid_quirk(struct pci_dev *pdev);
 -- 
-2.29.2
+2.30.0
 
-From 752bd285bd7e3a61ab50d253acb9e19803d11a5b Mon Sep 17 00:00:00 2001
+From b73fe6f9949f16daa4ab55f440e7a561f5017ac7 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Wed, 30 Sep 2020 18:08:24 +0900
 Subject: [PATCH] mwifiex: pcie: (OEMB) add quirk for Surface 3 with broken DMI
@@ -854,86 +854,9 @@ index f0a6fa0a7ae5..34dcd84f02a6 100644
  		.ident = "Surface Pro 3",
  		.matches = {
 -- 
-2.29.2
+2.30.0
 
-From 88f9e49337f72a02024275584363328503e73ea5 Mon Sep 17 00:00:00 2001
-From: Tsuchiya Yuto <kitakar@gmail.com>
-Date: Thu, 24 Sep 2020 01:56:29 +0900
-Subject: [PATCH] mwifiex: fix mwifiex_shutdown_sw() causing sw reset failure
-
-When FLR is performed but without fw reset for some reasons (e.g. on
-Surface devices, fw reset requires another quirk), it fails to reset
-properly. You can trigger the issue on such devices via debugfs entry
-for reset:
-
-    $ echo 1 | sudo tee /sys/kernel/debug/mwifiex/mlan0/reset
-
-and the resulting dmesg log:
-
-    mwifiex_pcie 0000:03:00.0: Resetting per request
-    mwifiex_pcie 0000:03:00.0: info: successfully disconnected from [BSSID]: reason code 3
-    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
-    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
-    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
-    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
-    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
-    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
-    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
-    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
-    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
-    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
-    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
-    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
-    mwifiex_pcie 0000:03:00.0: info: shutdown mwifiex...
-    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
-    mwifiex_pcie 0000:03:00.0: PREP_CMD: card is removed
-    mwifiex_pcie 0000:03:00.0: WLAN FW already running! Skip FW dnld
-    mwifiex_pcie 0000:03:00.0: WLAN FW is active
-    mwifiex_pcie 0000:03:00.0: Unknown api_id: 4
-    mwifiex_pcie 0000:03:00.0: info: MWIFIEX VERSION: mwifiex 1.0 (15.68.19.p21)
-    mwifiex_pcie 0000:03:00.0: driver_version = mwifiex 1.0 (15.68.19.p21)
-    mwifiex_pcie 0000:03:00.0: info: trying to associate to '[SSID]' bssid [BSSID]
-    mwifiex_pcie 0000:03:00.0: info: associated to bssid [BSSID] successfully
-    mwifiex_pcie 0000:03:00.0: cmd_wait_q terminated: -110
-    mwifiex_pcie 0000:03:00.0: info: successfully disconnected from [BSSID]: reason code 15
-    mwifiex_pcie 0000:03:00.0: cmd_wait_q terminated: -110
-    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
-    mwifiex_pcie 0000:03:00.0: cmd_wait_q terminated: -110
-    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
-    mwifiex_pcie 0000:03:00.0: cmd_wait_q terminated: -110
-    mwifiex_pcie 0000:03:00.0: deleting the crypto keys
-    [...]
-
-When comparing mwifiex_shutdown_sw() with mwifiex_pcie_remove(), it
-lacks mwifiex_init_shutdown_fw().
-
-This commit fixes mwifiex_shutdown_sw() by adding the missing
-mwifiex_init_shutdown_fw().
-
-Fixes: 4c5dae59d2e9 ("mwifiex: add PCIe function level reset support")
-Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
-Patchset: wifi
----
- drivers/net/wireless/marvell/mwifiex/main.c | 2 ++
- 1 file changed, 2 insertions(+)
-
-diff --git a/drivers/net/wireless/marvell/mwifiex/main.c b/drivers/net/wireless/marvell/mwifiex/main.c
-index e48b47f42554..ceac611ef086 100644
---- a/drivers/net/wireless/marvell/mwifiex/main.c
-+++ b/drivers/net/wireless/marvell/mwifiex/main.c
-@@ -1474,6 +1474,8 @@ int mwifiex_shutdown_sw(struct mwifiex_adapter *adapter)
- 	priv = mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_ANY);
- 	mwifiex_deauthenticate(priv, NULL);
- 
-+	mwifiex_init_shutdown_fw(priv, MWIFIEX_FUNC_SHUTDOWN);
-+
- 	mwifiex_uninit_sw(adapter);
- 
- 	if (adapter->if_ops.down_dev)
--- 
-2.29.2
-
-From 8b31843c81a62ed6acaca4daeca22c7735c881a1 Mon Sep 17 00:00:00 2001
+From 24f204dc8927c416b04277aa57c460b02fc2db20 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Thu, 24 Sep 2020 01:56:34 +0900
 Subject: [PATCH] mwifiex: pcie: use shutdown_sw()/reinit_sw() on
@@ -1073,9 +996,9 @@ index 290427c98630..d80eb18fb0d1 100644
  	return 0;
  }
 -- 
-2.29.2
+2.30.0
 
-From 67a2170b51c14ec13189b04fd936a4bd9f6c7fb9 Mon Sep 17 00:00:00 2001
+From 04b5b8d8f01a78f21993963435833c8e0f0f9a2c Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Mon, 24 Aug 2020 17:11:35 +0900
 Subject: [PATCH] mwifiex: pcie: add enable_device_dump module parameter
@@ -1122,9 +1045,9 @@ index d80eb18fb0d1..ea766584d3b7 100644
  	if (!adapter->devdump_data) {
  		mwifiex_dbg(adapter, ERROR,
 -- 
-2.29.2
+2.30.0
 
-From 25cc6abbce1af600a53c17eb6a916a71d0772c12 Mon Sep 17 00:00:00 2001
+From 2b21b662e746f381bbf1d5b29380db2e9dc092ff Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Sun, 4 Oct 2020 00:11:49 +0900
 Subject: [PATCH] mwifiex: pcie: disable bridge_d3 for Surface gen4+
@@ -1277,9 +1200,9 @@ index 3ef7440418e3..a95ebac06e13 100644
  void mwifiex_initialize_quirks(struct pcie_service_card *card);
  int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
 -- 
-2.29.2
+2.30.0
 
-From 791ff4dd18e55ae666086f26577e2f98668206b9 Mon Sep 17 00:00:00 2001
+From 6c7cd975c9cde9debad4de3b631286b6f075a577 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Sun, 4 Oct 2020 00:25:48 +0900
 Subject: [PATCH] mwifiex: add allow_ps_mode module parameter
@@ -1339,9 +1262,9 @@ index 650191db25cb..dd1f08a2325f 100644
  }
  
 -- 
-2.29.2
+2.30.0
 
-From 776602c514b14694443978cc0cb184463395a30f Mon Sep 17 00:00:00 2001
+From 847f8961a9e4a1edd0cc6a38f33f1497414e4d78 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Sun, 4 Oct 2020 00:38:48 +0900
 Subject: [PATCH] mwifiex: print message when changing ps_mode
@@ -1374,9 +1297,9 @@ index dd1f08a2325f..ee88da92b97c 100644
  }
  
 -- 
-2.29.2
+2.30.0
 
-From c04ff884c0fbcbced8078f4b87465ea93cc77b6a Mon Sep 17 00:00:00 2001
+From 4f10c703ca0539183c94ee39fb1df0ab89522758 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Sun, 4 Oct 2020 00:59:37 +0900
 Subject: [PATCH] mwifiex: disable ps_mode explicitly by default instead
@@ -1422,5 +1345,5 @@ index 4ed10cf82f9a..ed0fffb9eba6 100644
  
  		if (drcs) {
 -- 
-2.29.2
+2.30.0
 
