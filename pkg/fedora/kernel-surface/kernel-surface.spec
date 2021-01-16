@@ -2,8 +2,8 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc33 kernel-5.10.6-200.fc33
-%global kernel_tag_fc32 kernel-5.9.16-100.fc32
+%global kernel_tag_fc33 kernel-5.10.7-200.fc33
+%global kernel_tag_fc32 kernel-5.10.7-100.fc32
 
 %global kernel_release_fc33 1
 %global kernel_release_fc32 1
@@ -92,10 +92,7 @@ Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam-over-hid.patch
 Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam.patch
 Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-hotplug.patch
 Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-typecover.patch
-
-%if "%{kernel_majorver}" == "5.10"
 Patch8:     %{surface_source}/%{kernel_patches}/0009-cameras.patch
-%endif
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
@@ -156,11 +153,7 @@ pathfix.py -i "%{__python3} %{py3_shbang_opts}" -p -n \
 	tools/perf/scripts/python/stat-cpi.py \
 	tools/perf/scripts/python/sched-migration.py \
 	Documentation \
-%if "%{kernel_majorver}" == "5.10"
 	scripts/clang-tools
-%else
-	scripts/gen_compile_commands.py
-%endif
 
 %build
 
