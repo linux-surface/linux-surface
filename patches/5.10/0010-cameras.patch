@@ -1,4 +1,4 @@
-From 6724a7fe43dda838f3701711be5b32c4788e5a42 Mon Sep 17 00:00:00 2001
+From bd9c8c027b334c2d53c49edd520fe9739f8cced8 Mon Sep 17 00:00:00 2001
 From: Sakari Ailus <sakari.ailus@linux.intel.com>
 Date: Mon, 12 Oct 2020 21:04:11 +0300
 Subject: [PATCH] ipu3-cio2: Use unsigned values where appropriate
@@ -316,7 +316,7 @@ index 146492383aa5..7650d7998a3f 100644
 -- 
 2.30.0
 
-From a4a1839d13e72b1ca7c7f052b06e435d7ac0835c Mon Sep 17 00:00:00 2001
+From c27b4ea820458613abe934ed5618711fc4dfd5b7 Mon Sep 17 00:00:00 2001
 From: Sakari Ailus <sakari.ailus@linux.intel.com>
 Date: Mon, 12 Oct 2020 21:04:12 +0300
 Subject: [PATCH] ipu3-cio2: Remove explicit type from frame size checks
@@ -350,7 +350,7 @@ index 1fcd131482e0..b2679ff185fc 100644
 -- 
 2.30.0
 
-From ee88966296444b44a6e02c6048f0225513175682 Mon Sep 17 00:00:00 2001
+From c4b4b84a27beb2c8c7a2f4126816f0054194a74b Mon Sep 17 00:00:00 2001
 From: Sakari Ailus <sakari.ailus@linux.intel.com>
 Date: Mon, 12 Oct 2020 21:04:13 +0300
 Subject: [PATCH] ipu3-cio2: Rename CIO2_IMAGE_MAX_LENGTH as
@@ -409,7 +409,7 @@ index 7650d7998a3f..ccf0b85ae36f 100644
 -- 
 2.30.0
 
-From 3eff25474b3f65e7acfa1c2fc5b4fffae3114f96 Mon Sep 17 00:00:00 2001
+From 174afe3e62b8418ed241a38efc0eb91dc17fbb1e Mon Sep 17 00:00:00 2001
 From: Sakari Ailus <sakari.ailus@xxxxxxxxxxxxxxx>
 Date: Tue, 13 Oct 2020 17:25:35 +0300
 Subject: [PATCH] ipu3-cio2: Check receved the size against payload size, not
@@ -463,93 +463,20 @@ index 51c4dd6a8f9a..c557d189200b 100644
 -- 
 2.30.0
 
-From 2d2ff25aedd907713bbfa66ce02de3edb0d99093 Mon Sep 17 00:00:00 2001
-From: Daniel Scally <djrscally@gmail.com>
-Date: Sat, 24 Oct 2020 22:42:28 +0100
-Subject: [PATCH] property: Return true in fwnode_device_is_available for node
- types that do not implement this operation
-
-Some types of fwnode_handle do not implement the device_is_available()
-check, such as those created by software_nodes. There isn't really a
-meaningful way to check for the availability of a device that doesn't
-actually exist, so if the check isn't implemented just assume that the
-"device" is present.
-
-Suggested-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
-Signed-off-by: Daniel Scally <djrscally@gmail.com>
-Patchset: cameras
----
- drivers/base/property.c | 5 +++++
- 1 file changed, 5 insertions(+)
-
-diff --git a/drivers/base/property.c b/drivers/base/property.c
-index 4c43d30145c6..a5ca2306796f 100644
---- a/drivers/base/property.c
-+++ b/drivers/base/property.c
-@@ -785,9 +785,14 @@ EXPORT_SYMBOL_GPL(fwnode_handle_put);
- /**
-  * fwnode_device_is_available - check if a device is available for use
-  * @fwnode: Pointer to the fwnode of the device.
-+ *
-+ * For fwnode node types that don't implement the .device_is_available()
-+ * operation, this function returns true.
-  */
- bool fwnode_device_is_available(const struct fwnode_handle *fwnode)
- {
-+	if (!fwnode_has_op(fwnode, device_is_available))
-+		return true;
- 	return fwnode_call_bool_op(fwnode, device_is_available);
- }
- EXPORT_SYMBOL_GPL(fwnode_device_is_available);
--- 
-2.30.0
-
-From fbe20186e97d7f425d2280d5d98e0804c91c3710 Mon Sep 17 00:00:00 2001
-From: Daniel Scally <djrscally@gmail.com>
-Date: Sat, 21 Nov 2020 22:06:38 +0000
-Subject: [PATCH] property: Add support for calling
- fwnode_graph_get_endpoint_by_id() for fwnode->secondary
-
-This function is used to find fwnode endpoints against a device. In
-some instances those endpoints are software nodes which are children of
-fwnode->secondary. Add support to fwnode_graph_get_endpoint_by_id() to
-find those endpoints by recursively calling itself passing the ptr to
-fwnode->secondary in the event no endpoint is found for the primary.
-
-Signed-off-by: Daniel Scally <djrscally@gmail.com>
-Patchset: cameras
----
- drivers/base/property.c | 4 ++++
- 1 file changed, 4 insertions(+)
-
-diff --git a/drivers/base/property.c b/drivers/base/property.c
-index a5ca2306796f..4ece6b086e36 100644
---- a/drivers/base/property.c
-+++ b/drivers/base/property.c
-@@ -1162,6 +1162,10 @@ fwnode_graph_get_endpoint_by_id(const struct fwnode_handle *fwnode,
- 		best_ep_id = fwnode_ep.id;
- 	}
- 
-+	if (!best_ep && fwnode && !IS_ERR_OR_NULL(fwnode->secondary))
-+		return fwnode_graph_get_endpoint_by_id(fwnode->secondary, port,
-+						       endpoint, flags);
-+
- 	return best_ep;
- }
- EXPORT_SYMBOL_GPL(fwnode_graph_get_endpoint_by_id);
--- 
-2.30.0
-
-From 8c4ccad522391bef6e526313ebe6a48c734e2b7b Mon Sep 17 00:00:00 2001
+From 6ff13bd90a00d34bba03dde6b2f26c3fdb6b01c8 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Oct 2020 23:42:09 +0100
-Subject: [PATCH] software_node: Fix failure to put() and get() references to
- children in software_node_get_next_child()
+Subject: [PATCH] software_node: Fix refcounts in
+ software_node_get_next_child()
 
 The software_node_get_next_child() function currently does not hold
 references to the child software_node that it finds or put the ref that
 is held against the old child - fix that.
 
+Fixes: 59abd83672f7 ("drivers: base: Introducing software nodes to the firmware node framework")
+Reviewed-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Reviewed-by: Sakari Ailus <sakari.ailus@linux.intel.com>
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
@@ -584,88 +511,224 @@ index 010828fc785b..615a0c93e116 100644
 -- 
 2.30.0
 
-From 83d8bf9a179ffdfbea4d49190723c2121e2f6cf7 Mon Sep 17 00:00:00 2001
-From: Daniel Scally <djrscally@gmail.com>
-Date: Sun, 25 Oct 2020 22:49:08 +0000
-Subject: [PATCH] software_node: Enforce parent before child ordering of nodes
- array for software_node_register_nodes()
+From 642041031c7b532d2d83c368e371f4f62c4dd1ab Mon Sep 17 00:00:00 2001
+From: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Date: Wed, 30 Dec 2020 22:44:05 +0200
+Subject: [PATCH] media: ipu3-cio2: Add headers that ipu3-cio2.h is direct user
+ of
 
-Registering software_nodes with the .parent member set to point to a
-currently unregistered software_node has the potential for problems,
-so enforce parent -> child ordering in arrays passed to this function.
+Add headers that ipu3-cio2.h is direct user of.
 
-Suggested-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Signed-off-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Reviewed-by: Daniel Scally <djrscally@gmail.com>
+Tested-by: Daniel Scally <djrscally@gmail.com>
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
- drivers/base/swnode.c | 15 +++++++++++----
- 1 file changed, 11 insertions(+), 4 deletions(-)
+ drivers/media/pci/intel/ipu3/ipu3-cio2.h | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2.h b/drivers/media/pci/intel/ipu3/ipu3-cio2.h
+index ccf0b85ae36f..62187ab5ae43 100644
+--- a/drivers/media/pci/intel/ipu3/ipu3-cio2.h
++++ b/drivers/media/pci/intel/ipu3/ipu3-cio2.h
+@@ -4,8 +4,26 @@
+ #ifndef __IPU3_CIO2_H
+ #define __IPU3_CIO2_H
+ 
++#include <linux/bits.h>
++#include <linux/dma-mapping.h>
++#include <linux/kernel.h>
++#include <linux/mutex.h>
+ #include <linux/types.h>
+ 
++#include <asm/page.h>
++
++#include <media/media-device.h>
++#include <media/media-entity.h>
++#include <media/v4l2-async.h>
++#include <media/v4l2-dev.h>
++#include <media/v4l2-device.h>
++#include <media/v4l2-subdev.h>
++#include <media/videobuf2-core.h>
++#include <media/videobuf2-v4l2.h>
++
++struct cio2_fbpt_entry;		/* defined here, after the first usage */
++struct pci_dev;
++
+ #define CIO2_NAME					"ipu3-cio2"
+ #define CIO2_DEVICE_NAME				"Intel IPU3 CIO2"
+ #define CIO2_ENTITY_NAME				"ipu3-csi2"
+-- 
+2.30.0
+
+From 12e1ac55a9798ddcb120f2118d9f9e1e98c03cb8 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sat, 24 Oct 2020 22:42:28 +0100
+Subject: [PATCH] device property: Return true in fwnode_device_is_available
+ for NULL ops
+
+Some types of fwnode_handle do not implement the device_is_available()
+check, such as those created by software_nodes. There isn't really a
+meaningful way to check for the availability of a device that doesn't
+actually exist, so if the check isn't implemented just assume that the
+"device" is present.
+
+Suggested-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Reviewed-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Acked-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/base/property.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/base/property.c b/drivers/base/property.c
+index 4c43d30145c6..bc9c634df6df 100644
+--- a/drivers/base/property.c
++++ b/drivers/base/property.c
+@@ -785,9 +785,15 @@ EXPORT_SYMBOL_GPL(fwnode_handle_put);
+ /**
+  * fwnode_device_is_available - check if a device is available for use
+  * @fwnode: Pointer to the fwnode of the device.
++ *
++ * For fwnode node types that don't implement the .device_is_available()
++ * operation, this function returns true.
+  */
+ bool fwnode_device_is_available(const struct fwnode_handle *fwnode)
+ {
++	if (!fwnode_has_op(fwnode, device_is_available))
++		return true;
++
+ 	return fwnode_call_bool_op(fwnode, device_is_available);
+ }
+ EXPORT_SYMBOL_GPL(fwnode_device_is_available);
+-- 
+2.30.0
+
+From b2dc7cef2b9d918da7a2b940da79908c457cf8d3 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sat, 21 Nov 2020 22:06:38 +0000
+Subject: [PATCH] device property: Call fwnode_graph_get_endpoint_by_id() for
+ fwnode->secondary
+
+This function is used to find fwnode endpoints against a device. In
+some instances those endpoints are software nodes which are children of
+fwnode->secondary. Add support to fwnode_graph_get_endpoint_by_id() to
+find those endpoints by recursively calling itself passing the ptr to
+fwnode->secondary in the event no endpoint is found for the primary.
+
+Reviewed-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Acked-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/base/property.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/base/property.c b/drivers/base/property.c
+index bc9c634df6df..ddba75d90af2 100644
+--- a/drivers/base/property.c
++++ b/drivers/base/property.c
+@@ -1163,7 +1163,14 @@ fwnode_graph_get_endpoint_by_id(const struct fwnode_handle *fwnode,
+ 		best_ep_id = fwnode_ep.id;
+ 	}
+ 
+-	return best_ep;
++	if (best_ep)
++		return best_ep;
++
++	if (fwnode && !IS_ERR_OR_NULL(fwnode->secondary))
++		return fwnode_graph_get_endpoint_by_id(fwnode->secondary, port,
++						       endpoint, flags);
++
++	return NULL;
+ }
+ EXPORT_SYMBOL_GPL(fwnode_graph_get_endpoint_by_id);
+ 
+-- 
+2.30.0
+
+From 8452e5146e22fbe5e0e8d6cae4953187774fa4e5 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sun, 25 Oct 2020 22:49:08 +0000
+Subject: [PATCH] software_node: Enforce parent before child ordering of nodes
+ arrays
+
+Registering software_nodes with the .parent member set to point to a
+currently unregistered software_node has the potential for problems,
+so enforce parent -> child ordering in arrays passed in to
+software_node_register_nodes().
+
+Software nodes that are children of another software node should be
+unregistered before their parent. To allow easy unregistering of an array
+of software_nodes ordered parent to child, reverse the order in which
+software_node_unregister_nodes() unregisters software_nodes.
+
+Suggested-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/base/swnode.c | 42 ++++++++++++++++++++++++++++++------------
+ 1 file changed, 30 insertions(+), 12 deletions(-)
 
 diff --git a/drivers/base/swnode.c b/drivers/base/swnode.c
-index 615a0c93e116..af7930b3679e 100644
+index 615a0c93e116..ade49173ff8d 100644
 --- a/drivers/base/swnode.c
 +++ b/drivers/base/swnode.c
-@@ -700,14 +700,21 @@ int software_node_register_nodes(const struct software_node *nodes)
+@@ -692,7 +692,11 @@ swnode_register(const struct software_node *node, struct swnode *parent,
+  * software_node_register_nodes - Register an array of software nodes
+  * @nodes: Zero terminated array of software nodes to be registered
+  *
+- * Register multiple software nodes at once.
++ * Register multiple software nodes at once. If any node in the array
++ * has its .parent pointer set (which can only be to another software_node),
++ * then its parent **must** have been registered before it is; either outside
++ * of this function or by ordering the array such that parent comes before
++ * child.
+  */
+ int software_node_register_nodes(const struct software_node *nodes)
+ {
+@@ -700,14 +704,23 @@ int software_node_register_nodes(const struct software_node *nodes)
  	int i;
  
  	for (i = 0; nodes[i].name; i++) {
-+		if (nodes[i].parent)
-+			if (!software_node_to_swnode(nodes[i].parent)) {
-+				ret = -EINVAL;
-+				goto err_unregister_nodes;
-+			}
-+
- 		ret = software_node_register(&nodes[i]);
+-		ret = software_node_register(&nodes[i]);
 -		if (ret) {
 -			software_node_unregister_nodes(nodes);
 -			return ret;
--		}
++		const struct software_node *parent = nodes[i].parent;
++
++		if (parent && !software_node_to_swnode(parent)) {
++			ret = -EINVAL;
++			goto err_unregister_nodes;
+ 		}
++
++		ret = software_node_register(&nodes[i]);
 +		if (ret)
 +			goto err_unregister_nodes;
  	}
  
  	return 0;
++
 +err_unregister_nodes:
 +	software_node_unregister_nodes(nodes);
 +	return ret;
  }
  EXPORT_SYMBOL_GPL(software_node_register_nodes);
  
--- 
-2.30.0
-
-From a79416727dfa1e3be06459a9f9a53f09cbde73ee Mon Sep 17 00:00:00 2001
-From: Daniel Scally <djrscally@gmail.com>
-Date: Wed, 21 Oct 2020 22:16:38 +0100
-Subject: [PATCH] software_node: Alter software_node_unregister_nodes() to
- unregister the array in reverse order
-
-Software nodes that are children of another software node should be
-unregistered before their parent. To allow easy unregistering of an array
-of software_nodes ordered parent to child, reverse the order in which
-this function unregisters software_nodes.
-
-Suggested-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
-Signed-off-by: Daniel Scally <djrscally@gmail.com>
-Patchset: cameras
----
- drivers/base/swnode.c | 19 ++++++++++++-------
- 1 file changed, 12 insertions(+), 7 deletions(-)
-
-diff --git a/drivers/base/swnode.c b/drivers/base/swnode.c
-index af7930b3679e..d39e1c76d98d 100644
---- a/drivers/base/swnode.c
-+++ b/drivers/base/swnode.c
-@@ -720,20 +720,25 @@ EXPORT_SYMBOL_GPL(software_node_register_nodes);
- 
- /**
+@@ -715,18 +728,23 @@ EXPORT_SYMBOL_GPL(software_node_register_nodes);
   * software_node_unregister_nodes - Unregister an array of software nodes
-- * @nodes: Zero terminated array of software nodes to be unregistered
-+ * @nodes: Zero terminated array of software nodes to be unregistered. If
-+ * parent pointers are set up in any of the software nodes then the array
-+ * MUST be ordered such that parents come before their children.
+  * @nodes: Zero terminated array of software nodes to be unregistered
   *
-  * Unregister multiple software nodes at once.
+- * Unregister multiple software nodes at once.
++ * Unregister multiple software nodes at once. If parent pointers are set up
++ * in any of the software nodes then the array **must** be ordered such that
++ * parents come before their children.
   *
 - * NOTE: Be careful using this call if the nodes had parent pointers set up in
 - * them before registering.  If so, it is wiser to remove the nodes
@@ -692,34 +755,52 @@ index af7930b3679e..d39e1c76d98d 100644
 -- 
 2.30.0
 
-From e2173d849ceec4f6f54386d8c95d5b5bc89c1293 Mon Sep 17 00:00:00 2001
+From 80b7d3402c7466e3c7302b14654ea487906a2b41 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 21 Oct 2020 22:25:03 +0100
-Subject: [PATCH] software_node: amend software_node_unregister_node_group() to
- perform unregistration of array in reverse order to be consistent with
- software_node_unregister_nodes()
+Subject: [PATCH] software_node: unregister software_nodes in reverse order
 
 To maintain consistency with software_node_unregister_nodes(), reverse
 the order in which the software_node_unregister_node_group() function
 unregisters nodes.
 
+Reported-by: kernel test robot <lkp@intel.com>
+Reported-by: Dan Carpenter <dan.carpenter@oracle.com>
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Reviewed-by: Sakari Ailus <sakari.ailus@linux.intel.com>
 Suggested-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
- drivers/base/swnode.c | 5 ++++-
- 1 file changed, 4 insertions(+), 1 deletion(-)
+ drivers/base/swnode.c | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
 
 diff --git a/drivers/base/swnode.c b/drivers/base/swnode.c
-index d39e1c76d98d..9bd0bb77ad5b 100644
+index ade49173ff8d..1f43c51b431e 100644
 --- a/drivers/base/swnode.c
 +++ b/drivers/base/swnode.c
-@@ -782,7 +782,10 @@ void software_node_unregister_node_group(const struct software_node **node_group
+@@ -779,16 +779,23 @@ EXPORT_SYMBOL_GPL(software_node_register_node_group);
+  * software_node_unregister_node_group - Unregister a group of software nodes
+  * @node_group: NULL terminated array of software node pointers to be unregistered
+  *
+- * Unregister multiple software nodes at once.
++ * Unregister multiple software nodes at once. The array will be unwound in
++ * reverse order (i.e. last entry first) and thus if any members of the array are
++ * children of another member then the children must appear later in the list such
++ * that they are unregistered first.
+  */
+-void software_node_unregister_node_group(const struct software_node **node_group)
++void software_node_unregister_node_group(
++		const struct software_node **node_group)
+ {
+-	unsigned int i;
++	unsigned int i = 0;
+ 
  	if (!node_group)
  		return;
  
 -	for (i = 0; node_group[i]; i++)
-+	while (node_group[i]->name)
++	while (node_group[i])
 +		i++;
 +
 +	while (i--)
@@ -729,42 +810,84 @@ index d39e1c76d98d..9bd0bb77ad5b 100644
 -- 
 2.30.0
 
-From 32609e5229c8bb29efde6d1e55ae704a1d932827 Mon Sep 17 00:00:00 2001
+From 36680076a19308bb7c676385497d53749e732516 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Tue, 22 Dec 2020 13:09:05 +0000
+Subject: [PATCH] device property: Define format macros for ports and endpoints
+
+OF, ACPI and software_nodes all implement graphs including nodes for ports
+and endpoints. These are all intended to be named with a common schema,
+as "port@n" and "endpoint@n" where n is an unsigned int representing the
+index of the node. To ensure commonality across the subsystems, provide a
+set of macros to define the format.
+
+Suggested-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Reviewed-by: Andy Shevchenko <andy.shevchenko@gmail.com>
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ include/linux/fwnode.h | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/include/linux/fwnode.h b/include/linux/fwnode.h
+index 9506f8ec0974..72d36d46287d 100644
+--- a/include/linux/fwnode.h
++++ b/include/linux/fwnode.h
+@@ -32,6 +32,13 @@ struct fwnode_endpoint {
+ 	const struct fwnode_handle *local_fwnode;
+ };
+ 
++/*
++ * ports and endpoints defined as software_nodes should all follow a common
++ * naming scheme; use these macros to ensure commonality.
++ */
++#define SWNODE_GRAPH_PORT_NAME_FMT		"port@%u"
++#define SWNODE_GRAPH_ENDPOINT_NAME_FMT		"endpoint@%u"
++
+ #define NR_FWNODE_REFERENCE_ARGS	8
+ 
+ /**
+-- 
+2.30.0
+
+From 66a37ce3a1006cad840edfb227b8d30eff96127c Mon Sep 17 00:00:00 2001
 From: Heikki Krogerus <heikki.krogerus@linux.intel.com>
 Date: Tue, 15 Sep 2020 15:47:46 +0100
 Subject: [PATCH] software_node: Add support for fwnode_graph*() family of
  functions
 
-This implements the remaining .graph_* callbacks in the
-fwnode operations vector for the software nodes. That makes
-the fwnode_graph*() functions available in the drivers also
-when software nodes are used.
+This implements the remaining .graph_*() callbacks in the fwnode
+operations structure for the software nodes. That makes the
+fwnode_graph_*() functions available in the drivers also when software
+nodes are used.
 
-The implementation tries to mimic the "OF graph" as much as
-possible, but there is no support for the "reg" device
-property. The ports will need to have the index in their
-name which starts with "port" (for example "port0", "port1",
-...) and endpoints will use the index of the software node
-that is given to them during creation. The port nodes can
-also be grouped under a specially named "ports" subnode,
-just like in DT, if necessary.
+The implementation tries to mimic the "OF graph" as much as possible, but
+there is no support for the "reg" device property. The ports will need to
+have the index in their  name which starts with "port@" (for example
+"port@0", "port@1", ...) and endpoints will use the index of the software
+node that is given to them during creation. The port nodes can also be
+grouped under a specially named "ports" subnode, just like in DT, if
+necessary.
 
-The remote-endpoints are reference properties under the
-endpoint nodes that are named "remote-endpoint".
+The remote-endpoints are reference properties under the endpoint nodes
+that are named "remote-endpoint".
 
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Reviewed-by: Andy Shevchenko <andy.shevchenko@gmail.com>
 Signed-off-by: Heikki Krogerus <heikki.krogerus@linux.intel.com>
 Co-developed-by: Daniel Scally <djrscally@gmail.com>
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
- drivers/base/swnode.c | 110 +++++++++++++++++++++++++++++++++++++++++-
- 1 file changed, 109 insertions(+), 1 deletion(-)
+ drivers/base/swnode.c | 115 +++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 114 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/base/swnode.c b/drivers/base/swnode.c
-index 9bd0bb77ad5b..0c7a8d6b9ea8 100644
+index 1f43c51b431e..2ff504aca0be 100644
 --- a/drivers/base/swnode.c
 +++ b/drivers/base/swnode.c
-@@ -540,6 +540,110 @@ software_node_get_reference_args(const struct fwnode_handle *fwnode,
+@@ -540,6 +540,115 @@ software_node_get_reference_args(const struct fwnode_handle *fwnode,
  	return 0;
  }
  
@@ -775,7 +898,12 @@ index 9bd0bb77ad5b..0c7a8d6b9ea8 100644
 +	struct fwnode_handle *old = port;
 +
 +	while ((port = software_node_get_next_child(parent, old))) {
-+		if (!strncmp(to_swnode(port)->node->name, "port", 4))
++		/*
++		 * fwnode ports have naming style "port@", so we search for any
++		 * children that follow that convention.
++		 */
++		if (!strncmp(to_swnode(port)->node->name, "port@",
++			     strlen("port@")))
 +			return port;
 +		old = port;
 +	}
@@ -788,7 +916,6 @@ index 9bd0bb77ad5b..0c7a8d6b9ea8 100644
 +				      struct fwnode_handle *endpoint)
 +{
 +	struct swnode *swnode = to_swnode(fwnode);
-+	struct fwnode_handle *old = endpoint;
 +	struct fwnode_handle *parent;
 +	struct fwnode_handle *port;
 +
@@ -807,14 +934,11 @@ index 9bd0bb77ad5b..0c7a8d6b9ea8 100644
 +	}
 +
 +	for (; port; port = swnode_graph_find_next_port(parent, port)) {
-+		endpoint = software_node_get_next_child(port, old);
++		endpoint = software_node_get_next_child(port, endpoint);
 +		if (endpoint) {
 +			fwnode_handle_put(port);
 +			break;
 +		}
-+
-+		/* No more endpoints for that port, so stop passing old */
-+		old = NULL;
 +	}
 +
 +	fwnode_handle_put(parent);
@@ -845,14 +969,12 @@ index 9bd0bb77ad5b..0c7a8d6b9ea8 100644
 +software_node_graph_get_port_parent(struct fwnode_handle *fwnode)
 +{
 +	struct swnode *swnode = to_swnode(fwnode);
-+	struct fwnode_handle *parent;
 +
-+	if (!strcmp(swnode->parent->node->name, "ports"))
-+		parent = &swnode->parent->parent->fwnode;
-+	else
-+		parent = &swnode->parent->fwnode;
++	swnode = swnode->parent;
++	if (swnode && !strcmp(swnode->node->name, "ports"))
++		swnode = swnode->parent;
 +
-+	return software_node_get(parent);
++	return swnode ? software_node_get(&swnode->fwnode) : NULL;
 +}
 +
 +static int
@@ -860,9 +982,15 @@ index 9bd0bb77ad5b..0c7a8d6b9ea8 100644
 +				   struct fwnode_endpoint *endpoint)
 +{
 +	struct swnode *swnode = to_swnode(fwnode);
++	const char *parent_name = swnode->parent->node->name;
 +	int ret;
 +
-+	ret = kstrtou32(swnode->parent->node->name + 4, 10, &endpoint->port);
++	if (strlen("port@") >= strlen(parent_name) ||
++	    strncmp(parent_name, "port@", strlen("port@")))
++		return -EINVAL;
++
++	/* Ports have naming style "port@n", we need to select the n */
++	ret = kstrtou32(parent_name + strlen("port@"), 10, &endpoint->port);
 +	if (ret)
 +		return ret;
 +
@@ -875,7 +1003,7 @@ index 9bd0bb77ad5b..0c7a8d6b9ea8 100644
  static const struct fwnode_operations software_node_ops = {
  	.get = software_node_get,
  	.put = software_node_put,
-@@ -551,7 +655,11 @@ static const struct fwnode_operations software_node_ops = {
+@@ -551,7 +660,11 @@ static const struct fwnode_operations software_node_ops = {
  	.get_parent = software_node_get_parent,
  	.get_next_child_node = software_node_get_next_child,
  	.get_named_child_node = software_node_get_named_child_node,
@@ -891,7 +1019,7 @@ index 9bd0bb77ad5b..0c7a8d6b9ea8 100644
 -- 
 2.30.0
 
-From 978da96368c650761c10c831f75c8a6d70f7d280 Mon Sep 17 00:00:00 2001
+From e9bf595805cf27d4c32c26fff7a436a27f87f3f6 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Oct 2020 23:07:22 +0100
 Subject: [PATCH] lib/test_printf.c: Use helper function to unwind array of
@@ -900,6 +1028,10 @@ Subject: [PATCH] lib/test_printf.c: Use helper function to unwind array of
 Use the software_node_unregister_nodes() helper function to unwind this
 array in a cleaner way.
 
+Acked-by: Petr Mladek <pmladek@suse.com>
+Reviewed-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Reviewed-by: Sergey Senozhatsky <sergey.senozhatsky@gmail.com>
 Suggested-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
@@ -925,7 +1057,7 @@ index 7ac87f18a10f..7d60f24240a4 100644
 -- 
 2.30.0
 
-From 325fd20fa2707b688748b9cc4e3e984c56dd0700 Mon Sep 17 00:00:00 2001
+From 04992b1d41966cd2b530f1c8e87c419b879c13ee Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Oct 2020 23:11:36 +0100
 Subject: [PATCH] ipu3-cio2: Add T: entry to MAINTAINERS
@@ -933,6 +1065,8 @@ Subject: [PATCH] ipu3-cio2: Add T: entry to MAINTAINERS
 Development for the ipu3-cio2 driver is taking place in media_tree, but
 there's no T: entry in MAINTAINERS to denote that - rectify that oversight
 
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Reviewed-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
@@ -954,16 +1088,17 @@ index 281de213ef47..5a1c6e959aa8 100644
 -- 
 2.30.0
 
-From 38dcf34032f38521a24e767d6b9224d15fd456b8 Mon Sep 17 00:00:00 2001
+From efcc6013048dfe65c2867a18454c83db7d5706cc Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Oct 2020 22:47:21 +0100
-Subject: [PATCH] ipu3-cio2: Rename ipu3-cio2.c to allow module to be built
- from multiple source files retaining ipu3-cio2 name
+Subject: [PATCH] ipu3-cio2: Rename ipu3-cio2.c
 
 ipu3-cio2 driver needs extending with multiple files; rename the main
 source file and specify the renamed file in Makefile to accommodate that.
 
 Suggested-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Reviewed-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
@@ -988,17 +1123,19 @@ rename to drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
 -- 
 2.30.0
 
-From 74556421e7287ffce9ff0155df832094dd352ed1 Mon Sep 17 00:00:00 2001
+From bb53a2cedba77977298f3760b79fcaf2fb4de35e Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 21 Oct 2020 21:53:05 +0100
-Subject: [PATCH] media: v4l2-core: v4l2-async: Check possible match in
- match_fwnode based on sd->fwnode->secondary
+Subject: [PATCH] media: v4l2-core: v4l2-async: Check sd->fwnode->secondary in
+ match_fwnode()
 
 Where the fwnode graph is comprised of software_nodes, these will be
 assigned as the secondary to dev->fwnode. Check the v4l2_subdev's fwnode
 for a secondary and attempt to match against it during match_fwnode() to
 accommodate that possibility.
 
+Reviewed-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
@@ -1006,7 +1143,7 @@ Patchset: cameras
  1 file changed, 8 insertions(+)
 
 diff --git a/drivers/media/v4l2-core/v4l2-async.c b/drivers/media/v4l2-core/v4l2-async.c
-index e3ab003a6c85..6486dbde784f 100644
+index e3ab003a6c85..9dd896d085ec 100644
 --- a/drivers/media/v4l2-core/v4l2-async.c
 +++ b/drivers/media/v4l2-core/v4l2-async.c
 @@ -87,6 +87,14 @@ static bool match_fwnode(struct v4l2_async_notifier *notifier,
@@ -1017,7 +1154,7 @@ index e3ab003a6c85..6486dbde784f 100644
 +	 * Check the same situation for any possible secondary assigned to the
 +	 * subdev's fwnode
 +	 */
-+	if ((!IS_ERR_OR_NULL(sd->fwnode->secondary)) &&
++	if (!IS_ERR_OR_NULL(sd->fwnode->secondary) &&
 +	    sd->fwnode->secondary == asd->match.fwnode)
 +		return true;
 +
@@ -1027,11 +1164,11 @@ index e3ab003a6c85..6486dbde784f 100644
 -- 
 2.30.0
 
-From 902528ae0440be5e64107effc15efe0b8b4fcc71 Mon Sep 17 00:00:00 2001
+From 47a7ed8249f90d1feecd46168e01e89d80dc28af Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 15 Nov 2020 08:15:34 +0000
-Subject: [PATCH] acpi: Add acpi_dev_get_next_match_dev() and macro to iterate
- through acpi_devices matching a given _HID
+Subject: [PATCH] ACPI / bus: Add acpi_dev_get_next_match_dev() and helper
+ macro
 
 To ensure we handle situations in which multiple sensors of the same
 model (and therefore _HID) are present in a system, we need to be able
@@ -1040,6 +1177,8 @@ to iterate over devices matching a known _HID but unknown _UID and _HRV
 change acpi_dev_get_first_match_dev() to simply call the new function
 with a NULL starting point. Add an iterator macro for convenience.
 
+Reviewed-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Reviewed-by: Sakari Ailus <sakari.ailus@linux.intel.com>
 Suggested-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
@@ -1049,7 +1188,7 @@ Patchset: cameras
  2 files changed, 33 insertions(+), 4 deletions(-)
 
 diff --git a/drivers/acpi/utils.c b/drivers/acpi/utils.c
-index d5411a166685..c177165c8db2 100644
+index d5411a166685..ddca1550cce6 100644
 --- a/drivers/acpi/utils.c
 +++ b/drivers/acpi/utils.c
 @@ -843,12 +843,13 @@ bool acpi_dev_present(const char *hid, const char *uid, s64 hrv)
@@ -1058,7 +1197,7 @@ index d5411a166685..c177165c8db2 100644
  /**
 - * acpi_dev_get_first_match_dev - Return the first match of ACPI device
 + * acpi_dev_get_next_match_dev - Return the next match of ACPI device
-+ * @adev: Pointer to the previous acpi_device matching this hid, uid and hrv
++ * @adev: Pointer to the previous acpi_device matching this @hid, @uid and @hrv
   * @hid: Hardware ID of the device.
   * @uid: Unique ID of the device, pass NULL to not check _UID
   * @hrv: Hardware Revision of the device, pass -1 to not check _HRV
@@ -1134,11 +1273,87 @@ index 6d1879bf9440..02a716a0af5d 100644
 -- 
 2.30.0
 
-From fe93b62c3e4bd129fe8e47c935e637f06e0e412a Mon Sep 17 00:00:00 2001
+From ea1cb255acba34acd94d3a044d0dca5b896de305 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sat, 19 Dec 2020 23:55:04 +0000
+Subject: [PATCH] media: v4l2-fwnode: Include v4l2_fwnode_bus_type
+
+V4L2 fwnode bus types are enumerated in v4l2-fwnode.c, meaning they aren't
+available to the rest of the kernel. Move the enum to the corresponding
+header so that I can use the label to refer to those values.
+
+Suggested-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Reviewed-by: Andy Shevchenko <andy.shevchenko@gmail.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/v4l2-core/v4l2-fwnode.c | 11 -----------
+ include/media/v4l2-fwnode.h           | 22 ++++++++++++++++++++++
+ 2 files changed, 22 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/media/v4l2-core/v4l2-fwnode.c b/drivers/media/v4l2-core/v4l2-fwnode.c
+index dfc53d11053f..fe01aeb59fd4 100644
+--- a/drivers/media/v4l2-core/v4l2-fwnode.c
++++ b/drivers/media/v4l2-core/v4l2-fwnode.c
+@@ -28,17 +28,6 @@
+ #include <media/v4l2-fwnode.h>
+ #include <media/v4l2-subdev.h>
+ 
+-enum v4l2_fwnode_bus_type {
+-	V4L2_FWNODE_BUS_TYPE_GUESS = 0,
+-	V4L2_FWNODE_BUS_TYPE_CSI2_CPHY,
+-	V4L2_FWNODE_BUS_TYPE_CSI1,
+-	V4L2_FWNODE_BUS_TYPE_CCP2,
+-	V4L2_FWNODE_BUS_TYPE_CSI2_DPHY,
+-	V4L2_FWNODE_BUS_TYPE_PARALLEL,
+-	V4L2_FWNODE_BUS_TYPE_BT656,
+-	NR_OF_V4L2_FWNODE_BUS_TYPE,
+-};
+-
+ static const struct v4l2_fwnode_bus_conv {
+ 	enum v4l2_fwnode_bus_type fwnode_bus_type;
+ 	enum v4l2_mbus_type mbus_type;
+diff --git a/include/media/v4l2-fwnode.h b/include/media/v4l2-fwnode.h
+index ed0840f3d5df..6ca337c28b3c 100644
+--- a/include/media/v4l2-fwnode.h
++++ b/include/media/v4l2-fwnode.h
+@@ -213,6 +213,28 @@ struct v4l2_fwnode_connector {
+ 	} connector;
+ };
+ 
++/**
++ * enum v4l2_fwnode_bus_type - Video bus types defined by firmware properties
++ * @V4L2_FWNODE_BUS_TYPE_GUESS: Default value if no bus-type fwnode property
++ * @V4L2_FWNODE_BUS_TYPE_CSI2_CPHY: MIPI CSI-2 bus, C-PHY physical layer
++ * @V4L2_FWNODE_BUS_TYPE_CSI1: MIPI CSI-1 bus
++ * @V4L2_FWNODE_BUS_TYPE_CCP2: SMIA Compact Camera Port 2 bus
++ * @V4L2_FWNODE_BUS_TYPE_CSI2_DPHY: MIPI CSI-2 bus, D-PHY physical layer
++ * @V4L2_FWNODE_BUS_TYPE_PARALLEL: Camera Parallel Interface bus
++ * @V4L2_FWNODE_BUS_TYPE_BT656: BT.656 video format bus-type
++ * @NR_OF_V4L2_FWNODE_BUS_TYPE: Number of bus-types
++ */
++enum v4l2_fwnode_bus_type {
++	V4L2_FWNODE_BUS_TYPE_GUESS = 0,
++	V4L2_FWNODE_BUS_TYPE_CSI2_CPHY,
++	V4L2_FWNODE_BUS_TYPE_CSI1,
++	V4L2_FWNODE_BUS_TYPE_CCP2,
++	V4L2_FWNODE_BUS_TYPE_CSI2_DPHY,
++	V4L2_FWNODE_BUS_TYPE_PARALLEL,
++	V4L2_FWNODE_BUS_TYPE_BT656,
++	NR_OF_V4L2_FWNODE_BUS_TYPE
++};
++
+ /**
+  * v4l2_fwnode_endpoint_parse() - parse all fwnode node properties
+  * @fwnode: pointer to the endpoint's fwnode handle
+-- 
+2.30.0
+
+From 5a38238f1349d7641f41d2a3fa86743d7c1dab2d Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 21 Oct 2020 21:53:44 +0100
-Subject: [PATCH] ipu3-cio2: Add functionality allowing software_node
- connections to sensors on platforms designed for Windows
+Subject: [PATCH] ipu3-cio2: Add cio2-bridge to ipu3-cio2 driver
 
 Currently on platforms designed for Windows, connections between CIO2 and
 sensors are not properly defined in DSDT. This patch extends the ipu3-cio2
@@ -1146,17 +1361,20 @@ driver to compensate by building software_node connections, parsing the
 connection properties from the sensor's SSDB buffer.
 
 Suggested-by: Jordan Hand <jorhand@linux.microsoft.com>
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Reviewed-by: Andy Shevchenko <andy.shevchenko@gmail.com>
+Reviewed-by: Kieran Bingham <kieran.bingham@ideasonboard.com>
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
  MAINTAINERS                                   |   1 +
- drivers/media/pci/intel/ipu3/Kconfig          |  18 ++
+ drivers/media/pci/intel/ipu3/Kconfig          |  18 +
  drivers/media/pci/intel/ipu3/Makefile         |   1 +
- drivers/media/pci/intel/ipu3/cio2-bridge.c    | 260 ++++++++++++++++++
- drivers/media/pci/intel/ipu3/cio2-bridge.h    | 108 ++++++++
- drivers/media/pci/intel/ipu3/ipu3-cio2-main.c |  27 ++
+ drivers/media/pci/intel/ipu3/cio2-bridge.c    | 311 ++++++++++++++++++
+ drivers/media/pci/intel/ipu3/cio2-bridge.h    | 125 +++++++
+ drivers/media/pci/intel/ipu3/ipu3-cio2-main.c |  34 ++
  drivers/media/pci/intel/ipu3/ipu3-cio2.h      |   6 +
- 7 files changed, 421 insertions(+)
+ 7 files changed, 496 insertions(+)
  create mode 100644 drivers/media/pci/intel/ipu3/cio2-bridge.c
  create mode 100644 drivers/media/pci/intel/ipu3/cio2-bridge.h
 
@@ -1173,7 +1391,7 @@ index 5a1c6e959aa8..a6924e3401e8 100644
  L:	linux-media@vger.kernel.org
  S:	Maintained
 diff --git a/drivers/media/pci/intel/ipu3/Kconfig b/drivers/media/pci/intel/ipu3/Kconfig
-index 82d7f17e6a02..2b3350d042be 100644
+index 82d7f17e6a02..96a2231b16ad 100644
 --- a/drivers/media/pci/intel/ipu3/Kconfig
 +++ b/drivers/media/pci/intel/ipu3/Kconfig
 @@ -16,3 +16,21 @@ config VIDEO_IPU3_CIO2
@@ -1186,14 +1404,14 @@ index 82d7f17e6a02..2b3350d042be 100644
 +	depends on VIDEO_IPU3_CIO2
 +	help
 +	  This extension provides an API for the ipu3-cio2 driver to create
-+	  connections to cameras that are hidden in SSDB buffer in ACPI. It
-+	  can be used to enable support for cameras in detachable / hybrid
++	  connections to cameras that are hidden in the SSDB buffer in ACPI.
++	  It can be used to enable support for cameras in detachable / hybrid
 +	  devices that ship with Windows.
 +
 +	  Say Y here if your device is a detachable / hybrid laptop that comes
 +	  with Windows installed by the OEM, for example:
 +
-+	  	- Microsoft Surface models (except Surface Pro 3)
++		- Microsoft Surface models (except Surface Pro 3)
 +		- The Lenovo Miix line (for example the 510, 520, 710 and 720)
 +		- Dell 7285
 +
@@ -1209,30 +1427,45 @@ index 429d516452e4..933777e6ea8a 100644
 +ipu3-cio2-$(CONFIG_CIO2_BRIDGE) += cio2-bridge.o
 diff --git a/drivers/media/pci/intel/ipu3/cio2-bridge.c b/drivers/media/pci/intel/ipu3/cio2-bridge.c
 new file mode 100644
-index 000000000000..fd3f8ba07274
+index 000000000000..143f3c0f445e
 --- /dev/null
 +++ b/drivers/media/pci/intel/ipu3/cio2-bridge.c
-@@ -0,0 +1,260 @@
+@@ -0,0 +1,311 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/* Author: Dan Scally <djrscally@gmail.com> */
++
 +#include <linux/acpi.h>
 +#include <linux/device.h>
-+#include <linux/i2c.h>
-+#include <linux/kernel.h>
-+#include <linux/module.h>
 +#include <linux/pci.h>
 +#include <linux/property.h>
-+#include <media/v4l2-subdev.h>
++#include <media/v4l2-fwnode.h>
 +
 +#include "cio2-bridge.h"
 +
 +/*
-+ * Extend this array with ACPI Hardware ID's of devices known to be working.
-+ * Do not add a HID for a sensor that is not actually supported.
++ * Extend this array with ACPI Hardware IDs of devices known to be working
++ * plus the number of link-frequencies expected by their drivers, along with
++ * the frequency values in hertz. This is somewhat opportunistic way of adding
++ * support for this for now in the hopes of a better source for the information
++ * (possibly some encoded value in the SSDB buffer that we're unaware of)
++ * becoming apparent in the future.
++ *
++ * Do not add an entry for a sensor that is not actually supported.
 + */
-+static const char * const cio2_supported_devices[] = {
-+	"INT33BE",
-+	"OVTI2680",
++static const struct cio2_sensor_config cio2_supported_sensors[] = {
++	/* Omnivision OV5693 */
++	CIO2_SENSOR_CONFIG("INT33BE", 0),
++	/* Omnivision OV2680 */
++	CIO2_SENSOR_CONFIG("OVTI2680", 0),
++};
++
++static const struct cio2_property_names prop_names = {
++	.clock_frequency = "clock-frequency",
++	.rotation = "rotation",
++	.bus_type = "bus-type",
++	.data_lanes = "data-lanes",
++	.remote_endpoint = "remote-endpoint",
++	.link_frequencies = "link-frequencies",
 +};
 +
 +static int cio2_bridge_read_acpi_buffer(struct acpi_device *adev, char *id,
@@ -1241,7 +1474,7 @@ index 000000000000..fd3f8ba07274
 +	struct acpi_buffer buffer = { ACPI_ALLOCATE_BUFFER, NULL };
 +	union acpi_object *obj;
 +	acpi_status status;
-+	int ret;
++	int ret = 0;
 +
 +	status = acpi_evaluate_object(adev->handle, id, NULL, &buffer);
 +	if (ACPI_FAILURE(status))
@@ -1266,66 +1499,66 @@ index 000000000000..fd3f8ba07274
 +	}
 +
 +	memcpy(data, obj->buffer.pointer, obj->buffer.length);
-+	ret = obj->buffer.length;
 +
 +out_free_buff:
 +	kfree(buffer.pointer);
 +	return ret;
 +}
 +
-+static void cio2_bridge_init_property_names(struct cio2_sensor *sensor)
++static void cio2_bridge_create_fwnode_properties(
++	struct cio2_sensor *sensor,
++	struct cio2_bridge *bridge,
++	const struct cio2_sensor_config *cfg)
 +{
-+	strcpy(sensor->prop_names.clock_frequency, "clock-frequency");
-+	strcpy(sensor->prop_names.rotation, "rotation");
-+	strcpy(sensor->prop_names.bus_type, "bus-type");
-+	strcpy(sensor->prop_names.data_lanes, "data-lanes");
-+	strcpy(sensor->prop_names.remote_endpoint, "remote-endpoint");
-+}
++	sensor->prop_names = prop_names;
 +
-+static void cio2_bridge_create_fwnode_properties(struct cio2_sensor *sensor)
-+{
-+	unsigned int i;
++	sensor->local_ref[0].node = &sensor->swnodes[SWNODE_CIO2_ENDPOINT];
++	sensor->remote_ref[0].node = &sensor->swnodes[SWNODE_SENSOR_ENDPOINT];
 +
-+	cio2_bridge_init_property_names(sensor);
++	sensor->dev_properties[0] = PROPERTY_ENTRY_U32(
++					sensor->prop_names.clock_frequency,
++					sensor->ssdb.mclkspeed);
++	sensor->dev_properties[1] = PROPERTY_ENTRY_U8(
++					sensor->prop_names.rotation,
++					sensor->ssdb.degree);
 +
-+	for (i = 0; i < 4; i++)
-+		sensor->data_lanes[i] = i + 1;
++	sensor->ep_properties[0] = PROPERTY_ENTRY_U32(
++					sensor->prop_names.bus_type,
++					V4L2_FWNODE_BUS_TYPE_CSI2_DPHY);
++	sensor->ep_properties[1] = PROPERTY_ENTRY_U32_ARRAY_LEN(
++					sensor->prop_names.data_lanes,
++					bridge->data_lanes,
++					sensor->ssdb.lanes);
++	sensor->ep_properties[2] = PROPERTY_ENTRY_REF_ARRAY(
++					sensor->prop_names.remote_endpoint,
++					sensor->local_ref);
 +
-+	/*
-+	 * Can't use PROPERTY_ENTRY_REF because it creates a new variable to
-+	 * point to, which doesn't survive the function.
-+	 */
-+	sensor->local_ref[0] = (struct software_node_ref_args){
-+		.node = &sensor->swnodes[SWNODE_CIO2_ENDPOINT]
-+		};
-+	sensor->remote_ref[0] = (struct software_node_ref_args){
-+		.node = &sensor->swnodes[SWNODE_SENSOR_ENDPOINT]
-+		};
++	if (cfg->nr_link_freqs > 0)
++		sensor->ep_properties[3] = PROPERTY_ENTRY_U64_ARRAY_LEN(
++						sensor->prop_names.link_frequencies,
++						cfg->link_freqs,
++						cfg->nr_link_freqs);
 +
-+	sensor->dev_properties[0] = PROPERTY_ENTRY_U32(sensor->prop_names.clock_frequency,
-+						       sensor->ssdb.mclkspeed);
-+	sensor->dev_properties[1] = PROPERTY_ENTRY_U8(sensor->prop_names.rotation,
-+						      sensor->ssdb.degree);
-+
-+	sensor->ep_properties[0] = PROPERTY_ENTRY_U32(sensor->prop_names.bus_type, 5);
-+	sensor->ep_properties[1] = PROPERTY_ENTRY_U32_ARRAY_LEN(sensor->prop_names.data_lanes,
-+								sensor->data_lanes,
-+								sensor->ssdb.lanes);
-+	sensor->ep_properties[2] = PROPERTY_ENTRY_REF_ARRAY(sensor->prop_names.remote_endpoint,
-+							    sensor->local_ref);
-+
-+	sensor->cio2_properties[0] = PROPERTY_ENTRY_U32_ARRAY_LEN(sensor->prop_names.data_lanes,
-+								  sensor->data_lanes,
-+								  sensor->ssdb.lanes);
-+	sensor->cio2_properties[1] = PROPERTY_ENTRY_REF_ARRAY(sensor->prop_names.remote_endpoint,
-+							      sensor->remote_ref);
++	sensor->cio2_properties[0] = PROPERTY_ENTRY_U32_ARRAY_LEN(
++					sensor->prop_names.data_lanes,
++					bridge->data_lanes,
++					sensor->ssdb.lanes);
++	sensor->cio2_properties[1] = PROPERTY_ENTRY_REF_ARRAY(
++					sensor->prop_names.remote_endpoint,
++					sensor->remote_ref);
 +}
 +
 +static void cio2_bridge_init_swnode_names(struct cio2_sensor *sensor)
 +{
-+	snprintf(sensor->node_names.remote_port, 6, "port%u", sensor->ssdb.link);
-+	strcpy(sensor->node_names.port, "port0");
-+	strcpy(sensor->node_names.endpoint, "endpoint0");
++	snprintf(sensor->node_names.remote_port,
++		 sizeof(sensor->node_names.remote_port),
++		 SWNODE_GRAPH_PORT_NAME_FMT, sensor->ssdb.link);
++	snprintf(sensor->node_names.port,
++		 sizeof(sensor->node_names.port),
++		 SWNODE_GRAPH_PORT_NAME_FMT, 0); /* Always port 0 */
++	snprintf(sensor->node_names.endpoint,
++		 sizeof(sensor->node_names.endpoint),
++		 SWNODE_GRAPH_ENDPOINT_NAME_FMT, 0); /* And endpoint 0 */
 +}
 +
 +static void cio2_bridge_create_connection_swnodes(struct cio2_bridge *bridge,
@@ -1339,14 +1572,16 @@ index 000000000000..fd3f8ba07274
 +					       sensor->dev_properties);
 +	nodes[SWNODE_SENSOR_PORT] = NODE_PORT(sensor->node_names.port,
 +					      &nodes[SWNODE_SENSOR_HID]);
-+	nodes[SWNODE_SENSOR_ENDPOINT] = NODE_ENDPOINT(sensor->node_names.endpoint,
-+						      &nodes[SWNODE_SENSOR_PORT],
-+						      sensor->ep_properties);
++	nodes[SWNODE_SENSOR_ENDPOINT] = NODE_ENDPOINT(
++						sensor->node_names.endpoint,
++						&nodes[SWNODE_SENSOR_PORT],
++						sensor->ep_properties);
 +	nodes[SWNODE_CIO2_PORT] = NODE_PORT(sensor->node_names.remote_port,
 +					    &bridge->cio2_hid_node);
-+	nodes[SWNODE_CIO2_ENDPOINT] = NODE_ENDPOINT(sensor->node_names.endpoint,
-+						    &nodes[SWNODE_CIO2_PORT],
-+						    sensor->cio2_properties);
++	nodes[SWNODE_CIO2_ENDPOINT] = NODE_ENDPOINT(
++						sensor->node_names.endpoint,
++						&nodes[SWNODE_CIO2_PORT],
++						sensor->cio2_properties);
 +}
 +
 +static void cio2_bridge_unregister_sensors(struct cio2_bridge *bridge)
@@ -1361,67 +1596,92 @@ index 000000000000..fd3f8ba07274
 +	}
 +}
 +
-+static int cio2_bridge_connect_sensors(struct cio2_bridge *bridge)
++static int cio2_bridge_connect_sensor(const struct cio2_sensor_config *cfg,
++				      struct cio2_bridge *bridge,
++				      struct pci_dev *cio2)
 +{
 +	struct fwnode_handle *fwnode;
 +	struct cio2_sensor *sensor;
 +	struct acpi_device *adev;
-+	unsigned int i;
-+	int ret = 0;
++	int ret;
 +
-+	for (i = 0; i < ARRAY_SIZE(cio2_supported_devices); i++) {
-+		const char *this_device = cio2_supported_devices[i];
++	for_each_acpi_dev_match(adev, cfg->hid, NULL, -1) {
++		if (!adev->status.enabled)
++			continue;
 +
-+		for_each_acpi_dev_match(adev, this_device, NULL, -1) {
-+			if (!adev || !(adev->status.present && adev->status.enabled))
-+				continue;
-+
-+			sensor = &bridge->sensors[bridge->n_sensors];
-+			sensor->adev = adev;
-+			strscpy(sensor->name, this_device, sizeof(sensor->name));
-+
-+			ret = cio2_bridge_read_acpi_buffer(adev, "SSDB",
-+							   &sensor->ssdb,
-+							   sizeof(sensor->ssdb));
-+			if (ret < 0)
-+				goto err_put_adev;
-+
-+			if (sensor->ssdb.lanes > 4) {
-+				dev_err(&adev->dev,
-+					"Number of lanes in SSDB is invalid\n");
-+				goto err_put_adev;
-+			}
-+
-+			cio2_bridge_create_fwnode_properties(sensor);
-+			cio2_bridge_create_connection_swnodes(bridge, sensor);
-+
-+			ret = software_node_register_nodes(sensor->swnodes);
-+			if (ret)
-+				goto err_put_adev;
-+
-+			fwnode = software_node_fwnode(&sensor->swnodes[SWNODE_SENSOR_HID]);
-+			if (!fwnode) {
-+				ret = -ENODEV;
-+				goto err_free_swnodes;
-+			}
-+
-+			adev->fwnode.secondary = fwnode;
-+
-+			dev_info(&bridge->cio2->dev,
-+				 "Found supported sensor %s\n",
-+				 acpi_dev_name(adev));
-+
-+			bridge->n_sensors++;
++		if (bridge->n_sensors >= CIO2_NUM_PORTS) {
++			dev_err(&cio2->dev, "Exceeded available CIO2 ports\n");
++			cio2_bridge_unregister_sensors(bridge);
++			ret = -EINVAL;
++			goto err_out;
 +		}
++
++		sensor = &bridge->sensors[bridge->n_sensors];
++		sensor->adev = adev;
++		strscpy(sensor->name, cfg->hid, sizeof(sensor->name));
++
++		ret = cio2_bridge_read_acpi_buffer(adev, "SSDB",
++						   &sensor->ssdb,
++						   sizeof(sensor->ssdb));
++		if (ret)
++			goto err_put_adev;
++
++		if (sensor->ssdb.lanes > CIO2_MAX_LANES) {
++			dev_err(&adev->dev,
++				"Number of lanes in SSDB is invalid\n");
++			ret = -EINVAL;
++			goto err_put_adev;
++		}
++
++		cio2_bridge_create_fwnode_properties(sensor, bridge, cfg);
++		cio2_bridge_create_connection_swnodes(bridge, sensor);
++
++		ret = software_node_register_nodes(sensor->swnodes);
++		if (ret)
++			goto err_put_adev;
++
++		fwnode = software_node_fwnode(&sensor->swnodes[SWNODE_SENSOR_HID]);
++		if (!fwnode) {
++			ret = -ENODEV;
++			goto err_free_swnodes;
++		}
++
++		adev->fwnode.secondary = fwnode;
++
++		dev_info(&cio2->dev, "Found supported sensor %s\n",
++			 acpi_dev_name(adev));
++
++		bridge->n_sensors++;
 +	}
 +
-+	return ret;
++	return 0;
 +
 +err_free_swnodes:
 +	software_node_unregister_nodes(sensor->swnodes);
 +err_put_adev:
 +	acpi_dev_put(sensor->adev);
++err_out:
++	return ret;
++}
 +
++static int cio2_bridge_connect_sensors(struct cio2_bridge *bridge,
++				       struct pci_dev *cio2)
++{
++	unsigned int i;
++	int ret;
++
++	for (i = 0; i < ARRAY_SIZE(cio2_supported_sensors); i++) {
++		const struct cio2_sensor_config *cfg = &cio2_supported_sensors[i];
++
++		ret = cio2_bridge_connect_sensor(cfg, bridge, cio2);
++		if (ret)
++			goto err_unregister_sensors;
++	}
++
++	return 0;
++
++err_unregister_sensors:
++	cio2_bridge_unregister_sensors(bridge);
 +	return ret;
 +}
 +
@@ -1430,6 +1690,7 @@ index 000000000000..fd3f8ba07274
 +	struct device *dev = &cio2->dev;
 +	struct fwnode_handle *fwnode;
 +	struct cio2_bridge *bridge;
++	unsigned int i;
 +	int ret;
 +
 +	bridge = kzalloc(sizeof(*bridge), GFP_KERNEL);
@@ -1437,16 +1698,25 @@ index 000000000000..fd3f8ba07274
 +		return -ENOMEM;
 +
 +	strscpy(bridge->cio2_node_name, CIO2_HID, sizeof(bridge->cio2_node_name));
-+	bridge->cio2_hid_node = (const struct software_node){ bridge->cio2_node_name };
-+	bridge->cio2 = pci_dev_get(cio2);
++	bridge->cio2_hid_node.name = bridge->cio2_node_name;
 +
 +	ret = software_node_register(&bridge->cio2_hid_node);
 +	if (ret < 0) {
 +		dev_err(dev, "Failed to register the CIO2 HID node\n");
-+		goto err_put_cio2;
++		goto err_free_bridge;
 +	}
 +
-+	ret = cio2_bridge_connect_sensors(bridge);
++	/*
++	 * Map the lane arrangement, which is fixed for the IPU3 (meaning we
++	 * only need one, rather than one per sensor). We include it as a
++	 * member of the struct cio2_bridge rather than a global variable so
++	 * that it survives if the module is unloaded along with the rest of
++	 * the struct.
++	 */
++	for (i = 0; i < CIO2_MAX_LANES; i++)
++		bridge->data_lanes[i] = i + 1;
++
++	ret = cio2_bridge_connect_sensors(bridge, cio2);
 +	if (ret || bridge->n_sensors == 0)
 +		goto err_unregister_cio2;
 +
@@ -1467,46 +1737,56 @@ index 000000000000..fd3f8ba07274
 +	cio2_bridge_unregister_sensors(bridge);
 +err_unregister_cio2:
 +	software_node_unregister(&bridge->cio2_hid_node);
-+err_put_cio2:
-+	pci_dev_put(bridge->cio2);
-+
++err_free_bridge:
 +	kfree(bridge);
++
 +	return ret;
 +}
 diff --git a/drivers/media/pci/intel/ipu3/cio2-bridge.h b/drivers/media/pci/intel/ipu3/cio2-bridge.h
 new file mode 100644
-index 000000000000..96f5c8a12be0
+index 000000000000..dd0ffcafa489
 --- /dev/null
 +++ b/drivers/media/pci/intel/ipu3/cio2-bridge.h
-@@ -0,0 +1,108 @@
+@@ -0,0 +1,125 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/* Author: Dan Scally <djrscally@gmail.com> */
 +#ifndef __CIO2_BRIDGE_H
 +#define __CIO2_BRIDGE_H
 +
 +#include <linux/property.h>
++#include <linux/types.h>
++
++#include "ipu3-cio2.h"
 +
 +#define CIO2_HID				"INT343E"
-+#define CIO2_NUM_PORTS			  4
++#define CIO2_MAX_LANES				4
++#define MAX_NUM_LINK_FREQS			3
++
++#define CIO2_SENSOR_CONFIG(_HID, _NR, ...)	\
++	(const struct cio2_sensor_config) {	\
++		.hid = _HID,			\
++		.nr_link_freqs = _NR,		\
++		.link_freqs = { __VA_ARGS__ }	\
++	}
 +
 +#define NODE_SENSOR(_HID, _PROPS)		\
-+	((const struct software_node) {		\
++	(const struct software_node) {		\
 +		.name = _HID,			\
 +		.properties = _PROPS,		\
-+	})
++	}
 +
 +#define NODE_PORT(_PORT, _SENSOR_NODE)		\
-+	((const struct software_node) {		\
-+		_PORT,				\
-+		_SENSOR_NODE,			\
-+	})
++	(const struct software_node) {		\
++		.name = _PORT,			\
++		.parent = _SENSOR_NODE,		\
++	}
 +
 +#define NODE_ENDPOINT(_EP, _PORT, _PROPS)	\
-+	((const struct software_node) {		\
-+		_EP,				\
-+		_PORT,				\
-+		_PROPS,				\
-+	})
++	(const struct software_node) {		\
++		.name = _EP,			\
++		.parent = _PORT,		\
++		.properties = _PROPS,		\
++	}
 +
 +enum cio2_sensor_swnodes {
 +	SWNODE_SENSOR_HID,
@@ -1514,7 +1794,7 @@ index 000000000000..96f5c8a12be0
 +	SWNODE_SENSOR_ENDPOINT,
 +	SWNODE_CIO2_PORT,
 +	SWNODE_CIO2_ENDPOINT,
-+	NR_OF_SENSOR_SWNODES
++	SWNODE_COUNT
 +};
 +
 +/* Data representation as it is in ACPI SSDB buffer */
@@ -1545,7 +1825,7 @@ index 000000000000..96f5c8a12be0
 +	u8 reserved1[3];
 +	u8 mclkport;
 +	u8 reserved2[13];
-+} __packed__;
++} __packed;
 +
 +struct cio2_property_names {
 +	char clock_frequency[16];
@@ -1553,12 +1833,19 @@ index 000000000000..96f5c8a12be0
 +	char bus_type[9];
 +	char data_lanes[11];
 +	char remote_endpoint[16];
++	char link_frequencies[17];
 +};
 +
 +struct cio2_node_names {
-+	char port[6];
-+	char endpoint[10];
-+	char remote_port[6];
++	char port[7];
++	char endpoint[11];
++	char remote_port[7];
++};
++
++struct cio2_sensor_config {
++	const char *hid;
++	const u8 nr_link_freqs;
++	const u64 link_freqs[MAX_NUM_LINK_FREQS];
 +};
 +
 +struct cio2_sensor {
@@ -1568,10 +1855,9 @@ index 000000000000..96f5c8a12be0
 +	struct software_node swnodes[6];
 +	struct cio2_node_names node_names;
 +
-+	u32 data_lanes[4];
 +	struct cio2_sensor_ssdb ssdb;
 +	struct cio2_property_names prop_names;
-+	struct property_entry ep_properties[4];
++	struct property_entry ep_properties[5];
 +	struct property_entry dev_properties[3];
 +	struct property_entry cio2_properties[3];
 +	struct software_node_ref_args local_ref[1];
@@ -1579,33 +1865,33 @@ index 000000000000..96f5c8a12be0
 +};
 +
 +struct cio2_bridge {
-+	struct pci_dev *cio2;
 +	char cio2_node_name[ACPI_ID_LEN];
 +	struct software_node cio2_hid_node;
++	u32 data_lanes[4];
 +	unsigned int n_sensors;
 +	struct cio2_sensor sensors[CIO2_NUM_PORTS];
 +};
 +
 +#endif
 diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c b/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
-index c557d189200b..9f29af0c0941 100644
+index c557d189200b..8132cdf20f4f 100644
 --- a/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
 +++ b/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
-@@ -1712,6 +1712,22 @@ static void cio2_queues_exit(struct cio2_device *cio2)
+@@ -1712,11 +1712,28 @@ static void cio2_queues_exit(struct cio2_device *cio2)
  		cio2_queue_exit(cio2, &cio2->queue[i]);
  }
  
-+static bool cio2_check_fwnode_graph(struct fwnode_handle *fwnode)
++static int cio2_check_fwnode_graph(struct fwnode_handle *fwnode)
 +{
 +	struct fwnode_handle *endpoint;
 +
 +	if (IS_ERR_OR_NULL(fwnode))
-+		return false;
++		return -EINVAL;
 +
 +	endpoint = fwnode_graph_get_next_endpoint(fwnode, NULL);
 +	if (endpoint) {
 +		fwnode_handle_put(endpoint);
-+		return true;
++		return 0;
 +	}
 +
 +	return cio2_check_fwnode_graph(fwnode->secondary);
@@ -1614,7 +1900,13 @@ index c557d189200b..9f29af0c0941 100644
  /**************** PCI interface ****************/
  
  static int cio2_pci_probe(struct pci_dev *pci_dev,
-@@ -1725,6 +1741,17 @@ static int cio2_pci_probe(struct pci_dev *pci_dev,
+ 			  const struct pci_device_id *id)
+ {
++	struct fwnode_handle *fwnode = dev_fwnode(&pci_dev->dev);
+ 	struct cio2_device *cio2;
+ 	int r;
+ 
+@@ -1725,6 +1742,23 @@ static int cio2_pci_probe(struct pci_dev *pci_dev,
  		return -ENOMEM;
  	cio2->pci_dev = pci_dev;
  
@@ -1623,7 +1915,13 @@ index c557d189200b..9f29af0c0941 100644
 +	 * if the device has no endpoints then we can try to build those as
 +	 * software_nodes parsed from SSDB.
 +	 */
-+	if (!cio2_check_fwnode_graph(dev_fwnode(&pci_dev->dev))) {
++	r = cio2_check_fwnode_graph(fwnode);
++	if (r) {
++		if (fwnode && !IS_ERR_OR_NULL(fwnode->secondary)) {
++			dev_err(&pci_dev->dev, "fwnode graph has no endpoints connected\n");
++			return -EINVAL;
++		}
++
 +		r = cio2_bridge_init(pci_dev);
 +		if (r)
 +			return r;
@@ -1633,10 +1931,10 @@ index c557d189200b..9f29af0c0941 100644
  	if (r) {
  		dev_err(&pci_dev->dev, "failed to enable device (%d)\n", r);
 diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2.h b/drivers/media/pci/intel/ipu3/ipu3-cio2.h
-index ccf0b85ae36f..520a27c9cdad 100644
+index 62187ab5ae43..dc3e343a37fb 100644
 --- a/drivers/media/pci/intel/ipu3/ipu3-cio2.h
 +++ b/drivers/media/pci/intel/ipu3/ipu3-cio2.h
-@@ -437,4 +437,10 @@ static inline struct cio2_queue *vb2q_to_cio2_queue(struct vb2_queue *vq)
+@@ -455,4 +455,10 @@ static inline struct cio2_queue *vb2q_to_cio2_queue(struct vb2_queue *vq)
  	return container_of(vq, struct cio2_queue, vbq);
  }
  
@@ -1650,82 +1948,150 @@ index ccf0b85ae36f..520a27c9cdad 100644
 -- 
 2.30.0
 
-From d47ca9659358677aea827a0f403cfc7ccf9ccf6d Mon Sep 17 00:00:00 2001
+From a7eddb344ecbaf0fc6cfb6b7e2d6179ce99d375d Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
-Date: Thu, 26 Nov 2020 21:12:41 +0000
-Subject: [PATCH] acpi: utils: Add function to fetch dependent acpi_devices
+Date: Wed, 2 Dec 2020 12:38:10 +0000
+Subject: [PATCH] acpi: utils: move acpi_lpss_dep() to utils
 
-ACPI devices declare themselves dependent on other devices via the _DEP
-buffer. Fetching the dependee from dependent is a matter of parsing
-_DEP, but currently there's no method to fetch dependent from dependee.
-Add one, so we can parse sensors dependent on a PMIC from the PMIC's
-acpi_driver.
+I need to be able to identify devices which declare themselves to be
+dependent on other devices through _DEP; add this function to utils.c
+and export it to the rest of the ACPI layer.
 
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
- drivers/acpi/utils.c    | 68 +++++++++++++++++++++++++++++++++++++++++
- include/acpi/acpi_bus.h |  2 ++
- 2 files changed, 70 insertions(+)
+ drivers/acpi/acpi_lpss.c | 24 ------------------------
+ drivers/acpi/internal.h  |  1 +
+ drivers/acpi/utils.c     | 24 ++++++++++++++++++++++++
+ 3 files changed, 25 insertions(+), 24 deletions(-)
 
+diff --git a/drivers/acpi/acpi_lpss.c b/drivers/acpi/acpi_lpss.c
+index be73974ce449..70c7d9a3f715 100644
+--- a/drivers/acpi/acpi_lpss.c
++++ b/drivers/acpi/acpi_lpss.c
+@@ -543,30 +543,6 @@ static struct device *acpi_lpss_find_device(const char *hid, const char *uid)
+ 	return bus_find_device(&pci_bus_type, NULL, &data, match_hid_uid);
+ }
+ 
+-static bool acpi_lpss_dep(struct acpi_device *adev, acpi_handle handle)
+-{
+-	struct acpi_handle_list dep_devices;
+-	acpi_status status;
+-	int i;
+-
+-	if (!acpi_has_method(adev->handle, "_DEP"))
+-		return false;
+-
+-	status = acpi_evaluate_reference(adev->handle, "_DEP", NULL,
+-					 &dep_devices);
+-	if (ACPI_FAILURE(status)) {
+-		dev_dbg(&adev->dev, "Failed to evaluate _DEP.\n");
+-		return false;
+-	}
+-
+-	for (i = 0; i < dep_devices.count; i++) {
+-		if (dep_devices.handles[i] == handle)
+-			return true;
+-	}
+-
+-	return false;
+-}
+-
+ static void acpi_lpss_link_consumer(struct device *dev1,
+ 				    const struct lpss_device_links *link)
+ {
+diff --git a/drivers/acpi/internal.h b/drivers/acpi/internal.h
+index aee023ad0237..ae049e089055 100644
+--- a/drivers/acpi/internal.h
++++ b/drivers/acpi/internal.h
+@@ -79,6 +79,7 @@ static inline void acpi_lpss_init(void) {}
+ #endif
+ 
+ void acpi_apd_init(void);
++bool acpi_lpss_dep(struct acpi_device *adev, acpi_handle handle);
+ 
+ acpi_status acpi_hotplug_schedule(struct acpi_device *adev, u32 src);
+ bool acpi_queue_hotplug_work(struct work_struct *work);
 diff --git a/drivers/acpi/utils.c b/drivers/acpi/utils.c
-index c177165c8db2..7099529121db 100644
+index ddca1550cce6..78b38775f18b 100644
 --- a/drivers/acpi/utils.c
 +++ b/drivers/acpi/utils.c
-@@ -807,6 +807,52 @@ static int acpi_dev_match_cb(struct device *dev, const void *data)
+@@ -807,6 +807,30 @@ static int acpi_dev_match_cb(struct device *dev, const void *data)
  	return hrv == match->hrv;
+ }
+ 
++bool acpi_lpss_dep(struct acpi_device *adev, acpi_handle handle)
++{
++	struct acpi_handle_list dep_devices;
++	acpi_status status;
++	int i;
++
++	if (!acpi_has_method(adev->handle, "_DEP"))
++		return false;
++
++	status = acpi_evaluate_reference(adev->handle, "_DEP", NULL,
++					 &dep_devices);
++	if (ACPI_FAILURE(status)) {
++		dev_dbg(&adev->dev, "Failed to evaluate _DEP.\n");
++		return false;
++	}
++
++	for (i = 0; i < dep_devices.count; i++) {
++		if (dep_devices.handles[i] == handle)
++			return true;
++	}
++
++	return false;
++}
++
+ /**
+  * acpi_dev_present - Detect that a given ACPI device is present
+  * @hid: Hardware ID of the device.
+-- 
+2.30.0
+
+From b6941ecfe38fb030e05392800b8c25f8f179926c Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Thu, 26 Nov 2020 21:12:41 +0000
+Subject: [PATCH] acpi: utils: Add function to fetch dependent acpi_devices
+
+In some ACPI tables we encounter, devices use the _DEP method to assert
+a dependence on other ACPI devices as opposed to the OpRegions that the
+specification intends. We need to be able to find those devices "from"
+the dependee, so add a function to parse all ACPI Devices and check if
+the include the handle of the dependee device in their _DEP buffer.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/acpi/utils.c    | 34 ++++++++++++++++++++++++++++++++++
+ include/acpi/acpi_bus.h |  2 ++
+ 2 files changed, 36 insertions(+)
+
+diff --git a/drivers/acpi/utils.c b/drivers/acpi/utils.c
+index 78b38775f18b..ec6a2406a886 100644
+--- a/drivers/acpi/utils.c
++++ b/drivers/acpi/utils.c
+@@ -831,6 +831,18 @@ bool acpi_lpss_dep(struct acpi_device *adev, acpi_handle handle)
+ 	return false;
  }
  
 +static int acpi_dev_match_by_dep(struct device *dev, const void *data)
 +{
 +	struct acpi_device *adev = to_acpi_device(dev);
 +	const struct acpi_device *dependee = data;
-+	struct acpi_handle_list dep_handles;
-+	struct acpi_device *candidate;
-+	acpi_handle handle;
-+	acpi_status status;
-+	unsigned int i;
-+	int ret;
++	acpi_handle handle = dependee->handle;
 +
-+	handle = adev->handle;
++	if (acpi_lpss_dep(adev, handle))
++		return 1;
 +
-+	if (!acpi_has_method(handle, "_DEP"))
-+		return 0;
-+
-+	status = acpi_evaluate_reference(handle, "_DEP", NULL, &dep_handles);
-+	if (ACPI_FAILURE(status))
-+		return 0;
-+
-+	for (i = 0; i < dep_handles.count; i++) {
-+		struct acpi_device_info *info;
-+
-+		status = acpi_get_object_info(dep_handles.handles[i], &info);
-+		if (ACPI_FAILURE(status))
-+			continue;
-+
-+		if (info->valid & ACPI_VALID_HID) {
-+			ret = acpi_bus_get_device(dep_handles.handles[i], &candidate);
-+			if (ret || !candidate) {
-+				kfree(info);
-+				continue;
-+			}
-+
-+			if (candidate == dependee) {
-+				acpi_dev_put(candidate);
-+				kfree(info);
-+				return 1;
-+			}
-+
-+			kfree(info);
-+		}
-+	}
 +	return 0;
 +}
 +
  /**
   * acpi_dev_present - Detect that a given ACPI device is present
   * @hid: Hardware ID of the device.
-@@ -842,6 +888,28 @@ bool acpi_dev_present(const char *hid, const char *uid, s64 hrv)
+@@ -866,6 +878,28 @@ bool acpi_dev_present(const char *hid, const char *uid, s64 hrv)
  }
  EXPORT_SYMBOL(acpi_dev_present);
  
@@ -1753,7 +2119,7 @@ index c177165c8db2..7099529121db 100644
 +
  /**
   * acpi_dev_get_next_match_dev - Return the next match of ACPI device
-  * @adev: Pointer to the previous acpi_device matching this hid, uid and hrv
+  * @adev: Pointer to the previous acpi_device matching this @hid, @uid and @hrv
 diff --git a/include/acpi/acpi_bus.h b/include/acpi/acpi_bus.h
 index 02a716a0af5d..33deb22294f2 100644
 --- a/include/acpi/acpi_bus.h
@@ -1770,63 +2136,61 @@ index 02a716a0af5d..33deb22294f2 100644
 -- 
 2.30.0
 
-From 6ed8bea5378b79afcf7fe349b3fc90a794eb92a4 Mon Sep 17 00:00:00 2001
+From c90372cc8540d50257a8d59108d47747349c2cf4 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 16 Nov 2020 21:38:49 +0000
-Subject: [PATCH] i2c: i2c-core-acpi: Add i2c_acpi_dev_name()
+Subject: [PATCH] i2c: i2c-core-base: Use format macro in i2c_dev_set_name()
 
 Some places in the kernel allow users to map resources to a device
 using device name (for example, gpiod_lookup_table). Currently
 this involves waiting for the i2c_client to have been registered so we
-can use dev_name(&client->dev). Adding this function means that we can
-achieve the same thing without having to wait to the i2c device.
+can use dev_name(&client->dev). We want to add a function to allow users
+to refer to an i2c device by name before it has been instantiated, so
+create a macro for the format that's accessible outside the i2c layer
+and use it in i2c_dev_set_name()
 
+Suggested-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
- drivers/i2c/i2c-core-acpi.c | 15 +++++++++++++++
- include/linux/i2c.h         |  5 +++++
- 2 files changed, 20 insertions(+)
+ drivers/i2c/i2c-core-base.c | 4 ++--
+ include/linux/i2c.h         | 7 +++++++
+ 2 files changed, 9 insertions(+), 2 deletions(-)
 
-diff --git a/drivers/i2c/i2c-core-acpi.c b/drivers/i2c/i2c-core-acpi.c
-index aed579942436..a48e20a806c5 100644
---- a/drivers/i2c/i2c-core-acpi.c
-+++ b/drivers/i2c/i2c-core-acpi.c
-@@ -497,6 +497,21 @@ struct i2c_client *i2c_acpi_new_device(struct device *dev, int index,
- }
- EXPORT_SYMBOL_GPL(i2c_acpi_new_device);
+diff --git a/drivers/i2c/i2c-core-base.c b/drivers/i2c/i2c-core-base.c
+index 573b5da145d1..e8d3e268895e 100644
+--- a/drivers/i2c/i2c-core-base.c
++++ b/drivers/i2c/i2c-core-base.c
+@@ -809,12 +809,12 @@ static void i2c_dev_set_name(struct i2c_adapter *adap,
+ 	struct acpi_device *adev = ACPI_COMPANION(&client->dev);
  
-+/**
-+ * i2c_acpi_dev_name - Construct i2c device name for devs sourced from ACPI
-+ * @adev:     ACPI device to construct the name for
-+ *
-+ * Prefixes "i2c-" to the ACPI device name, for use in i2c_dev_set_name() and
-+ * also anywhere else in the kernel that needs to refer to an i2c device by
-+ * name but before they have been instantiated.
-+ */
-+char *i2c_acpi_dev_name(struct acpi_device *adev)
-+{
-+	return devm_kasprintf(&adev->dev, GFP_KERNEL, "i2c-%s",
-+			      acpi_dev_name(adev));
-+}
-+EXPORT_SYMBOL_GPL(i2c_acpi_dev_name);
-+
- #ifdef CONFIG_ACPI_I2C_OPREGION
- static int acpi_gsb_i2c_read_bytes(struct i2c_client *client,
- 		u8 cmd, u8 *data, u8 data_len)
+ 	if (info && info->dev_name) {
+-		dev_set_name(&client->dev, "i2c-%s", info->dev_name);
++		dev_set_name(&client->dev, I2C_DEV_NAME_FORMAT, info->dev_name);
+ 		return;
+ 	}
+ 
+ 	if (adev) {
+-		dev_set_name(&client->dev, "i2c-%s", acpi_dev_name(adev));
++		dev_set_name(&client->dev, I2C_DEV_NAME_FORMAT, acpi_dev_name(adev));
+ 		return;
+ 	}
+ 
 diff --git a/include/linux/i2c.h b/include/linux/i2c.h
-index 56622658b215..ab0e505b2ca6 100644
+index 56622658b215..65acae61dc5c 100644
 --- a/include/linux/i2c.h
 +++ b/include/linux/i2c.h
-@@ -995,6 +995,7 @@ bool i2c_acpi_get_i2c_resource(struct acpi_resource *ares,
- u32 i2c_acpi_find_bus_speed(struct device *dev);
- struct i2c_client *i2c_acpi_new_device(struct device *dev, int index,
- 				       struct i2c_board_info *info);
-+char *i2c_acpi_dev_name(struct acpi_device *adev);
- struct i2c_adapter *i2c_acpi_find_adapter_by_handle(acpi_handle handle);
- #else
- static inline bool i2c_acpi_get_i2c_resource(struct acpi_resource *ares,
-@@ -1011,6 +1012,10 @@ static inline struct i2c_client *i2c_acpi_new_device(struct device *dev,
+@@ -39,6 +39,9 @@ enum i2c_slave_event;
+ typedef int (*i2c_slave_cb_t)(struct i2c_client *client,
+ 			      enum i2c_slave_event event, u8 *val);
+ 
++/* I2C Device Name Format - to maintain consistency outside the i2c layer */
++#define I2C_DEV_NAME_FORMAT		"i2c-%s"
++
+ /* I2C Frequency Modes */
+ #define I2C_MAX_STANDARD_MODE_FREQ	100000
+ #define I2C_MAX_FAST_MODE_FREQ		400000
+@@ -1011,6 +1014,10 @@ static inline struct i2c_client *i2c_acpi_new_device(struct device *dev,
  {
  	return ERR_PTR(-ENODEV);
  }
@@ -1840,38 +2204,65 @@ index 56622658b215..ab0e505b2ca6 100644
 -- 
 2.30.0
 
-From ede2c404c07285093e1ee9bca9cf354f1df565c8 Mon Sep 17 00:00:00 2001
-From: Dan Scally <djrscally@gmail.com>
-Date: Mon, 16 Nov 2020 21:45:22 +0000
-Subject: [PATCH] i2c: i2c-core-base: Use the new i2c_acpi_dev_name() in
- i2c_set_dev_name()
+From 697b25c99c8bb44dc8196472bb7e8cb8dde06a3c Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Wed, 2 Dec 2020 16:41:42 +0000
+Subject: [PATCH] i2c: i2c-core-acpi: Add i2c_acpi_dev_name()
 
-To make sure the new i2c_acpi_dev_name() always reflects the name of i2c
-devices sourced from ACPI, use it in i2c_set_dev_name().
+We want to refer to an i2c device by name before it has been
+created by the kernel; add a function that constructs the name
+from the acpi device instead.
 
-Signed-off-by: Dan Scally <djrscally@gmail.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
- drivers/i2c/i2c-core-base.c | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
+ drivers/i2c/i2c-core-acpi.c | 16 ++++++++++++++++
+ include/linux/i2c.h         |  1 +
+ 2 files changed, 17 insertions(+)
 
-diff --git a/drivers/i2c/i2c-core-base.c b/drivers/i2c/i2c-core-base.c
-index 573b5da145d1..a6d4ceb01077 100644
---- a/drivers/i2c/i2c-core-base.c
-+++ b/drivers/i2c/i2c-core-base.c
-@@ -814,7 +814,7 @@ static void i2c_dev_set_name(struct i2c_adapter *adap,
- 	}
+diff --git a/drivers/i2c/i2c-core-acpi.c b/drivers/i2c/i2c-core-acpi.c
+index aed579942436..89751415b69b 100644
+--- a/drivers/i2c/i2c-core-acpi.c
++++ b/drivers/i2c/i2c-core-acpi.c
+@@ -497,6 +497,22 @@ struct i2c_client *i2c_acpi_new_device(struct device *dev, int index,
+ }
+ EXPORT_SYMBOL_GPL(i2c_acpi_new_device);
  
- 	if (adev) {
--		dev_set_name(&client->dev, "i2c-%s", acpi_dev_name(adev));
-+		dev_set_name(&client->dev, i2c_acpi_dev_name(adev));
- 		return;
- 	}
- 
++/**
++ * i2c_acpi_dev_name - Construct i2c device name for devs sourced from ACPI
++ * @adev:     ACPI device to construct the name for
++ *
++ * Constructs the name of an i2c device matching the format used by
++ * i2c_dev_set_name() to allow users to refer to an i2c device by name even
++ * before they have been instantiated.
++ * 
++ * The caller is responsible for freeing the returned pointer.
++ */
++char *i2c_acpi_dev_name(struct acpi_device *adev)
++{
++	return kasprintf(GFP_KERNEL, I2C_DEV_NAME_FORMAT, acpi_dev_name(adev));
++}
++EXPORT_SYMBOL_GPL(i2c_acpi_dev_name);
++
+ #ifdef CONFIG_ACPI_I2C_OPREGION
+ static int acpi_gsb_i2c_read_bytes(struct i2c_client *client,
+ 		u8 cmd, u8 *data, u8 data_len)
+diff --git a/include/linux/i2c.h b/include/linux/i2c.h
+index 65acae61dc5c..b82aac05b17f 100644
+--- a/include/linux/i2c.h
++++ b/include/linux/i2c.h
+@@ -998,6 +998,7 @@ bool i2c_acpi_get_i2c_resource(struct acpi_resource *ares,
+ u32 i2c_acpi_find_bus_speed(struct device *dev);
+ struct i2c_client *i2c_acpi_new_device(struct device *dev, int index,
+ 				       struct i2c_board_info *info);
++char *i2c_acpi_dev_name(struct acpi_device *adev);
+ struct i2c_adapter *i2c_acpi_find_adapter_by_handle(acpi_handle handle);
+ #else
+ static inline bool i2c_acpi_get_i2c_resource(struct acpi_resource *ares,
 -- 
 2.30.0
 
-From dcad0ec65ef469c373bfe3083f39e1450d038df3 Mon Sep 17 00:00:00 2001
+From 6bdbf1c529052c1889f733607baab8185c302376 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 16 Nov 2020 00:16:56 +0000
 Subject: [PATCH] gpio: gpiolib-acpi: Export acpi_get_gpiod()
@@ -1910,10 +2301,10 @@ index 834a12f3219e..cfadbc263475 100644
  static irqreturn_t acpi_gpio_irq_handler(int irq, void *data)
  {
 diff --git a/include/linux/acpi.h b/include/linux/acpi.h
-index 39263c6b52e1..737115a93138 100644
+index 5b1dc1ad4fb3..47ae139e8781 100644
 --- a/include/linux/acpi.h
 +++ b/include/linux/acpi.h
-@@ -1066,6 +1066,7 @@ void __acpi_handle_debug(struct _ddebug *descriptor, acpi_handle handle, const c
+@@ -1073,6 +1073,7 @@ void __acpi_handle_debug(struct _ddebug *descriptor, acpi_handle handle, const c
  bool acpi_gpio_get_irq_resource(struct acpi_resource *ares,
  				struct acpi_resource_gpio **agpio);
  int acpi_dev_gpio_irq_get(struct acpi_device *adev, int index);
@@ -1921,7 +2312,7 @@ index 39263c6b52e1..737115a93138 100644
  #else
  static inline bool acpi_gpio_get_irq_resource(struct acpi_resource *ares,
  					      struct acpi_resource_gpio **agpio)
-@@ -1076,6 +1077,10 @@ static inline int acpi_dev_gpio_irq_get(struct acpi_device *adev, int index)
+@@ -1083,6 +1084,10 @@ static inline int acpi_dev_gpio_irq_get(struct acpi_device *adev, int index)
  {
  	return -ENXIO;
  }
@@ -1935,359 +2326,331 @@ index 39263c6b52e1..737115a93138 100644
 -- 
 2.30.0
 
-From 3216ecb9f47705838a2d9ba67ec9c56058c81839 Mon Sep 17 00:00:00 2001
+From 4fa24b3748de7b73dcc847649be9b4fbfd826f28 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
-Date: Fri, 27 Nov 2020 10:18:10 +0000
-Subject: [PATCH] ipu3: Add driver for dummy INT3472 ACPI device
+Date: Sat, 12 Dec 2020 23:56:59 +0000
+Subject: [PATCH] mfd: Remove tps68470 MFD driver
 
-On platforms where ACPI is designed for use with Windows, resources
-that are intended to be consumed by sensor devices are sometimes in
-the _CRS of a dummy INT3472 device upon which the sensor depends. This
-driver binds to the dummy acpi device (which does not represent a
-physical PMIC) and maps them into GPIO lines and regulators for use by
-the sensor device instead.
+This driver only covered one scenario in which ACPI devices with _HID
+INT3472 are found, and its functionality has been taken over by the
+intel-skl-int3472 module, so remove it.
 
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
- MAINTAINERS                            |   7 +
- drivers/media/pci/intel/ipu3/Kconfig   |  14 +
- drivers/media/pci/intel/ipu3/Makefile  |   1 +
- drivers/media/pci/intel/ipu3/int3472.c | 381 +++++++++++++++++++++++++
- drivers/media/pci/intel/ipu3/int3472.h |  96 +++++++
- 5 files changed, 499 insertions(+)
- create mode 100644 drivers/media/pci/intel/ipu3/int3472.c
- create mode 100644 drivers/media/pci/intel/ipu3/int3472.h
+ drivers/acpi/pmic/Kconfig |  1 -
+ drivers/gpio/Kconfig      |  1 -
+ drivers/mfd/Kconfig       | 18 --------
+ drivers/mfd/Makefile      |  1 -
+ drivers/mfd/tps68470.c    | 97 ---------------------------------------
+ 5 files changed, 118 deletions(-)
+ delete mode 100644 drivers/mfd/tps68470.c
+
+diff --git a/drivers/acpi/pmic/Kconfig b/drivers/acpi/pmic/Kconfig
+index 56bbcb2ce61b..e27d8ef3a32c 100644
+--- a/drivers/acpi/pmic/Kconfig
++++ b/drivers/acpi/pmic/Kconfig
+@@ -52,7 +52,6 @@ endif	# PMIC_OPREGION
+ 
+ config TPS68470_PMIC_OPREGION
+ 	bool "ACPI operation region support for TPS68470 PMIC"
+-	depends on MFD_TPS68470
+ 	help
+ 	  This config adds ACPI operation region support for TI TPS68470 PMIC.
+ 	  TPS68470 device is an advanced power management unit that powers
+diff --git a/drivers/gpio/Kconfig b/drivers/gpio/Kconfig
+index 5d4de5cd6759..a73bab5e3ad2 100644
+--- a/drivers/gpio/Kconfig
++++ b/drivers/gpio/Kconfig
+@@ -1319,7 +1319,6 @@ config GPIO_TPS65912
+ 
+ config GPIO_TPS68470
+ 	bool "TPS68470 GPIO"
+-	depends on MFD_TPS68470
+ 	help
+ 	  Select this option to enable GPIO driver for the TPS68470
+ 	  chip family.
+diff --git a/drivers/mfd/Kconfig b/drivers/mfd/Kconfig
+index 4789507f325b..3ebbb2ee173a 100644
+--- a/drivers/mfd/Kconfig
++++ b/drivers/mfd/Kconfig
+@@ -1533,24 +1533,6 @@ config MFD_TPS65217
+ 	  This driver can also be built as a module.  If so, the module
+ 	  will be called tps65217.
+ 
+-config MFD_TPS68470
+-	bool "TI TPS68470 Power Management / LED chips"
+-	depends on ACPI && PCI && I2C=y
+-	depends on I2C_DESIGNWARE_PLATFORM=y
+-	select MFD_CORE
+-	select REGMAP_I2C
+-	help
+-	  If you say yes here you get support for the TPS68470 series of
+-	  Power Management / LED chips.
+-
+-	  These include voltage regulators, LEDs and other features
+-	  that are often used in portable devices.
+-
+-	  This option is a bool as it provides an ACPI operation
+-	  region, which must be available before any of the devices
+-	  using this are probed. This option also configures the
+-	  designware-i2c driver to be built-in, for the same reason.
+-
+ config MFD_TI_LP873X
+ 	tristate "TI LP873X Power Management IC"
+ 	depends on I2C
+diff --git a/drivers/mfd/Makefile b/drivers/mfd/Makefile
+index 1780019d2474..a23f38c4c38a 100644
+--- a/drivers/mfd/Makefile
++++ b/drivers/mfd/Makefile
+@@ -105,7 +105,6 @@ obj-$(CONFIG_MFD_TPS65910)	+= tps65910.o
+ obj-$(CONFIG_MFD_TPS65912)	+= tps65912-core.o
+ obj-$(CONFIG_MFD_TPS65912_I2C)	+= tps65912-i2c.o
+ obj-$(CONFIG_MFD_TPS65912_SPI)  += tps65912-spi.o
+-obj-$(CONFIG_MFD_TPS68470)	+= tps68470.o
+ obj-$(CONFIG_MFD_TPS80031)	+= tps80031.o
+ obj-$(CONFIG_MENELAUS)		+= menelaus.o
+ 
+diff --git a/drivers/mfd/tps68470.c b/drivers/mfd/tps68470.c
+deleted file mode 100644
+index 4a4df4ffd18c..000000000000
+--- a/drivers/mfd/tps68470.c
++++ /dev/null
+@@ -1,97 +0,0 @@
+-// SPDX-License-Identifier: GPL-2.0
+-/*
+- * TPS68470 chip Parent driver
+- *
+- * Copyright (C) 2017 Intel Corporation
+- *
+- * Authors:
+- *	Rajmohan Mani <rajmohan.mani@intel.com>
+- *	Tianshu Qiu <tian.shu.qiu@intel.com>
+- *	Jian Xu Zheng <jian.xu.zheng@intel.com>
+- *	Yuning Pu <yuning.pu@intel.com>
+- */
+-
+-#include <linux/acpi.h>
+-#include <linux/delay.h>
+-#include <linux/i2c.h>
+-#include <linux/init.h>
+-#include <linux/mfd/core.h>
+-#include <linux/mfd/tps68470.h>
+-#include <linux/regmap.h>
+-
+-static const struct mfd_cell tps68470s[] = {
+-	{ .name = "tps68470-gpio" },
+-	{ .name = "tps68470_pmic_opregion" },
+-};
+-
+-static const struct regmap_config tps68470_regmap_config = {
+-	.reg_bits = 8,
+-	.val_bits = 8,
+-	.max_register = TPS68470_REG_MAX,
+-};
+-
+-static int tps68470_chip_init(struct device *dev, struct regmap *regmap)
+-{
+-	unsigned int version;
+-	int ret;
+-
+-	/* Force software reset */
+-	ret = regmap_write(regmap, TPS68470_REG_RESET, TPS68470_REG_RESET_MASK);
+-	if (ret)
+-		return ret;
+-
+-	ret = regmap_read(regmap, TPS68470_REG_REVID, &version);
+-	if (ret) {
+-		dev_err(dev, "Failed to read revision register: %d\n", ret);
+-		return ret;
+-	}
+-
+-	dev_info(dev, "TPS68470 REVID: 0x%x\n", version);
+-
+-	return 0;
+-}
+-
+-static int tps68470_probe(struct i2c_client *client)
+-{
+-	struct device *dev = &client->dev;
+-	struct regmap *regmap;
+-	int ret;
+-
+-	regmap = devm_regmap_init_i2c(client, &tps68470_regmap_config);
+-	if (IS_ERR(regmap)) {
+-		dev_err(dev, "devm_regmap_init_i2c Error %ld\n",
+-			PTR_ERR(regmap));
+-		return PTR_ERR(regmap);
+-	}
+-
+-	i2c_set_clientdata(client, regmap);
+-
+-	ret = tps68470_chip_init(dev, regmap);
+-	if (ret < 0) {
+-		dev_err(dev, "TPS68470 Init Error %d\n", ret);
+-		return ret;
+-	}
+-
+-	ret = devm_mfd_add_devices(dev, PLATFORM_DEVID_NONE, tps68470s,
+-			      ARRAY_SIZE(tps68470s), NULL, 0, NULL);
+-	if (ret < 0) {
+-		dev_err(dev, "devm_mfd_add_devices failed: %d\n", ret);
+-		return ret;
+-	}
+-
+-	return 0;
+-}
+-
+-static const struct acpi_device_id tps68470_acpi_ids[] = {
+-	{"INT3472"},
+-	{},
+-};
+-
+-static struct i2c_driver tps68470_driver = {
+-	.driver = {
+-		   .name = "tps68470",
+-		   .acpi_match_table = tps68470_acpi_ids,
+-	},
+-	.probe_new = tps68470_probe,
+-};
+-builtin_i2c_driver(tps68470_driver);
+-- 
+2.30.0
+
+From 9c5b1c5c0d977936ed2e915f7427cf607e33c38e Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Fri, 15 Jan 2021 12:37:31 +0000
+Subject: [PATCH] platform: x86: Add intel_skl_int3472 driver
+
+ACPI devices with _HID INT3472 are currently matched to the tps68470
+driver, however this does not cover all situations in which that _HID
+occurs. We've encountered three possibilities:
+
+1. On Chrome OS devices, an ACPI device with _HID INT3472 (representing
+a physical tps68470 device) that requires a GPIO and OpRegion driver
+2. On devices designed for Windows, an ACPI device with _HID INT3472
+(again representing a physical tps68470 device) which requires GPIO,
+Clock and Regulator drivers.
+3. On other devices designed for Windows, an ACPI device with _HID
+INT3472 which does NOT represent a physical tps68470, and is instead
+used as a dummy device to group some system GPIO lines which are meant
+to be consumed by the sensor that is dependent on this entry.
+
+This commit adds a new module, registering a platform driver to deal
+with the 3rd scenario plus an i2c-driver to deal with #1 and #2, by
+querying the CLDB buffer found against INT3472 entries to determine
+which is most appropriate.
+
+Suggested-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ MAINTAINERS                                   |   5 +
+ drivers/platform/x86/Kconfig                  |  25 +
+ drivers/platform/x86/Makefile                 |   5 +
+ .../platform/x86/intel_skl_int3472_common.c   | 100 ++++
+ .../platform/x86/intel_skl_int3472_common.h   |  99 ++++
+ .../platform/x86/intel_skl_int3472_discrete.c | 489 ++++++++++++++++++
+ .../platform/x86/intel_skl_int3472_tps68470.c | 145 ++++++
+ 7 files changed, 868 insertions(+)
+ create mode 100644 drivers/platform/x86/intel_skl_int3472_common.c
+ create mode 100644 drivers/platform/x86/intel_skl_int3472_common.h
+ create mode 100644 drivers/platform/x86/intel_skl_int3472_discrete.c
+ create mode 100644 drivers/platform/x86/intel_skl_int3472_tps68470.c
 
 diff --git a/MAINTAINERS b/MAINTAINERS
-index a6924e3401e8..b5bd52b4dae3 100644
+index a6924e3401e8..3ed02216251b 100644
 --- a/MAINTAINERS
 +++ b/MAINTAINERS
-@@ -8761,6 +8761,13 @@ L:	linux-crypto@vger.kernel.org
- S:	Maintained
- F:	drivers/crypto/inside-secure/
+@@ -9045,6 +9045,11 @@ S:	Maintained
+ F:	arch/x86/include/asm/intel_scu_ipc.h
+ F:	drivers/platform/x86/intel_scu_*
  
-+INT3472 ACPI DEVICE DRIVER
++INTEL SKL INT3472 ACPI DEVICE DRIVER
 +M:	Daniel Scally <djrscally@gmail.com>
-+L:	linux-media@vger.kernel.org
 +S:	Maintained
-+F:	drivers/media/pci/intel/ipu3/int3472.c
-+F:	drivers/media/pci/intel/ipu3/int3472.h
++F:	drivers/platform/x86/intel_skl_int3472_*
 +
- INTEGRITY MEASUREMENT ARCHITECTURE (IMA)
- M:	Mimi Zohar <zohar@linux.ibm.com>
- M:	Dmitry Kasatkin <dmitry.kasatkin@gmail.com>
-diff --git a/drivers/media/pci/intel/ipu3/Kconfig b/drivers/media/pci/intel/ipu3/Kconfig
-index 2b3350d042be..9dd3b280f821 100644
---- a/drivers/media/pci/intel/ipu3/Kconfig
-+++ b/drivers/media/pci/intel/ipu3/Kconfig
-@@ -34,3 +34,17 @@ config CIO2_BRIDGE
- 		- Dell 7285
+ INTEL SPEED SELECT TECHNOLOGY
+ M:	Srinivas Pandruvada <srinivas.pandruvada@linux.intel.com>
+ L:	platform-driver-x86@vger.kernel.org
+diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
+index 3e882b1e1f74..277353eaeb36 100644
+--- a/drivers/platform/x86/Kconfig
++++ b/drivers/platform/x86/Kconfig
+@@ -807,6 +807,31 @@ config INTEL_CHT_INT33FE
+ 	  device and CONFIG_TYPEC_FUSB302=m and CONFIG_BATTERY_MAX17042=m
+ 	  for Type-C device.
  
- 	  If in doubt, say N here.
-+
-+config INT3472
-+	tristate "INT3472 Dummy ACPI Device Driver"
-+	depends on VIDEO_IPU3_CIO2
-+	depends on ACPI && REGULATOR && GPIOLIB
++config INTEL_SKL_INT3472
++	tristate "Intel SkyLake ACPI INT3472 Driver"
++	depends on X86 && ACPI
++	select REGMAP_I2C
 +	help
-+	  This module provides an ACPI driver for INT3472 devices that do not
-+	  represent an actual physical tps68470 device.
++	  This driver adds support for the INT3472 ACPI devices found on some
++	  Intel SkyLake devices.
 +
-+	  Say Y here if your device is a detachable / hybrid laptop that comes
-+	  with Windows installed by the OEM.
-+	  The module will be called int3472.
++	  There are 3 kinds of INT3472 ACPI device possible; two for devices
++	  designed for Windows (either with or without a physical tps68470
++	  PMIC) and one designed for Chrome OS. This driver handles all three
++	  situations by discovering information it needs to discern them at
++	  runtime.
 +
-+	  If in doubt, say N here.
-diff --git a/drivers/media/pci/intel/ipu3/Makefile b/drivers/media/pci/intel/ipu3/Makefile
-index 933777e6ea8a..2285947b2bd2 100644
---- a/drivers/media/pci/intel/ipu3/Makefile
-+++ b/drivers/media/pci/intel/ipu3/Makefile
-@@ -1,5 +1,6 @@
- # SPDX-License-Identifier: GPL-2.0-only
- obj-$(CONFIG_VIDEO_IPU3_CIO2) += ipu3-cio2.o
-+obj-$(CONFIG_INT3472) += int3472.o
++	  If your device was designed for Chrome OS, this driver will provide
++	  an ACPI operation region, which must be available before any of the
++	  devices using this are probed. For this reason, you should select Y
++	  if your device was designed for ChromeOS. This option also configures
++	  the designware-i2c driver to be built-in, for the same reason.
++
++	  Say Y or M here if you have a SkyLake device designed for use
++	  with Windows or ChromeOS. Say N here if you are not sure.
++
++	  The module will be named "intel-skl-int3472"
++
+ config INTEL_HID_EVENT
+ 	tristate "INTEL HID Event"
+ 	depends on ACPI
+diff --git a/drivers/platform/x86/Makefile b/drivers/platform/x86/Makefile
+index 2009224dcaae..e92538799514 100644
+--- a/drivers/platform/x86/Makefile
++++ b/drivers/platform/x86/Makefile
+@@ -79,6 +79,11 @@ obj-$(CONFIG_INTEL_HID_EVENT)		+= intel-hid.o
+ obj-$(CONFIG_INTEL_INT0002_VGPIO)	+= intel_int0002_vgpio.o
+ obj-$(CONFIG_INTEL_MENLOW)		+= intel_menlow.o
+ obj-$(CONFIG_INTEL_OAKTRAIL)		+= intel_oaktrail.o
++obj-$(CONFIG_INTEL_SKL_INT3472)		+= intel_skl_int3472.o
++intel_skl_int3472-objs			:= intel_skl_int3472_common.o \
++                                           intel_skl_int3472_discrete.o \
++                                           intel_skl_int3472_tps68470.o
++
+ obj-$(CONFIG_INTEL_VBTN)		+= intel-vbtn.o
  
- ipu3-cio2-y += ipu3-cio2-main.o
- ipu3-cio2-$(CONFIG_CIO2_BRIDGE) += cio2-bridge.o
-diff --git a/drivers/media/pci/intel/ipu3/int3472.c b/drivers/media/pci/intel/ipu3/int3472.c
+ # Microsoft
+diff --git a/drivers/platform/x86/intel_skl_int3472_common.c b/drivers/platform/x86/intel_skl_int3472_common.c
 new file mode 100644
-index 000000000000..9fab8dd2ac1b
+index 000000000000..08cb9d3c06aa
 --- /dev/null
-+++ b/drivers/media/pci/intel/ipu3/int3472.c
-@@ -0,0 +1,381 @@
++++ b/drivers/platform/x86/intel_skl_int3472_common.c
+@@ -0,0 +1,100 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/* Author: Dan Scally <djrscally@gmail.com> */
++
 +#include <linux/acpi.h>
-+#include <linux/gpio/consumer.h>
-+#include <linux/gpio/machine.h>
 +#include <linux/i2c.h>
-+#include <linux/kernel.h>
-+#include <linux/list.h>
-+#include <linux/module.h>
-+#include <linux/regulator/driver.h>
++#include <linux/platform_device.h>
 +
-+#include "int3472.h"
++#include "intel_skl_int3472_common.h"
 +
-+/*
-+ * The regulators have to have .ops to be valid, but the only ops we actually
-+ * support are .enable and .disable which are handled via .ena_gpiod. Pass an
-+ * empty struct to clear the check without lying about capabilities.
-+ */
-+static const struct regulator_ops int3472_gpio_regulator_ops = { 0 };
-+
-+static int int3472_map_gpio_to_sensor(struct int3472_device *int3472,
-+				      struct acpi_resource *ares, char *func)
-+{
-+	char *path = ares->data.gpio.resource_source.string_ptr;
-+	struct gpiod_lookup table_entry;
-+	struct acpi_device *adev;
-+	acpi_handle handle;
-+	acpi_status status;
-+	int ret;
-+
-+	/* Make sure we don't overflow, and leave room for a terminator */
-+	if (int3472->n_sensor_gpios >= INT3472_MAX_SENSOR_GPIOS) {
-+		dev_warn(&int3472->sensor->dev, "Too many GPIOs mapped\n");
-+		return -EINVAL;
-+	}
-+
-+	/* Fetch ACPI handle for the GPIO chip  */
-+	status = acpi_get_handle(NULL, path, &handle);
-+	if (ACPI_FAILURE(status))
-+		return -EINVAL;
-+
-+	ret = acpi_bus_get_device(handle, &adev);
-+	if (ret)
-+		return -ENODEV;
-+
-+	table_entry = (struct gpiod_lookup)GPIO_LOOKUP_IDX(acpi_dev_name(adev),
-+							   ares->data.gpio.pin_table[0],
-+							   func, 0, GPIO_ACTIVE_HIGH);
-+
-+	memcpy(&int3472->gpios.table[int3472->n_sensor_gpios], &table_entry,
-+	       sizeof(table_entry));
-+	int3472->n_sensor_gpios++;
-+
-+	return 0;
-+}
-+
-+static struct int3472_sensor_regulator_map *
-+int3472_get_sensor_supply_map(struct int3472_device *int3472)
-+{
-+	struct int3472_sensor_regulator_map *ret;
-+	union acpi_object *obj;
-+	unsigned int i;
-+
-+	/*
-+	 * Sensor modules seem to be identified by a unique string. We use that
-+	 * to make sure we pass the right device and supply names to the new
-+	 * regulator's consumer_supplies
-+	 */
-+	obj = acpi_evaluate_dsm_typed(int3472->sensor->handle,
-+				      &cio2_sensor_module_guid, 0x00,
-+				      0x01, NULL, ACPI_TYPE_STRING);
-+
-+	if (!obj) {
-+		dev_err(&int3472->sensor->dev,
-+			"Failed to get sensor module string from _DSM\n");
-+		return ERR_PTR(-ENODEV);
-+	}
-+
-+	if (obj->string.type != ACPI_TYPE_STRING) {
-+		dev_err(&int3472->sensor->dev,
-+			"Sensor _DSM returned a non-string value\n");
-+		ret = ERR_PTR(-EINVAL);
-+		goto out_free_obj;
-+	}
-+
-+	ret = ERR_PTR(-ENODEV);
-+	for (i = 0; i < ARRAY_SIZE(int3472_sensor_regulator_maps); i++) {
-+		if (!strcmp(int3472_sensor_regulator_maps[i].sensor_module_name,
-+			    obj->string.pointer)) {
-+			ret = &int3472_sensor_regulator_maps[i];
-+			goto out_free_obj;
-+		}
-+	}
-+
-+out_free_obj:
-+	ACPI_FREE(obj);
-+	return ret;
-+}
-+
-+static int int3472_register_regulator(struct int3472_device *int3472,
-+				      struct acpi_resource *ares)
-+{
-+	char *path = ares->data.gpio.resource_source.string_ptr;
-+	struct int3472_sensor_regulator_map *regulator_map;
-+	struct regulator_init_data init_data = { };
-+	struct int3472_gpio_regulator *regulator;
-+	struct regulator_config cfg = { };
-+	int ret;
-+
-+	/*
-+	* We lookup supply names from machine specific tables, based on a
-+	* unique identifier in the sensor's _DSM
-+	*/
-+	regulator_map = int3472_get_sensor_supply_map(int3472);
-+	if (IS_ERR_OR_NULL(regulator_map)) {
-+		dev_err(&int3472->sensor->dev,
-+			"Found no supplies defined for this sensor\n");
-+		return PTR_ERR(regulator_map);
-+	}
-+
-+	if (int3472->n_regulators >= regulator_map->n_supplies) {
-+		dev_err(&int3472->sensor->dev,
-+			"All known supplies are already mapped\n");
-+		return -EINVAL;
-+	}
-+
-+	init_data.supply_regulator = NULL;
-+	init_data.constraints.valid_ops_mask = REGULATOR_CHANGE_STATUS;
-+	init_data.num_consumer_supplies = 1;
-+	init_data.consumer_supplies = &regulator_map->supplies[int3472->n_regulators];
-+
-+	regulator = kmalloc(sizeof(*regulator), GFP_KERNEL);
-+	if (!regulator)
-+		return -ENOMEM;
-+
-+	snprintf(regulator->regulator_name, GPIO_REGULATOR_NAME_LENGTH,
-+		 "gpio-regulator-%d", int3472->n_regulators);
-+	snprintf(regulator->supply_name, GPIO_REGULATOR_SUPPLY_NAME_LENGTH,
-+		 "supply-%d", int3472->n_regulators);
-+
-+	regulator->rdesc = INT3472_REGULATOR(regulator->regulator_name,
-+					     regulator->supply_name,
-+					     int3472->n_regulators,
-+					     &int3472_gpio_regulator_ops);
-+
-+	regulator->gpio = acpi_get_gpiod(path, ares->data.gpio.pin_table[0]);
-+	if (IS_ERR(regulator->gpio)) {
-+		ret = PTR_ERR(regulator->gpio);
-+		goto err_free_regulator;
-+	}
-+
-+	cfg.dev = &int3472->adev->dev;
-+	cfg.init_data = &init_data;
-+	cfg.ena_gpiod = regulator->gpio;
-+
-+	regulator->rdev = regulator_register(&regulator->rdesc, &cfg);
-+	if (IS_ERR(regulator->rdev)) {
-+		ret = PTR_ERR(regulator->rdev);
-+		goto err_free_gpio;
-+	}
-+
-+	list_add(&regulator->list, &int3472->regulators);
-+	int3472->n_regulators++;
-+
-+	return 0;
-+
-+err_free_gpio:
-+	gpiod_put(regulator->gpio);
-+err_free_regulator:
-+	kfree(regulator);
-+
-+	return ret;
-+}
-+
-+static int int3472_handle_gpio_resources(struct acpi_resource *ares,
-+					 void *data)
-+{
-+	struct int3472_device *int3472 = data;
-+	union acpi_object *obj;
-+	int ret = 0;
-+
-+	if (ares->type != ACPI_RESOURCE_TYPE_GPIO ||
-+	    ares->data.gpio.connection_type != ACPI_RESOURCE_GPIO_TYPE_IO)
-+		return EINVAL; /* Deliberately positive */
-+
-+	/*
-+	 * n_gpios + 2 because the index of this _DSM function is 1-based and
-+	 * the first function is just a count.
-+	 */
-+	obj = acpi_evaluate_dsm_typed(int3472->adev->handle,
-+				      &int3472_gpio_guid, 0x00,
-+				      int3472->n_gpios + 2,
-+				      NULL, ACPI_TYPE_INTEGER);
-+
-+	if (!obj) {
-+		dev_warn(&int3472->adev->dev,
-+			 "No _DSM entry for this GPIO pin\n");
-+		return ENODEV;
-+	}
-+
-+	switch (obj->integer.value & 0xff) { /* low byte holds type data */
-+	case 0x00: /* Purpose unclear, possibly a reset GPIO pin */
-+		ret = int3472_map_gpio_to_sensor(int3472, ares, "reset");
-+		if (ret)
-+			dev_warn(&int3472->adev->dev,
-+				 "Failed to map reset pin to sensor\n");
-+
-+		break;
-+	case 0x01: /* Power regulators (we think) */
-+	case 0x0c:
-+		ret = int3472_register_regulator(int3472, ares);
-+		if (ret)
-+			dev_warn(&int3472->adev->dev,
-+				 "Failed to map regulator to sensor\n");
-+
-+		break;
-+	case 0x0b: /* Power regulators, but to a device separate to sensor */
-+		ret = int3472_register_regulator(int3472, ares);
-+		if (ret)
-+			dev_warn(&int3472->adev->dev,
-+				 "Failed to map regulator to sensor\n");
-+
-+		break;
-+	case 0x0d: /* Indicator LEDs */
-+		ret = int3472_map_gpio_to_sensor(int3472, ares, "indicator-led");
-+		if (ret)
-+			dev_warn(&int3472->adev->dev,
-+				 "Failed to map indicator led to sensor\n");
-+
-+		break;
-+	default:
-+		/* if we've gotten here, we're not sure what they are yet */
-+		dev_warn(&int3472->adev->dev,
-+			 "GPIO type 0x%llx unknown; the sensor may not work\n",
-+			 (obj->integer.value & 0xff));
-+		ret = EINVAL;
-+	}
-+
-+	int3472->n_gpios++;
-+	ACPI_FREE(obj);
-+	return abs(ret);
-+}
-+
-+static void int3472_parse_crs(struct int3472_device *int3472)
-+{
-+	struct list_head resource_list;
-+
-+	INIT_LIST_HEAD(&resource_list);
-+
-+	acpi_dev_get_resources(int3472->adev, &resource_list,
-+			       int3472_handle_gpio_resources, int3472);
-+
-+	acpi_dev_free_resource_list(&resource_list);
-+	gpiod_add_lookup_table(&int3472->gpios);
-+}
-+
-+static int int3472_add(struct acpi_device *adev)
++int skl_int3472_get_cldb_buffer(struct acpi_device *adev,
++				struct int3472_cldb *cldb)
 +{
 +	struct acpi_buffer buffer = { ACPI_ALLOCATE_BUFFER, NULL };
-+	struct int3472_device *int3472;
-+	struct int3472_cldb cldb;
++	acpi_handle handle = adev->handle;
 +	union acpi_object *obj;
 +	acpi_status status;
 +	int ret = 0;
 +
-+	/*
-+	 * This driver is only intended to support "dummy" INT3472 devices
-+	 * which appear in ACPI designed for Windows. These are distinguishable
-+	 * from INT3472 entries representing an actual tps68470 PMIC through
-+	 * the presence of a CLDB buffer with a particular value set.
-+	 */
-+	status = acpi_evaluate_object(adev->handle, "CLDB", NULL, &buffer);
++	status = acpi_evaluate_object(handle, "CLDB", NULL, &buffer);
 +	if (ACPI_FAILURE(status))
 +		return -ENODEV;
 +
@@ -2303,77 +2666,17 @@ index 000000000000..9fab8dd2ac1b
 +		goto out_free_buff;
 +	}
 +
-+	if (obj->buffer.length > sizeof(cldb)) {
++	if (obj->buffer.length > sizeof(*cldb)) {
 +		dev_err(&adev->dev, "The CLDB buffer is too large\n");
 +		ret = -EINVAL;
 +		goto out_free_buff;
 +	}
 +
-+	memcpy(&cldb, obj->buffer.pointer, obj->buffer.length);
++	memcpy(cldb, obj->buffer.pointer, obj->buffer.length);
 +
-+	/*
-+	 * control_logic_type = 1 indicates this is a dummy INT3472 device of
-+	 * the kind we're looking for. If any other value then we shouldn't try
-+	 * to handle it
-+	 */
-+	if (cldb.control_logic_type != 1) {
-+		ret = -EINVAL;
-+		goto out_free_buff;
-+	}
-+
-+	/* Space for 4 GPIOs - one more than we've seen so far plus a null */
-+	int3472 = kzalloc(sizeof(*int3472) +
-+			 ((INT3472_MAX_SENSOR_GPIOS + 1) * sizeof(struct gpiod_lookup)),
-+			 GFP_KERNEL);
-+	if (!int3472) {
-+		ret = -ENOMEM;
-+		goto out_free_buff;
-+	}
-+
-+	int3472->adev = adev;
-+	adev->driver_data = int3472;
-+
-+	int3472->sensor = acpi_dev_get_next_dep_dev(adev, NULL);
-+	if (!int3472->sensor) {
-+		dev_err(&adev->dev,
-+			"This INT3472 entry seems to have no dependents.\n");
-+		ret = -ENODEV;
-+		goto out_free_int3472;
-+	}
-+
-+	int3472->gpios.dev_id = i2c_acpi_dev_name(int3472->sensor);
-+
-+	INIT_LIST_HEAD(&int3472->regulators);
-+
-+	int3472_parse_crs(int3472);
-+
-+	goto out_free_buff;
-+
-+out_free_int3472:
-+	kfree(int3472);
 +out_free_buff:
 +	kfree(buffer.pointer);
 +	return ret;
-+}
-+
-+static int int3472_remove(struct acpi_device *adev)
-+{
-+	struct int3472_gpio_regulator *reg;
-+	struct int3472_device *int3472;
-+
-+	int3472 = acpi_driver_data(adev);
-+
-+	acpi_dev_put(int3472->sensor);
-+	gpiod_remove_lookup_table(&int3472->gpios);
-+
-+	list_for_each_entry(reg, &int3472->regulators, list) {
-+		gpiod_put(reg->gpio);
-+		regulator_unregister(reg->rdev);
-+	}
-+
-+	kfree(int3472);
-+
-+	return 0;
 +}
 +
 +static const struct acpi_device_id int3472_device_id[] = {
@@ -2382,52 +2685,96 @@ index 000000000000..9fab8dd2ac1b
 +};
 +MODULE_DEVICE_TABLE(acpi, int3472_device_id);
 +
-+static struct acpi_driver int3472_driver = {
-+	.name = "int3472",
-+	.ids = int3472_device_id,
-+	.ops = {
-+		.add = int3472_add,
-+		.remove = int3472_remove,
++static struct platform_driver int3472_discrete = {
++	.driver = {
++		.name = "int3472-discrete",
++		.acpi_match_table = int3472_device_id,
 +	},
-+	.owner = THIS_MODULE,
++	.probe = skl_int3472_discrete_probe,
++	.remove = skl_int3472_discrete_remove,
 +};
 +
-+module_acpi_driver(int3472_driver);
++static struct i2c_driver int3472_tps68470 = {
++	.driver = {
++		.name = "int3472-tps68470",
++		.acpi_match_table = int3472_device_id,
++	},
++	.probe_new = skl_int3472_tps68470_probe,
++};
 +
++static int skl_int3472_init(void)
++{
++	int ret = 0;
++
++	ret = platform_driver_register(&int3472_discrete);
++	if (ret)
++		return ret;
++
++	ret = i2c_register_driver(THIS_MODULE, &int3472_tps68470);
++	if (ret)
++		goto err_unregister_plat_drv;
++
++	return 0;
++
++err_unregister_plat_drv:
++	platform_driver_unregister(&int3472_discrete);
++	return ret;
++}
++module_init(skl_int3472_init);
++
++static void skl_int3472_exit(void)
++{
++	platform_driver_unregister(&int3472_discrete);
++	i2c_del_driver(&int3472_tps68470);
++}
++module_exit(skl_int3472_exit);
++
++MODULE_DESCRIPTION("Intel SkyLake INT3472 ACPI Device Driver");
++MODULE_AUTHOR("Daniel Scally <djrscally@gmail.com>");
 +MODULE_LICENSE("GPL v2");
-+MODULE_AUTHOR("Dan Scally <djrscally@gmail.com>");
-+MODULE_DESCRIPTION("ACPI Driver for Discrete type INT3472 ACPI Devices");
-diff --git a/drivers/media/pci/intel/ipu3/int3472.h b/drivers/media/pci/intel/ipu3/int3472.h
+diff --git a/drivers/platform/x86/intel_skl_int3472_common.h b/drivers/platform/x86/intel_skl_int3472_common.h
 new file mode 100644
-index 000000000000..6964726e8e1f
+index 000000000000..4ac6bb2b223f
 --- /dev/null
-+++ b/drivers/media/pci/intel/ipu3/int3472.h
-@@ -0,0 +1,96 @@
++++ b/drivers/platform/x86/intel_skl_int3472_common.h
+@@ -0,0 +1,99 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/* Author: Dan Scally <djrscally@gmail.com> */
 +#include <linux/regulator/machine.h>
++#include <linux/clk-provider.h>
++#include <linux/gpio/machine.h>
++#include <linux/regulator/driver.h>
++#include <linux/types.h>
 +
-+#define INT3472_MAX_SENSOR_GPIOS			3
-+#define GPIO_REGULATOR_NAME_LENGTH			17
-+#define GPIO_REGULATOR_SUPPLY_NAME_LENGTH		9
++/* PMIC GPIO Types */
++#define INT3472_GPIO_TYPE_RESET					0x00
++#define INT3472_GPIO_TYPE_POWERDOWN				0x01
++#define INT3472_GPIO_TYPE_CLK_ENABLE				0x0c
++#define INT3472_GPIO_TYPE_POWER_ENABLE				0x0b
++#define INT3472_GPIO_TYPE_PRIVACY_LED				0x0d
++#define INT3472_PDEV_MAX_NAME_LEN				23
++#define INT3472_MAX_SENSOR_GPIOS				3
++#define GPIO_REGULATOR_NAME_LENGTH				27
++#define GPIO_REGULATOR_SUPPLY_NAME_LENGTH			9
 +
-+#define INT3472_REGULATOR(_NAME, _SUPPLY, _ID, _OPS)	\
-+	((const struct regulator_desc) {		\
-+		.name = _NAME,				\
-+		.supply_name = _SUPPLY,			\
-+		.id = _ID,				\
-+		.type = REGULATOR_VOLTAGE,		\
-+		.ops = _OPS,				\
-+		.owner = THIS_MODULE,			\
-+	})
++#define INT3472_REGULATOR(_NAME, _SUPPLY, _OPS)			\
++	(const struct regulator_desc) {				\
++		.name = _NAME,					\
++		.supply_name = _SUPPLY,				\
++		.id = 0,					\
++		.type = REGULATOR_VOLTAGE,			\
++		.ops = _OPS,					\
++		.owner = THIS_MODULE,				\
++	}
 +
-+const guid_t int3472_gpio_guid = GUID_INIT(0x79234640, 0x9e10, 0x4fea,
-+					     0xa5, 0xc1, 0xb5, 0xaa, 0x8b,
-+					     0x19, 0x75, 0x6f);
++#define INT3472_GPIO_FUNCTION_REMAP(_PIN, _FUNCTION)		\
++	(const struct int3472_gpio_function_remap) {		\
++		.documented = _PIN,					\
++		.actual = _FUNCTION				\
++	}
 +
-+const guid_t cio2_sensor_module_guid = GUID_INIT(0x822ace8f, 0x2814, 0x4174,
-+						 0xa5, 0x6b, 0x5f, 0x02, 0x9f,
-+						 0xe0, 0x79, 0xee);
++#define to_int3472_clk(hw)					\
++	container_of(hw, struct int3472_gpio_clock, clk_hw)
 +
 +struct int3472_cldb {
 +	u8 version;
@@ -2444,196 +2791,803 @@ index 000000000000..6964726e8e1f
 +	u8 reserved[28];
 +};
 +
-+struct int3472_device {
-+	struct acpi_device *adev;
-+	struct acpi_device *sensor;
-+
-+	unsigned int n_gpios; /* how many GPIOs have we seen */
-+
-+	unsigned int n_regulators;
-+	struct list_head regulators;
-+
-+	unsigned int n_sensor_gpios; /* how many have we mapped to sensor */
-+	struct gpiod_lookup_table gpios;
-+};
-+
 +struct int3472_gpio_regulator {
 +	char regulator_name[GPIO_REGULATOR_NAME_LENGTH];
 +	char supply_name[GPIO_REGULATOR_SUPPLY_NAME_LENGTH];
 +	struct gpio_desc *gpio;
 +	struct regulator_dev *rdev;
 +	struct regulator_desc rdesc;
-+	struct list_head list;
 +};
 +
-+struct int3472_sensor_regulator_map {
-+	char *sensor_module_name;
-+	unsigned int n_supplies;
-+	struct regulator_consumer_supply *supplies;
++struct int3472_gpio_clock {
++	struct clk *clk;
++	struct clk_hw clk_hw;
++	struct gpio_desc *gpio;
 +};
++
++struct int3472_device {
++	struct acpi_device *adev;
++	struct platform_device *pdev;
++	struct acpi_device *sensor;
++	char *sensor_name;
++
++	unsigned int n_gpios; /* how many GPIOs have we seen */
++
++	struct int3472_gpio_regulator regulator;
++	struct int3472_gpio_clock clock;
++
++	unsigned int n_sensor_gpios; /* how many have we mapped to sensor */
++	bool gpios_mapped;
++	struct gpiod_lookup_table gpios;
++};
++
++struct int3472_gpio_function_remap {
++	char *documented;
++	char *actual;
++};
++
++struct int3472_sensor_config {
++	char *sensor_module_name;
++	struct regulator_consumer_supply supply_map;
++	const struct int3472_gpio_function_remap *function_maps;
++};
++
++int skl_int3472_discrete_probe(struct platform_device *pdev);
++int skl_int3472_discrete_remove(struct platform_device *pdev);
++int skl_int3472_tps68470_probe(struct i2c_client *client);
++int skl_int3472_get_cldb_buffer(struct acpi_device *adev,
++				struct int3472_cldb *cldb);
+diff --git a/drivers/platform/x86/intel_skl_int3472_discrete.c b/drivers/platform/x86/intel_skl_int3472_discrete.c
+new file mode 100644
+index 000000000000..ea7e57f3e3f0
+--- /dev/null
++++ b/drivers/platform/x86/intel_skl_int3472_discrete.c
+@@ -0,0 +1,489 @@
++// SPDX-License-Identifier: GPL-2.0
++/* Author: Dan Scally <djrscally@gmail.com> */
++
++#include <linux/acpi.h>
++#include <linux/clkdev.h>
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++#include <linux/regulator/driver.h>
++
++#include "intel_skl_int3472_common.h"
++
++/* 79234640-9e10-4fea-a5c1b5aa8b19756f */
++static const guid_t int3472_gpio_guid =
++	GUID_INIT(0x79234640, 0x9e10, 0x4fea,
++		  0xa5, 0xc1, 0xb5, 0xaa, 0x8b, 0x19, 0x75, 0x6f);
++
++/* 822ace8f-2814-4174-a56b5f029fe079ee */
++static const guid_t cio2_sensor_module_guid =
++	GUID_INIT(0x822ace8f, 0x2814, 0x4174,
++		  0xa5, 0x6b, 0x5f, 0x02, 0x9f, 0xe0, 0x79, 0xee);
 +
 +/*
 + * Here follows platform specific mapping information that we can pass to
-+ * regulator_init_data when we register our regulators. They're just mapped
-+ * via index, I.E. the first regulator pin that the code finds for the
-+ * i2c-OVTI2680:00 device is avdd, the second is dovdd and so on.
++ * the functions mapping resources to the sensors. Where the sensors have
++ * a power enable pin defined in DSDT we need to provide a supply name so
++ * the sensor drivers can find the regulator. Optionally, we can provide a
++ * NULL terminated array of function name mappings to deal with any platform
++ * specific deviations from the documented behaviour of GPIOs.
++ *
++ * Map a GPIO function name to NULL to prevent the driver from mapping that
++ * GPIO at all.
 + */
 +
-+static struct regulator_consumer_supply miix_510_ov2680[] = {
-+	{ "i2c-OVTI2680:00", "avdd" },
-+	{ "i2c-OVTI2680:00", "dovdd" },
++static const struct int3472_gpio_function_remap ov2680_gpio_function_remaps[] = {
++	INT3472_GPIO_FUNCTION_REMAP("reset", NULL),
++	INT3472_GPIO_FUNCTION_REMAP("powerdown", "reset"),
++	{ }
 +};
 +
-+static struct regulator_consumer_supply surface_go2_ov5693[] = {
-+	{ "i2c-INT33BE:00", "avdd" },
-+	{ "i2c-INT33BE:00", "dovdd" },
++static struct int3472_sensor_config int3472_sensor_configs[] = {
++	/* Lenovo Miix 510-12ISK - OV2680, Front */
++	{ "GNDF140809R", { 0 }, ov2680_gpio_function_remaps},
++	/* Lenovo Miix 510-12ISK - OV5648, Rear */
++	{ "GEFF150023R", REGULATOR_SUPPLY("avdd", "i2c-OVTI5648:00"), NULL},
++	/* Surface Go 1&2 - OV5693, Front */
++	{ "YHCU", REGULATOR_SUPPLY("avdd", "i2c-INT33BE:00"), NULL},
 +};
 +
-+static struct regulator_consumer_supply surface_book_ov5693[] = {
-+	{ "i2c-INT33BE:00", "avdd" },
-+	{ "i2c-INT33BE:00", "dovdd" },
++/*
++ * The regulators have to have .ops to be valid, but the only ops we actually
++ * support are .enable and .disable which are handled via .ena_gpiod. Pass an
++ * empty struct to clear the check without lying about capabilities.
++ */
++static const struct regulator_ops int3472_gpio_regulator_ops = { 0 };
++
++static int skl_int3472_clk_enable(struct clk_hw *hw)
++{
++	struct int3472_gpio_clock *clk = to_int3472_clk(hw);
++
++	gpiod_set_value(clk->gpio, 1);
++
++	return 0;
++}
++
++static void skl_int3472_clk_disable(struct clk_hw *hw)
++{
++	struct int3472_gpio_clock *clk = to_int3472_clk(hw);
++
++	gpiod_set_value(clk->gpio, 0);
++}
++
++static int skl_int3472_clk_prepare(struct clk_hw *hw)
++{
++	/*
++	 * We're just turning a GPIO on to enable, so nothing to do here, but
++	 * we want to provide the op so prepare_enable() works.
++	 */
++	return 0;
++}
++
++static void skl_int3472_clk_unprepare(struct clk_hw *hw)
++{
++	/* Likewise, nothing to do here... */
++}
++
++static const struct clk_ops skl_int3472_clock_ops = {
++	.prepare = skl_int3472_clk_prepare,
++	.unprepare = skl_int3472_clk_unprepare,
++	.enable = skl_int3472_clk_enable,
++	.disable = skl_int3472_clk_disable,
 +};
 +
-+static struct int3472_sensor_regulator_map int3472_sensor_regulator_maps[] = {
-+	{ "GNDF140809R", 2, miix_510_ov2680 },
-+	{ "YHCU", 2, surface_go2_ov5693 },
-+	{ "MSHW0070", 2, surface_book_ov5693 },
++static struct int3472_sensor_config *
++int3472_get_sensor_module_config(struct int3472_device *int3472)
++{
++	unsigned int i = ARRAY_SIZE(int3472_sensor_configs);
++	struct int3472_sensor_config *ret;
++	union acpi_object *obj;
++
++	obj = acpi_evaluate_dsm_typed(int3472->sensor->handle,
++				      &cio2_sensor_module_guid, 0x00,
++				      0x01, NULL, ACPI_TYPE_STRING);
++
++	if (!obj) {
++		dev_err(&int3472->pdev->dev,
++			"Failed to get sensor module string from _DSM\n");
++		return ERR_PTR(-ENODEV);
++	}
++
++	if (obj->string.type != ACPI_TYPE_STRING) {
++		dev_err(&int3472->pdev->dev,
++			"Sensor _DSM returned a non-string value\n");
++		ret = ERR_PTR(-EINVAL);
++		goto out_free_obj;
++	}
++
++	ret = ERR_PTR(-ENODEV);
++	while (i--) {
++		if (!strcmp(int3472_sensor_configs[i].sensor_module_name,
++			    obj->string.pointer)) {
++			ret = &int3472_sensor_configs[i];
++			goto out_free_obj;
++		}
++	}
++
++out_free_obj:
++	ACPI_FREE(obj);
++	return ret;
++}
++
++static int int3472_map_gpio_to_sensor(struct int3472_device *int3472,
++				      struct acpi_resource *ares,
++				      char *func, u32 polarity)
++{
++	char *path = ares->data.gpio.resource_source.string_ptr;
++	struct int3472_sensor_config *sensor_config;
++	struct gpiod_lookup table_entry;
++	struct acpi_device *adev;
++	acpi_handle handle;
++	acpi_status status;
++	int ret;
++
++	sensor_config = int3472_get_sensor_module_config(int3472);
++	if (!IS_ERR(sensor_config) && sensor_config->function_maps) {
++		unsigned int i = 0;
++
++		while (sensor_config->function_maps[i].documented) {
++			if (!strcmp(func, sensor_config->function_maps[i].documented)) {
++				func = sensor_config->function_maps[i].actual;
++
++				break;
++			}
++
++			i++;
++		}
++	}
++
++	if (!func)
++		return 0;
++
++	if (int3472->n_sensor_gpios >= INT3472_MAX_SENSOR_GPIOS) {
++		dev_warn(&int3472->pdev->dev, "Too many GPIOs mapped\n");
++		return -EINVAL;
++	}
++
++	status = acpi_get_handle(NULL, path, &handle);
++	if (ACPI_FAILURE(status))
++		return -EINVAL;
++
++	ret = acpi_bus_get_device(handle, &adev);
++	if (ret)
++		return -ENODEV;
++
++	table_entry = (struct gpiod_lookup)GPIO_LOOKUP_IDX(acpi_dev_name(adev),
++							   ares->data.gpio.pin_table[0],
++							   func, 0, polarity);
++
++	memcpy(&int3472->gpios.table[int3472->n_sensor_gpios], &table_entry,
++	       sizeof(table_entry));
++
++	int3472->n_sensor_gpios++;
++
++	return 0;
++}
++
++static int int3472_register_clock(struct int3472_device *int3472,
++				  struct acpi_resource *ares)
++{
++	char *path = ares->data.gpio.resource_source.string_ptr;
++	struct clk_init_data init = { };
++	int ret = 0;
++
++	init.name = kasprintf(GFP_KERNEL, "%s-clk", acpi_dev_name(int3472->adev));
++	init.ops = &skl_int3472_clock_ops;
++
++	int3472->clock.gpio = acpi_get_gpiod(path, ares->data.gpio.pin_table[0]);
++	if (IS_ERR(int3472->clock.gpio)) {
++		ret = PTR_ERR(int3472->clock.gpio);
++		goto out_free_init_name;
++	}
++
++	int3472->clock.clk_hw.init = &init;
++	int3472->clock.clk = clk_register(&int3472->adev->dev,
++					  &int3472->clock.clk_hw);
++	if (IS_ERR(int3472->clock.clk)) {
++		ret = PTR_ERR(int3472->clock.clk);
++		goto err_put_gpio;
++	}
++
++	ret = clk_register_clkdev(int3472->clock.clk, "xvclk", int3472->sensor_name);
++	if (ret)
++		goto err_unregister_clk;
++
++	goto out_free_init_name;
++
++err_unregister_clk:
++	clk_unregister(int3472->clock.clk);
++err_put_gpio:
++	gpiod_put(int3472->clock.gpio);
++out_free_init_name:
++	kfree(init.name);
++
++	return ret;
++}
++
++static int int3472_register_regulator(struct int3472_device *int3472,
++				      struct acpi_resource *ares)
++{
++	char *path = ares->data.gpio.resource_source.string_ptr;
++	struct int3472_sensor_config *sensor_config;
++	struct regulator_init_data init_data = { };
++	struct int3472_gpio_regulator *regulator;
++	struct regulator_config cfg = { };
++	int ret;
++
++	sensor_config = int3472_get_sensor_module_config(int3472);
++	if (IS_ERR_OR_NULL(sensor_config)) {
++		dev_err(&int3472->pdev->dev, "No sensor module config\n");
++		return PTR_ERR(sensor_config);
++	}
++
++	if (!sensor_config->supply_map.supply) {
++		dev_err(&int3472->pdev->dev, "No supply name defined\n");
++		return -ENODEV;
++	}
++
++	init_data.supply_regulator = NULL;
++	init_data.constraints.valid_ops_mask = REGULATOR_CHANGE_STATUS;
++	init_data.num_consumer_supplies = 1;
++	init_data.consumer_supplies = &sensor_config->supply_map;
++
++	snprintf(int3472->regulator.regulator_name, GPIO_REGULATOR_NAME_LENGTH,
++		 "int3472-discrete-regulator");
++	snprintf(int3472->regulator.supply_name, GPIO_REGULATOR_SUPPLY_NAME_LENGTH,
++		 "supply-0");
++
++	int3472->regulator.rdesc = INT3472_REGULATOR(int3472->regulator.regulator_name,
++						     int3472->regulator.supply_name,
++						     &int3472_gpio_regulator_ops);
++
++	int3472->regulator.gpio = acpi_get_gpiod(path, ares->data.gpio.pin_table[0]);
++	if (IS_ERR(int3472->regulator.gpio)) {
++		ret = PTR_ERR(int3472->regulator.gpio);
++		goto err_free_regulator;
++	}
++
++	cfg.dev = &int3472->adev->dev;
++	cfg.init_data = &init_data;
++	cfg.ena_gpiod = int3472->regulator.gpio;
++
++	int3472->regulator.rdev = regulator_register(&int3472->regulator.rdesc, &cfg);
++	if (IS_ERR(int3472->regulator.rdev)) {
++		ret = PTR_ERR(int3472->regulator.rdev);
++		goto err_free_gpio;
++	}
++
++	return 0;
++
++err_free_gpio:
++	gpiod_put(regulator->gpio);
++err_free_regulator:
++	kfree(regulator);
++
++	return ret;
++}
++
++/**
++ * int3472_handle_gpio_resources: maps PMIC resources to consuming sensor
++ * @ares: A pointer to a &struct acpi_resource
++ * @data: A pointer to a &struct int3472_device
++ *
++ * This function handles GPIO resources that are against an INT3472
++ * ACPI device, by checking the value of the corresponding _DSM entry.
++ * This will return a 32bit int, where the lowest byte represents the
++ * function of the GPIO pin:
++ *
++ * 0x00 Reset
++ * 0x01 Power down
++ * 0x0b Power enable
++ * 0x0c Clock enable
++ * 0x0d Privacy LED
++ *
++ * There are some known platform specific quirks where that does not quite
++ * hold up; for example where a pin with type 0x01 (Power down) is mapped to
++ * a sensor pin that performs a reset function. These will be handled by the
++ * mapping sub-functions.
++ *
++ * GPIOs will either be mapped directly to the sensor device or else used
++ * to create clocks and regulators via the usual frameworks.
++ *
++ * Return:
++ * * 0		- When all resources found are handled properly.
++ * * -EINVAL	- If the resource is not a GPIO IO resource
++ * * -ENODEV	- If the resource has no corresponding _DSM entry
++ * * -Other	- Errors propagated from one of the sub-functions.
++ */
++static int int3472_handle_gpio_resources(struct acpi_resource *ares,
++					 void *data)
++{
++	struct int3472_device *int3472 = data;
++	union acpi_object *obj;
++	int ret = 0;
++
++	if (ares->type != ACPI_RESOURCE_TYPE_GPIO ||
++	    ares->data.gpio.connection_type != ACPI_RESOURCE_GPIO_TYPE_IO)
++		return EINVAL; /* Deliberately positive so parsing continues */
++
++	/*
++	 * n_gpios + 2 because the index of this _DSM function is 1-based and
++	 * the first function is just a count.
++	 */
++	obj = acpi_evaluate_dsm_typed(int3472->adev->handle,
++				      &int3472_gpio_guid, 0x00,
++				      int3472->n_gpios + 2,
++				      NULL, ACPI_TYPE_INTEGER);
++
++	if (!obj) {
++		dev_warn(&int3472->pdev->dev,
++			 "No _DSM entry for this GPIO pin\n");
++		return ENODEV;
++	}
++
++	switch (obj->integer.value & 0xff) {
++	case INT3472_GPIO_TYPE_RESET:
++		ret = int3472_map_gpio_to_sensor(int3472, ares, "reset",
++						 GPIO_ACTIVE_LOW);
++		if (ret)
++			dev_err(&int3472->pdev->dev,
++				"Failed to map reset pin to sensor\n");
++
++		break;
++	case INT3472_GPIO_TYPE_POWERDOWN:
++		ret = int3472_map_gpio_to_sensor(int3472, ares, "powerdown",
++						 GPIO_ACTIVE_LOW);
++		if (ret)
++			dev_err(&int3472->pdev->dev,
++				"Failed to map powerdown pin to sensor\n");
++
++		break;
++	case INT3472_GPIO_TYPE_CLK_ENABLE:
++		ret = int3472_register_clock(int3472, ares);
++		if (ret)
++			dev_err(&int3472->pdev->dev,
++				"Failed to map clock to sensor\n");
++
++		break;
++	case INT3472_GPIO_TYPE_POWER_ENABLE:
++		ret = int3472_register_regulator(int3472, ares);
++		if (ret) {
++			dev_err(&int3472->pdev->dev,
++				"Failed to map regulator to sensor\n");
++		}
++
++		break;
++	case INT3472_GPIO_TYPE_PRIVACY_LED:
++		ret = int3472_map_gpio_to_sensor(int3472, ares, "indicator-led",
++						 GPIO_ACTIVE_HIGH);
++		if (ret)
++			dev_err(&int3472->pdev->dev,
++				"Failed to map indicator led to sensor\n");
++
++		break;
++	default:
++		dev_warn(&int3472->pdev->dev,
++			 "GPIO type 0x%llx unknown; the sensor may not work\n",
++			 (obj->integer.value & 0xff));
++		ret = EINVAL;
++	}
++
++	int3472->n_gpios++;
++	ACPI_FREE(obj);
++
++	return ret;
++}
++
++static int int3472_parse_crs(struct int3472_device *int3472)
++{
++	struct list_head resource_list;
++	int ret = 0;
++
++	INIT_LIST_HEAD(&resource_list);
++
++	ret = acpi_dev_get_resources(int3472->adev, &resource_list,
++				     int3472_handle_gpio_resources, int3472);
++
++	if (!ret) {
++		gpiod_add_lookup_table(&int3472->gpios);
++		int3472->gpios_mapped = true;
++	}
++
++	acpi_dev_free_resource_list(&resource_list);
++
++	return ret;
++}
++
++int skl_int3472_discrete_probe(struct platform_device *pdev)
++{
++	struct acpi_device *adev = ACPI_COMPANION(&pdev->dev);
++	struct int3472_device *int3472;
++	struct int3472_cldb cldb;
++	int ret = 0;
++
++	ret = skl_int3472_get_cldb_buffer(adev, &cldb);
++	if (ret || cldb.control_logic_type != 1)
++		return -EINVAL;
++
++	int3472 = kzalloc(sizeof(*int3472) +
++			 ((INT3472_MAX_SENSOR_GPIOS + 1) * sizeof(struct gpiod_lookup)),
++			 GFP_KERNEL);
++	if (!int3472)
++		return -ENOMEM;
++
++	int3472->adev = adev;
++	int3472->pdev = pdev;
++	platform_set_drvdata(pdev, int3472);
++
++	int3472->sensor = acpi_dev_get_next_dep_dev(adev, NULL);
++	if (!int3472->sensor) {
++		dev_err(&pdev->dev,
++			"This INT3472 entry seems to have no dependents.\n");
++		ret = -ENODEV;
++		goto err_free_int3472;
++	}
++	int3472->sensor_name = i2c_acpi_dev_name(int3472->sensor);
++	int3472->gpios.dev_id = int3472->sensor_name;
++
++	ret = int3472_parse_crs(int3472);
++	if (ret) {
++		skl_int3472_discrete_remove(pdev);
++		goto err_return_ret;
++	}
++
++	return 0;
++
++err_free_int3472:
++	kfree(int3472);
++err_return_ret:
++	return ret;
++}
++
++int skl_int3472_discrete_remove(struct platform_device *pdev)
++{
++	struct int3472_device *int3472;
++
++	int3472 = platform_get_drvdata(pdev);
++
++	if (int3472->gpios_mapped)
++		gpiod_remove_lookup_table(&int3472->gpios);
++
++	if (!IS_ERR_OR_NULL(int3472->regulator.rdev)) {
++		gpiod_put(int3472->regulator.gpio);
++		regulator_unregister(int3472->regulator.rdev);
++	}
++
++	if (!IS_ERR_OR_NULL(int3472->clock.clk)) {
++		gpiod_put(int3472->clock.gpio);
++		clk_unregister(int3472->clock.clk);
++	}
++
++	acpi_dev_put(int3472->sensor);
++
++	kfree(int3472->sensor_name);
++	kfree(int3472);
++
++	return 0;
++}
+diff --git a/drivers/platform/x86/intel_skl_int3472_tps68470.c b/drivers/platform/x86/intel_skl_int3472_tps68470.c
+new file mode 100644
+index 000000000000..3fe27ec0caff
+--- /dev/null
++++ b/drivers/platform/x86/intel_skl_int3472_tps68470.c
+@@ -0,0 +1,145 @@
++// SPDX-License-Identifier: GPL-2.0
++/* Author: Dan Scally <djrscally@gmail.com> */
++
++#include <linux/i2c.h>
++#include <linux/mfd/tps68470.h>
++#include <linux/platform_device.h>
++#include <linux/regmap.h>
++
++#include "intel_skl_int3472_common.h"
++
++static const struct regmap_config tps68470_regmap_config = {
++	.reg_bits = 8,
++	.val_bits = 8,
++	.max_register = TPS68470_REG_MAX,
 +};
++
++static int tps68470_chip_init(struct device *dev, struct regmap *regmap)
++{
++	unsigned int version;
++	int ret;
++
++	/* Force software reset */
++	ret = regmap_write(regmap, TPS68470_REG_RESET, TPS68470_REG_RESET_MASK);
++	if (ret)
++		return ret;
++
++	ret = regmap_read(regmap, TPS68470_REG_REVID, &version);
++	if (ret) {
++		dev_err(dev, "Failed to read revision register: %d\n", ret);
++		return ret;
++	}
++
++	dev_info(dev, "TPS68470 REVID: 0x%x\n", version);
++
++	return 0;
++}
++
++static struct platform_device *
++skl_int3472_register_pdev(const char *name, struct device *parent)
++{
++	struct platform_device *pdev;
++	int ret;
++
++	pdev = platform_device_alloc(name, PLATFORM_DEVID_NONE);
++	if (IS_ERR_OR_NULL(pdev))
++		return ERR_PTR(-ENOMEM);
++
++	pdev->dev.parent = parent;
++	pdev->driver_override = kstrndup(pdev->name, INT3472_PDEV_MAX_NAME_LEN,
++					 GFP_KERNEL);
++
++	ret = platform_device_add(pdev);
++	if (ret) {
++		platform_device_put(pdev);
++		return ERR_PTR(ret);
++	}
++
++	return pdev;
++}
++
++int skl_int3472_tps68470_probe(struct i2c_client *client)
++{
++	struct acpi_device *adev = ACPI_COMPANION(&client->dev);
++	struct platform_device *regulator_dev;
++	struct platform_device *opregion_dev;
++	struct platform_device *gpio_dev;
++	struct int3472_cldb cldb = { 0 };
++	struct platform_device *clk_dev;
++	bool cldb_present = true;
++	struct regmap *regmap;
++	int ret = 0;
++
++	regmap = devm_regmap_init_i2c(client, &tps68470_regmap_config);
++	if (IS_ERR(regmap)) {
++		dev_err(&client->dev, "devm_regmap_init_i2c Error %ld\n",
++			PTR_ERR(regmap));
++		return PTR_ERR(regmap);
++	}
++
++	i2c_set_clientdata(client, regmap);
++
++	ret = tps68470_chip_init(&client->dev, regmap);
++	if (ret < 0) {
++		dev_err(&client->dev, "TPS68470 Init Error %d\n", ret);
++		return ret;
++	}
++
++	/*
++	 * Check CLDB buffer against the PMIC's adev. If present, then we check
++	 * the value of control_logic_type field and follow one of the following
++	 * scenarios:
++	 *
++	 *	1. No CLDB - likely ACPI tables designed for ChromeOS. We create
++	 *	platform devices for the GPIOs and OpRegion drivers.
++	 *
++	 *	2. CLDB, with control_logic_type = 2 - probably ACPI tables made
++	 *	for Windows 2-in-1 platforms. Register pdevs for GPIO, Clock and
++	 *	Regulator drivers to bind to.
++	 *
++	 *	3. Any other value in control_logic_type, we should never have
++	 *	gotten to this point; crash and burn.
++	 */
++	ret = skl_int3472_get_cldb_buffer(adev, &cldb);
++	if (!ret && cldb.control_logic_type != 2)
++		return -EINVAL;
++
++	if (ret)
++		cldb_present = false;
++
++	gpio_dev = skl_int3472_register_pdev("tps68470-gpio", &client->dev);
++	if (IS_ERR(gpio_dev))
++		return PTR_ERR(gpio_dev);
++
++	if (cldb_present) {
++		clk_dev = skl_int3472_register_pdev("tps68470-clk",
++						    &client->dev);
++		if (IS_ERR(clk_dev)) {
++			ret = PTR_ERR(clk_dev);
++			goto err_free_gpio;
++		}
++
++		regulator_dev = skl_int3472_register_pdev("tps68470-regulator",
++							  &client->dev);
++		if (IS_ERR(regulator_dev)) {
++			ret = PTR_ERR(regulator_dev);
++			goto err_free_clk;
++		}
++	} else {
++		opregion_dev = skl_int3472_register_pdev("tps68470_pmic_opregion",
++							 &client->dev);
++		if (IS_ERR(opregion_dev)) {
++			ret = PTR_ERR(opregion_dev);
++			goto err_free_gpio;
++		}
++	}
++
++	return 0;
++
++err_free_clk:
++	platform_device_put(clk_dev);
++err_free_gpio:
++	platform_device_put(gpio_dev);
++
++	return ret;
++}
 -- 
 2.30.0
 
-From 240c902de0691faccd3a3c636500857c59a2cac3 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Thu, 10 Dec 2020 17:45:49 +0100
-Subject: [PATCH] ipu3: int3472: Add missing IDs for Surface Book 1
+From 061a4b11e88c3874e17d27e80643bfd35263fdd0 Mon Sep 17 00:00:00 2001
+From: "Rafael J. Wysocki" <rafael.j.wysocki@intel.com>
+Date: Fri, 11 Dec 2020 21:17:35 +0100
+Subject: [PATCH] PCI: ACPI: Fix up ACPI companion lookup for device 0 on the
+ root bus
 
+In some cases acpi_pci_find_companion() returns an incorrect device
+object as the ACPI companion for device 0 on the root bus (bus 0).
+
+On the affected systems that device is the PCI interface to the
+host bridge and the "ACPI companion" returned for it corresponds
+to a non-PCI device located in the SoC (e.g. a sensor on an I2C
+bus).  As a result of this, the ACPI device object "attached"
+to PCI device 00:00.0 cannot be used for enumerating the device
+that is really represented by it which (of course) is problematic.
+
+Address that issue by preventing acpi_pci_find_companion() from
+returning a device object with a valid _HID (which by the spec
+should not be present uder ACPI device objects corresponding to
+PCI devices) for PCI device 00:00.0.
+
+Link: https://lore.kernel.org/linux-acpi/1409ba0c-1580-dc09-e6fe-a0c9bcda6462@gmail.com/
+Reported-by: Daniel Scally <djrscally@gmail.com>
+Signed-off-by: Rafael J. Wysocki <rafael.j.wysocki@intel.com>
 Patchset: cameras
 ---
- drivers/media/pci/intel/ipu3/int3472.h | 16 ++++++++++++++--
- 1 file changed, 14 insertions(+), 2 deletions(-)
+ drivers/pci/pci-acpi.c | 20 +++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
 
-diff --git a/drivers/media/pci/intel/ipu3/int3472.h b/drivers/media/pci/intel/ipu3/int3472.h
-index 6964726e8e1f..d9f74a0c94c9 100644
---- a/drivers/media/pci/intel/ipu3/int3472.h
-+++ b/drivers/media/pci/intel/ipu3/int3472.h
-@@ -84,13 +84,25 @@ static struct regulator_consumer_supply surface_go2_ov5693[] = {
- 	{ "i2c-INT33BE:00", "dovdd" },
- };
+diff --git a/drivers/pci/pci-acpi.c b/drivers/pci/pci-acpi.c
+index 745a4e0c4994..87e45a800919 100644
+--- a/drivers/pci/pci-acpi.c
++++ b/drivers/pci/pci-acpi.c
+@@ -1162,14 +1162,32 @@ void acpi_pci_remove_bus(struct pci_bus *bus)
+ static struct acpi_device *acpi_pci_find_companion(struct device *dev)
+ {
+ 	struct pci_dev *pci_dev = to_pci_dev(dev);
++	struct acpi_device *adev;
+ 	bool check_children;
+ 	u64 addr;
  
--static struct regulator_consumer_supply surface_book_ov5693[] = {
-+static struct regulator_consumer_supply surface_ov5693[] = {
- 	{ "i2c-INT33BE:00", "avdd" },
- 	{ "i2c-INT33BE:00", "dovdd" },
- };
+ 	check_children = pci_is_bridge(pci_dev);
+ 	/* Please ref to ACPI spec for the syntax of _ADR */
+ 	addr = (PCI_SLOT(pci_dev->devfn) << 16) | PCI_FUNC(pci_dev->devfn);
+-	return acpi_find_child_device(ACPI_COMPANION(dev->parent), addr,
++	adev = acpi_find_child_device(ACPI_COMPANION(dev->parent), addr,
+ 				      check_children);
++	/*
++	 * There may be ACPI device objects in the ACPI namespace that are
++	 * children of the device object representing the host bridge, but don't
++	 * represent PCI devices.  Both _HID and _ADR may be present for them,
++	 * even though that is against the specification (for example, see
++	 * Section 6.1 of ACPI 6.3), but in many cases the _ADR returns 0 which
++	 * appears to indicate that they should not be taken into consideration
++	 * as potential companions of PCI devices on the root bus.
++	 *
++	 * To catch this special case, disregard the returned device object if
++	 * it has a valid _HID, addr is 0 and the PCI device at hand is on the
++	 * root bus.
++	 */
++	if (adev && adev->pnp.type.platform_id && !addr && !pci_dev->bus->parent)
++		return NULL;
++
++	return adev;
+ }
  
-+static struct regulator_consumer_supply surface_ov8865[] = {
-+       { "i2c-INT347A:00", "avdd" },
-+       { "i2c-INT347A:00", "dovdd" },
-+};
-+
-+static struct regulator_consumer_supply surface_ov7251[] = {
-+       { "i2c-INT347E:00", "avdd" },
-+       { "i2c-INT347E:00", "dovdd" },
-+};
-+
- static struct int3472_sensor_regulator_map int3472_sensor_regulator_maps[] = {
- 	{ "GNDF140809R", 2, miix_510_ov2680 },
- 	{ "YHCU", 2, surface_go2_ov5693 },
--	{ "MSHW0070", 2, surface_book_ov5693 },
-+	{ "MSHW0070", 2, surface_ov5693 },  /* Surface Book 1/Pro 4, front  */
-+	{ "MSHW0071", 2, surface_ov8865 },  /* Surface Book 1/Pro 4, rear   */
-+	{ "MSHW0072", 2, surface_ov7251 },  /* Surface Book 1/Pro 4, IR     */
- };
+ /**
 -- 
 2.30.0
 
-From 5453a46fbf2a7ef478fe32f3e6a9e2baedb4f387 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Thu, 10 Dec 2020 17:46:22 +0100
-Subject: [PATCH] ipu3: int3472: Add IDs for Surface Book 2
+From 83769b18c804806940364e6c2e10831e716afdb3 Mon Sep 17 00:00:00 2001
+From: Jake Day <jake@ninebysix.com>
+Date: Fri, 25 Sep 2020 10:24:53 -0400
+Subject: [PATCH] media: i2c: Add support for the OV5693 image sensor
 
+The OV5693 is a 5 Mpx CMOS image sensor, connected via MIPI CSI-2
+in a one or two lane configuration.
+
+Signed-off-by: Jean-Michel Hautbois <jeanmichel.hautbois@gmail.com>
 Patchset: cameras
 ---
- drivers/media/pci/intel/ipu3/int3472.h | 6 ++++++
- 1 file changed, 6 insertions(+)
-
-diff --git a/drivers/media/pci/intel/ipu3/int3472.h b/drivers/media/pci/intel/ipu3/int3472.h
-index d9f74a0c94c9..242cc82b9e95 100644
---- a/drivers/media/pci/intel/ipu3/int3472.h
-+++ b/drivers/media/pci/intel/ipu3/int3472.h
-@@ -105,4 +105,10 @@ static struct int3472_sensor_regulator_map int3472_sensor_regulator_maps[] = {
- 	{ "MSHW0070", 2, surface_ov5693 },  /* Surface Book 1/Pro 4, front  */
- 	{ "MSHW0071", 2, surface_ov8865 },  /* Surface Book 1/Pro 4, rear   */
- 	{ "MSHW0072", 2, surface_ov7251 },  /* Surface Book 1/Pro 4, IR     */
-+	{ "MSHW0140", 2, surface_ov5693 },  /* Surface Book 2 (13"), front  */
-+	{ "MSHW0141", 2, surface_ov8865 },  /* Surface Book 2 (13"), rear   */
-+	{ "MSHW0142", 2, surface_ov7251 },  /* Surface Book 2 (13"), IR     */
-+	{ "MSHW0150", 2, surface_ov5693 },  /* Surface Book 2 (15"), front  */
-+	{ "MSHW0151", 2, surface_ov8865 },  /* Surface Book 2 (15"), rear   */
-+	{ "MSHW0152", 2, surface_ov7251 },  /* Surface Book 2 (15"), IR     */
- };
--- 
-2.30.0
-
-From 8788286d80675ef68270ab3298d6cc390ab3687c Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Tue, 15 Dec 2020 17:43:00 +0100
-Subject: [PATCH] ipu3: int3472: Add IDs for Surface Pro 5 and Pro 6
-
-Patchset: cameras
----
- drivers/media/pci/intel/ipu3/int3472.h | 3 +++
- 1 file changed, 3 insertions(+)
-
-diff --git a/drivers/media/pci/intel/ipu3/int3472.h b/drivers/media/pci/intel/ipu3/int3472.h
-index 242cc82b9e95..1d2e9cea54f4 100644
---- a/drivers/media/pci/intel/ipu3/int3472.h
-+++ b/drivers/media/pci/intel/ipu3/int3472.h
-@@ -105,6 +105,9 @@ static struct int3472_sensor_regulator_map int3472_sensor_regulator_maps[] = {
- 	{ "MSHW0070", 2, surface_ov5693 },  /* Surface Book 1/Pro 4, front  */
- 	{ "MSHW0071", 2, surface_ov8865 },  /* Surface Book 1/Pro 4, rear   */
- 	{ "MSHW0072", 2, surface_ov7251 },  /* Surface Book 1/Pro 4, IR     */
-+	{ "MSHW0120", 2, surface_ov5693 },  /* Surface Pro 5/Pro 6, front   */
-+	{ "MSHW0121", 2, surface_ov8865 },  /* Surface Pro 5/Pro 6, rear    */
-+	{ "MSHW0122", 2, surface_ov7251 },  /* Surface Pro 5/Pro 6, IR      */
- 	{ "MSHW0140", 2, surface_ov5693 },  /* Surface Book 2 (13"), front  */
- 	{ "MSHW0141", 2, surface_ov8865 },  /* Surface Book 2 (13"), rear   */
- 	{ "MSHW0142", 2, surface_ov7251 },  /* Surface Book 2 (13"), IR     */
--- 
-2.30.0
-
-From 6b375d2165926370501769b1c3b570741db4f091 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Thu, 10 Dec 2020 18:42:44 +0100
-Subject: [PATCH] media: i2c: Add driver for OV5693 sensor
-
-Copied from https://github.com/djrscally/surface-ipu3-cameras/tree/18cdb0c0238bc26258501d2bfe95ed7b971803fa
-
-Patchset: cameras
----
- drivers/media/i2c/Kconfig  |   13 +
+ drivers/media/i2c/Kconfig  |   11 +
  drivers/media/i2c/Makefile |    1 +
  drivers/media/i2c/ad5823.h |   63 ++
- drivers/media/i2c/ov5693.c | 1610 ++++++++++++++++++++++++++++++++++++
- drivers/media/i2c/ov5693.h | 1415 +++++++++++++++++++++++++++++++
- 5 files changed, 3102 insertions(+)
+ drivers/media/i2c/ov5693.c | 1788 ++++++++++++++++++++++++++++++++++++
+ drivers/media/i2c/ov5693.h | 1430 ++++++++++++++++++++++++++++
+ 5 files changed, 3293 insertions(+)
  create mode 100644 drivers/media/i2c/ad5823.h
  create mode 100644 drivers/media/i2c/ov5693.c
  create mode 100644 drivers/media/i2c/ov5693.h
 
 diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
-index 878f66ef2719..cc3263a91175 100644
+index 878f66ef2719..10bbc85d0aba 100644
 --- a/drivers/media/i2c/Kconfig
 +++ b/drivers/media/i2c/Kconfig
-@@ -958,6 +958,19 @@ config VIDEO_OV5675
+@@ -958,6 +958,17 @@ config VIDEO_OV5675
  	  To compile this driver as a module, choose M here: the
  	  module will be called ov5675.
  
 +config VIDEO_OV5693
 +	tristate "OmniVision OV5693 sensor support"
 +	depends on I2C && VIDEO_V4L2
-+	select MEDIA_CONTROLLER
-+	select VIDEO_V4L2_SUBDEV_API
 +	select V4L2_FWNODE
 +	help
 +	  This is a Video4Linux2 sensor driver for the OmniVision
@@ -2728,10 +3682,10 @@ index 000000000000..f1362cd69f6e
 +#endif
 diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
 new file mode 100644
-index 000000000000..d6e20909d35e
+index 000000000000..32485e4ed42b
 --- /dev/null
 +++ b/drivers/media/i2c/ov5693.c
-@@ -0,0 +1,1610 @@
+@@ -0,0 +1,1788 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Support for OmniVision OV5693 1080p HD camera sensor.
@@ -2750,6 +3704,7 @@ index 000000000000..d6e20909d35e
 + *
 + */
 +
++#include <linux/clk.h>
 +#include <linux/module.h>
 +#include <linux/types.h>
 +#include <linux/kernel.h>
@@ -2790,6 +3745,54 @@ index 000000000000..d6e20909d35e
 +module_param(up_delay, uint, 0644);
 +MODULE_PARM_DESC(up_delay,
 +		 "Delay prior to the first CCI transaction for ov5693");
++
++
++/* Exposure/gain */
++
++#define OV5693_EXPOSURE_CTRL_HH_REG		0x3500
++#define OV5693_EXPOSURE_CTRL_HH(v)		(((v) & GENMASK(18, 16)) >> 16)
++#define OV5693_EXPOSURE_CTRL_H_REG		0x3501
++#define OV5693_EXPOSURE_CTRL_H(v)		(((v) & GENMASK(15, 8)) >> 8)
++#define OV5693_EXPOSURE_CTRL_L_REG		0x3502
++#define OV5693_EXPOSURE_CTRL_L(v)		((v) & GENMASK(7, 0))
++#define OV5693_EXPOSURE_GAIN_MANUAL_REG		0x3509
++
++#define OV5693_GAIN_CTRL_H_REG			0x3504
++#define OV5693_GAIN_CTRL_H(v)			(((v) & GENMASK(9, 8)) >> 8)
++#define OV5693_GAIN_CTRL_L_REG			0x3505
++#define OV5693_GAIN_CTRL_L(v)			((v) & GENMASK(7, 0))
++
++#define OV5693_FORMAT1_REG			0x3820
++#define OV5693_FORMAT1_FLIP_VERT_ISP_EN		BIT(2)
++#define OV5693_FORMAT1_FLIP_VERT_SENSOR_EN	BIT(1)
++#define OV5693_FORMAT2_REG			0x3821
++#define OV5693_FORMAT2_HSYNC_EN			BIT(6)
++#define OV5693_FORMAT2_FST_VBIN_EN		BIT(5)
++#define OV5693_FORMAT2_FST_HBIN_EN		BIT(4)
++#define OV5693_FORMAT2_ISP_HORZ_VAR2_EN		BIT(3)
++#define OV5693_FORMAT2_FLIP_HORZ_ISP_EN		BIT(2)
++#define OV5693_FORMAT2_FLIP_HORZ_SENSOR_EN	BIT(1)
++#define OV5693_FORMAT2_SYNC_HBIN_EN		BIT(0)
++
++/* ISP */
++
++#define OV5693_ISP_CTRL0_REG			0x5000
++#define OV5693_ISP_CTRL0_LENC_EN		BIT(7)
++#define OV5693_ISP_CTRL0_WHITE_BALANCE_EN	BIT(4)
++#define OV5693_ISP_CTRL0_DPC_BLACK_EN		BIT(2)
++#define OV5693_ISP_CTRL0_DPC_WHITE_EN		BIT(1)
++#define OV5693_ISP_CTRL1_REG			0x5001
++#define OV5693_ISP_CTRL1_BLC_EN			BIT(0)
++
++/* native and active pixel array size. */
++#define OV5693_NATIVE_WIDTH		2688U
++#define OV5693_NATIVE_HEIGHT		1984U
++#define OV5693_PIXEL_ARRAY_LEFT		48U
++#define OV5693_PIXEL_ARRAY_TOP		20U
++#define OV5693_PIXEL_ARRAY_WIDTH	2592U
++#define OV5693_PIXEL_ARRAY_HEIGHT	1944U
++
++#define	OV5693_PPL_DEFAULT		2800
 +
 +static int vcm_ad_i2c_wr8(struct i2c_client *client, u8 reg, u8 val)
 +{
@@ -2871,8 +3874,8 @@ index 000000000000..d6e20909d35e
 +		return -ENODEV;
 +	}
 +
-+	if (data_length != OV5693_8BIT && data_length != OV5693_16BIT &&
-+	    data_length != OV5693_32BIT) {
++	if (data_length != OV5693_8BIT && data_length != OV5693_16BIT
++	    && data_length != OV5693_32BIT) {
 +		dev_err(&client->dev, "%s error, invalid data length\n",
 +			__func__);
 +		return -EINVAL;
@@ -3099,8 +4102,8 @@ index 000000000000..d6e20909d35e
 +}
 +
 +static int __ov5693_write_reg_is_consecutive(struct i2c_client *client,
-+					     struct ov5693_write_ctrl *ctrl,
-+					     const struct ov5693_reg *next)
++	struct ov5693_write_ctrl *ctrl,
++	const struct ov5693_reg *next)
 +{
 +	if (ctrl->index == 0)
 +		return 1;
@@ -3149,181 +4152,18 @@ index 000000000000..d6e20909d35e
 +	return __ov5693_flush_reg_array(client, &ctrl);
 +}
 +
-+static long __ov5693_set_exposure(struct v4l2_subdev *sd, int coarse_itg,
-+				  int gain, int digitgain)
-+
-+{
-+	struct i2c_client *client = v4l2_get_subdevdata(sd);
-+	struct ov5693_device *dev = to_ov5693_sensor(sd);
-+	u16 vts, hts;
-+	int ret, exp_val;
-+
-+	hts = ov5693_res[dev->fmt_idx].pixels_per_line;
-+	vts = ov5693_res[dev->fmt_idx].lines_per_frame;
-+	/*
-+	 * If coarse_itg is larger than 1<<15, can not write to reg directly.
-+	 * The way is to write coarse_itg/2 to the reg, meanwhile write 2*hts
-+	 * to the reg.
-+	 */
-+	if (coarse_itg > (1 << 15)) {
-+		hts = hts * 2;
-+		coarse_itg = (int)coarse_itg / 2;
-+	}
-+	/* group hold */
-+	ret = ov5693_write_reg(client, OV5693_8BIT,
-+			       OV5693_GROUP_ACCESS, 0x00);
-+	if (ret) {
-+		dev_err(&client->dev, "%s: write %x error, aborted\n",
-+			__func__, OV5693_GROUP_ACCESS);
-+		return ret;
-+	}
-+
-+	ret = ov5693_write_reg(client, OV5693_8BIT,
-+			       OV5693_TIMING_HTS_H, (hts >> 8) & 0xFF);
-+	if (ret) {
-+		dev_err(&client->dev, "%s: write %x error, aborted\n",
-+			__func__, OV5693_TIMING_HTS_H);
-+		return ret;
-+	}
-+
-+	ret = ov5693_write_reg(client, OV5693_8BIT,
-+			       OV5693_TIMING_HTS_L, hts & 0xFF);
-+	if (ret) {
-+		dev_err(&client->dev, "%s: write %x error, aborted\n",
-+			__func__, OV5693_TIMING_HTS_L);
-+		return ret;
-+	}
-+	/* Increase the VTS to match exposure + MARGIN */
-+	if (coarse_itg > vts - OV5693_INTEGRATION_TIME_MARGIN)
-+		vts = (u16)coarse_itg + OV5693_INTEGRATION_TIME_MARGIN;
-+
-+	ret = ov5693_write_reg(client, OV5693_8BIT,
-+			       OV5693_TIMING_VTS_H, (vts >> 8) & 0xFF);
-+	if (ret) {
-+		dev_err(&client->dev, "%s: write %x error, aborted\n",
-+			__func__, OV5693_TIMING_VTS_H);
-+		return ret;
-+	}
-+
-+	ret = ov5693_write_reg(client, OV5693_8BIT,
-+			       OV5693_TIMING_VTS_L, vts & 0xFF);
-+	if (ret) {
-+		dev_err(&client->dev, "%s: write %x error, aborted\n",
-+			__func__, OV5693_TIMING_VTS_L);
-+		return ret;
-+	}
-+
-+	/* set exposure */
-+
-+	/* Lower four bit should be 0*/
-+	exp_val = coarse_itg << 4;
-+	ret = ov5693_write_reg(client, OV5693_8BIT,
-+			       OV5693_EXPOSURE_L, exp_val & 0xFF);
-+	if (ret) {
-+		dev_err(&client->dev, "%s: write %x error, aborted\n",
-+			__func__, OV5693_EXPOSURE_L);
-+		return ret;
-+	}
-+
-+	ret = ov5693_write_reg(client, OV5693_8BIT,
-+			       OV5693_EXPOSURE_M, (exp_val >> 8) & 0xFF);
-+	if (ret) {
-+		dev_err(&client->dev, "%s: write %x error, aborted\n",
-+			__func__, OV5693_EXPOSURE_M);
-+		return ret;
-+	}
-+
-+	ret = ov5693_write_reg(client, OV5693_8BIT,
-+			       OV5693_EXPOSURE_H, (exp_val >> 16) & 0x0F);
-+	if (ret) {
-+		dev_err(&client->dev, "%s: write %x error, aborted\n",
-+			__func__, OV5693_EXPOSURE_H);
-+		return ret;
-+	}
-+
-+	/* Analog gain */
-+	ret = ov5693_write_reg(client, OV5693_8BIT,
-+			       OV5693_AGC_L, gain & 0xff);
-+	if (ret) {
-+		dev_err(&client->dev, "%s: write %x error, aborted\n",
-+			__func__, OV5693_AGC_L);
-+		return ret;
-+	}
-+
-+	ret = ov5693_write_reg(client, OV5693_8BIT,
-+			       OV5693_AGC_H, (gain >> 8) & 0xff);
-+	if (ret) {
-+		dev_err(&client->dev, "%s: write %x error, aborted\n",
-+			__func__, OV5693_AGC_H);
-+		return ret;
-+	}
-+
-+	/* Digital gain */
-+	if (digitgain) {
-+		ret = ov5693_write_reg(client, OV5693_16BIT,
-+				       OV5693_MWB_RED_GAIN_H, digitgain);
-+		if (ret) {
-+			dev_err(&client->dev, "%s: write %x error, aborted\n",
-+				__func__, OV5693_MWB_RED_GAIN_H);
-+			return ret;
-+		}
-+
-+		ret = ov5693_write_reg(client, OV5693_16BIT,
-+				       OV5693_MWB_GREEN_GAIN_H, digitgain);
-+		if (ret) {
-+			dev_err(&client->dev, "%s: write %x error, aborted\n",
-+				__func__, OV5693_MWB_RED_GAIN_H);
-+			return ret;
-+		}
-+
-+		ret = ov5693_write_reg(client, OV5693_16BIT,
-+				       OV5693_MWB_BLUE_GAIN_H, digitgain);
-+		if (ret) {
-+			dev_err(&client->dev, "%s: write %x error, aborted\n",
-+				__func__, OV5693_MWB_RED_GAIN_H);
-+			return ret;
-+		}
-+	}
-+
-+	/* End group */
-+	ret = ov5693_write_reg(client, OV5693_8BIT,
-+			       OV5693_GROUP_ACCESS, 0x10);
-+	if (ret)
-+		return ret;
-+
-+	/* Delay launch group */
-+	ret = ov5693_write_reg(client, OV5693_8BIT,
-+			       OV5693_GROUP_ACCESS, 0xa0);
-+	if (ret)
-+		return ret;
-+	return ret;
-+}
-+
-+static int ov5693_set_exposure(struct v4l2_subdev *sd, int exposure,
-+			       int gain, int digitgain)
-+{
-+	struct ov5693_device *dev = to_ov5693_sensor(sd);
-+	int ret;
-+
-+	mutex_lock(&dev->input_lock);
-+	ret = __ov5693_set_exposure(sd, exposure, gain, digitgain);
-+	mutex_unlock(&dev->input_lock);
-+
-+	return ret;
-+}
-+
 +static int ov5693_read_otp_reg_array(struct i2c_client *client, u16 size,
 +				     u16 addr, u8 *buf)
 +{
 +	u16 index;
 +	int ret;
-+	u16 *p_val = NULL;
++	u16 *pVal = NULL;
 +
 +	for (index = 0; index <= size; index++) {
-+		p_val = (u16 *)(buf + index);
++		pVal = (u16 *)(buf + index);
 +		ret =
 +		    ov5693_read_reg(client, OV5693_8BIT, addr + index,
-+				    p_val);
++				    pVal);
 +		if (ret)
 +			return ret;
 +	}
@@ -3372,9 +4212,8 @@ index 000000000000..d6e20909d35e
 +
 +		//dev_dbg(&client->dev,
 +		//	"BANK[%2d] %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-+		//	i, *b, *(b + 1), *(b + 2), *(b + 3), *(b + 4), *(b + 5),
-+		//	*(b + 6), *(b + 7), *(b + 8), *(b + 9), *(b + 10),
-+		//	*(b + 11), *(b + 12), *(b + 13), *(b + 14), *(b + 15));
++		//	i, *b, *(b+1), *(b+2), *(b+3), *(b+4), *(b+5), *(b+6), *(b+7),
++		//	*(b+8), *(b+9), *(b+10), *(b+11), *(b+12), *(b+13), *(b+14), *(b+15));
 +
 +		//Intel OTP map, try to read 320byts first.
 +		if (i == 21) {
@@ -3385,9 +4224,8 @@ index 000000000000..d6e20909d35e
 +			/* (*b) != 0 */
 +			b = buf;
 +			continue;
-+		} else if (i == 24) {
-+			// if the first 320bytes data doesn't not exist,
-+			// try to read the next 32bytes data.
++		} else if (i ==
++			   24) {		//if the first 320bytes data doesn't not exist, try to read the next 32bytes data.
 +			if ((*b) == 0) {
 +				dev->otp_size = 32;
 +				break;
@@ -3395,9 +4233,8 @@ index 000000000000..d6e20909d35e
 +			/* (*b) != 0 */
 +			b = buf;
 +			continue;
-+		} else if (i == 27) {
-+			// if the prvious 32bytes data doesn't exist,
-+			// try to read the next 32bytes data again.
++		} else if (i ==
++			   27) {		//if the prvious 32bytes data doesn't exist, try to read the next 32bytes data again.
 +			if ((*b) == 0) {
 +				dev->otp_size = 32;
 +				break;
@@ -3448,6 +4285,56 @@ index 000000000000..d6e20909d35e
 +	}
 +
 +	return buf;
++}
++
++static int ov5693_update_bits(struct ov5693_device *sensor, u16 address,
++			      u16 mask, u16 bits)
++{
++	u16 value = 0;
++	int ret;
++
++	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT, address, &value);
++	if (ret)
++		return ret;
++
++	value &= ~mask;
++	value |= bits;
++
++	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT, address, value);
++	if (ret)
++		return ret;
++
++	return 0;
++}
++
++/* Flip */
++
++static int ov5693_flip_vert_configure(struct ov5693_device *sensor, bool enable)
++{
++	u8 bits = OV5693_FORMAT1_FLIP_VERT_ISP_EN |
++		  OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
++	int ret;
++
++	ret = ov5693_update_bits(sensor, OV5693_FORMAT1_REG, bits,
++				 enable ? bits : 0);
++	if (ret)
++		return ret;
++
++	return 0;
++}
++
++static int ov5693_flip_horz_configure(struct ov5693_device *sensor, bool enable)
++{
++	u8 bits = OV5693_FORMAT2_FLIP_HORZ_ISP_EN |
++		  OV5693_FORMAT2_FLIP_HORZ_SENSOR_EN;
++	int ret;
++
++	ret = ov5693_update_bits(sensor, OV5693_FORMAT2_REG, bits,
++				 enable ? bits : 0);
++	if (ret)
++		return ret;
++
++	return 0;
 +}
 +
 +/*
@@ -3551,9 +4438,9 @@ index 000000000000..d6e20909d35e
 +		dev->number_of_steps = value - dev->focus;
 +		dev->focus = value;
 +		dev->timestamp_t_focus_abs = ktime_get();
-+	} else {
-+		dev_err(&client->dev, "%s: i2c failed. ret %d\n", __func__, ret);
-+	}
++	} else
++		dev_err(&client->dev,
++			"%s: i2c failed. ret %d\n", __func__, ret);
 +
 +	return ret;
 +}
@@ -3567,6 +4454,143 @@ index 000000000000..d6e20909d35e
 +
 +#define DELAY_PER_STEP_NS	1000000
 +#define DELAY_MAX_PER_STEP_NS	(1000000 * 1023)
++
++/* Exposure */
++
++static int ov5693_get_exposure(struct ov5693_device *sensor)
++{
++	u16 reg_v, reg_v2;
++	int ret = 0;
++
++	/* get exposure */
++	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT,
++			      OV5693_EXPOSURE_L,
++			      &reg_v);
++	if (ret)
++		return ret;
++
++	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT,
++			      OV5693_EXPOSURE_M,
++			      &reg_v2);
++	if (ret)
++		return ret;
++
++	reg_v += reg_v2 << 8;
++	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT,
++			      OV5693_EXPOSURE_H,
++			      &reg_v2);
++	if (ret)
++		return ret;
++
++	printk("exposure set to: %u\n", reg_v + (((u32)reg_v2 << 16)));
++	return ret;
++}
++
++static int ov5693_exposure_configure(struct ov5693_device *sensor, u32 exposure)
++{
++	int ret;
++
++	ov5693_get_exposure(sensor);
++	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
++			OV5693_EXPOSURE_CTRL_HH_REG, OV5693_EXPOSURE_CTRL_HH(exposure));
++	if (ret)
++		return ret;
++
++	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
++			OV5693_EXPOSURE_CTRL_H_REG, OV5693_EXPOSURE_CTRL_H(exposure));
++	if (ret)
++		return ret;
++
++	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
++			OV5693_EXPOSURE_CTRL_L_REG, OV5693_EXPOSURE_CTRL_L(exposure));
++	if (ret)
++		return ret;
++	ov5693_get_exposure(sensor);
++
++	return 0;
++}
++
++/* Gain */
++
++static int ov5693_get_gain(struct ov5693_device *sensor, u32 *gain)
++{
++	u16 gain_l, gain_h;
++	int ret = 0;
++
++	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT,
++			      OV5693_GAIN_CTRL_L_REG,
++			      &gain_l);
++	if (ret)
++		return ret;
++
++	ret = ov5693_read_reg(sensor->i2c_client, OV5693_8BIT,
++			      OV5693_GAIN_CTRL_H_REG,
++			      &gain_h);
++	if (ret)
++		return ret;
++
++	*gain = (u32)(((gain_h >> 8) & 0x03) |
++		(gain_l & 0xff));
++
++	return ret;
++}
++static int ov5693_gain_configure(struct ov5693_device *sensor, u32 gain)
++{
++	int ret;
++
++	/* A 1.0 gain is 0x400 */
++	gain = (gain * 1024)/1000;
++
++	ret = ov5693_write_reg(sensor->i2c_client, OV5693_16BIT,
++			OV5693_MWB_RED_GAIN_H, gain);
++	if (ret) {
++		dev_err(&sensor->i2c_client->dev, "%s: write %x error, aborted\n",
++			__func__, OV5693_MWB_RED_GAIN_H);
++		return ret;
++	}
++
++	ret = ov5693_write_reg(sensor->i2c_client, OV5693_16BIT,
++			OV5693_MWB_GREEN_GAIN_H, gain);
++	if (ret) {
++		dev_err(&sensor->i2c_client->dev, "%s: write %x error, aborted\n",
++			__func__, OV5693_MWB_RED_GAIN_H);
++		return ret;
++	}
++
++	ret = ov5693_write_reg(sensor->i2c_client, OV5693_16BIT,
++			OV5693_MWB_BLUE_GAIN_H, gain);
++	if (ret) {
++		dev_err(&sensor->i2c_client->dev, "%s: write %x error, aborted\n",
++			__func__, OV5693_MWB_RED_GAIN_H);
++		return ret;
++	}
++
++	return 0;
++}
++
++static int ov5693_analog_gain_configure(struct ov5693_device *sensor, u32 gain)
++{
++	int ret;
++
++	/* Analog gain */
++	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
++				OV5693_AGC_L, gain & 0xff);
++	if (ret) {
++		dev_err(&sensor->i2c_client->dev, "%s: write %x error, aborted\n",
++			__func__, OV5693_AGC_L);
++		return ret;
++	}
++
++	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
++				OV5693_AGC_H, (gain >> 8) & 0xff);
++	if (ret) {
++		dev_err(&sensor->i2c_client->dev, "%s: write %x error, aborted\n",
++			__func__, OV5693_AGC_H);
++		return ret;
++	}
++
++	return 0;
++}
 +
 +static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl)
 +{
@@ -3586,6 +4610,31 @@ index 000000000000..d6e20909d35e
 +			__func__, ctrl->val);
 +		ret = ov5693_t_focus_rel(&dev->sd, ctrl->val);
 +		break;
++	case V4L2_CID_EXPOSURE:
++		dev_dbg(&client->dev, "%s: CID_EXPOSURE:%d.\n",
++			__func__, ctrl->val);
++		ret = ov5693_exposure_configure(dev, ctrl->val);
++		if (ret)
++			return ret;
++		break;
++	case V4L2_CID_ANALOGUE_GAIN:
++		dev_dbg(&client->dev, "%s: CID_ANALOGUE_GAIN:%d.\n",
++			__func__, ctrl->val);
++		ret = ov5693_analog_gain_configure(dev, ctrl->val);
++		if (ret)
++			return ret;
++		break;
++	case V4L2_CID_DIGITAL_GAIN:
++		dev_dbg(&client->dev, "%s: CID_DIGITAL_GAIN:%d.\n",
++			__func__, ctrl->val);
++		ret = ov5693_gain_configure(dev, ctrl->val);
++		if (ret)
++			return ret;
++		break;
++	case V4L2_CID_HFLIP:
++		return ov5693_flip_horz_configure(dev, !!ctrl->val);
++	case V4L2_CID_VFLIP:
++		return ov5693_flip_vert_configure(dev, !!ctrl->val);
 +	default:
 +		ret = -EINVAL;
 +	}
@@ -3602,6 +4651,9 @@ index 000000000000..d6e20909d35e
 +	case V4L2_CID_EXPOSURE_ABSOLUTE:
 +		ret = ov5693_q_exposure(&dev->sd, &ctrl->val);
 +		break;
++	case V4L2_CID_AUTOGAIN:
++		ret = ov5693_get_gain(dev, &ctrl->val);
++		break;
 +	case V4L2_CID_FOCUS_ABSOLUTE:
 +		/* NOTE: there was atomisp-specific function ov5693_q_focus_abs() */
 +		break;
@@ -3612,25 +4664,14 @@ index 000000000000..d6e20909d35e
 +	return ret;
 +}
 +
-+static const struct v4l2_ctrl_ops ctrl_ops = {
++static const struct v4l2_ctrl_ops ov5693_ctrl_ops = {
 +	.s_ctrl = ov5693_s_ctrl,
 +	.g_volatile_ctrl = ov5693_g_volatile_ctrl
 +};
 +
 +static const struct v4l2_ctrl_config ov5693_controls[] = {
 +	{
-+		.ops = &ctrl_ops,
-+		.id = V4L2_CID_EXPOSURE_ABSOLUTE,
-+		.type = V4L2_CTRL_TYPE_INTEGER,
-+		.name = "exposure",
-+		.min = 0x0,
-+		.max = 0xffff,
-+		.step = 0x01,
-+		.def = 0x00,
-+		.flags = 0,
-+	},
-+	{
-+		.ops = &ctrl_ops,
++		.ops = &ov5693_ctrl_ops,
 +		.id = V4L2_CID_FOCUS_ABSOLUTE,
 +		.type = V4L2_CTRL_TYPE_INTEGER,
 +		.name = "focus move absolute",
@@ -3641,7 +4682,7 @@ index 000000000000..d6e20909d35e
 +		.flags = 0,
 +	},
 +	{
-+		.ops = &ctrl_ops,
++		.ops = &ov5693_ctrl_ops,
 +		.id = V4L2_CID_FOCUS_RELATIVE,
 +		.type = V4L2_CTRL_TYPE_INTEGER,
 +		.name = "focus move relative",
@@ -3652,6 +4693,19 @@ index 000000000000..d6e20909d35e
 +		.flags = 0,
 +	},
 +};
++
++static int ov5693_isp_configure(struct ov5693_device *sensor)
++{
++	int ret;
++
++	/* Enable lens correction. */
++	ret = ov5693_write_reg(sensor->i2c_client, OV5693_8BIT,
++			   OV5693_ISP_CTRL0_REG, 0x86);
++	if (ret)
++		return ret;
++
++	return 0;
++}
 +
 +static int ov5693_init(struct v4l2_subdev *sd)
 +{
@@ -3693,6 +4747,7 @@ index 000000000000..d6e20909d35e
 +		ov5693_t_focus_abs(sd, 0);
 +	}
 +
++	ov5693_isp_configure(dev);
 +	mutex_unlock(&dev->input_lock);
 +
 +	return 0;
@@ -3704,10 +4759,17 @@ index 000000000000..d6e20909d35e
 +	struct ov5693_device *sensor = to_ov5693_sensor(sd);
 +	int ret;
 +
++	ret = clk_prepare_enable(sensor->clk);
++	if (ret) {
++		dev_err(&client->dev, "Error enabling clock\n");
++		return -EINVAL;
++	}
++
 +	if (sensor->indicator_led)
 +		gpiod_set_value_cansleep(sensor->indicator_led, 1);
 +
-+	ret = regulator_bulk_enable(OV5693_NUM_SUPPLIES, sensor->supplies);
++	ret = regulator_bulk_enable(OV5693_NUM_SUPPLIES,
++			sensor->supplies);
 +	if (ret)
 +		goto fail_power;
 +
@@ -3729,9 +4791,10 @@ index 000000000000..d6e20909d35e
 +
 +	dev->focus = OV5693_INVALID_CONFIG;
 +
++	clk_disable_unprepare(dev->clk);
++
 +	if (dev->indicator_led)
 +		gpiod_set_value_cansleep(dev->indicator_led, 0);
-+
 +	return regulator_bulk_disable(OV5693_NUM_SUPPLIES, dev->supplies);
 +}
 +
@@ -3765,8 +4828,8 @@ index 000000000000..d6e20909d35e
 +	if (!ret) {
 +		ret = ov5693_init(sd);
 +		/* restore settings */
-+		ov5693_res = ov5693_res_preview;
-+		N_RES = N_RES_PREVIEW;
++		ov5693_res = ov5693_res_video;
++		N_RES = N_RES_VIDEO;
 +	}
 +
 +	return ret;
@@ -3926,7 +4989,6 @@ index 000000000000..d6e20909d35e
 +	}
 +
 +	for (cnt = 0; cnt < OV5693_POWER_UP_RETRY_NUM; cnt++) {
-+//		power_down(sd);
 +		ret = power_up(sd);
 +		if (ret) {
 +			dev_err(&client->dev, "power up failed\n");
@@ -3947,6 +5009,8 @@ index 000000000000..d6e20909d35e
 +		goto mutex_unlock;
 +	}
 +
++
++
 +	/*
 +	 * After sensor settings are set to HW, sometimes stream is started.
 +	 * This would cause ISP timeout because ISP is not ready to receive
@@ -3960,6 +5024,55 @@ index 000000000000..d6e20909d35e
 +mutex_unlock:
 +	mutex_unlock(&dev->input_lock);
 +	return ret;
++}
++
++static const struct v4l2_rect *
++__ov5693_get_pad_crop(struct ov5693_device *dev, struct v4l2_subdev_pad_config *cfg,
++		      unsigned int pad, enum v4l2_subdev_format_whence which)
++{
++	switch (which) {
++	case V4L2_SUBDEV_FORMAT_TRY:
++		return v4l2_subdev_get_try_crop(&dev->sd, cfg, pad);
++	case V4L2_SUBDEV_FORMAT_ACTIVE:
++		return &dev->mode->crop;
++	}
++
++	return NULL;
++}
++static int ov5693_get_selection(struct v4l2_subdev *sd,
++				struct v4l2_subdev_pad_config *cfg,
++				struct v4l2_subdev_selection *sel)
++{
++	switch (sel->target) {
++	case V4L2_SEL_TGT_CROP: {
++		struct ov5693_device *dev = to_ov5693_sensor(sd);
++
++		mutex_lock(&dev->input_lock);
++		sel->r = *__ov5693_get_pad_crop(dev, cfg, sel->pad,
++						sel->which);
++		mutex_unlock(&dev->input_lock);
++
++		return 0;
++	}
++
++	case V4L2_SEL_TGT_NATIVE_SIZE:
++		sel->r.top = 0;
++		sel->r.left = 0;
++		sel->r.width = OV5693_NATIVE_WIDTH;
++		sel->r.height = OV5693_NATIVE_HEIGHT;
++
++		return 0;
++
++	case V4L2_SEL_TGT_CROP_DEFAULT:
++		sel->r.top = OV5693_PIXEL_ARRAY_TOP;
++		sel->r.left = OV5693_PIXEL_ARRAY_LEFT;
++		sel->r.width = OV5693_PIXEL_ARRAY_WIDTH;
++		sel->r.height = OV5693_PIXEL_ARRAY_HEIGHT;
++
++		return 0;
++	}
++
++	return -EINVAL;
 +}
 +
 +static int ov5693_get_fmt(struct v4l2_subdev *sd,
@@ -4031,7 +5144,6 @@ index 000000000000..d6e20909d35e
 +		ret = power_up(sd);
 +		if (ret) {
 +			dev_err(&client->dev, "sensor power-up error\n");
-+//			power_down(sd);
 +			goto out;
 +		}
 +	}
@@ -4057,16 +5169,6 @@ index 000000000000..d6e20909d35e
 +	int ret = 0;
 +
 +	mutex_lock(&dev->input_lock);
-+	/* power off the module, then power on it in future
-+	 * as first power on by board may not fulfill the
-+	 * power on sequqence needed by the module
-+	 */
-+//	ret = power_down(sd);
-+//	if (ret) {
-+//		dev_err(&client->dev, "ov5693 power-off err.\n");
-+//		goto fail_power_off;
-+//	}
-+
 +	ret = power_up(sd);
 +	if (ret) {
 +		dev_err(&client->dev, "ov5693 power-up err.\n");
@@ -4098,7 +5200,6 @@ index 000000000000..d6e20909d35e
 +fail_power_on:
 +	power_down(sd);
 +	dev_err(&client->dev, "sensor power-gating failed\n");
-+fail_power_off:
 +	mutex_unlock(&dev->input_lock);
 +	return ret;
 +}
@@ -4156,6 +5257,7 @@ index 000000000000..d6e20909d35e
 +	.enum_frame_size = ov5693_enum_frame_size,
 +	.get_fmt = ov5693_get_fmt,
 +	.set_fmt = ov5693_set_fmt,
++	.get_selection = ov5693_get_selection,
 +};
 +
 +static const struct v4l2_subdev_ops ov5693_ops = {
@@ -4174,7 +5276,6 @@ index 000000000000..d6e20909d35e
 +
 +	gpiod_put(ov5693->reset);
 +	gpiod_put(ov5693->indicator_led);
-+
 +	while (i--)
 +		regulator_put(ov5693->supplies[i].consumer);
 +
@@ -4190,9 +5291,11 @@ index 000000000000..d6e20909d35e
 +static int ov5693_init_controls(struct ov5693_device *ov5693)
 +{
 +	struct i2c_client *client = v4l2_get_subdevdata(&ov5693->sd);
++	const struct v4l2_ctrl_ops *ops = &ov5693_ctrl_ops;
 +	struct v4l2_ctrl *ctrl;
 +	unsigned int i;
 +	int ret;
++	int hblank;
 +
 +	ret = v4l2_ctrl_handler_init(&ov5693->ctrl_handler,
 +				     ARRAY_SIZE(ov5693_controls));
@@ -4222,6 +5325,28 @@ index 000000000000..d6e20909d35e
 +		return ov5693->ctrl_handler.error;
 +	}
 +
++	/* Exposure */
++
++	v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops, V4L2_CID_EXPOSURE, 16, 1048575, 16,
++			  512);
++
++	/* Gain */
++
++	v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops, V4L2_CID_ANALOGUE_GAIN, 1, 1023, 1, 128);
++	v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops, V4L2_CID_DIGITAL_GAIN, 1, 3999, 1, 1000);
++
++	/* Flip */
++
++	v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops, V4L2_CID_HFLIP, 0, 1, 1, 0);
++	v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops, V4L2_CID_VFLIP, 0, 1, 1, 0);
++
++	hblank = OV5693_PPL_DEFAULT - ov5693->mode->width;
++	ov5693->hblank = v4l2_ctrl_new_std(&ov5693->ctrl_handler, ops,
++					   V4L2_CID_HBLANK, hblank, hblank,
++					   1, hblank);
++	if (ov5693->hblank)
++		ov5693->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
 +	/* Use same lock for controls as for everything else. */
 +	ov5693->ctrl_handler.lock = &ov5693->input_lock;
 +	ov5693->sd.ctrl_handler = &ov5693->ctrl_handler;
@@ -4231,21 +5356,21 @@ index 000000000000..d6e20909d35e
 +
 +static int ov5693_configure_gpios(struct ov5693_device *ov5693)
 +{
-+	ov5693->reset = gpiod_get_index(&ov5693->client->dev, "reset", 0,
-+					GPIOD_OUT_HIGH);
-+	if (IS_ERR(ov5693->reset)) {
-+		dev_err(&ov5693->client->dev, "Couldn't find reset GPIO\n");
-+		return -EINVAL;
-+	}
++	ov5693->reset = gpiod_get_index(&ov5693->i2c_client->dev, "reset", 0,
++                                        GPIOD_OUT_HIGH);
++        if (IS_ERR(ov5693->reset)) {
++                dev_err(&ov5693->i2c_client->dev, "Couldn't find reset GPIO\n");
++                return -EINVAL;
++        }
 +
-+	ov5693->indicator_led = gpiod_get_index_optional(&ov5693->client->dev,
-+							 "indicator-led", 0, GPIOD_OUT_HIGH);
++        ov5693->indicator_led = gpiod_get_index_optional(&ov5693->i2c_client->dev, "indicator-led", 0,
++                                        GPIOD_OUT_HIGH);
++        if (IS_ERR(ov5693->indicator_led)) {
++                dev_err(&ov5693->i2c_client->dev, "Couldn't find indicator-led GPIO\n");
++                return -EINVAL;
++        }
 +
-+	if (IS_ERR(ov5693->indicator_led)) {
-+		dev_err(&ov5693->client->dev, "Couldn't find indicator-led GPIO\n");
-+		return -EINVAL;
-+	}
-+	return 0;
++        return 0;
 +}
 +
 +static int ov5693_get_regulators(struct ov5693_device *ov5693)
@@ -4255,7 +5380,7 @@ index 000000000000..d6e20909d35e
 +	for (i = 0; i < OV5693_NUM_SUPPLIES; i++)
 +		ov5693->supplies[i].supply = ov5693_supply_names[i];
 +
-+	return regulator_bulk_get(&ov5693->client->dev,
++	return regulator_bulk_get(&ov5693->i2c_client->dev,
 +				       OV5693_NUM_SUPPLIES,
 +				       ov5693->supplies);
 +}
@@ -4271,7 +5396,7 @@ index 000000000000..d6e20909d35e
 +	if (!ov5693)
 +		return -ENOMEM;
 +
-+	ov5693->client = client;
++	ov5693->i2c_client = client;
 +
 +	/* check if VCM device exists */
 +	/* TODO: read from SSDB */
@@ -4281,13 +5406,19 @@ index 000000000000..d6e20909d35e
 +
 +	v4l2_i2c_subdev_init(&ov5693->sd, client, &ov5693_ops);
 +
++	ov5693->clk = devm_clk_get(&client->dev, "xvclk");
++	if (IS_ERR(ov5693->clk)) {
++		dev_err(&client->dev, "Error getting clock\n");
++		return -EINVAL;
++	}
++
 +	ret = ov5693_configure_gpios(ov5693);
-+	if (ret)
-+		goto out_free;
++        if (ret)
++                goto out_free;
 +
 +	ret = ov5693_get_regulators(ov5693);
-+	if (ret)
-+		goto out_put_reset;
++        if (ret)
++                goto out_put_reset;
 +
 +	ret = ov5693_s_config(&ov5693->sd, client->irq);
 +	if (ret)
@@ -4297,6 +5428,7 @@ index 000000000000..d6e20909d35e
 +	ov5693->pad.flags = MEDIA_PAD_FL_SOURCE;
 +	ov5693->format.code = MEDIA_BUS_FMT_SBGGR10_1X10;
 +	ov5693->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
++	ov5693->mode = &ov5693_res_video[N_RES_VIDEO-1];
 +
 +	ret = ov5693_init_controls(ov5693);
 +	if (ret)
@@ -4317,7 +5449,7 @@ index 000000000000..d6e20909d35e
 +media_entity_cleanup:
 +	media_entity_cleanup(&ov5693->sd.entity);
 +out_put_reset:
-+	gpiod_put(ov5693->reset);
++        gpiod_put(ov5693->reset);
 +out_free:
 +	v4l2_device_unregister_subdev(&ov5693->sd);
 +	kfree(ov5693);
@@ -4344,10 +5476,10 @@ index 000000000000..d6e20909d35e
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/media/i2c/ov5693.h b/drivers/media/i2c/ov5693.h
 new file mode 100644
-index 000000000000..839b0773e2bc
+index 000000000000..9a508e1f3624
 --- /dev/null
 +++ b/drivers/media/i2c/ov5693.h
-@@ -0,0 +1,1415 @@
+@@ -0,0 +1,1430 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/*
 + * Support for OmniVision OV5693 5M camera sensor.
@@ -4385,7 +5517,7 @@ index 000000000000..839b0773e2bc
 +/*
 + * FIXME: non-preview resolutions are currently broken
 + */
-+#define ENABLE_NON_PREVIEW	0
++#define ENABLE_NON_PREVIEW	1
 +
 +#define OV5693_POWER_UP_RETRY_NUM 5
 +
@@ -4450,9 +5582,9 @@ index 000000000000..839b0773e2bc
 +/*Bit[7:4] Group control, Bit[3:0] Group ID*/
 +#define OV5693_GROUP_ACCESS			0x3208
 +/*
-+ * Bit[3:0] Bit[19:16] of exposure,
-+ * remaining 16 bits lies in Reg0x3501&Reg0x3502
-+ */
++*Bit[3:0] Bit[19:16] of exposure,
++*remaining 16 bits lies in Reg0x3501&Reg0x3502
++*/
 +#define OV5693_EXPOSURE_H			0x3500
 +#define OV5693_EXPOSURE_M			0x3501
 +#define OV5693_EXPOSURE_L			0x3502
@@ -4510,11 +5642,11 @@ index 000000000000..839b0773e2bc
 +#define VCM_PROTECTION_OFF     0xeca3
 +#define VCM_PROTECTION_ON      0xdc51
 +#define VCM_DEFAULT_S 0x0
-+#define vcm_step_s(a) ((u8)((a) & 0xf))
-+#define vcm_step_mclk(a) ((u8)(((a) >> 4) & 0x3))
-+#define vcm_dlc_mclk(dlc, mclk) ((u16)(((dlc) << 3) | (mclk) | 0xa104))
-+#define vcm_tsrc(tsrc) ((u16)((tsrc) << 3 | 0xf200))
-+#define vcm_val(data, s) ((u16)((data) << 4 | (s)))
++#define vcm_step_s(a) (u8)(a & 0xf)
++#define vcm_step_mclk(a) (u8)((a >> 4) & 0x3)
++#define vcm_dlc_mclk(dlc, mclk) (u16)((dlc << 3) | mclk | 0xa104)
++#define vcm_tsrc(tsrc) (u16)(tsrc << 3 | 0xf200)
++#define vcm_val(data, s) (u16)(data << 4 | s)
 +#define DIRECT_VCM vcm_dlc_mclk(0, 0)
 +
 +/* Defines for OTP Data Registers */
@@ -4538,15 +5670,15 @@ index 000000000000..839b0773e2bc
 +/* pixel_rate = link_freq * 2 * nr_of_lanes / bits_per_sample
 + * To avoid integer overflow, dividing by bits_per_sample first.
 + */
-+#define OV5693_PIXEL_RATE		((OV5693_LINK_FREQ_640MHZ / 10) * 2 * 2)
++#define OV5693_PIXEL_RATE		(OV5693_LINK_FREQ_640MHZ / 10) * 2 * 2
 +static const s64 link_freq_menu_items[] = {
 +	OV5693_LINK_FREQ_640MHZ
 +};
 +
-+#define OV5693_NUM_SUPPLIES 2
-+static const char *const ov5693_supply_names[] = {
-+	"avdd",
-+	"dovdd",
++#define OV5693_NUM_SUPPLIES             2
++static const char * const ov5693_supply_names[] = {
++        "avdd",
++        "dovdd",
 +};
 +
 +struct regval_list {
@@ -4568,6 +5700,9 @@ index 000000000000..839b0773e2bc
 +	u8 bin_factor_y;
 +	u8 bin_mode;
 +	bool used;
++
++	/* Analog crop rectangle. */
++	struct v4l2_rect crop;
 +};
 +
 +struct ov5693_format {
@@ -4586,16 +5721,20 @@ index 000000000000..839b0773e2bc
 + * ov5693 device structure.
 + */
 +struct ov5693_device {
-+	struct i2c_client *client;
++	struct i2c_client *i2c_client;
 +	struct v4l2_subdev sd;
 +	struct media_pad pad;
 +	struct v4l2_mbus_framefmt format;
 +	struct mutex input_lock;
 +	struct v4l2_ctrl_handler ctrl_handler;
 +
-+	struct gpio_desc *reset;
-+	struct gpio_desc *indicator_led;
-+	struct regulator_bulk_data supplies[OV5693_NUM_SUPPLIES];
++        struct gpio_desc *reset;
++        struct gpio_desc *indicator_led;
++        struct regulator_bulk_data supplies[OV5693_NUM_SUPPLIES];
++	struct clk *clk;
++
++	/* Current mode */
++	const struct ov5693_resolution *mode;
 +
 +	struct camera_sensor_platform_data *platform_data;
 +	ktime_t timestamp_t_focus_abs;
@@ -4612,6 +5751,8 @@ index 000000000000..839b0773e2bc
 +	enum vcm_type vcm;
 +
 +	bool has_vcm;
++
++	struct v4l2_ctrl *hblank;
 +};
 +
 +enum ov5693_tok_type {
@@ -4915,8 +6056,8 @@ index 000000000000..839b0773e2bc
 +
 +/*
 + * 1296x976 30fps 17ms VBlanking 2lane 10Bit (Scaling)
-+ * DS from 2592x1952
-+ */
++*DS from 2592x1952
++*/
 +static struct ov5693_reg const ov5693_1296x976[] = {
 +	{OV5693_8BIT, 0x3501, 0x7b},
 +	{OV5693_8BIT, 0x3502, 0x00},
@@ -5754,151 +6895,90 @@ index 000000000000..839b0773e2bc
 +		.bin_factor_y = 1,
 +		.bin_mode = 0,
 +		.regs = ov5693_2592x1944_30fps,
++		.crop = {
++			.left = 0,
++			.top = 0,
++			.width = 2592,
++			.height = 1944
++		},
 +	},
 +};
 +
 +#define N_RES_VIDEO (ARRAY_SIZE(ov5693_res_video))
 +#endif
 +
-+static struct ov5693_resolution *ov5693_res = ov5693_res_preview;
-+static unsigned long N_RES = N_RES_PREVIEW;
++static struct ov5693_resolution *ov5693_res = ov5693_res_video;
++static unsigned long N_RES = N_RES_VIDEO;
 +#endif
 -- 
 2.30.0
 
-From 2e5b7ad9aa07ba9431afe9ebbc743f4b6e026953 Mon Sep 17 00:00:00 2001
-From: =?UTF-8?q?Fabian=20W=C3=BCthrich?= <me@fabwu.ch>
-Date: Mon, 28 Dec 2020 22:49:17 +0100
-Subject: [PATCH] ov5693: Add user controls to flip image
+From c15240169394a42aa05aacbca08d7d4408521af6 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sun, 17 Jan 2021 19:08:18 +0000
+Subject: [PATCH] media: i2c: Add reset pin toggling to ov5693
 
+The ov5693 has an xshutdown pin which can be present and, if so, needs
+toggling as part of power on sequence.
+
+Add calls to handle the reset GPIO
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
- drivers/media/i2c/ov5693.c | 63 ++++++++++++++++++++++++++++++++++++++
- drivers/media/i2c/ov5693.h | 10 ++++++
- 2 files changed, 73 insertions(+)
+ drivers/media/i2c/ov5693.c | 4 ++++
+ 1 file changed, 4 insertions(+)
 
 diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
-index d6e20909d35e..1d3ee422f37a 100644
+index 32485e4ed42b..f9ced52ad37a 100644
 --- a/drivers/media/i2c/ov5693.c
 +++ b/drivers/media/i2c/ov5693.c
-@@ -831,6 +831,29 @@ static int ov5693_t_focus_rel(struct v4l2_subdev *sd, s32 value)
- 	return ov5693_t_focus_abs(sd, dev->focus + value);
- }
+@@ -1085,6 +1085,8 @@ static int __power_up(struct v4l2_subdev *sd)
+ 	if (ret)
+ 		goto fail_power;
  
-+static int ov5693_update_hflip(struct v4l2_subdev *sd)
-+{
-+	struct ov5693_device *dev = to_ov5693_sensor(sd);
-+	struct i2c_client *client = v4l2_get_subdevdata(sd);
++	gpiod_set_value_cansleep(sensor->reset, 0);
 +
-+	u8 hflip = dev->hflip ? OV5693_TIMING_REG21_FLIP :
-+				      OV5693_TIMING_REG21_NORMAL;
-+
-+	return ov5693_write_reg(client, OV5693_8BIT, OV5693_TIMING_REG21,
-+				hflip);
-+}
-+
-+static int ov5693_update_vflip(struct v4l2_subdev *sd)
-+{
-+	struct ov5693_device *dev = to_ov5693_sensor(sd);
-+	struct i2c_client *client = v4l2_get_subdevdata(sd);
-+
-+	u8 vflip = dev->vflip ? OV5693_TIMING_REG20_FLIP :
-+				      OV5693_TIMING_REG20_NORMAL;
-+	return ov5693_write_reg(client, OV5693_8BIT, OV5693_TIMING_REG20,
-+				vflip);
-+}
-+
- #define DELAY_PER_STEP_NS	1000000
- #define DELAY_MAX_PER_STEP_NS	(1000000 * 1023)
+ 	__cci_delay(up_delay);
  
-@@ -852,6 +875,18 @@ static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl)
- 			__func__, ctrl->val);
- 		ret = ov5693_t_focus_rel(&dev->sd, ctrl->val);
- 		break;
-+	case V4L2_CID_HFLIP:
-+		dev_info(&client->dev, "%s: CID_HFLIP:%d.\n", __func__,
-+			 ctrl->val);
-+		dev->hflip = ctrl->val;
-+		ret = ov5693_update_hflip(&dev->sd);
-+		break;
-+	case V4L2_CID_VFLIP:
-+		dev_info(&client->dev, "%s: CID_VFLIP:%d.\n", __func__,
-+			 ctrl->val);
-+		dev->vflip = ctrl->val;
-+		ret = ov5693_update_vflip(&dev->sd);
-+		break;
- 	default:
- 		ret = -EINVAL;
- 	}
-@@ -917,6 +952,22 @@ static const struct v4l2_ctrl_config ov5693_controls[] = {
- 		.def = 0,
- 		.flags = 0,
- 	},
-+	{
-+		.ops = &ctrl_ops,
-+		.id = V4L2_CID_HFLIP,
-+		.type = V4L2_CTRL_TYPE_BOOLEAN,
-+		.name = "sensor flipped horizontally",
-+		.max = 1,
-+		.step = 1,
-+	},
-+	{
-+		.ops = &ctrl_ops,
-+		.id = V4L2_CID_VFLIP,
-+		.type = V4L2_CTRL_TYPE_BOOLEAN,
-+		.name = "sensor flipped vertically",
-+		.max = 1,
-+		.step = 1,
-+	},
- };
+ 	return 0;
+@@ -1103,6 +1105,8 @@ static int power_down(struct v4l2_subdev *sd)
  
- static int ov5693_init(struct v4l2_subdev *sd)
-@@ -1147,6 +1198,18 @@ static int startup(struct v4l2_subdev *sd)
- 		return ret;
- 	}
+ 	dev->focus = OV5693_INVALID_CONFIG;
  
-+	ret = ov5693_update_hflip(sd);
-+	if (ret) {
-+		dev_err(&client->dev, "ov5693 hflip err.\n");
-+		return ret;
-+	}
++	gpiod_set_value_cansleep(sensor->reset, 1);
 +
-+	ret = ov5693_update_vflip(sd);
-+	if (ret) {
-+		dev_err(&client->dev, "ov5693 vflip err.\n");
-+		return ret;
-+	}
-+
- 	return ret;
- }
+ 	clk_disable_unprepare(dev->clk);
  
-diff --git a/drivers/media/i2c/ov5693.h b/drivers/media/i2c/ov5693.h
-index 839b0773e2bc..e788a8068f50 100644
---- a/drivers/media/i2c/ov5693.h
-+++ b/drivers/media/i2c/ov5693.h
-@@ -136,6 +136,13 @@
- #define OV5693_MWB_BLUE_GAIN_H			0x3404
- #define OV5693_MWB_GAIN_MAX			0x0fff
+ 	if (dev->indicator_led)
+-- 
+2.30.0
+
+From 2489feebada232d948f24817ddd57bd141fa7301 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sun, 17 Jan 2021 21:39:15 +0000
+Subject: [PATCH] media: i2c: Fix misnamed variable in power_down() for ov5693
+
+Fix the misnamed variable in gpiod_set_value_cansleep().
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov5693.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
+index f9ced52ad37a..9fd44a3d1d85 100644
+--- a/drivers/media/i2c/ov5693.c
++++ b/drivers/media/i2c/ov5693.c
+@@ -1105,7 +1105,7 @@ static int power_down(struct v4l2_subdev *sd)
  
-+#define OV5693_TIMING_REG21             0x3821 /* horizontal flip */
-+#define OV5693_TIMING_REG21_NORMAL      0x18
-+#define OV5693_TIMING_REG21_FLIP        0x1E
-+#define OV5693_TIMING_REG20             0x3820 /* vertical flip */
-+#define OV5693_TIMING_REG20_NORMAL      0x10
-+#define OV5693_TIMING_REG20_FLIP        0x16
-+
- #define OV5693_START_STREAMING			0x01
- #define OV5693_STOP_STREAMING			0x00
+ 	dev->focus = OV5693_INVALID_CONFIG;
  
-@@ -261,6 +268,9 @@ struct ov5693_device {
- 	bool vcm_update;
- 	enum vcm_type vcm;
+-	gpiod_set_value_cansleep(sensor->reset, 1);
++	gpiod_set_value_cansleep(dev->reset, 1);
  
-+	bool hflip;
-+	bool vflip;
-+
- 	bool has_vcm;
- };
+ 	clk_disable_unprepare(dev->clk);
  
 -- 
 2.30.0
