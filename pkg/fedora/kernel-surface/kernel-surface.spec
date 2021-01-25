@@ -5,7 +5,7 @@
 %global kernel_tag_fc33 kernel-5.10.10-200.fc33
 %global kernel_tag_fc32 kernel-5.10.10-100.fc32
 
-%global kernel_release_fc33 1
+%global kernel_release_fc33 2
 %global kernel_release_fc32 1
 
 %global fedora_title_fc33 33 (Thirty Three)
