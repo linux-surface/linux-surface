@@ -1,4 +1,4 @@
-From de0fd5d6159a2e3062d2513e10f663f103727ebf Mon Sep 17 00:00:00 2001
+From 248862ab189d99edec0f98b5bb546c7311b435bb Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] misc: surface_sam: Add file2alias support for Surface SAM
@@ -100,7 +100,7 @@ index 2417dd1dee33..a6c583362b92 100644
 -- 
 2.30.0
 
-From 6cff8daf1363e6abf97b5b9bbfcf4b2d2dd7eea5 Mon Sep 17 00:00:00 2001
+From c510e853cb20d7a1936322825993da0788b6e96e Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] misc: Add support for Surface System Aggregator Module
@@ -133,26 +133,26 @@ Patchset: surface-sam
  drivers/misc/Makefile                         |    1 +
  drivers/misc/surface_aggregator/Kconfig       |   67 +
  drivers/misc/surface_aggregator/Makefile      |   18 +
- drivers/misc/surface_aggregator/bus.c         |  416 +++
+ drivers/misc/surface_aggregator/bus.c         |  415 +++
  drivers/misc/surface_aggregator/bus.h         |   27 +
  .../misc/surface_aggregator/clients/Kconfig   |  134 +
  .../misc/surface_aggregator/clients/Makefile  |   10 +
  .../clients/surface_acpi_notify.c             |  886 ++++++
- .../clients/surface_aggregator_cdev.c         |  303 ++
- .../clients/surface_aggregator_registry.c     |  665 +++++
+ .../clients/surface_aggregator_cdev.c         |  322 ++
+ .../clients/surface_aggregator_registry.c     |  664 +++++
  .../clients/surface_battery.c                 | 1168 ++++++++
  .../surface_aggregator/clients/surface_dtx.c  | 1277 ++++++++
  .../surface_aggregator/clients/surface_hid.c  |  924 ++++++
  .../clients/surface_perfmode.c                |  122 +
  drivers/misc/surface_aggregator/controller.c  | 2579 +++++++++++++++++
  drivers/misc/surface_aggregator/controller.h  |  285 ++
- drivers/misc/surface_aggregator/core.c        |  840 ++++++
+ drivers/misc/surface_aggregator/core.c        |  839 ++++++
  drivers/misc/surface_aggregator/ssh_msgb.h    |  205 ++
- .../surface_aggregator/ssh_packet_layer.c     | 2057 +++++++++++++
+ .../surface_aggregator/ssh_packet_layer.c     | 2074 +++++++++++++
  .../surface_aggregator/ssh_packet_layer.h     |  190 ++
  drivers/misc/surface_aggregator/ssh_parser.c  |  228 ++
  drivers/misc/surface_aggregator/ssh_parser.h  |  155 +
- .../surface_aggregator/ssh_request_layer.c    | 1264 ++++++++
+ .../surface_aggregator/ssh_request_layer.c    | 1263 ++++++++
  .../surface_aggregator/ssh_request_layer.h    |  143 +
  drivers/misc/surface_aggregator/trace.h       |  632 ++++
  include/linux/mod_devicetable.h               |    5 +-
@@ -164,7 +164,7 @@ Patchset: surface-sam
  include/uapi/linux/surface_aggregator/dtx.h   |  146 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 47 files changed, 19173 insertions(+), 7 deletions(-)
+ 47 files changed, 19205 insertions(+), 7 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -2786,10 +2786,10 @@ index 000000000000..b48ffc37ab52
 +endif
 diff --git a/drivers/misc/surface_aggregator/bus.c b/drivers/misc/surface_aggregator/bus.c
 new file mode 100644
-index 000000000000..fecfa1b6a140
+index 000000000000..a9b660af0917
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/bus.c
-@@ -0,0 +1,416 @@
+@@ -0,0 +1,415 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface System Aggregator Module bus and device integration.
@@ -2811,8 +2811,7 @@ index 000000000000..fecfa1b6a140
 +{
 +	struct ssam_device *sdev = to_ssam_device(dev);
 +
-+	// FIXME: we should use sysfs_emit here, but that's not available on < 5.10
-+	return scnprintf(buf, PAGE_SIZE, "ssam:d%02Xc%02Xt%02Xi%02Xf%02X\n",
++	return sysfs_emit(buf, "ssam:d%02Xc%02Xt%02Xi%02Xf%02X\n",
 +			sdev->uid.domain, sdev->uid.category, sdev->uid.target,
 +			sdev->uid.instance, sdev->uid.function);
 +}
@@ -3397,7 +3396,7 @@ index 000000000000..4249af06d738
 +obj-$(CONFIG_SURFACE_PERFMODE) 			+= surface_perfmode.o
 diff --git a/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c b/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c
 new file mode 100644
-index 000000000000..8cd67a669c86
+index 000000000000..ef9c1f8e8336
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_acpi_notify.c
 @@ -0,0 +1,886 @@
@@ -3591,7 +3590,7 @@ index 000000000000..8cd67a669c86
 +	union acpi_object *obj;
 +	int status = 0;
 +
-+	if (!acpi_check_dsm(san, &SAN_DSM_UUID, SAN_DSM_REVISION, 1 << func))
++	if (!acpi_check_dsm(san, &SAN_DSM_UUID, SAN_DSM_REVISION, BIT_ULL(func)))
 +		return 0;
 +
 +	dev_dbg(dev, "notify event %#04llx\n", func);
@@ -4289,10 +4288,10 @@ index 000000000000..8cd67a669c86
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_aggregator_cdev.c b/drivers/misc/surface_aggregator/clients/surface_aggregator_cdev.c
 new file mode 100644
-index 000000000000..340d15b148b9
+index 000000000000..79e28fab7e40
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_aggregator_cdev.c
-@@ -0,0 +1,303 @@
+@@ -0,0 +1,322 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Provides user-space access to the SSAM EC via the /dev/surface/aggregator
@@ -4361,8 +4360,8 @@ index 000000000000..340d15b148b9
 +{
 +	struct ssam_cdev_request __user *r;
 +	struct ssam_cdev_request rqst;
-+	struct ssam_request spec;
-+	struct ssam_response rsp;
++	struct ssam_request spec = {};
++	struct ssam_response rsp = {};
 +	const void __user *plddata;
 +	void __user *rspdata;
 +	int status = 0, ret = 0, tmp;
@@ -4401,6 +4400,15 @@ index 000000000000..340d15b148b9
 +			goto out;
 +		}
 +
++		/*
++		 * Note: spec.length is limited to U16_MAX bytes via struct
++		 * ssam_cdev_request. This is slightly larger than the
++		 * theoretical maximum (SSH_COMMAND_MAX_PAYLOAD_SIZE) of the
++		 * underlying protocol (note that nothing remotely this size
++		 * should ever be allocated in any normal case). This size is
++		 * validated later in ssam_request_sync(), for allocation the
++		 * bound imposed by u16 should be enough.
++		 */
 +		spec.payload = kzalloc(spec.length, GFP_KERNEL);
 +		if (!spec.payload) {
 +			ret = -ENOMEM;
@@ -4420,6 +4428,16 @@ index 000000000000..340d15b148b9
 +			goto out;
 +		}
 +
++		/*
++		 * Note: rsp.capacity is limited to U16_MAX bytes via struct
++		 * ssam_cdev_request. This is slightly larger than the
++		 * theoretical maximum (SSH_COMMAND_MAX_PAYLOAD_SIZE) of the
++		 * underlying protocol (note that nothing remotely this size
++		 * should ever be allocated in any normal case). In later use,
++		 * this capacity does not have to be strictly bounded, as it
++		 * is only used as an output buffer to be written to. For
++		 * allocation the bound imposed by u16 should be enough.
++		 */
 +		rsp.pointer = kzalloc(rsp.capacity, GFP_KERNEL);
 +		if (!rsp.pointer) {
 +			ret = -ENOMEM;
@@ -4598,10 +4616,10 @@ index 000000000000..340d15b148b9
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c b/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
 new file mode 100644
-index 000000000000..b58930751404
+index 000000000000..8b4f0b3c1f31
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/clients/surface_aggregator_registry.c
-@@ -0,0 +1,665 @@
+@@ -0,0 +1,664 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface System Aggregator Module (SSAM) client device registry.
@@ -4954,8 +4972,7 @@ index 000000000000..b58930751404
 +	connected = hub->state == SSAM_BASE_HUB_CONNECTED;
 +	mutex_unlock(&hub->lock);
 +
-+	// FIXME: we should use sysfs_emit here, but that's not available on < 5.10
-+	return scnprintf(buf, PAGE_SIZE, "%d\n", connected);
++	return sysfs_emit(buf, "%d\n", connected);
 +}
 +
 +static struct device_attribute ssam_base_hub_attr_state =
@@ -11660,10 +11677,10 @@ index 000000000000..8297d34e7489
 +#endif /* _SURFACE_AGGREGATOR_CONTROLLER_H */
 diff --git a/drivers/misc/surface_aggregator/core.c b/drivers/misc/surface_aggregator/core.c
 new file mode 100644
-index 000000000000..b3e585484bc5
+index 000000000000..8dc2c267bcd6
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/core.c
-@@ -0,0 +1,840 @@
+@@ -0,0 +1,839 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface Serial Hub (SSH) driver for communication with the Surface/System
@@ -11946,8 +11963,7 @@ index 000000000000..b3e585484bc5
 +	b = ((version >> 8) & 0xffff);
 +	c = version & 0xff;
 +
-+	// FIXME: we should use sysfs_emit here, but that's not available on < 5.10
-+	return scnprintf(buf, PAGE_SIZE, "%u.%u.%u\n", a, b, c);
++	return sysfs_emit(buf, "%u.%u.%u\n", a, b, c);
 +}
 +static DEVICE_ATTR_RO(firmware_version);
 +
@@ -12717,10 +12733,10 @@ index 000000000000..1221f642dda1
 +#endif /* _SURFACE_AGGREGATOR_SSH_MSGB_H */
 diff --git a/drivers/misc/surface_aggregator/ssh_packet_layer.c b/drivers/misc/surface_aggregator/ssh_packet_layer.c
 new file mode 100644
-index 000000000000..74f0faaa2b27
+index 000000000000..583315db8b02
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_packet_layer.c
-@@ -0,0 +1,2057 @@
+@@ -0,0 +1,2074 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * SSH packet transport layer.
@@ -14417,7 +14433,24 @@ index 000000000000..74f0faaa2b27
 +	/* Find SYN. */
 +	syn_found = sshp_find_syn(source, &aligned);
 +
-+	if (unlikely(aligned.ptr - source->ptr) > 0) {
++	if (unlikely(aligned.ptr != source->ptr)) {
++		/*
++		 * We expect aligned.ptr == source->ptr. If this is not the
++		 * case, then aligned.ptr > source->ptr and we've encountered
++		 * some unexpected data where we'd expect the start of a new
++		 * message (i.e. the SYN sequence).
++		 *
++		 * This can happen when a CRC check for the previous message
++		 * failed and we start actively searching for the next one
++		 * (via the call to sshp_find_syn() above), or the first bytes
++		 * of a message got dropped or corrupted.
++		 *
++		 * In any case, we issue a warning, send a NAK to the EC to
++		 * request re-transmission of any data we haven't acknowledged
++		 * yet, and finally, skip everything up to the next SYN
++		 * sequence.
++		 */
++
 +		ptl_warn(ptl, "rx: parser: invalid start of frame, skipping\n");
 +
 +		/*
@@ -15371,10 +15404,10 @@ index 000000000000..395c61ef890b
 +#endif /* _SURFACE_AGGREGATOR_SSH_PARSER_h */
 diff --git a/drivers/misc/surface_aggregator/ssh_request_layer.c b/drivers/misc/surface_aggregator/ssh_request_layer.c
 new file mode 100644
-index 000000000000..bb1c862411a2
+index 000000000000..52a83a8fcf82
 --- /dev/null
 +++ b/drivers/misc/surface_aggregator/ssh_request_layer.c
-@@ -0,0 +1,1264 @@
+@@ -0,0 +1,1263 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * SSH request transport layer.
@@ -16381,9 +16414,8 @@ index 000000000000..bb1c862411a2
 + *
 + * Initializes the given request transport layer and associated packet
 + * transport layer. Transmitter and receiver threads must be started
-+ * separately via ssh_rtl_tx_start() and ssh_rtl_rx_start(), after the
-+ * request-layer has been initialized and the lower-level serial device layer
-+ * has been set up.
++ * separately via ssh_rtl_start(), after the request-layer has been
++ * initialized and the lower-level serial device layer has been set up.
 + *
 + * Return: Returns zero on success and a nonzero error code on failure.
 + */
@@ -16433,7 +16465,7 @@ index 000000000000..bb1c862411a2
 +}
 +
 +/**
-+ * ssh_rtl_tx_start() - Start request transmitter and receiver.
++ * ssh_rtl_start() - Start request transmitter and receiver.
 + * @rtl: The request transport layer.
 + *
 + * Return: Returns zero on success, a negative error code on failure.
