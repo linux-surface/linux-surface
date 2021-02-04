@@ -1,4 +1,4 @@
-From c02d2d63270898ad9ba17a4e74e584861a795bd4 Mon Sep 17 00:00:00 2001
+From 8a49d9d3c28983fcacbb4dd0d7e8113a100d2b54 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 16 Aug 2020 23:39:56 +0200
 Subject: [PATCH] platform/x86: Add Driver to set up lid GPEs on MS Surface
@@ -71,7 +71,7 @@ index 6dd955ad9bf1..5db303f43bda 100644
  obj-$(CONFIG_INTEL_TELEMETRY)	+= intel_telemetry_core.o \
 diff --git a/drivers/platform/x86/surface_gpe.c b/drivers/platform/x86/surface_gpe.c
 new file mode 100644
-index 000000000000..573dc52f568f
+index 000000000000..86f6991b1215
 --- /dev/null
 +++ b/drivers/platform/x86/surface_gpe.c
 @@ -0,0 +1,321 @@
@@ -215,7 +215,7 @@ index 000000000000..573dc52f568f
 +		.ident = "Surface Laptop 3 (Intel 13\")",
 +		.matches = {
 +			/*
-+			 * We match for SKU here due to different vairants: The
++			 * We match for SKU here due to different variants: The
 +			 * AMD (15") version does not rely on GPEs.
 +			 */
 +			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
@@ -227,7 +227,7 @@ index 000000000000..573dc52f568f
 +		.ident = "Surface Laptop 3 (Intel 15\")",
 +		.matches = {
 +			/*
-+			 * We match for SKU here due to different vairants: The
++			 * We match for SKU here due to different variants: The
 +			 * AMD (15") version does not rely on GPEs.
 +			 */
 +			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
@@ -258,12 +258,12 @@ index 000000000000..573dc52f568f
 +	return 0;
 +}
 +
-+static int surface_gpe_suspend(struct device *dev)
++static int __maybe_unused surface_gpe_suspend(struct device *dev)
 +{
 +	return surface_lid_enable_wakeup(dev, true);
 +}
 +
-+static int surface_gpe_resume(struct device *dev)
++static int __maybe_unused surface_gpe_resume(struct device *dev)
 +{
 +	return surface_lid_enable_wakeup(dev, false);
 +}
