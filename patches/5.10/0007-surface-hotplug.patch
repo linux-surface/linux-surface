@@ -1,4 +1,4 @@
-From 57ef85688b82ee9f409b65c6fb065b6a529aef12 Mon Sep 17 00:00:00 2001
+From 97b4cb5fe354ae2aa11a51bf0add7434f65da636 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 9 Nov 2020 14:23:00 +0100
 Subject: [PATCH] PCI: Run platform power transition on initial D0 entry
@@ -56,9 +56,9 @@ index 6427cbd0a5be..3200afed2604 100644
  		return err;
  
 -- 
-2.30.0
+2.30.1
 
-From 249b96f567db1adb80007428177141f6aec5c61f Mon Sep 17 00:00:00 2001
+From e99a49e3321f5f210825bd1cd35b04f9aff73a92 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 31 Oct 2020 20:46:33 +0100
 Subject: [PATCH] PCI: Add sysfs attribute for PCI device power state
@@ -129,9 +129,9 @@ index d15c881e2e7e..b15f754e6346 100644
  	&dev_attr_vendor.attr,
  	&dev_attr_device.attr,
 -- 
-2.30.0
+2.30.1
 
-From de32407f6bf024ae5550c26f8a21546ab46c97ec Mon Sep 17 00:00:00 2001
+From 0702027c25539792b81325e843377c54010d8d56 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 14 Dec 2020 20:50:59 +0100
 Subject: [PATCH] platform/x86: Add Surface Hotplug driver
@@ -144,17 +144,17 @@ appropriate signal to the PCIe hot-plug driver core.
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-hotplug
 ---
- drivers/platform/x86/Kconfig           |  12 ++
+ drivers/platform/x86/Kconfig           |  20 ++
  drivers/platform/x86/Makefile          |   1 +
- drivers/platform/x86/surface_hotplug.c | 267 +++++++++++++++++++++++++
- 3 files changed, 280 insertions(+)
+ drivers/platform/x86/surface_hotplug.c | 282 +++++++++++++++++++++++++
+ 3 files changed, 303 insertions(+)
  create mode 100644 drivers/platform/x86/surface_hotplug.c
 
 diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
-index a9b12f4dcbd1..3e882b1e1f74 100644
+index dbb07644c312..0c513c8bbd2b 100644
 --- a/drivers/platform/x86/Kconfig
 +++ b/drivers/platform/x86/Kconfig
-@@ -910,6 +910,18 @@ config SURFACE_GPE
+@@ -1012,6 +1012,26 @@ config SURFACE_GPE
  	  accordingly. It is required on those devices to allow wake-ups from
  	  suspend by opening the lid.
  
@@ -163,21 +163,29 @@ index a9b12f4dcbd1..3e882b1e1f74 100644
 +	depends on ACPI
 +	default m
 +	help
-+	  Driver for the Surface discrete GPU (dGPU) hot-plug system.
++	  Driver for out-of-band hot-plug event signaling on Microsoft Surface
++	  devices with hot-pluggable PCIe cards.
 +
-+	  This driver provides support for out-of-band hot-plug event signaling
-+	  on Surface Book 2 and 3 devices. This out-of-band signaling is
-+	  required to notify the kernel of any hot-plug events when the dGPU is
-+	  powered off, i.e. in D3cold.
++	  This driver is used on Surface Book (2 and 3) devices with a
++	  hot-pluggable discrete GPU (dGPU). When not in use, the dGPU on those
++	  devices can enter D3cold, which prevents in-band (standard) PCIe
++	  hot-plug signaling. Thus, without this driver, detaching the base
++	  containing the dGPU will not correctly update the state of the
++	  corresponding PCIe device if it is in D3cold. This driver adds support
++	  for out-of-band hot-plug notifications, ensuring that the device state
++	  is properly updated even when the device in question is in D3cold.
++
++	  Select M or Y here, if you want to (fully) support hot-plugging of
++	  dGPU devices on the Surface Book 2 and/or 3 during D3cold.
 +
  config SURFACE_BOOK1_DGPU_SWITCH
  	tristate "Surface Book 1 dGPU Switch Driver"
  	depends on ACPI && SYSFS
 diff --git a/drivers/platform/x86/Makefile b/drivers/platform/x86/Makefile
-index 562d83940e7b..2009224dcaae 100644
+index 2e0a2896c78d..f552cbfb7914 100644
 --- a/drivers/platform/x86/Makefile
 +++ b/drivers/platform/x86/Makefile
-@@ -87,6 +87,7 @@ obj-$(CONFIG_SURFACE_3_BUTTON)		+= surface3_button.o
+@@ -94,6 +94,7 @@ obj-$(CONFIG_SURFACE_3_BUTTON)		+= surface3_button.o
  obj-$(CONFIG_SURFACE_3_POWER_OPREGION)	+= surface3_power.o
  obj-$(CONFIG_SURFACE_PRO3_BUTTON)	+= surfacepro3_button.o
  obj-$(CONFIG_SURFACE_GPE)		+= surface_gpe.o
@@ -187,13 +195,13 @@ index 562d83940e7b..2009224dcaae 100644
  # MSI
 diff --git a/drivers/platform/x86/surface_hotplug.c b/drivers/platform/x86/surface_hotplug.c
 new file mode 100644
-index 000000000000..572fba30cd77
+index 000000000000..cfcc15cfbacb
 --- /dev/null
 +++ b/drivers/platform/x86/surface_hotplug.c
-@@ -0,0 +1,267 @@
+@@ -0,0 +1,282 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
-+ * Surface Book (gen. 2 and later) hot-plug driver.
++ * Surface Book (2 and later) hot-plug driver.
 + *
 + * Surface Book devices (can) have a hot-pluggable discrete GPU (dGPU). This
 + * driver is responsible for out-of-band hot-plug event signaling on these
@@ -203,7 +211,7 @@ index 000000000000..572fba30cd77
 + * Event signaling is handled via ACPI, which will generate the appropriate
 + * device-check notifications to be picked up by the PCIe hot-plug driver.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <linux/acpi.h>
@@ -233,8 +241,7 @@ index 000000000000..572fba30cd77
 +
 +/* 5515a847-ed55-4b27-8352-cd320e10360a */
 +static const guid_t shps_dsm_guid =
-+	GUID_INIT(0x5515a847, 0xed55, 0x4b27, 0x83, 0x52, 0xcd,
-+		  0x32, 0x0e, 0x10, 0x36, 0x0a);
++	GUID_INIT(0x5515a847, 0xed55, 0x4b27, 0x83, 0x52, 0xcd, 0x32, 0x0e, 0x10, 0x36, 0x0a);
 +
 +#define SHPS_DSM_REVISION		1
 +
@@ -247,11 +254,10 @@ index 000000000000..572fba30cd77
 +};
 +
 +enum shps_irq_type {
-+	/* NOTE: Must be in order of DSM function */
++	/* NOTE: Must be in order of enum shps_dsm_fn above. */
 +	SHPS_IRQ_TYPE_BASE_PRESENCE	= 0,
 +	SHPS_IRQ_TYPE_DEVICE_POWER	= 1,
 +	SHPS_IRQ_TYPE_DEVICE_PRESENCE	= 2,
-+
 +	SHPS_NUM_IRQS,
 +};
 +
@@ -262,15 +268,19 @@ index 000000000000..572fba30cd77
 +};
 +
 +struct shps_device {
-+	struct mutex lock[SHPS_NUM_IRQS];
++	struct mutex lock[SHPS_NUM_IRQS];  /* Protects update in shps_dsm_notify_irq() */
 +	struct gpio_desc *gpio[SHPS_NUM_IRQS];
 +	unsigned int irq[SHPS_NUM_IRQS];
 +};
 +
 +#define SHPS_IRQ_NOT_PRESENT		((unsigned int)-1)
 +
-+static void shps_dsm_notify_irq(struct platform_device *pdev,
-+				enum shps_irq_type type)
++static enum shps_dsm_fn shps_dsm_fn_for_irq(enum shps_irq_type type)
++{
++	return SHPS_DSM_FN_IRQ_BASE_PRESENCE + type;
++}
++
++static void shps_dsm_notify_irq(struct platform_device *pdev, enum shps_irq_type type)
 +{
 +	struct shps_device *sdev = platform_get_drvdata(pdev);
 +	acpi_handle handle = ACPI_HANDLE(&pdev->dev);
@@ -283,42 +293,37 @@ index 000000000000..572fba30cd77
 +	value = gpiod_get_value_cansleep(sdev->gpio[type]);
 +	if (value < 0) {
 +		mutex_unlock(&sdev->lock[type]);
-+		dev_err(&pdev->dev, "failed to get gpio: %d (irq=%d)\n",
-+			type, value);
++		dev_err(&pdev->dev, "failed to get gpio: %d (irq=%d)\n", type, value);
 +		return;
 +	}
 +
-+	dev_dbg(&pdev->dev, "IRQ notification via DSM (irq=%d, value=%d)\n",
-+		type, value);
++	dev_dbg(&pdev->dev, "IRQ notification via DSM (irq=%d, value=%d)\n", type, value);
 +
 +	param.type = ACPI_TYPE_INTEGER;
 +	param.integer.value = value;
 +
 +	result = acpi_evaluate_dsm(handle, &shps_dsm_guid, SHPS_DSM_REVISION,
-+				   SHPS_DSM_FN_IRQ_BASE_PRESENCE + type, &param);
++				   shps_dsm_fn_for_irq(type), &param);
 +
 +	if (!result) {
-+		mutex_unlock(&sdev->lock[type]);
-+		dev_err(&pdev->dev,
-+			"IRQ notification via DSM failed (irq=%d, gpio=%d)\n",
++		dev_err(&pdev->dev, "IRQ notification via DSM failed (irq=%d, gpio=%d)\n",
 +			type, value);
-+		return;
-+	}
 +
-+	if (result->type != ACPI_TYPE_BUFFER) {
++	} else if (result->type != ACPI_TYPE_BUFFER) {
 +		dev_err(&pdev->dev,
 +			"IRQ notification via DSM failed: unexpected result type (irq=%d, gpio=%d)\n",
 +			type, value);
-+	}
 +
-+	if (result->buffer.length != 1 || result->buffer.pointer[0] != 0) {
++	} else if (result->buffer.length != 1 || result->buffer.pointer[0] != 0) {
 +		dev_err(&pdev->dev,
 +			"IRQ notification via DSM failed: unexpected result value (irq=%d, gpio=%d)\n",
 +			type, value);
 +	}
 +
 +	mutex_unlock(&sdev->lock[type]);
-+	ACPI_FREE(result);
++
++	if (result)
++		ACPI_FREE(result);
 +}
 +
 +static irqreturn_t shps_handle_irq(int irq, void *data)
@@ -348,17 +353,16 @@ index 000000000000..572fba30cd77
 +	struct gpio_desc *gpiod;
 +	acpi_handle handle = ACPI_HANDLE(&pdev->dev);
 +	const char *irq_name;
-+	const int dsm = SHPS_DSM_FN_IRQ_BASE_PRESENCE + type;
++	const int dsm = shps_dsm_fn_for_irq(type);
 +	int status, irq;
 +
-+	/* Initialize as "not present". */
-+	sdev->gpio[type] = NULL;
-+	sdev->irq[type] = SHPS_IRQ_NOT_PRESENT;
-+
-+	/* Only set up interrupts that we actually need. */
++	/*
++	 * Only set up interrupts that we actually need: The Surface Book 3
++	 * does not have a DSM for base presence, so don't set up an interrupt
++	 * for that.
++	 */
 +	if (!acpi_check_dsm(handle, &shps_dsm_guid, SHPS_DSM_REVISION, BIT(dsm))) {
-+		dev_dbg(&pdev->dev, "IRQ notification via DSM not present (irq=%d)\n",
-+			type);
++		dev_dbg(&pdev->dev, "IRQ notification via DSM not present (irq=%d)\n", type);
 +		return 0;
 +	}
 +
@@ -387,11 +391,33 @@ index 000000000000..572fba30cd77
 +	return 0;
 +}
 +
++static int surface_hotplug_remove(struct platform_device *pdev)
++{
++	struct shps_device *sdev = platform_get_drvdata(pdev);
++	int i;
++
++	/* Ensure that IRQs have been fully handled and won't trigger any more. */
++	for (i = 0; i < SHPS_NUM_IRQS; i++) {
++		if (sdev->irq[i] != SHPS_IRQ_NOT_PRESENT)
++			disable_irq(sdev->irq[i]);
++
++		mutex_destroy(&sdev->lock[i]);
++	}
++
++	return 0;
++}
++
 +static int surface_hotplug_probe(struct platform_device *pdev)
 +{
 +	struct shps_device *sdev;
 +	int status, i;
 +
++	/*
++	 * The MSHW0153 device is also present on the Surface Laptop 3,
++	 * however that doesn't have a hot-pluggable PCIe device. It also
++	 * doesn't have any GPIO interrupts/pins under the MSHW0153, so filter
++	 * it out here.
++	 */
 +	if (gpiod_count(&pdev->dev, NULL) < 0)
 +		return -ENODEV;
 +
@@ -405,15 +431,21 @@ index 000000000000..572fba30cd77
 +
 +	platform_set_drvdata(pdev, sdev);
 +
++	/*
++	 * Initialize IRQs so that we can safely call surface_hotplug_remove()
++	 * on errors.
++	 */
++	for (i = 0; i < SHPS_NUM_IRQS; i++)
++		sdev->irq[i] = SHPS_IRQ_NOT_PRESENT;
++
 +	/* Set up IRQs. */
 +	for (i = 0; i < SHPS_NUM_IRQS; i++) {
 +		mutex_init(&sdev->lock[i]);
 +
 +		status = shps_setup_irq(pdev, i);
 +		if (status) {
-+			dev_err(&pdev->dev, "failed to set up IRQ %d: %d\n",
-+				i, status);
-+			return status;
++			dev_err(&pdev->dev, "failed to set up IRQ %d: %d\n", i, status);
++			goto err;
 +		}
 +	}
 +
@@ -423,19 +455,10 @@ index 000000000000..572fba30cd77
 +			shps_dsm_notify_irq(pdev, i);
 +
 +	return 0;
-+}
 +
-+static int surface_hotplug_remove(struct platform_device *pdev)
-+{
-+	struct shps_device *sdev = platform_get_drvdata(pdev);
-+	int i;
-+
-+	/* Ensure that IRQs have been fully handled and won't trigger any more. */
-+	for (i = 0; i < SHPS_NUM_IRQS; i++)
-+		if (sdev->irq[i] != SHPS_IRQ_NOT_PRESENT)
-+			disable_irq(sdev->irq[i]);
-+
-+	return 0;
++err:
++	surface_hotplug_remove(pdev);
++	return status;
 +}
 +
 +static const struct acpi_device_id surface_hotplug_acpi_match[] = {
@@ -459,5 +482,5 @@ index 000000000000..572fba30cd77
 +MODULE_DESCRIPTION("Surface Hot-Plug Signaling Driver for Surface Book Devices");
 +MODULE_LICENSE("GPL");
 -- 
-2.30.0
+2.30.1
 
