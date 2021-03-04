@@ -1,0 +1,129 @@
+From 50229d157d311b63268eaccbfec669da0dbb516c Mon Sep 17 00:00:00 2001
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Mon, 7 Sep 2020 02:51:53 +0100
+Subject: [PATCH 1/2] Export symbols needed by Android drivers
+
+We want to enable use of the Android ashmem and binder drivers to
+support Anbox, but they should not be built-in as that would waste
+resources and increase security attack surface on systems that don't
+need them.
+
+Export the currently un-exported symbols they depend on.
+---
+ fs/file.c           | 1 +
+ kernel/fork.c       | 1 +
+ kernel/sched/core.c | 1 +
+ kernel/task_work.c  | 1 +
+ mm/memory.c         | 1 +
+ mm/shmem.c          | 1 +
+ security/security.c | 4 ++++
+ 7 files changed, 10 insertions(+)
+
+diff --git a/fs/file.c b/fs/file.c
+index dab120b71e44..ed2ec6ecc466 100644
+--- a/fs/file.c
++++ b/fs/file.c
+@@ -761,6 +761,7 @@ int close_fd_get_file(unsigned int fd, struct file **res)
+ 	*res = NULL;
+ 	return -ENOENT;
+ }
++EXPORT_SYMBOL(__close_fd_get_file);
+ 
+ void do_close_on_exec(struct files_struct *files)
+ {
+diff --git a/kernel/fork.c b/kernel/fork.c
+index d66cd1014211..ff215b3fdb15 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -1120,6 +1120,7 @@ void mmput_async(struct mm_struct *mm)
+ 		schedule_work(&mm->async_put_work);
+ 	}
+ }
++EXPORT_SYMBOL_GPL(mmput_async);
+ #endif
+ 
+ /**
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index ff74fca39ed2..943239122b29 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -5575,6 +5575,7 @@ int can_nice(const struct task_struct *p, const int nice)
+ 	return (nice_rlim <= task_rlimit(p, RLIMIT_NICE) ||
+ 		capable(CAP_SYS_NICE));
+ }
++EXPORT_SYMBOL_GPL(can_nice);
+ 
+ #ifdef __ARCH_WANT_SYS_NICE
+ 
+diff --git a/kernel/task_work.c b/kernel/task_work.c
+index 9cde961875c0..5c8dea45d4f8 100644
+--- a/kernel/task_work.c
++++ b/kernel/task_work.c
+@@ -57,6 +57,7 @@ int task_work_add(struct task_struct *task, struct callback_head *work,
+ 
+ 	return 0;
+ }
++EXPORT_SYMBOL(task_work_add);
+ 
+ /**
+  * task_work_cancel - cancel a pending work added by task_work_add()
+diff --git a/mm/memory.c b/mm/memory.c
+index feff48e1465a..9e9b0fd92e38 100644
+--- a/mm/memory.c
++++ b/mm/memory.c
+@@ -1542,6 +1542,7 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long start,
+ 	mmu_notifier_invalidate_range_end(&range);
+ 	tlb_finish_mmu(&tlb, start, range.end);
+ }
++EXPORT_SYMBOL_GPL(zap_page_range);
+ 
+ /**
+  * zap_page_range_single - remove user pages in a given range
+diff --git a/mm/shmem.c b/mm/shmem.c
+index 7c6b6d8f6c39..83151e1345e6 100644
+--- a/mm/shmem.c
++++ b/mm/shmem.c
+@@ -4287,6 +4287,7 @@ int shmem_zero_setup(struct vm_area_struct *vma)
+ 
+ 	return 0;
+ }
++EXPORT_SYMBOL_GPL(shmem_zero_setup);
+ 
+ /**
+  * shmem_read_mapping_page_gfp - read into page cache, using specified page allocation flags.
+diff --git a/security/security.c b/security/security.c
+index 7b09cfbae94f..5eaec62c51f2 100644
+--- a/security/security.c
++++ b/security/security.c
+@@ -727,24 +727,28 @@ int security_binder_set_context_mgr(struct task_struct *mgr)
+ {
+ 	return call_int_hook(binder_set_context_mgr, 0, mgr);
+ }
++EXPORT_SYMBOL_GPL(security_binder_set_context_mgr);
+ 
+ int security_binder_transaction(struct task_struct *from,
+ 				struct task_struct *to)
+ {
+ 	return call_int_hook(binder_transaction, 0, from, to);
+ }
++EXPORT_SYMBOL_GPL(security_binder_transaction);
+ 
+ int security_binder_transfer_binder(struct task_struct *from,
+ 				    struct task_struct *to)
+ {
+ 	return call_int_hook(binder_transfer_binder, 0, from, to);
+ }
++EXPORT_SYMBOL_GPL(security_binder_transfer_binder);
+ 
+ int security_binder_transfer_file(struct task_struct *from,
+ 				  struct task_struct *to, struct file *file)
+ {
+ 	return call_int_hook(binder_transfer_file, 0, from, to, file);
+ }
++EXPORT_SYMBOL_GPL(security_binder_transfer_file);
+ 
+ int security_ptrace_access_check(struct task_struct *child, unsigned int mode)
+ {
+-- 
+2.30.1
+

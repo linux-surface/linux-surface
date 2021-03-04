@@ -1,7 +1,7 @@
+From e2a9a34af4fd99de652638bfc0365aba284b95f8 Mon Sep 17 00:00:00 2001
 From: Ben Hutchings <ben@decadent.org.uk>
 Date: Fri, 22 Jun 2018 17:27:00 +0100
-Subject: android: Enable building ashmem and binder as modules
-Bug-Debian: https://bugs.debian.org/901492
+Subject: [PATCH 2/2] android: Enable building ashmem and binder as modules
 
 We want to enable use of the Android ashmem and binder drivers to
 support Anbox, but they should not be built-in as that would waste
@@ -21,10 +21,10 @@ need them.
  drivers/staging/android/ashmem.c | 3 +++
  6 files changed, 12 insertions(+), 7 deletions(-)
 
-Index: debian-kernel/drivers/android/Kconfig
-===================================================================
---- debian-kernel.orig/drivers/android/Kconfig
-+++ debian-kernel/drivers/android/Kconfig
+diff --git a/drivers/android/Kconfig b/drivers/android/Kconfig
+index 53b22e26266c..f3c50236e8d1 100644
+--- a/drivers/android/Kconfig
++++ b/drivers/android/Kconfig
 @@ -9,7 +9,7 @@ config ANDROID
  if ANDROID
  
@@ -34,10 +34,10 @@ Index: debian-kernel/drivers/android/Kconfig
  	depends on MMU
  	default n
  	help
-Index: debian-kernel/drivers/android/Makefile
-===================================================================
---- debian-kernel.orig/drivers/android/Makefile
-+++ debian-kernel/drivers/android/Makefile
+diff --git a/drivers/android/Makefile b/drivers/android/Makefile
+index c9d3d0c99c25..55411d9a9c2a 100644
+--- a/drivers/android/Makefile
++++ b/drivers/android/Makefile
 @@ -1,6 +1,7 @@
  # SPDX-License-Identifier: GPL-2.0-only
  ccflags-y += -I$(src)			# needed for trace events
@@ -49,10 +49,10 @@ Index: debian-kernel/drivers/android/Makefile
 +binder_linux-y := binder.o binder_alloc.o
 +binder_linux-$(CONFIG_ANDROID_BINDERFS)	+= binderfs.o
 +binder_linux-$(CONFIG_ANDROID_BINDER_IPC_SELFTEST) += binder_alloc_selftest.o
-Index: debian-kernel/drivers/android/binder_alloc.c
-===================================================================
---- debian-kernel.orig/drivers/android/binder_alloc.c
-+++ debian-kernel/drivers/android/binder_alloc.c
+diff --git a/drivers/android/binder_alloc.c b/drivers/android/binder_alloc.c
+index 7caf74ad2405..9202a44bd55d 100644
+--- a/drivers/android/binder_alloc.c
++++ b/drivers/android/binder_alloc.c
 @@ -38,7 +38,7 @@ enum {
  };
  static uint32_t binder_alloc_debug_mask = BINDER_DEBUG_USER_ERROR;
@@ -62,10 +62,10 @@ Index: debian-kernel/drivers/android/binder_alloc.c
  		   uint, 0644);
  
  #define binder_alloc_debug(mask, x...) \
-Index: debian-kernel/drivers/staging/android/Kconfig
-===================================================================
---- debian-kernel.orig/drivers/staging/android/Kconfig
-+++ debian-kernel/drivers/staging/android/Kconfig
+diff --git a/drivers/staging/android/Kconfig b/drivers/staging/android/Kconfig
+index 70498adb1575..5c35653ed36d 100644
+--- a/drivers/staging/android/Kconfig
++++ b/drivers/staging/android/Kconfig
 @@ -4,7 +4,7 @@ menu "Android"
  if ANDROID
  
@@ -75,21 +75,21 @@ Index: debian-kernel/drivers/staging/android/Kconfig
  	depends on SHMEM
  	help
  	  The ashmem subsystem is a new shared memory allocator, similar to
-Index: debian-kernel/drivers/staging/android/Makefile
-===================================================================
---- debian-kernel.orig/drivers/staging/android/Makefile
-+++ debian-kernel/drivers/staging/android/Makefile
-@@ -3,4 +3,5 @@ ccflags-y += -I$(src)			# needed for tra
- 
- obj-y					+= ion/
+diff --git a/drivers/staging/android/Makefile b/drivers/staging/android/Makefile
+index e9a55a5e6529..60cb8eacc793 100644
+--- a/drivers/staging/android/Makefile
++++ b/drivers/staging/android/Makefile
+@@ -1,4 +1,5 @@
+ # SPDX-License-Identifier: GPL-2.0
+ ccflags-y += -I$(src)			# needed for trace events
  
 -obj-$(CONFIG_ASHMEM)			+= ashmem.o
 +obj-$(CONFIG_ASHMEM)			+= ashmem_linux.o
 +ashmem_linux-y				+= ashmem.o
-Index: debian-kernel/drivers/staging/android/ashmem.c
-===================================================================
---- debian-kernel.orig/drivers/staging/android/ashmem.c
-+++ debian-kernel/drivers/staging/android/ashmem.c
+diff --git a/drivers/staging/android/ashmem.c b/drivers/staging/android/ashmem.c
+index 4789d36ddfd3..f86efd3da373 100644
+--- a/drivers/staging/android/ashmem.c
++++ b/drivers/staging/android/ashmem.c
 @@ -24,6 +24,7 @@
  #include <linux/bitops.h>
  #include <linux/mutex.h>
@@ -98,9 +98,12 @@ Index: debian-kernel/drivers/staging/android/ashmem.c
  #include "ashmem.h"
  
  #define ASHMEM_NAME_PREFIX "dev/ashmem/"
-@@ -953,3 +954,5 @@ out:
+@@ -965,3 +966,5 @@ static int __init ashmem_init(void)
  	return ret;
  }
  device_initcall(ashmem_init);
 +
 +MODULE_LICENSE("GPL v2");
+-- 
+2.30.1
+
