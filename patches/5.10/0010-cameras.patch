@@ -1,4 +1,4 @@
-From 32471cc9c5d98f0d10dbea253304e0f96abb2916 Mon Sep 17 00:00:00 2001
+From 60ab56136db4c10ffd97c18f743df3c8abd98e4d Mon Sep 17 00:00:00 2001
 From: Sakari Ailus <sakari.ailus@linux.intel.com>
 Date: Mon, 12 Oct 2020 21:04:11 +0300
 Subject: [PATCH] ipu3-cio2: Use unsigned values where appropriate
@@ -316,7 +316,7 @@ index 146492383aa5..7650d7998a3f 100644
 -- 
 2.30.1
 
-From 34c2da7111d19237998a6420189f5896d0b7e037 Mon Sep 17 00:00:00 2001
+From 36bd30ef316fab4bb42597c8e4a00aea72703044 Mon Sep 17 00:00:00 2001
 From: Sakari Ailus <sakari.ailus@linux.intel.com>
 Date: Mon, 12 Oct 2020 21:04:12 +0300
 Subject: [PATCH] ipu3-cio2: Remove explicit type from frame size checks
@@ -332,7 +332,7 @@ Patchset: cameras
  1 file changed, 2 insertions(+), 3 deletions(-)
 
 diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2.c b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-index 1fcd131482e0..b2679ff185fc 100644
+index dcbfe8c9abc7..a1f574095acc 100644
 --- a/drivers/media/pci/intel/ipu3/ipu3-cio2.c
 +++ b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
 @@ -1283,9 +1283,8 @@ static int cio2_subdev_set_fmt(struct v4l2_subdev *sd,
@@ -350,7 +350,7 @@ index 1fcd131482e0..b2679ff185fc 100644
 -- 
 2.30.1
 
-From c0d5f91f3262dfcad057817b7cc92e27f4bc82b5 Mon Sep 17 00:00:00 2001
+From e82f25619a729c22dfa07b5e6e142e7aa1c5c21e Mon Sep 17 00:00:00 2001
 From: Sakari Ailus <sakari.ailus@linux.intel.com>
 Date: Mon, 12 Oct 2020 21:04:13 +0300
 Subject: [PATCH] ipu3-cio2: Rename CIO2_IMAGE_MAX_LENGTH as
@@ -370,7 +370,7 @@ Patchset: cameras
  2 files changed, 4 insertions(+), 4 deletions(-)
 
 diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2.c b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-index b2679ff185fc..51c4dd6a8f9a 100644
+index a1f574095acc..93fd25a5a3e9 100644
 --- a/drivers/media/pci/intel/ipu3/ipu3-cio2.c
 +++ b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
 @@ -1095,8 +1095,8 @@ static int cio2_v4l2_try_fmt(struct file *file, void *fh, struct v4l2_format *f)
@@ -409,7 +409,7 @@ index 7650d7998a3f..ccf0b85ae36f 100644
 -- 
 2.30.1
 
-From dc6a77ee8a8ad188cc3bd63231b7759ce6e95503 Mon Sep 17 00:00:00 2001
+From 60714de2a41806b12bda79018d3ad935b780811c Mon Sep 17 00:00:00 2001
 From: Sakari Ailus <sakari.ailus@xxxxxxxxxxxxxxx>
 Date: Tue, 13 Oct 2020 17:25:35 +0300
 Subject: [PATCH] ipu3-cio2: Check receved the size against payload size, not
@@ -431,7 +431,7 @@ Patchset: cameras
  1 file changed, 7 insertions(+), 5 deletions(-)
 
 diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2.c b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
-index 51c4dd6a8f9a..c557d189200b 100644
+index 93fd25a5a3e9..b244b9de142a 100644
 --- a/drivers/media/pci/intel/ipu3/ipu3-cio2.c
 +++ b/drivers/media/pci/intel/ipu3/ipu3-cio2.c
 @@ -561,7 +561,9 @@ static void cio2_buffer_done(struct cio2_device *cio2, unsigned int dma_chan)
@@ -463,55 +463,7 @@ index 51c4dd6a8f9a..c557d189200b 100644
 -- 
 2.30.1
 
-From fbffeecd2e7454f14fae4c13b486dc136b49a750 Mon Sep 17 00:00:00 2001
-From: Daniel Scally <djrscally@gmail.com>
-Date: Sat, 10 Oct 2020 23:42:09 +0100
-Subject: [PATCH] software_node: Fix refcounts in
- software_node_get_next_child()
-
-The software_node_get_next_child() function currently does not hold
-references to the child software_node that it finds or put the ref that
-is held against the old child - fix that.
-
-Fixes: 59abd83672f7 ("drivers: base: Introducing software nodes to the firmware node framework")
-Reviewed-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
-Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
-Reviewed-by: Sakari Ailus <sakari.ailus@linux.intel.com>
-Signed-off-by: Daniel Scally <djrscally@gmail.com>
-Patchset: cameras
----
- drivers/base/swnode.c | 8 ++++++--
- 1 file changed, 6 insertions(+), 2 deletions(-)
-
-diff --git a/drivers/base/swnode.c b/drivers/base/swnode.c
-index 010828fc785b..615a0c93e116 100644
---- a/drivers/base/swnode.c
-+++ b/drivers/base/swnode.c
-@@ -443,14 +443,18 @@ software_node_get_next_child(const struct fwnode_handle *fwnode,
- 	struct swnode *c = to_swnode(child);
- 
- 	if (!p || list_empty(&p->children) ||
--	    (c && list_is_last(&c->entry, &p->children)))
-+	    (c && list_is_last(&c->entry, &p->children))) {
-+		fwnode_handle_put(child);
- 		return NULL;
-+	}
- 
- 	if (c)
- 		c = list_next_entry(c, entry);
- 	else
- 		c = list_first_entry(&p->children, struct swnode, entry);
--	return &c->fwnode;
-+
-+	fwnode_handle_put(child);
-+	return fwnode_handle_get(&c->fwnode);
- }
- 
- static struct fwnode_handle *
--- 
-2.30.1
-
-From 025f45ed28564cdef6c7fe699432e1ae1f20a487 Mon Sep 17 00:00:00 2001
+From 06a927eda11f9d41bf42b86c46b7e7ce019f0723 Mon Sep 17 00:00:00 2001
 From: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 Date: Wed, 30 Dec 2020 22:44:05 +0200
 Subject: [PATCH] media: ipu3-cio2: Add headers that ipu3-cio2.h is direct user
@@ -563,7 +515,7 @@ index ccf0b85ae36f..62187ab5ae43 100644
 -- 
 2.30.1
 
-From 17f9b714c6c43dd36f96013e97ed6d47230df117 Mon Sep 17 00:00:00 2001
+From dfaa9d2c373eebd0cbb847c0061313e819171539 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 24 Oct 2020 22:42:28 +0100
 Subject: [PATCH] device property: Return true in fwnode_device_is_available
@@ -608,7 +560,7 @@ index 4c43d30145c6..bc9c634df6df 100644
 -- 
 2.30.1
 
-From 7e8095e7a5754ab247ef6d7e3d459fd7b0de7b7a Mon Sep 17 00:00:00 2001
+From f7ac530eac31ce194aa95a7e1176f1b32c2e99f3 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 21 Nov 2020 22:06:38 +0000
 Subject: [PATCH] device property: Call fwnode_graph_get_endpoint_by_id() for
@@ -652,7 +604,7 @@ index bc9c634df6df..ddba75d90af2 100644
 -- 
 2.30.1
 
-From b80bff10119170d8dab3cda43a71624a18ec5ae8 Mon Sep 17 00:00:00 2001
+From d5829d687876a7a82e4a2abd19d715dbb5254f09 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 25 Oct 2020 22:49:08 +0000
 Subject: [PATCH] software_node: Enforce parent before child ordering of nodes
@@ -755,7 +707,7 @@ index 615a0c93e116..ade49173ff8d 100644
 -- 
 2.30.1
 
-From 7670dadea357641b8b9e5ed804e18b412fe334fc Mon Sep 17 00:00:00 2001
+From 41bfa055214cb8485bed4d57894d42d0140632df Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 21 Oct 2020 22:25:03 +0100
 Subject: [PATCH] software_node: unregister software_nodes in reverse order
@@ -810,7 +762,7 @@ index ade49173ff8d..1f43c51b431e 100644
 -- 
 2.30.1
 
-From c6b79e9a2a765592e11723d61a12e3c30f8c4650 Mon Sep 17 00:00:00 2001
+From 0c4de965e317b17f4615a0ed7904311ef7009d7c Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Tue, 22 Dec 2020 13:09:05 +0000
 Subject: [PATCH] device property: Define format macros for ports and endpoints
@@ -851,7 +803,7 @@ index 9506f8ec0974..72d36d46287d 100644
 -- 
 2.30.1
 
-From 56e57aa31cd20535fc3e3f685848da6b8ba7a469 Mon Sep 17 00:00:00 2001
+From 1e7bd88e7b159c2855508d4585fb57a236de44c7 Mon Sep 17 00:00:00 2001
 From: Heikki Krogerus <heikki.krogerus@linux.intel.com>
 Date: Tue, 15 Sep 2020 15:47:46 +0100
 Subject: [PATCH] software_node: Add support for fwnode_graph*() family of
@@ -1019,7 +971,7 @@ index 1f43c51b431e..2ff504aca0be 100644
 -- 
 2.30.1
 
-From f70bc3eb837b1ad8c95150b96a9768d28d4848cd Mon Sep 17 00:00:00 2001
+From 298847e9dfbfa7f4b7a59837b05dc53f5ddfbaa5 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Oct 2020 23:07:22 +0100
 Subject: [PATCH] lib/test_printf.c: Use helper function to unwind array of
@@ -1057,7 +1009,7 @@ index 7ac87f18a10f..7d60f24240a4 100644
 -- 
 2.30.1
 
-From ecbb6f67417898624be3b3aded3aceb893025bfd Mon Sep 17 00:00:00 2001
+From fb322fd7c12d58f08ebf8a282fa92ff54c5ae0f3 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Oct 2020 23:11:36 +0100
 Subject: [PATCH] ipu3-cio2: Add T: entry to MAINTAINERS
@@ -1088,7 +1040,7 @@ index 281de213ef47..5a1c6e959aa8 100644
 -- 
 2.30.1
 
-From 231bcccd03410528c1c5971204f344ff289f9c29 Mon Sep 17 00:00:00 2001
+From 4569fa0eb71334b63729468dffdb0cd2e93b30f3 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Oct 2020 22:47:21 +0100
 Subject: [PATCH] ipu3-cio2: Rename ipu3-cio2.c
@@ -1123,7 +1075,7 @@ rename to drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
 -- 
 2.30.1
 
-From c2a6d9ea77c97c0810deca4efa0e20632a0d1580 Mon Sep 17 00:00:00 2001
+From 72022e158e12175fd368f5ac7977e3b0b46ba791 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 21 Oct 2020 21:53:05 +0100
 Subject: [PATCH] media: v4l2-core: v4l2-async: Check sd->fwnode->secondary in
@@ -1164,7 +1116,7 @@ index e3ab003a6c85..9dd896d085ec 100644
 -- 
 2.30.1
 
-From e2a35c5d387c7e8341afd52bf41a42c3cc9a8615 Mon Sep 17 00:00:00 2001
+From d79b943e54fa699b597842a0b62b569caa750de4 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 15 Nov 2020 08:15:34 +0000
 Subject: [PATCH] ACPI / bus: Add acpi_dev_get_next_match_dev() and helper
@@ -1273,7 +1225,7 @@ index 6d1879bf9440..02a716a0af5d 100644
 -- 
 2.30.1
 
-From 356810b8ffa42d22eeaf19b694e6d225b74580f1 Mon Sep 17 00:00:00 2001
+From c727db566a43fd685569f09d57d72a85bd339091 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 19 Dec 2020 23:55:04 +0000
 Subject: [PATCH] media: v4l2-fwnode: Include v4l2_fwnode_bus_type
@@ -1350,7 +1302,7 @@ index ed0840f3d5df..6ca337c28b3c 100644
 -- 
 2.30.1
 
-From f9f3ecfc891d1671fd45426e3194d774887da80b Mon Sep 17 00:00:00 2001
+From ef0056003dc297a18494d1c517dd9e53c2150cf0 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 21 Oct 2020 21:53:44 +0100
 Subject: [PATCH] ipu3-cio2: Add cio2-bridge to ipu3-cio2 driver
@@ -1391,10 +1343,10 @@ index 5a1c6e959aa8..a6924e3401e8 100644
  L:	linux-media@vger.kernel.org
  S:	Maintained
 diff --git a/drivers/media/pci/intel/ipu3/Kconfig b/drivers/media/pci/intel/ipu3/Kconfig
-index 82d7f17e6a02..96a2231b16ad 100644
+index 7a805201034b..24f4e79fe0cb 100644
 --- a/drivers/media/pci/intel/ipu3/Kconfig
 +++ b/drivers/media/pci/intel/ipu3/Kconfig
-@@ -16,3 +16,21 @@ config VIDEO_IPU3_CIO2
+@@ -17,3 +17,21 @@ config VIDEO_IPU3_CIO2
  	  Say Y or M here if you have a Skylake/Kaby Lake SoC with MIPI CSI-2
  	  connected camera.
  	  The module will be called ipu3-cio2.
@@ -1874,7 +1826,7 @@ index 000000000000..dd0ffcafa489
 +
 +#endif
 diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c b/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
-index c557d189200b..8132cdf20f4f 100644
+index b244b9de142a..d820de44f341 100644
 --- a/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
 +++ b/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
 @@ -1712,11 +1712,28 @@ static void cio2_queues_exit(struct cio2_device *cio2)
@@ -1948,7 +1900,7 @@ index 62187ab5ae43..dc3e343a37fb 100644
 -- 
 2.30.1
 
-From b138b0799d6b023a33cdd69b2ff6ddcf2b7f189c Mon Sep 17 00:00:00 2001
+From a4bbca15d0dee2756ce041dc438227891e283e7c Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 2 Dec 2020 12:38:10 +0000
 Subject: [PATCH] acpi: utils: move acpi_lpss_dep() to utils
@@ -2050,7 +2002,7 @@ index ddca1550cce6..78b38775f18b 100644
 -- 
 2.30.1
 
-From 84b2fdfd7ba36a7525ff97cd4d4080471cdcba06 Mon Sep 17 00:00:00 2001
+From b6f77009e486d7702153f6e3f2b2f924ef57f6fb Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 26 Nov 2020 21:12:41 +0000
 Subject: [PATCH] acpi: utils: Add function to fetch dependent acpi_devices
@@ -2136,7 +2088,7 @@ index 02a716a0af5d..33deb22294f2 100644
 -- 
 2.30.1
 
-From cad6e20a6ceacb6f120f20fddd9cadc0355802d7 Mon Sep 17 00:00:00 2001
+From a2f8589451cea571342385699975efa9fefdc50d Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 16 Nov 2020 21:38:49 +0000
 Subject: [PATCH] i2c: i2c-core-base: Use format macro in i2c_dev_set_name()
@@ -2204,7 +2156,7 @@ index 56622658b215..65acae61dc5c 100644
 -- 
 2.30.1
 
-From f2760c77484f8bfd90fbae8a1dc6ae2107cb2c6e Mon Sep 17 00:00:00 2001
+From 588a3270324a2ebfaec98add9342fa9cd1993d36 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 2 Dec 2020 16:41:42 +0000
 Subject: [PATCH] i2c: i2c-core-acpi: Add i2c_acpi_dev_name()
@@ -2262,7 +2214,7 @@ index 65acae61dc5c..b82aac05b17f 100644
 -- 
 2.30.1
 
-From 869d5dd9d5828a4728ea0204e09f7ff80d56c82e Mon Sep 17 00:00:00 2001
+From 39497507992b2c4f2e106a734ed16c43b84cbe2e Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 16 Nov 2020 00:16:56 +0000
 Subject: [PATCH] gpio: gpiolib-acpi: Export acpi_get_gpiod()
@@ -2326,7 +2278,7 @@ index 5b1dc1ad4fb3..47ae139e8781 100644
 -- 
 2.30.1
 
-From 8780e6b11b5d4b1a493e89cf9d4ecb4334845227 Mon Sep 17 00:00:00 2001
+From a4a562f653decc1f7f75ba334761f2c0cb660d7e Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 12 Dec 2020 23:56:59 +0000
 Subject: [PATCH] mfd: Remove tps68470 MFD driver
@@ -2517,7 +2469,7 @@ index 4a4df4ffd18c..000000000000
 -- 
 2.30.1
 
-From 75ad8c2f266e8802fa95c3d59bf702af6019b41f Mon Sep 17 00:00:00 2001
+From b595f24e55b231e1b51a001387e5ea32acdf5746 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Fri, 15 Jan 2021 12:37:31 +0000
 Subject: [PATCH] platform: x86: Add intel_skl_int3472 driver
@@ -3486,7 +3438,7 @@ index 000000000000..3fe27ec0caff
 -- 
 2.30.1
 
-From 12d4fe655786e70db9868cd005c28e6d5361d6b1 Mon Sep 17 00:00:00 2001
+From 8e4703223f189aa81f9c7b02ac4e33a898a7417f Mon Sep 17 00:00:00 2001
 From: "Rafael J. Wysocki" <rafael.j.wysocki@intel.com>
 Date: Fri, 11 Dec 2020 21:17:35 +0100
 Subject: [PATCH] PCI: ACPI: Fix up ACPI companion lookup for device 0 on the
@@ -3556,7 +3508,7 @@ index 745a4e0c4994..87e45a800919 100644
 -- 
 2.30.1
 
-From bd5f7d894a6956b9f9abf41ee22d1fcb485d5f5d Mon Sep 17 00:00:00 2001
+From c7ed7462d16ffc20cb8c51dc75cbc69278109612 Mon Sep 17 00:00:00 2001
 From: Jake Day <jake@ninebysix.com>
 Date: Fri, 25 Sep 2020 10:24:53 -0400
 Subject: [PATCH] media: i2c: Add support for the OV5693 image sensor
@@ -6913,7 +6865,7 @@ index 000000000000..9a508e1f3624
 -- 
 2.30.1
 
-From d830bae59cb11cbc0f97dde540b14b931ed1c0b3 Mon Sep 17 00:00:00 2001
+From 26bc1d4e7d8bf1af29ca5be8e358c52eb51cf249 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 17 Jan 2021 19:08:18 +0000
 Subject: [PATCH] media: i2c: Add reset pin toggling to ov5693
@@ -6954,7 +6906,7 @@ index 32485e4ed42b..f9ced52ad37a 100644
 -- 
 2.30.1
 
-From 7fb8c70cd22feb2ba77480f58d09ea44aff1c767 Mon Sep 17 00:00:00 2001
+From 5a74660b40475341b846abe4e4633d96329ee57a Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 17 Jan 2021 21:39:15 +0000
 Subject: [PATCH] media: i2c: Fix misnamed variable in power_down() for ov5693
@@ -6983,7 +6935,7 @@ index f9ced52ad37a..9fd44a3d1d85 100644
 -- 
 2.30.1
 
-From 2e833ff778b536f2f6a401c979662122bf9e1277 Mon Sep 17 00:00:00 2001
+From acb2613e770c90b092e9fa6ef6da7dd72036ac50 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Fabian=20W=C3=BCthrich?= <me@fabwu.ch>
 Date: Fri, 22 Jan 2021 20:58:13 +0100
 Subject: [PATCH] cio2-bridge: Parse sensor orientation and rotation
@@ -7146,7 +7098,7 @@ index dd0ffcafa489..924d99d20328 100644
 -- 
 2.30.1
 
-From e767277317119f90d0841ac9c3bdce118a461e6a Mon Sep 17 00:00:00 2001
+From 2a1100a910b11fb01d65059f05ca86220e18cff4 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Fabian=20W=C3=BCthrich?= <me@fabwu.ch>
 Date: Fri, 22 Jan 2021 21:23:47 +0100
 Subject: [PATCH] ov5693: Add orientation and rotation controls
@@ -7202,7 +7154,7 @@ index 9fd44a3d1d85..1a85800df7ed 100644
 -- 
 2.30.1
 
-From 0823b3b1fd4f8ce2897681f9e9493a8e3c3ae952 Mon Sep 17 00:00:00 2001
+From eda2c584736f68824078f435b66fcaf8d9909a6c Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 23 Jan 2021 00:28:32 +0000
 Subject: [PATCH] platform: x86: Stylistic updates for intel-skl-int3472
@@ -7619,7 +7571,7 @@ index 3fe27ec0caff..40629291b339 100644
 -- 
 2.30.1
 
-From e3cde392d3facfbf24232e866f644db25c012f5b Mon Sep 17 00:00:00 2001
+From 16f13a4470eee4035f4bb0cef791f0f0e6e55cc2 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 23 Jan 2021 00:30:15 +0000
 Subject: [PATCH] platform: x86: Add recalc_rate opp to int3472-discrete clock
@@ -7746,7 +7698,7 @@ index 42ae8396eb64..98eb1ec3399e 100644
 -- 
 2.30.1
 
-From 1d1a0b5731f637597568a2e8cce2758e14b3c2ca Mon Sep 17 00:00:00 2001
+From 3b1abbe703a989ec3585d4ec69168b8bea3e6527 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Fabian=20W=C3=BCthrich?= <me@fabwu.ch>
 Date: Sun, 24 Jan 2021 11:07:42 +0100
 Subject: [PATCH] cio2-bridge: Use macros and add warnings
@@ -7850,7 +7802,7 @@ index 924d99d20328..e1e388cc9f45 100644
 -- 
 2.30.1
 
-From b070306c3889044cba1bd72c52cc818b642003a5 Mon Sep 17 00:00:00 2001
+From c7ab0599026cb5feec200917a9d7d02c970bc244 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 8 Feb 2021 21:44:38 +0000
 Subject: [PATCH] media: i2c: Tidy up ov5693_init_controls()
@@ -7972,7 +7924,7 @@ index 9a508e1f3624..26819cf3f4d2 100644
 -- 
 2.30.1
 
-From 77dd02990795cbc0eeb69d29a234ecef694612b9 Mon Sep 17 00:00:00 2001
+From c98216a72b1fa2dae70866cf40a2861561655a0e Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 8 Feb 2021 21:46:49 +0000
 Subject: [PATCH] media: i2c: Remove OV5693_PPL_DEFAULT
@@ -8010,7 +7962,7 @@ index a9747ab783d7..7fb368eec327 100644
 -- 
 2.30.1
 
-From 9c063797defadfe3580002f79d5503c4a697d1a4 Mon Sep 17 00:00:00 2001
+From c64bcb33d35a4661bbc7f47038f4e842ffbd98f8 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 8 Feb 2021 22:53:02 +0000
 Subject: [PATCH] media: i2c: Add vblank control to ov5693 driver
@@ -8086,7 +8038,7 @@ index 26819cf3f4d2..9d7eed97963b 100644
 -- 
 2.30.1
 
-From b32056993cea983468fc25d3e64e06e37f4c40a6 Mon Sep 17 00:00:00 2001
+From 5936b342529158523867fbac7f4a02f10f37ba18 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 10 Feb 2021 00:36:32 +0000
 Subject: [PATCH] media: i2c: update exposure control for ov5693
@@ -8161,7 +8113,7 @@ index 1950d7ac2d54..cea767230aa9 100644
 -- 
 2.30.1
 
-From 6233e6bbe8f499ba8b4c31f9df53daa1d221d303 Mon Sep 17 00:00:00 2001
+From 5dd29397e21e3388233d1fa20651dc11680bd4b4 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 10 Feb 2021 00:39:42 +0000
 Subject: [PATCH] media: i2c: Fix incorrect bit-setting
@@ -8197,7 +8149,7 @@ index cea767230aa9..f681dbfcec56 100644
 -- 
 2.30.1
 
-From c8f37984c1cddea585f2acf6c71b878a92d451d4 Mon Sep 17 00:00:00 2001
+From 3ab19f7ca30b841d73458c9c4e136c3721fc9047 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 10 Feb 2021 16:25:48 +0000
 Subject: [PATCH] media: i2c: Don't set stream on during mode config
@@ -8347,7 +8299,7 @@ index 9d7eed97963b..965208078c2b 100644
 -- 
 2.30.1
 
-From 0249d4e96dc77cedc82269d535ccb68a0ce3fc40 Mon Sep 17 00:00:00 2001
+From 31055383a0a5af5e58609177a5423dadaacbe25d Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 10 Feb 2021 16:35:24 +0000
 Subject: [PATCH] media: i2c: Update gain control for ov5693
@@ -8419,7 +8371,7 @@ index f681dbfcec56..51eb3b05d121 100644
 -- 
 2.30.1
 
-From 4655f5f33e843e03296049fc6efa10f4310eceb3 Mon Sep 17 00:00:00 2001
+From 478b272458e849312e2fc544ab4acfaf90554d69 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 10 Feb 2021 23:44:39 +0000
 Subject: [PATCH] media: i2c: Fixup gain read
@@ -8482,7 +8434,7 @@ index 51eb3b05d121..952558c4f33b 100644
 -- 
 2.30.1
 
-From 8ac23f62d38472adff45eae9c562023b5289cb53 Mon Sep 17 00:00:00 2001
+From 7638fbac2e6c4ba7a06d096a8c8269d1d59eed7a Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 11 Feb 2021 00:40:10 +0000
 Subject: [PATCH] media: i2c: Update controls on stream
@@ -8517,7 +8469,7 @@ index 952558c4f33b..dd31083eeb7b 100644
 -- 
 2.30.1
 
-From 7e8aa95e23d65abe33ca4d80f50fcf47a96ee313 Mon Sep 17 00:00:00 2001
+From bfa85e6e6ca72c64a6854947667af07ad6a615bf Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 11 Feb 2021 23:29:15 +0000
 Subject: [PATCH] media: i2c: Correct link frequency value
@@ -8556,7 +8508,7 @@ index 965208078c2b..7f1d31a82d3d 100644
 -- 
 2.30.1
 
-From 061cbcd2070ab1907d0702ff358255514a1efc47 Mon Sep 17 00:00:00 2001
+From def629ed22f244789db7952c4cfa30ffff3dae6b Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 25 Jan 2021 23:12:09 +0000
 Subject: [PATCH] media: i2c: Cleanup ov5693 driver
@@ -9477,7 +9429,7 @@ index 7f1d31a82d3d..70ccb3aae4c7 100644
 -- 
 2.30.1
 
-From 1bb274c64997c78a292658d4b62e4b025271737d Mon Sep 17 00:00:00 2001
+From bcdacaeeba0d758f8d318f75d57e8e4b38e36076 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 28 Jan 2021 12:04:38 +0000
 Subject: [PATCH] media: i2c: Add pm_runtime support to ov5693 driver
@@ -9822,7 +9774,7 @@ index 70ccb3aae4c7..b78d3b474a43 100644
 -- 
 2.30.1
 
-From 14139a66573795862858f43042067bab217e3a8d Mon Sep 17 00:00:00 2001
+From 026275b89a6960c9537669b8da495a5795256dec Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 28 Jan 2021 12:07:36 +0000
 Subject: [PATCH] media: i2c: Remove old power methods from ov5693
@@ -9993,7 +9945,7 @@ index f2eaa5f71a31..ce26ce86fbd5 100644
 -- 
 2.30.1
 
-From 5011775be888a29eaaf4100b229a80271cfc78da Mon Sep 17 00:00:00 2001
+From c7b9a6abdc1f6d279a577b60c1618abf35a83602 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 28 Jan 2021 12:14:00 +0000
 Subject: [PATCH] media: i2c: Trim unused headers from ov5693
@@ -10034,7 +9986,7 @@ index ce26ce86fbd5..b3b391a49fdb 100644
 -- 
 2.30.1
 
-From d9137b83092e75131784f32b2f43be8c2be1a13f Mon Sep 17 00:00:00 2001
+From 5db2873f79b231f4c4850e58dec526b561d9085f Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 13 Feb 2021 21:39:35 +0000
 Subject: [PATCH] media: i2c: Remove VCM stuff
@@ -10453,7 +10405,7 @@ index b3b391a49fdb..2c82b6578de9 100644
 -- 
 2.30.1
 
-From 260af2d112381bd949f9900f141a1e7ef78951d7 Mon Sep 17 00:00:00 2001
+From f48a9b083a4822c9d3787eeed47c256ada162259 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 13 Feb 2021 22:16:08 +0000
 Subject: [PATCH] media: i2c: Tidy up ov5693 sensor init
@@ -10609,7 +10561,7 @@ index 2c82b6578de9..313bc9177328 100644
 -- 
 2.30.1
 
-From e3683a5e3542eeff0cc582088ca06c448546bc7f Mon Sep 17 00:00:00 2001
+From 88aa74b0f5a9a9d0f2864651fbcfa3e0b9804a70 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Fri, 12 Feb 2021 16:14:04 +0000
 Subject: [PATCH] media: i2c: cleanup macros in ov5693.h
@@ -10755,7 +10707,7 @@ index b78d3b474a43..6502777eb5f3 100644
 -- 
 2.30.1
 
-From 2cb9a2fe394eea0b1aa79effb5a6a6fd6c04664f Mon Sep 17 00:00:00 2001
+From 16d5169560fdbb2a2a8c85992c3e21014f0cb6cf Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Fri, 12 Feb 2021 16:19:09 +0000
 Subject: [PATCH] media: i2c: use devm_kzalloc() to initialise ov5693
@@ -10785,7 +10737,7 @@ index 313bc9177328..d092ed698eb3 100644
 -- 
 2.30.1
 
-From c3881f7d460ab00663028af4fc1ebf3d18545664 Mon Sep 17 00:00:00 2001
+From 441435af3fbd9f18d509eb6bbe234892a4e9f088 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Fri, 12 Feb 2021 16:26:21 +0000
 Subject: [PATCH] media: i2c: Check for supported clk rate in probe
@@ -10842,7 +10794,7 @@ index 6502777eb5f3..0dfbbe9a0ff2 100644
 -- 
 2.30.1
 
-From 8c9c4147b12bf81ca8ac1c2250fed0fb399546fb Mon Sep 17 00:00:00 2001
+From df8c9d7567313943c4a2b1bd2cd97bbd0aea6dfe Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 13 Feb 2021 23:17:50 +0000
 Subject: [PATCH] media: i2c: Use devres to fetch gpios
@@ -10916,7 +10868,7 @@ index 8082d37841da..c580159079d2 100644
 -- 
 2.30.1
 
-From c3291b3ac09027634975e779df81fda093a35db8 Mon Sep 17 00:00:00 2001
+From 80a1e8920aecee92b515c2e6d74cf9096f9ef259 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 13 Feb 2021 23:20:47 +0000
 Subject: [PATCH] media: i2c: Use devres to fetch regulators
@@ -10959,7 +10911,7 @@ index c580159079d2..9f61b470f8ba 100644
 -- 
 2.30.1
 
-From 28c672a3b4746e7423a3995361e0f78c2618b045 Mon Sep 17 00:00:00 2001
+From 5533ba50b6d9bc877453396ca999a9aa56d639df Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 14 Feb 2021 12:39:14 +0000
 Subject: [PATCH] media: i2c: remove debug print
@@ -11038,7 +10990,7 @@ index 9f61b470f8ba..622a7ddf4063 100644
 -- 
 2.30.1
 
-From af898b2bae16e9e8afaf7408a2dc7ecf503ac2f2 Mon Sep 17 00:00:00 2001
+From 3c16b10440d17b2e68b66decd37e0f3d7bb23196 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 14 Feb 2021 14:32:50 +0000
 Subject: [PATCH] media: i2c: Remove unused resolutions from ov5693
@@ -11467,7 +11419,7 @@ index 0dfbbe9a0ff2..29e6735112da 100644
 -- 
 2.30.1
 
-From b048c8cca08fbe28af012cd2d0bd305579bc0d40 Mon Sep 17 00:00:00 2001
+From 3ed6ebcfb67924b3114da07f941bd1c3b281f7e2 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 14 Feb 2021 14:45:58 +0000
 Subject: [PATCH] media: i2c: update set_fmt() for ov5693

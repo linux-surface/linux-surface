@@ -1,4 +1,4 @@
-From da1f68432e7f4aaf42d07ac2a84d379cd1de4f4c Mon Sep 17 00:00:00 2001
+From 9aeb7af9e28a7db4bbb2e15a9b3f122673002263 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Thu, 30 Jul 2020 13:21:53 +0200
 Subject: [PATCH] misc: mei: Add missing IPTS device IDs
@@ -10,7 +10,7 @@ Patchset: ipts
  2 files changed, 2 insertions(+)
 
 diff --git a/drivers/misc/mei/hw-me-regs.h b/drivers/misc/mei/hw-me-regs.h
-index 9cf8d8f60cfe..ca2d4faff6a2 100644
+index 14be76d4c2e6..6cfdbedd9b13 100644
 --- a/drivers/misc/mei/hw-me-regs.h
 +++ b/drivers/misc/mei/hw-me-regs.h
 @@ -92,6 +92,7 @@
@@ -22,7 +22,7 @@ index 9cf8d8f60cfe..ca2d4faff6a2 100644
  #define MEI_DEV_ID_JSP_N      0x4DE0  /* Jasper Lake Point N */
  
 diff --git a/drivers/misc/mei/pci-me.c b/drivers/misc/mei/pci-me.c
-index 1de9ef7a272b..e12484840f88 100644
+index a7e179626b63..fdcc0eedc49f 100644
 --- a/drivers/misc/mei/pci-me.c
 +++ b/drivers/misc/mei/pci-me.c
 @@ -96,6 +96,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
@@ -36,7 +36,36 @@ index 1de9ef7a272b..e12484840f88 100644
 -- 
 2.30.1
 
-From 8dacfcecc5c09994fbc750d50e063a5e2db72c65 Mon Sep 17 00:00:00 2001
+From d07e2293d6df5798e6dc0a91fcd4b1bdb387bd13 Mon Sep 17 00:00:00 2001
+From: Dorian Stoll <dorian.stoll@tmsp.io>
+Date: Thu, 25 Feb 2021 09:37:47 +0100
+Subject: [PATCH] misc: mei: Remove client devices before shutting down bus
+
+Patchset: ipts
+---
+ drivers/misc/mei/init.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/misc/mei/init.c b/drivers/misc/mei/init.c
+index bcee77768b91..21ed765003e1 100644
+--- a/drivers/misc/mei/init.c
++++ b/drivers/misc/mei/init.c
+@@ -302,10 +302,10 @@ void mei_stop(struct mei_device *dev)
+ {
+ 	dev_dbg(dev->dev, "stopping the device.\n");
+ 
++	mei_cl_bus_remove_devices(dev);
+ 	mutex_lock(&dev->device_lock);
+ 	mei_set_devstate(dev, MEI_DEV_POWER_DOWN);
+ 	mutex_unlock(&dev->device_lock);
+-	mei_cl_bus_remove_devices(dev);
+ 
+ 	mei_cancel_work(dev);
+ 
+-- 
+2.30.1
+
+From cde2085247984957e783a754a2d75f253516d891 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Thu, 6 Aug 2020 11:20:41 +0200
 Subject: [PATCH] misc: Add support for Intel Precise Touch & Stylus
@@ -50,18 +79,18 @@ Patchset: ipts
  drivers/misc/Makefile         |   1 +
  drivers/misc/ipts/Kconfig     |  17 ++
  drivers/misc/ipts/Makefile    |  12 ++
- drivers/misc/ipts/context.h   |  47 ++++++
- drivers/misc/ipts/control.c   |  76 +++++++++
- drivers/misc/ipts/control.h   |  22 +++
- drivers/misc/ipts/mei.c       | 118 ++++++++++++++
- drivers/misc/ipts/protocol.h  | 284 ++++++++++++++++++++++++++++++++++
- drivers/misc/ipts/receiver.c  | 188 ++++++++++++++++++++++
+ drivers/misc/ipts/context.h   |  47 +++++
+ drivers/misc/ipts/control.c   | 113 +++++++++++
+ drivers/misc/ipts/control.h   |  24 +++
+ drivers/misc/ipts/mei.c       | 127 +++++++++++++
+ drivers/misc/ipts/protocol.h  | 347 ++++++++++++++++++++++++++++++++++
+ drivers/misc/ipts/receiver.c  | 224 ++++++++++++++++++++++
  drivers/misc/ipts/receiver.h  |  16 ++
- drivers/misc/ipts/resources.c | 128 +++++++++++++++
+ drivers/misc/ipts/resources.c | 128 +++++++++++++
  drivers/misc/ipts/resources.h |  17 ++
- drivers/misc/ipts/uapi.c      | 211 +++++++++++++++++++++++++
- drivers/misc/ipts/uapi.h      |  47 ++++++
- 15 files changed, 1185 insertions(+)
+ drivers/misc/ipts/uapi.c      | 208 ++++++++++++++++++++
+ drivers/misc/ipts/uapi.h      |  47 +++++
+ 15 files changed, 1329 insertions(+)
  create mode 100644 drivers/misc/ipts/Kconfig
  create mode 100644 drivers/misc/ipts/Makefile
  create mode 100644 drivers/misc/ipts/context.h
@@ -191,10 +220,10 @@ index 000000000000..f4b06a2d3f72
 +#endif /* _IPTS_CONTEXT_H_ */
 diff --git a/drivers/misc/ipts/control.c b/drivers/misc/ipts/control.c
 new file mode 100644
-index 000000000000..24d3d19a667a
+index 000000000000..a1d1f97a13d7
 --- /dev/null
 +++ b/drivers/misc/ipts/control.c
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,113 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Copyright (c) 2016 Intel Corporation
@@ -223,11 +252,45 @@ index 000000000000..24d3d19a667a
 +		memcpy(&cmd.payload, payload, size);
 +
 +	ret = mei_cldev_send(ipts->cldev, (u8 *)&cmd, sizeof(cmd.code) + size);
-+	if (ret >= 0 || ret == -EINTR)
++	if (ret >= 0)
 +		return 0;
 +
-+	dev_err(ipts->dev, "Error while sending: 0x%X:%d\n", code, ret);
++	/*
++	 * During shutdown the device might get pulled away from below our feet.
++	 * Dont log an error in this case, because it will confuse people.
++	 */
++	if (ret != -ENODEV || ipts->status != IPTS_HOST_STATUS_STOPPING)
++		dev_err(ipts->dev, "Error while sending: 0x%X:%d\n", code, ret);
++
 +	return ret;
++}
++
++int ipts_control_send_feedback(struct ipts_context *ipts, u32 buffer)
++{
++	struct ipts_feedback_cmd cmd;
++
++	memset(&cmd, 0, sizeof(struct ipts_feedback_cmd));
++	cmd.buffer = buffer;
++
++	return ipts_control_send(ipts, IPTS_CMD_FEEDBACK, &cmd,
++				 sizeof(struct ipts_feedback_cmd));
++}
++
++int ipts_control_set_feature(struct ipts_context *ipts, u8 report, u8 value)
++{
++	struct ipts_feedback_buffer *feedback;
++
++	memset(ipts->host2me.address, 0, ipts->device_info.feedback_size);
++	feedback = (struct ipts_feedback_buffer *)ipts->host2me.address;
++
++	feedback->cmd_type = IPTS_FEEDBACK_CMD_TYPE_NONE;
++	feedback->data_type = IPTS_FEEDBACK_DATA_TYPE_SET_FEATURES;
++	feedback->buffer = IPTS_HOST2ME_BUFFER;
++	feedback->size = 2;
++	feedback->payload[0] = report;
++	feedback->payload[1] = value;
++
++	return ipts_control_send_feedback(ipts, IPTS_HOST2ME_BUFFER);
 +}
 +
 +int ipts_control_start(struct ipts_context *ipts)
@@ -245,6 +308,8 @@ index 000000000000..24d3d19a667a
 +
 +int ipts_control_stop(struct ipts_context *ipts)
 +{
++	int ret;
++
 +	if (ipts->status == IPTS_HOST_STATUS_STOPPING)
 +		return -EBUSY;
 +
@@ -257,10 +322,11 @@ index 000000000000..24d3d19a667a
 +	ipts_uapi_unlink();
 +	ipts_resources_free(ipts);
 +
-+	if (!mei_cldev_enabled(ipts->cldev))
-+		return 0;
++	ret = ipts_control_send_feedback(ipts, 0);
++	if (ret == -ENODEV)
++		ipts->status = IPTS_HOST_STATUS_STOPPED;
 +
-+	return ipts_control_send(ipts, IPTS_CMD_CLEAR_MEM_WINDOW, NULL, 0);
++	return ret;
 +}
 +
 +int ipts_control_restart(struct ipts_context *ipts)
@@ -273,10 +339,10 @@ index 000000000000..24d3d19a667a
 +}
 diff --git a/drivers/misc/ipts/control.h b/drivers/misc/ipts/control.h
 new file mode 100644
-index 000000000000..4ee0ceb84749
+index 000000000000..2c44e9e0e99f
 --- /dev/null
 +++ b/drivers/misc/ipts/control.h
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,24 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2016 Intel Corporation
@@ -294,6 +360,8 @@ index 000000000000..4ee0ceb84749
 +
 +int ipts_control_send(struct ipts_context *ipts, u32 cmd, void *payload,
 +		      size_t size);
++int ipts_control_send_feedback(struct ipts_context *ipts, u32 buffer);
++int ipts_control_set_feature(struct ipts_context *ipts, u8 report, u8 value);
 +int ipts_control_start(struct ipts_context *ipts);
 +int ipts_control_restart(struct ipts_context *ipts);
 +int ipts_control_stop(struct ipts_context *ipts);
@@ -301,10 +369,10 @@ index 000000000000..4ee0ceb84749
 +#endif /* _IPTS_CONTROL_H_ */
 diff --git a/drivers/misc/ipts/mei.c b/drivers/misc/ipts/mei.c
 new file mode 100644
-index 000000000000..2945809d5b46
+index 000000000000..b3805a91383d
 --- /dev/null
 +++ b/drivers/misc/ipts/mei.c
-@@ -0,0 +1,118 @@
+@@ -0,0 +1,127 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Copyright (c) 2016 Intel Corporation
@@ -316,8 +384,8 @@ index 000000000000..2945809d5b46
 +#include <linux/delay.h>
 +#include <linux/dma-mapping.h>
 +#include <linux/mei_cl_bus.h>
-+#include <linux/module.h>
 +#include <linux/mod_devicetable.h>
++#include <linux/module.h>
 +#include <linux/slab.h>
 +
 +#include "context.h"
@@ -372,10 +440,19 @@ index 000000000000..2945809d5b46
 +
 +static int ipts_mei_remove(struct mei_cl_device *cldev)
 +{
++	int i;
 +	struct ipts_context *ipts = mei_cldev_get_drvdata(cldev);
 +
-+	mei_cldev_disable(cldev);
 +	ipts_control_stop(ipts);
++
++	for (i = 0; i < 20; i++) {
++		if (ipts->status == IPTS_HOST_STATUS_STOPPED)
++			break;
++
++		msleep(25);
++	}
++
++	mei_cldev_disable(cldev);
 +	kfree(ipts);
 +
 +	return 0;
@@ -425,10 +502,10 @@ index 000000000000..2945809d5b46
 +module_exit(ipts_mei_exit);
 diff --git a/drivers/misc/ipts/protocol.h b/drivers/misc/ipts/protocol.h
 new file mode 100644
-index 000000000000..381068504d46
+index 000000000000..c3458904a94d
 --- /dev/null
 +++ b/drivers/misc/ipts/protocol.h
-@@ -0,0 +1,284 @@
+@@ -0,0 +1,347 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later */
 +/*
 + * Copyright (c) 2016 Intel Corporation
@@ -572,6 +649,11 @@ index 000000000000..381068504d46
 + */
 +#define IPTS_BUFFERS 16
 +
++/*
++ * The special buffer ID that is used for direct host2me feedback.
++ */
++#define IPTS_HOST2ME_BUFFER IPTS_BUFFERS
++
 +/**
 + * enum ipts_mode - Operation mode for IPTS hardware
 + * @IPTS_MODE_SINGLETOUCH: Fallback that supports only one finger and no stylus.
@@ -649,6 +731,56 @@ index 000000000000..381068504d46
 +} __packed;
 +
 +/**
++ * enum ipts_feedback_cmd_type - Commands that can be executed on the sensor through feedback.
++ */
++enum ipts_feedback_cmd_type {
++	IPTS_FEEDBACK_CMD_TYPE_NONE = 0,
++	IPTS_FEEDBACK_CMD_TYPE_SOFT_RESET = 1,
++	IPTS_FEEDBACK_CMD_TYPE_GOTO_ARMED = 2,
++	IPTS_FEEDBACK_CMD_TYPE_GOTO_SENSING = 3,
++	IPTS_FEEDBACK_CMD_TYPE_GOTO_SLEEP = 4,
++	IPTS_FEEDBACK_CMD_TYPE_GOTO_DOZE = 5,
++	IPTS_FEEDBACK_CMD_TYPE_HARD_RESET = 6,
++};
++
++/**
++ * enum ipts_feedback_data_type - Describes the data that a feedback buffer contains.
++ * @IPTS_FEEDBACK_DATA_TYPE_VENDOR:        The buffer contains vendor specific feedback.
++ * @IPTS_FEEDBACK_DATA_TYPE_SET_FEATURES:  The buffer contains a HID set features command.
++ * @IPTS_FEEDBACK_DATA_TYPE_GET_FEATURES:  The buffer contains a HID get features command.
++ * @IPTS_FEEDBACK_DATA_TYPE_OUTPUT_REPORT: The buffer contains a HID output report.
++ * @IPTS_FEEDBACK_DATA_TYPE_STORE_DATA:    The buffer contains calibration data for the sensor.
++ */
++enum ipts_feedback_data_type {
++	IPTS_FEEDBACK_DATA_TYPE_VENDOR = 0,
++	IPTS_FEEDBACK_DATA_TYPE_SET_FEATURES = 1,
++	IPTS_FEEDBACK_DATA_TYPE_GET_FEATURES = 2,
++	IPTS_FEEDBACK_DATA_TYPE_OUTPUT_REPORT = 3,
++	IPTS_FEEDBACK_DATA_TYPE_STORE_DATA = 4,
++};
++
++/**
++ * struct ipts_feedback_buffer - The contents of an IPTS feedback buffer.
++ * @cmd_type: A command that should be executed on the sensor.
++ * @size: The size of the payload to be written.
++ * @buffer: The ID of the buffer that contains this feedback data.
++ * @protocol: The protocol version of the EDS.
++ * @data_type: The type of payload that the buffer contains.
++ * @spi_offset: The offset at which to write the payload data.
++ * @payload: Payload for the feedback command, or 0 if no payload is sent.
++ */
++struct ipts_feedback_buffer {
++	enum ipts_feedback_cmd_type cmd_type;
++	u32 size;
++	u32 buffer;
++	u32 protocol;
++	enum ipts_feedback_data_type data_type;
++	u32 spi_offset;
++	u8 reserved[40];
++	u8 payload[];
++} __packed;
++
++/**
 + * enum ipts_reset_type - Possible ways of resetting the touch sensor
 + * @IPTS_RESET_TYPE_HARD: Perform hardware reset using GPIO pin.
 + * @IPTS_RESET_TYPE_SOFT: Perform software reset using SPI interface.
@@ -701,6 +833,14 @@ index 000000000000..381068504d46
 +} __packed;
 +
 +/**
++ * struct ipts_feedback_rsp - Payload for the FEEDBACK response.
++ * @buffer: The buffer that has received feedback.
++ */
++struct ipts_feedback_rsp {
++	u32 buffer;
++} __packed;
++
++/**
 + * struct ipts_response - A message sent from the ME to the host.
 + * @code:    The message code describing the response. (see IPTS_RSP_*)
 + * @status:  The status code returned by the command.
@@ -715,10 +855,10 @@ index 000000000000..381068504d46
 +#endif /* _IPTS_PROTOCOL_H_ */
 diff --git a/drivers/misc/ipts/receiver.c b/drivers/misc/ipts/receiver.c
 new file mode 100644
-index 000000000000..916ba3ec211b
+index 000000000000..23dca13c2139
 --- /dev/null
 +++ b/drivers/misc/ipts/receiver.c
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,224 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Copyright (c) 2016 Intel Corporation
@@ -728,12 +868,20 @@ index 000000000000..916ba3ec211b
 + */
 +
 +#include <linux/mei_cl_bus.h>
++#include <linux/moduleparam.h>
 +#include <linux/types.h>
 +
 +#include "context.h"
 +#include "control.h"
 +#include "protocol.h"
 +#include "resources.h"
++
++/*
++ * Temporary parameter to guard gen7 multitouch mode.
++ * Remove once gen7 has stable iptsd support.
++ */
++static bool gen7mt;
++module_param(gen7mt, bool, 0644);
 +
 +static int ipts_receiver_handle_get_device_info(struct ipts_context *ipts,
 +						struct ipts_response *rsp)
@@ -795,11 +943,36 @@ index 000000000000..916ba3ec211b
 +
 +static int ipts_receiver_handle_set_mem_window(struct ipts_context *ipts)
 +{
++	int ret;
++
 +	dev_info(ipts->dev, "Device %04hX:%04hX ready\n",
 +		 ipts->device_info.vendor_id, ipts->device_info.device_id);
 +	ipts->status = IPTS_HOST_STATUS_STARTED;
 +
-+	return ipts_control_send(ipts, IPTS_CMD_READY_FOR_DATA, NULL, 0);
++	ret = ipts_control_send(ipts, IPTS_CMD_READY_FOR_DATA, NULL, 0);
++	if (ret)
++		return ret;
++
++	if (!gen7mt)
++		return 0;
++
++	return ipts_control_set_feature(ipts, 0x5, 0x1);
++}
++
++static int ipts_receiver_handle_feedback(struct ipts_context *ipts,
++					 struct ipts_response *rsp)
++{
++	struct ipts_feedback_rsp feedback;
++
++	if (ipts->status != IPTS_HOST_STATUS_STOPPING)
++		return 0;
++
++	memcpy(&feedback, rsp->payload, sizeof(feedback));
++
++	if (feedback.buffer < IPTS_BUFFERS - 1)
++		return ipts_control_send_feedback(ipts, feedback.buffer + 1);
++
++	return ipts_control_send(ipts, IPTS_CMD_CLEAR_MEM_WINDOW, NULL, 0);
 +}
 +
 +static int ipts_receiver_handle_clear_mem_window(struct ipts_context *ipts)
@@ -872,6 +1045,9 @@ index 000000000000..916ba3ec211b
 +		break;
 +	case IPTS_RSP_SET_MEM_WINDOW:
 +		ret = ipts_receiver_handle_set_mem_window(ipts);
++		break;
++	case IPTS_RSP_FEEDBACK:
++		ret = ipts_receiver_handle_feedback(ipts, rsp);
 +		break;
 +	case IPTS_RSP_CLEAR_MEM_WINDOW:
 +		ret = ipts_receiver_handle_clear_mem_window(ipts);
@@ -1088,10 +1264,10 @@ index 000000000000..fdac0eee9156
 +#endif /* _IPTS_RESOURCES_H_ */
 diff --git a/drivers/misc/ipts/uapi.c b/drivers/misc/ipts/uapi.c
 new file mode 100644
-index 000000000000..8107a027223f
+index 000000000000..598f0710ad64
 --- /dev/null
 +++ b/drivers/misc/ipts/uapi.c
-@@ -0,0 +1,211 @@
+@@ -0,0 +1,208 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Copyright (c) 2016 Intel Corporation
@@ -1101,11 +1277,11 @@ index 000000000000..8107a027223f
 + */
 +
 +#include <linux/cdev.h>
++#include <linux/delay.h>
 +#include <linux/device.h>
 +#include <linux/fs.h>
-+#include <linux/delay.h>
-+#include <linux/uaccess.h>
 +#include <linux/types.h>
++#include <linux/uaccess.h>
 +
 +#include "context.h"
 +#include "control.h"
@@ -1190,17 +1366,14 @@ index 000000000000..8107a027223f
 +					  struct file *file)
 +{
 +	int ret;
-+	struct ipts_feedback_cmd cmd;
++	u32 buffer;
 +
 +	if (!ipts || ipts->status != IPTS_HOST_STATUS_STARTED)
 +		return -ENODEV;
 +
-+	memset(&cmd, 0, sizeof(struct ipts_feedback_cmd));
-+	cmd.buffer = MINOR(file->f_path.dentry->d_inode->i_rdev);
++	buffer = MINOR(file->f_path.dentry->d_inode->i_rdev);
 +
-+	ret = ipts_control_send(ipts, IPTS_CMD_FEEDBACK, &cmd,
-+				sizeof(struct ipts_feedback_cmd));
-+
++	ret = ipts_control_send_feedback(ipts, buffer);
 +	if (ret)
 +		return -EFAULT;
 +

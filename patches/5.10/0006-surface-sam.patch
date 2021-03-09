@@ -1,4 +1,4 @@
-From 96a6523e58defc8462ccb29cff2b9d07b21c8ed5 Mon Sep 17 00:00:00 2001
+From b1175454db03da261c46b0661cb8784565cabd87 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] Add file2alias support for Surface Aggregator Module devices
@@ -99,7 +99,7 @@ index 2417dd1dee33..a6c583362b92 100644
 -- 
 2.30.1
 
-From 23b5e1e8212af0785a88344444b01d0040d6ab7f Mon Sep 17 00:00:00 2001
+From ea74cc928782d6a17ea7f44bc320672b252e357d Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] platform/x86: Add support for Surface System Aggregator
@@ -133,10 +133,10 @@ Patchset: surface-sam
  drivers/hid/Makefile                          |    2 +
  drivers/hid/surface-hid/Kconfig               |   42 +
  drivers/hid/surface-hid/Makefile              |    7 +
- drivers/hid/surface-hid/surface_hid.c         |  256 ++
+ drivers/hid/surface-hid/surface_hid.c         |  253 ++
  drivers/hid/surface-hid/surface_hid_core.c    |  272 ++
  drivers/hid/surface-hid/surface_hid_core.h    |   77 +
- drivers/hid/surface-hid/surface_kbd.c         |  303 ++
+ drivers/hid/surface-hid/surface_kbd.c         |  300 ++
  drivers/platform/x86/Kconfig                  |  102 +
  drivers/platform/x86/Makefile                 |    7 +
  drivers/platform/x86/surface_acpi_notify.c    |  886 ++++++
@@ -156,7 +156,7 @@ Patchset: surface-sam
  .../surface_aggregator/ssh_request_layer.h    |  143 +
  .../platform/x86/surface_aggregator/trace.h   |  632 ++++
  .../platform/x86/surface_aggregator_cdev.c    |  322 ++
- .../x86/surface_aggregator_registry.c         |  641 ++++
+ .../x86/surface_aggregator_registry.c         |  644 ++++
  drivers/platform/x86/surface_dtx.c            | 1289 ++++++++
  drivers/platform/x86/surface_perfmode.c       |  122 +
  drivers/power/supply/Kconfig                  |   32 +
@@ -166,13 +166,13 @@ Patchset: surface-sam
  include/linux/mod_devicetable.h               |    5 +-
  include/linux/surface_acpi_notify.h           |   39 +
  include/linux/surface_aggregator/controller.h |  824 ++++++
- include/linux/surface_aggregator/device.h     |  423 +++
+ include/linux/surface_aggregator/device.h     |  424 +++
  include/linux/surface_aggregator/serial_hub.h |  672 +++++
  include/uapi/linux/surface_aggregator/cdev.h  |   78 +
  include/uapi/linux/surface_aggregator/dtx.h   |  146 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 55 files changed, 19258 insertions(+), 8 deletions(-)
+ 55 files changed, 19256 insertions(+), 8 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -277,7 +277,7 @@ index 000000000000..a1117d57036a
 +    :export:
 diff --git a/Documentation/driver-api/surface_aggregator/client.rst b/Documentation/driver-api/surface_aggregator/client.rst
 new file mode 100644
-index 000000000000..26d13085a117
+index 000000000000..e519d374c378
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/client.rst
 @@ -0,0 +1,393 @@
@@ -531,7 +531,7 @@ index 000000000000..26d13085a117
 +
 +.. code-block:: c
 +
-+   int __ssam_tmp_perf_mode_set(struct ssam_controller *ctrl, const __le32 *arg);
++   static int __ssam_tmp_perf_mode_set(struct ssam_controller *ctrl, const __le32 *arg);
 +
 +executing the specified request, with the controller passed in when calling
 +said function. In this example, the argument is provided via the ``arg``
@@ -579,7 +579,7 @@ index 000000000000..26d13085a117
 +
 +.. code-block:: c
 +
-+   int ssam_bat_get_sta(struct ssam_device *sdev, __le32 *ret);
++   static int ssam_bat_get_sta(struct ssam_device *sdev, __le32 *ret);
 +
 +executing the specified request, using the device IDs and controller given
 +in the client device. The full list of such macros for client devices is:
@@ -2772,10 +2772,10 @@ index 000000000000..4ae11cf09b25
 +obj-$(CONFIG_SURFACE_KBD)	+= surface_kbd.o
 diff --git a/drivers/hid/surface-hid/surface_hid.c b/drivers/hid/surface-hid/surface_hid.c
 new file mode 100644
-index 000000000000..e4477c328536
+index 000000000000..3477b31611ae
 --- /dev/null
 +++ b/drivers/hid/surface-hid/surface_hid.c
-@@ -0,0 +1,256 @@
+@@ -0,0 +1,253 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface System Aggregator Module (SSAM) HID transport driver for the
@@ -2935,15 +2935,12 @@ index 000000000000..e4477c328536
 +static u32 ssam_hid_event_fn(struct ssam_event_notifier *nf, const struct ssam_event *event)
 +{
 +	struct surface_hid_device *shid = container_of(nf, struct surface_hid_device, notif);
-+	int status;
 +
 +	if (event->command_id != 0x00)
 +		return 0;
 +
-+	status = hid_input_report(shid->hid, HID_INPUT_REPORT, (u8 *)&event->data[0],
-+				  event->length, 0);
-+
-+	return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
++	hid_input_report(shid->hid, HID_INPUT_REPORT, (u8 *)&event->data[0], event->length, 0);
++	return SSAM_NOTIF_HANDLED;
 +}
 +
 +
@@ -3395,10 +3392,10 @@ index 000000000000..4b1a7b57e035
 +#endif /* SURFACE_HID_CORE_H */
 diff --git a/drivers/hid/surface-hid/surface_kbd.c b/drivers/hid/surface-hid/surface_kbd.c
 new file mode 100644
-index 000000000000..e72baac952ec
+index 000000000000..0635341bc517
 --- /dev/null
 +++ b/drivers/hid/surface-hid/surface_kbd.c
-@@ -0,0 +1,303 @@
+@@ -0,0 +1,300 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface System Aggregator Module (SSAM) HID transport driver for the legacy
@@ -3525,7 +3522,6 @@ index 000000000000..e72baac952ec
 +static u32 ssam_kbd_event_fn(struct ssam_event_notifier *nf, const struct ssam_event *event)
 +{
 +	struct surface_hid_device *shid = container_of(nf, struct surface_hid_device, notif);
-+	int status;
 +
 +	/*
 +	 * Check against device UID manually, as registry and device target
@@ -3544,10 +3540,8 @@ index 000000000000..e72baac952ec
 +	if (!ssam_kbd_is_input_event(event))
 +		return 0;
 +
-+	status = hid_input_report(shid->hid, HID_INPUT_REPORT, (u8 *)&event->data[0],
-+				  event->length, 0);
-+
-+	return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
++	hid_input_report(shid->hid, HID_INPUT_REPORT, (u8 *)&event->data[0], event->length, 0);
++	return SSAM_NOTIF_HANDLED;
 +}
 +
 +
@@ -5279,7 +5273,7 @@ index 000000000000..7712baaed6a5
 +#endif /* _SURFACE_AGGREGATOR_BUS_H */
 diff --git a/drivers/platform/x86/surface_aggregator/controller.c b/drivers/platform/x86/surface_aggregator/controller.c
 new file mode 100644
-index 000000000000..5bcb59ed579d
+index 000000000000..aa6f37b4f46e
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/controller.c
 @@ -0,0 +1,2579 @@
@@ -7035,35 +7029,35 @@ index 000000000000..5bcb59ed579d
 +
 +/* -- Internal SAM requests. ------------------------------------------------ */
 +
-+static SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_get_firmware_version, __le32, {
++SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_get_firmware_version, __le32, {
 +	.target_category = SSAM_SSH_TC_SAM,
 +	.target_id       = 0x01,
 +	.command_id      = 0x13,
 +	.instance_id     = 0x00,
 +});
 +
-+static SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_notif_display_off, u8, {
++SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_notif_display_off, u8, {
 +	.target_category = SSAM_SSH_TC_SAM,
 +	.target_id       = 0x01,
 +	.command_id      = 0x15,
 +	.instance_id     = 0x00,
 +});
 +
-+static SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_notif_display_on, u8, {
++SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_notif_display_on, u8, {
 +	.target_category = SSAM_SSH_TC_SAM,
 +	.target_id       = 0x01,
 +	.command_id      = 0x16,
 +	.instance_id     = 0x00,
 +});
 +
-+static SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_notif_d0_exit, u8, {
++SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_notif_d0_exit, u8, {
 +	.target_category = SSAM_SSH_TC_SAM,
 +	.target_id       = 0x01,
 +	.command_id      = 0x33,
 +	.instance_id     = 0x00,
 +});
 +
-+static SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_notif_d0_entry, u8, {
++SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_notif_d0_entry, u8, {
 +	.target_category = SSAM_SSH_TC_SAM,
 +	.target_id       = 0x01,
 +	.command_id      = 0x34,
@@ -14265,10 +14259,10 @@ index 000000000000..79e28fab7e40
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/platform/x86/surface_aggregator_registry.c b/drivers/platform/x86/surface_aggregator_registry.c
 new file mode 100644
-index 000000000000..caee90d135c5
+index 000000000000..c42b97f61a57
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator_registry.c
-@@ -0,0 +1,641 @@
+@@ -0,0 +1,644 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface System Aggregator Module (SSAM) client device registry.
@@ -14462,7 +14456,7 @@ index 000000000000..caee90d135c5
 +	NULL,
 +};
 +
-+/* Devices for Surface Pro 7. */
++/* Devices for Surface Pro 7 and Surface Pro 7+. */
 +static const struct software_node *ssam_node_group_sp7[] = {
 +	&ssam_node_root,
 +	&ssam_node_bat_ac,
@@ -14573,7 +14567,7 @@ index 000000000000..caee90d135c5
 +	struct ssam_event_notifier notif;
 +};
 +
-+static SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_query_opmode, u8, {
++SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_query_opmode, u8, {
 +	.target_category = SSAM_SSH_TC_BAS,
 +	.target_id       = 0x01,
 +	.command_id      = 0x0d,
@@ -14792,6 +14786,9 @@ index 000000000000..caee90d135c5
 +	/* Surface Pro 7 */
 +	{ "MSHW0116", (unsigned long)ssam_node_group_sp7 },
 +
++	/* Surface Pro 7+ */
++	{ "MSHW0119", (unsigned long)ssam_node_group_sp7 },
++
 +	/* Surface Book 2 */
 +	{ "MSHW0107", (unsigned long)ssam_node_group_sb2 },
 +
@@ -14912,7 +14909,7 @@ index 000000000000..caee90d135c5
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/platform/x86/surface_dtx.c b/drivers/platform/x86/surface_dtx.c
 new file mode 100644
-index 000000000000..4bb5d286bf95
+index 000000000000..85451eb94d98
 --- /dev/null
 +++ b/drivers/platform/x86/surface_dtx.c
 @@ -0,0 +1,1289 @@
@@ -14987,63 +14984,63 @@ index 000000000000..4bb5d286bf95
 +
 +static_assert(sizeof(struct ssam_bas_base_info) == 2);
 +
-+static SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_lock, {
++SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_lock, {
 +	.target_category = SSAM_SSH_TC_BAS,
 +	.target_id       = 0x01,
 +	.command_id      = 0x06,
 +	.instance_id     = 0x00,
 +});
 +
-+static SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_unlock, {
++SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_unlock, {
 +	.target_category = SSAM_SSH_TC_BAS,
 +	.target_id       = 0x01,
 +	.command_id      = 0x07,
 +	.instance_id     = 0x00,
 +});
 +
-+static SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_request, {
++SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_request, {
 +	.target_category = SSAM_SSH_TC_BAS,
 +	.target_id       = 0x01,
 +	.command_id      = 0x08,
 +	.instance_id     = 0x00,
 +});
 +
-+static SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_confirm, {
++SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_confirm, {
 +	.target_category = SSAM_SSH_TC_BAS,
 +	.target_id       = 0x01,
 +	.command_id      = 0x09,
 +	.instance_id     = 0x00,
 +});
 +
-+static SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_heartbeat, {
++SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_heartbeat, {
 +	.target_category = SSAM_SSH_TC_BAS,
 +	.target_id       = 0x01,
 +	.command_id      = 0x0a,
 +	.instance_id     = 0x00,
 +});
 +
-+static SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_cancel, {
++SSAM_DEFINE_SYNC_REQUEST_N(ssam_bas_latch_cancel, {
 +	.target_category = SSAM_SSH_TC_BAS,
 +	.target_id       = 0x01,
 +	.command_id      = 0x0b,
 +	.instance_id     = 0x00,
 +});
 +
-+static SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_get_base, struct ssam_bas_base_info, {
++SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_get_base, struct ssam_bas_base_info, {
 +	.target_category = SSAM_SSH_TC_BAS,
 +	.target_id       = 0x01,
 +	.command_id      = 0x0c,
 +	.instance_id     = 0x00,
 +});
 +
-+static SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_get_device_mode, u8, {
++SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_get_device_mode, u8, {
 +	.target_category = SSAM_SSH_TC_BAS,
 +	.target_id       = 0x01,
 +	.command_id      = 0x0d,
 +	.instance_id     = 0x00,
 +});
 +
-+static SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_get_latch_status, u8, {
++SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_get_latch_status, u8, {
 +	.target_category = SSAM_SSH_TC_BAS,
 +	.target_id       = 0x01,
 +	.command_id      = 0x11,
@@ -16207,7 +16204,7 @@ index 000000000000..4bb5d286bf95
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/platform/x86/surface_perfmode.c b/drivers/platform/x86/surface_perfmode.c
 new file mode 100644
-index 000000000000..3b92a43f8606
+index 000000000000..a9114e001d0d
 --- /dev/null
 +++ b/drivers/platform/x86/surface_perfmode.c
 @@ -0,0 +1,122 @@
@@ -16246,12 +16243,12 @@ index 000000000000..3b92a43f8606
 +	__le16 unknown2;
 +} __packed;
 +
-+static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_tmp_perf_mode_get, struct ssam_perf_info, {
++SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_tmp_perf_mode_get, struct ssam_perf_info, {
 +	.target_category = SSAM_SSH_TC_TMP,
 +	.command_id      = 0x02,
 +});
 +
-+static SSAM_DEFINE_SYNC_REQUEST_CL_W(__ssam_tmp_perf_mode_set, __le32, {
++SSAM_DEFINE_SYNC_REQUEST_CL_W(__ssam_tmp_perf_mode_set, __le32, {
 +	.target_category = SSAM_SSH_TC_TMP,
 +	.command_id      = 0x03,
 +});
@@ -16334,10 +16331,10 @@ index 000000000000..3b92a43f8606
 +MODULE_DESCRIPTION("Performance mode interface for Surface System Aggregator Module");
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/power/supply/Kconfig b/drivers/power/supply/Kconfig
-index eec646c568b7..d4105228a2a5 100644
+index 1699b9269a78..d4d756d95778 100644
 --- a/drivers/power/supply/Kconfig
 +++ b/drivers/power/supply/Kconfig
-@@ -774,4 +774,36 @@ config RN5T618_POWER
+@@ -775,4 +775,36 @@ config RN5T618_POWER
  	  This driver can also be built as a module. If so, the module will be
  	  called rn5t618_power.
  
@@ -16386,7 +16383,7 @@ index dd4b86318cd9..9fdd34956153 100644
 +obj-$(CONFIG_CHARGER_SURFACE)	+= surface_charger.o
 diff --git a/drivers/power/supply/surface_battery.c b/drivers/power/supply/surface_battery.c
 new file mode 100644
-index 000000000000..327fd7af386b
+index 000000000000..b93a4f556b5c
 --- /dev/null
 +++ b/drivers/power/supply/surface_battery.c
 @@ -0,0 +1,901 @@
@@ -16477,25 +16474,25 @@ index 000000000000..327fd7af386b
 +#define SPWR_BATTERY_VALUE_UNKNOWN	0xffffffff
 +
 +/* Get battery status (_STA) */
-+static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_sta, __le32, {
++SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_sta, __le32, {
 +	.target_category = SSAM_SSH_TC_BAT,
 +	.command_id      = 0x01,
 +});
 +
 +/* Get battery static information (_BIX). */
-+static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_bix, struct spwr_bix, {
++SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_bix, struct spwr_bix, {
 +	.target_category = SSAM_SSH_TC_BAT,
 +	.command_id      = 0x02,
 +});
 +
 +/* Get battery dynamic information (_BST). */
-+static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_bst, struct spwr_bst, {
++SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_bst, struct spwr_bst, {
 +	.target_category = SSAM_SSH_TC_BAT,
 +	.command_id      = 0x03,
 +});
 +
 +/* Set battery trip point (_BTP). */
-+static SSAM_DEFINE_SYNC_REQUEST_CL_W(ssam_bat_set_btp, __le32, {
++SSAM_DEFINE_SYNC_REQUEST_CL_W(ssam_bat_set_btp, __le32, {
 +	.target_category = SSAM_SSH_TC_BAT,
 +	.command_id      = 0x04,
 +});
@@ -17293,7 +17290,7 @@ index 000000000000..327fd7af386b
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/power/supply/surface_charger.c b/drivers/power/supply/surface_charger.c
 new file mode 100644
-index 000000000000..982f9b9ef6f5
+index 000000000000..fe484523a2c2
 --- /dev/null
 +++ b/drivers/power/supply/surface_charger.c
 @@ -0,0 +1,296 @@
@@ -17327,13 +17324,13 @@ index 000000000000..982f9b9ef6f5
 +};
 +
 +/* Get battery status (_STA). */
-+static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_sta, __le32, {
++SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_sta, __le32, {
 +	.target_category = SSAM_SSH_TC_BAT,
 +	.command_id      = 0x01,
 +});
 +
 +/* Get platform power source for battery (_PSR / DPTF PSRC). */
-+static SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_psrc, __le32, {
++SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_psrc, __le32, {
 +	.target_category = SSAM_SSH_TC_BAT,
 +	.command_id      = 0x0d,
 +});
@@ -17663,7 +17660,7 @@ index 000000000000..8e3e86c7d78c
 +#endif /* _LINUX_SURFACE_ACPI_NOTIFY_H */
 diff --git a/include/linux/surface_aggregator/controller.h b/include/linux/surface_aggregator/controller.h
 new file mode 100644
-index 000000000000..f4b1ba887384
+index 000000000000..0806796eabcb
 --- /dev/null
 +++ b/include/linux/surface_aggregator/controller.h
 @@ -0,0 +1,824 @@
@@ -18013,16 +18010,16 @@ index 000000000000..f4b1ba887384
 + * request has been fully completed. The required transport buffer will be
 + * allocated on the stack.
 + *
-+ * The generated function is defined as ``int name(struct ssam_controller
-+ * *ctrl)``, returning the status of the request, which is zero on success and
-+ * negative on failure. The ``ctrl`` parameter is the controller via which the
-+ * request is being sent.
++ * The generated function is defined as ``static int name(struct
++ * ssam_controller *ctrl)``, returning the status of the request, which is
++ * zero on success and negative on failure. The ``ctrl`` parameter is the
++ * controller via which the request is being sent.
 + *
 + * Refer to ssam_request_sync_onstack() for more details on the behavior of
 + * the generated function.
 + */
 +#define SSAM_DEFINE_SYNC_REQUEST_N(name, spec...)				\
-+	int name(struct ssam_controller *ctrl)					\
++	static int name(struct ssam_controller *ctrl)				\
 +	{									\
 +		struct ssam_request_spec s = (struct ssam_request_spec)spec;	\
 +		struct ssam_request rqst;					\
@@ -18052,17 +18049,17 @@ index 000000000000..f4b1ba887384
 + * returning once the request has been fully completed. The required transport
 + * buffer will be allocated on the stack.
 + *
-+ * The generated function is defined as ``int name(struct ssam_controller
-+ * *ctrl, const atype *arg)``, returning the status of the request, which is
-+ * zero on success and negative on failure. The ``ctrl`` parameter is the
-+ * controller via which the request is sent. The request argument is specified
-+ * via the ``arg`` pointer.
++ * The generated function is defined as ``static int name(struct
++ * ssam_controller *ctrl, const atype *arg)``, returning the status of the
++ * request, which is zero on success and negative on failure. The ``ctrl``
++ * parameter is the controller via which the request is sent. The request
++ * argument is specified via the ``arg`` pointer.
 + *
 + * Refer to ssam_request_sync_onstack() for more details on the behavior of
 + * the generated function.
 + */
 +#define SSAM_DEFINE_SYNC_REQUEST_W(name, atype, spec...)			\
-+	int name(struct ssam_controller *ctrl, const atype *arg)		\
++	static int name(struct ssam_controller *ctrl, const atype *arg)		\
 +	{									\
 +		struct ssam_request_spec s = (struct ssam_request_spec)spec;	\
 +		struct ssam_request rqst;					\
@@ -18093,17 +18090,17 @@ index 000000000000..f4b1ba887384
 + * request itself, returning once the request has been fully completed. The
 + * required transport buffer will be allocated on the stack.
 + *
-+ * The generated function is defined as ``int name(struct ssam_controller
-+ * *ctrl, rtype *ret)``, returning the status of the request, which is zero on
-+ * success and negative on failure. The ``ctrl`` parameter is the controller
-+ * via which the request is sent. The request's return value is written to the
-+ * memory pointed to by the ``ret`` parameter.
++ * The generated function is defined as ``static int name(struct
++ * ssam_controller *ctrl, rtype *ret)``, returning the status of the request,
++ * which is zero on success and negative on failure. The ``ctrl`` parameter is
++ * the controller via which the request is sent. The request's return value is
++ * written to the memory pointed to by the ``ret`` parameter.
 + *
 + * Refer to ssam_request_sync_onstack() for more details on the behavior of
 + * the generated function.
 + */
 +#define SSAM_DEFINE_SYNC_REQUEST_R(name, rtype, spec...)			\
-+	int name(struct ssam_controller *ctrl, rtype *ret)			\
++	static int name(struct ssam_controller *ctrl, rtype *ret)		\
 +	{									\
 +		struct ssam_request_spec s = (struct ssam_request_spec)spec;	\
 +		struct ssam_request rqst;					\
@@ -18152,17 +18149,17 @@ index 000000000000..f4b1ba887384
 + * returning once the request has been fully completed. The required transport
 + * buffer will be allocated on the stack.
 + *
-+ * The generated function is defined as ``int name(struct ssam_controller
-+ * *ctrl, u8 tid, u8 iid)``, returning the status of the request, which is
-+ * zero on success and negative on failure. The ``ctrl`` parameter is the
-+ * controller via which the request is sent, ``tid`` the target ID for the
-+ * request, and ``iid`` the instance ID.
++ * The generated function is defined as ``static int name(struct
++ * ssam_controller *ctrl, u8 tid, u8 iid)``, returning the status of the
++ * request, which is zero on success and negative on failure. The ``ctrl``
++ * parameter is the controller via which the request is sent, ``tid`` the
++ * target ID for the request, and ``iid`` the instance ID.
 + *
 + * Refer to ssam_request_sync_onstack() for more details on the behavior of
 + * the generated function.
 + */
 +#define SSAM_DEFINE_SYNC_REQUEST_MD_N(name, spec...)				\
-+	int name(struct ssam_controller *ctrl, u8 tid, u8 iid)			\
++	static int name(struct ssam_controller *ctrl, u8 tid, u8 iid)		\
 +	{									\
 +		struct ssam_request_spec_md s = (struct ssam_request_spec_md)spec; \
 +		struct ssam_request rqst;					\
@@ -18193,18 +18190,18 @@ index 000000000000..f4b1ba887384
 + * the request itself, returning once the request has been fully completed.
 + * The required transport buffer will be allocated on the stack.
 + *
-+ * The generated function is defined as ``int name(struct ssam_controller
-+ * *ctrl, u8 tid, u8 iid, const atype *arg)``, returning the status of the
-+ * request, which is zero on success and negative on failure. The ``ctrl``
-+ * parameter is the controller via which the request is sent, ``tid`` the
-+ * target ID for the request, and ``iid`` the instance ID. The request argument
-+ * is specified via the ``arg`` pointer.
++ * The generated function is defined as ``static int name(struct
++ * ssam_controller *ctrl, u8 tid, u8 iid, const atype *arg)``, returning the
++ * status of the request, which is zero on success and negative on failure.
++ * The ``ctrl`` parameter is the controller via which the request is sent,
++ * ``tid`` the target ID for the request, and ``iid`` the instance ID. The
++ * request argument is specified via the ``arg`` pointer.
 + *
 + * Refer to ssam_request_sync_onstack() for more details on the behavior of
 + * the generated function.
 + */
 +#define SSAM_DEFINE_SYNC_REQUEST_MD_W(name, atype, spec...)			\
-+	int name(struct ssam_controller *ctrl, u8 tid, u8 iid, const atype *arg)\
++	static int name(struct ssam_controller *ctrl, u8 tid, u8 iid, const atype *arg) \
 +	{									\
 +		struct ssam_request_spec_md s = (struct ssam_request_spec_md)spec; \
 +		struct ssam_request rqst;					\
@@ -18236,18 +18233,18 @@ index 000000000000..f4b1ba887384
 + * execution of the request itself, returning once the request has been fully
 + * completed. The required transport buffer will be allocated on the stack.
 + *
-+ * The generated function is defined as ``int name(struct ssam_controller
-+ * *ctrl, u8 tid, u8 iid, rtype *ret)``, returning the status of the request,
-+ * which is zero on success and negative on failure. The ``ctrl`` parameter is
-+ * the controller via which the request is sent, ``tid`` the target ID for the
-+ * request, and ``iid`` the instance ID. The request's return value is written
-+ * to the memory pointed to by the ``ret`` parameter.
++ * The generated function is defined as ``static int name(struct
++ * ssam_controller *ctrl, u8 tid, u8 iid, rtype *ret)``, returning the status
++ * of the request, which is zero on success and negative on failure. The
++ * ``ctrl`` parameter is the controller via which the request is sent, ``tid``
++ * the target ID for the request, and ``iid`` the instance ID. The request's
++ * return value is written to the memory pointed to by the ``ret`` parameter.
 + *
 + * Refer to ssam_request_sync_onstack() for more details on the behavior of
 + * the generated function.
 + */
 +#define SSAM_DEFINE_SYNC_REQUEST_MD_R(name, rtype, spec...)			\
-+	int name(struct ssam_controller *ctrl, u8 tid, u8 iid, rtype *ret)	\
++	static int name(struct ssam_controller *ctrl, u8 tid, u8 iid, rtype *ret) \
 +	{									\
 +		struct ssam_request_spec_md s = (struct ssam_request_spec_md)spec; \
 +		struct ssam_request rqst;					\
@@ -18493,10 +18490,10 @@ index 000000000000..f4b1ba887384
 +#endif /* _LINUX_SURFACE_AGGREGATOR_CONTROLLER_H */
 diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
 new file mode 100644
-index 000000000000..02f3e06c0a60
+index 000000000000..4441ad667c3f
 --- /dev/null
 +++ b/include/linux/surface_aggregator/device.h
-@@ -0,0 +1,423 @@
+@@ -0,0 +1,424 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * Surface System Aggregator Module (SSAM) bus and client-device subsystem.
@@ -18835,17 +18832,18 @@ index 000000000000..02f3e06c0a60
 + * request has been fully completed. The required transport buffer will be
 + * allocated on the stack.
 + *
-+ * The generated function is defined as ``int name(struct ssam_device *sdev)``,
-+ * returning the status of the request, which is zero on success and negative
-+ * on failure. The ``sdev`` parameter specifies both the target device of the
-+ * request and by association the controller via which the request is sent.
++ * The generated function is defined as ``static int name(struct ssam_device
++ * *sdev)``, returning the status of the request, which is zero on success and
++ * negative on failure. The ``sdev`` parameter specifies both the target
++ * device of the request and by association the controller via which the
++ * request is sent.
 + *
 + * Refer to ssam_request_sync_onstack() for more details on the behavior of
 + * the generated function.
 + */
 +#define SSAM_DEFINE_SYNC_REQUEST_CL_N(name, spec...)			\
 +	SSAM_DEFINE_SYNC_REQUEST_MD_N(__raw_##name, spec)		\
-+	int name(struct ssam_device *sdev)				\
++	static int name(struct ssam_device *sdev)			\
 +	{								\
 +		return __raw_##name(sdev->ctrl, sdev->uid.target,	\
 +				    sdev->uid.instance);		\
@@ -18867,19 +18865,19 @@ index 000000000000..02f3e06c0a60
 + * itself, returning once the request has been fully completed. The required
 + * transport buffer will be allocated on the stack.
 + *
-+ * The generated function is defined as ``int name(struct ssam_device *sdev,
-+ * const atype *arg)``, returning the status of the request, which is zero on
-+ * success and negative on failure. The ``sdev`` parameter specifies both the
-+ * target device of the request and by association the controller via which
-+ * the request is sent. The request's argument is specified via the ``arg``
-+ * pointer.
++ * The generated function is defined as ``static int name(struct ssam_device
++ * *sdev, const atype *arg)``, returning the status of the request, which is
++ * zero on success and negative on failure. The ``sdev`` parameter specifies
++ * both the target device of the request and by association the controller via
++ * which the request is sent. The request's argument is specified via the
++ * ``arg`` pointer.
 + *
 + * Refer to ssam_request_sync_onstack() for more details on the behavior of
 + * the generated function.
 + */
 +#define SSAM_DEFINE_SYNC_REQUEST_CL_W(name, atype, spec...)		\
 +	SSAM_DEFINE_SYNC_REQUEST_MD_W(__raw_##name, atype, spec)	\
-+	int name(struct ssam_device *sdev, const atype *arg)		\
++	static int name(struct ssam_device *sdev, const atype *arg)	\
 +	{								\
 +		return __raw_##name(sdev->ctrl, sdev->uid.target,	\
 +				    sdev->uid.instance, arg);		\
@@ -18901,8 +18899,8 @@ index 000000000000..02f3e06c0a60
 + * itself, returning once the request has been fully completed. The required
 + * transport buffer will be allocated on the stack.
 + *
-+ * The generated function is defined as ``int name(struct ssam_device *sdev,
-+ * rtype *ret)``, returning the status of the request, which is zero on
++ * The generated function is defined as ``static int name(struct ssam_device
++ * *sdev, rtype *ret)``, returning the status of the request, which is zero on
 + * success and negative on failure. The ``sdev`` parameter specifies both the
 + * target device of the request and by association the controller via which
 + * the request is sent. The request's return value is written to the memory
@@ -18913,7 +18911,7 @@ index 000000000000..02f3e06c0a60
 + */
 +#define SSAM_DEFINE_SYNC_REQUEST_CL_R(name, rtype, spec...)		\
 +	SSAM_DEFINE_SYNC_REQUEST_MD_R(__raw_##name, rtype, spec)	\
-+	int name(struct ssam_device *sdev, rtype *ret)			\
++	static int name(struct ssam_device *sdev, rtype *ret)		\
 +	{								\
 +		return __raw_##name(sdev->ctrl, sdev->uid.target,	\
 +				    sdev->uid.instance, ret);		\
