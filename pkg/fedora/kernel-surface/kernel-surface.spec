@@ -2,8 +2,8 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc33 kernel-5.10.19-200.fc33
-%global kernel_tag_fc32 kernel-5.10.19-100.fc32
+%global kernel_tag_fc33 kernel-5.10.21-200.fc33
+%global kernel_tag_fc32 kernel-5.10.21-100.fc32
 
 %global kernel_release_fc33 1
 %global kernel_release_fc32 1
@@ -11,7 +11,7 @@
 %global fedora_title_fc33 33 (Thirty Three)
 %global fedora_title_fc32 32 (Thirty Two)
 
-%global ls_patches_commit 9b99e541d67a9595e95a52fbfab449f6cc3ea07b
+%global ls_patches_commit a7dcf1513383d475794a1cf13b306c87f15f9e26
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -94,6 +94,7 @@ Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-hotplug.patch
 Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-typecover.patch
 Patch8:     %{surface_source}/%{kernel_patches}/0009-surface-sensors.patch
 Patch9:     %{surface_source}/%{kernel_patches}/0010-cameras.patch
+Patch10:    %{surface_source}/%{kernel_patches}/0011-ath10k-firmware-override.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
