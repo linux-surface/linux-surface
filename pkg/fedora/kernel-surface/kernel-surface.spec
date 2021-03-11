@@ -66,6 +66,7 @@ BuildRequires: bzip2, xz, findutils, gzip, m4, perl-interpreter,
 BuildRequires: perl-Carp, perl-devel, perl-generators, make, diffutils,
 BuildRequires: gawk, gcc, binutils, redhat-rpm-config, hmaccalc, bison
 BuildRequires: flex, net-tools, hostname, bc, elfutils-devel
+BuildRequires: gcc-plugin-devel dwarves
 
 # Used to mangle unversioned shebangs to be Python 3
 BuildRequires: python3-devel
@@ -73,6 +74,8 @@ BuildRequires: python3-devel
 Conflicts: xfsprogs < 4.3.0-1
 Conflicts: xorg-x11-drv-vmmouse < 13.0.99
 BuildConflicts: rhbuildsys(DiskFree) < 500Mb
+BuildConflicts: rpm < 4.13.0.1-19
+BuildConflicts: dwarves < 1.13
 
 Source0:    %{fedora_source}/archive/%{kernel_tag}.tar.gz
 Source1:    %{surface_source}/configs/surface-%{kernel_majorver}.config
@@ -151,9 +154,7 @@ pathfix.py -i "%{__python3} %{py3_shbang_opts}" -p -n \
 	scripts/diffconfig \
 	scripts/bloat-o-meter \
 	scripts/jobserver-exec \
-	tools/perf/tests/attr.py \
-	tools/perf/scripts/python/stat-cpi.py \
-	tools/perf/scripts/python/sched-migration.py \
+	tools \
 	Documentation \
 	scripts/clang-tools
 
