@@ -2,12 +2,18 @@
 # Definitions to configure the kernel we want to build
 #
 
+%global kernel_tag_fc34 kernel-5.11.5-300.fc34
 %global kernel_tag_fc33 kernel-5.10.21-200.fc33
 %global kernel_tag_fc32 kernel-5.10.21-100.fc32
 
+%global kernel_release_fc34 1
 %global kernel_release_fc33 1
 %global kernel_release_fc32 1
 
+# This is what is printed in the GRUB menu. These cannot be fetched from the
+# buildhost, because in a container this will also say container. To get the
+# same text as the default kernels, just hardcode it. Hey, this is important!
+%global fedora_title_fc34 34 (Thirty Four)
 %global fedora_title_fc33 33 (Thirty Three)
 %global fedora_title_fc32 32 (Thirty Two)
 
@@ -40,6 +46,8 @@
 #
 # Actual specfile starts here
 #
+
+%bcond_with signkernel
 
 Name:       kernel-surface
 Summary:    The Linux Kernel with patches for Microsoft Surface
@@ -81,11 +89,28 @@ Source0:    %{fedora_source}/archive/%{kernel_tag}.tar.gz
 Source1:    %{surface_source}/configs/surface-%{kernel_majorver}.config
 Source2:    fedora.config
 
+%if %{with signkernel}
 Source20:   %{sb_crt}
 Source21:   %{sb_key}
+%endif
 
 Source100:  mod-sign.sh
 Source101:  parallel_xz.sh
+
+%if "%{kernel_majorver}" == "5.11"
+
+Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-oemb.patch
+Patch1:     %{surface_source}/%{kernel_patches}/0002-wifi.patch
+Patch2:     %{surface_source}/%{kernel_patches}/0003-ipts.patch
+Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-sam-over-hid.patch
+Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam.patch
+Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-hotplug.patch
+Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-typecover.patch
+Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-sensors.patch
+Patch8:     %{surface_source}/%{kernel_patches}/0009-cameras.patch
+Patch9:     %{surface_source}/%{kernel_patches}/0010-ath10k-firmware-override.patch
+
+%else
 
 Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-oemb.patch
 Patch1:     %{surface_source}/%{kernel_patches}/0002-wifi.patch
@@ -98,6 +123,8 @@ Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-typecover.patch
 Patch8:     %{surface_source}/%{kernel_patches}/0009-surface-sensors.patch
 Patch9:     %{surface_source}/%{kernel_patches}/0010-cameras.patch
 Patch10:    %{surface_source}/%{kernel_patches}/0011-ath10k-firmware-override.patch
+
+%endif
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
@@ -121,7 +148,7 @@ This package provides kernel headers and makefiles sufficient to build modules
 against the kernel-surface package.
 
 %prep
-%autosetup -S git_am -n linux-fedora-%{kernel_tag}
+%autosetup -p1 -n linux-fedora-%{kernel_tag}
 
 scripts/kconfig/merge_config.sh         \
 	fedora/configs/%{kernel_config} \
@@ -131,11 +158,11 @@ scripts/kconfig/merge_config.sh         \
 echo $((%{kernel_release} - 1)) > .version
 
 # Copy secureboot certificates if they are available
-if [ -f "%{SOURCE20}" ] && [ -f "%{SOURCE21}" ]; then
-	mkdir -p keys
-	cp %{SOURCE20} keys/MOK.crt
-	cp %{SOURCE21} keys/MOK.key
-fi
+%if %{with signkernel}
+mkdir -p keys
+cp %{SOURCE20} keys/MOK.crt
+cp %{SOURCE21} keys/MOK.key
+%endif
 
 # This Prevents scripts/setlocalversion from mucking with our version numbers.
 touch .scmversion
