@@ -2,9 +2,9 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc34 kernel-5.11.6-300.fc34
-%global kernel_tag_fc33 kernel-5.10.23-200.fc33
-%global kernel_tag_fc32 kernel-5.10.23-100.fc32
+%global kernel_tag_fc34 kernel-5.11.7-300.fc34
+%global kernel_tag_fc33 kernel-5.11.7-200.fc33
+%global kernel_tag_fc32 kernel-5.11.7-100.fc32
 
 %global kernel_release_fc34 1
 %global kernel_release_fc33 1
@@ -17,7 +17,7 @@
 %global fedora_title_fc33 33 (Thirty Three)
 %global fedora_title_fc32 32 (Thirty Two)
 
-%global ls_patches_commit a7dcf1513383d475794a1cf13b306c87f15f9e26
+%global ls_patches_commit 2e1ff0ee2cc9119ea7b63346aa89a13122fcb69f
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -97,8 +97,6 @@ Source21:   %{sb_key}
 Source100:  mod-sign.sh
 Source101:  parallel_xz.sh
 
-%if "%{kernel_majorver}" == "5.11"
-
 Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-oemb.patch
 Patch1:     %{surface_source}/%{kernel_patches}/0002-wifi.patch
 Patch2:     %{surface_source}/%{kernel_patches}/0003-ipts.patch
@@ -109,22 +107,6 @@ Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-typecover.patch
 Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-sensors.patch
 Patch8:     %{surface_source}/%{kernel_patches}/0009-cameras.patch
 Patch9:     %{surface_source}/%{kernel_patches}/0010-ath10k-firmware-override.patch
-
-%else
-
-Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-oemb.patch
-Patch1:     %{surface_source}/%{kernel_patches}/0002-wifi.patch
-Patch2:     %{surface_source}/%{kernel_patches}/0003-ipts.patch
-Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-gpe.patch
-Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam-over-hid.patch
-Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam.patch
-Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-hotplug.patch
-Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-typecover.patch
-Patch8:     %{surface_source}/%{kernel_patches}/0009-surface-sensors.patch
-Patch9:     %{surface_source}/%{kernel_patches}/0010-cameras.patch
-Patch10:    %{surface_source}/%{kernel_patches}/0011-ath10k-firmware-override.patch
-
-%endif
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
