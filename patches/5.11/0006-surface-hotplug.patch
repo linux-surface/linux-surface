@@ -1,64 +1,72 @@
-From 8409754327fa77eae50d8b00f762f2a1f5ae7502 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Thu, 4 Feb 2021 23:06:40 +0100
-Subject: [PATCH] PCI: Run platform power transition on initial D0 entry
+From 81054350ba35353bc816eed3a639a6c8fae98596 Mon Sep 17 00:00:00 2001
+From: "Rafael J. Wysocki" <rafael.j.wysocki@intel.com>
+Date: Tue, 16 Mar 2021 16:51:40 +0100
+Subject: [PATCH] PCI: PM: Do not read power state in pci_enable_device_flags()
 
-On some devices and platforms, the initial platform power state is not
-in sync with the power state of the PCI device.
+It should not be necessary to update the current_state field of
+struct pci_dev in pci_enable_device_flags() before calling
+do_pci_enable_device() for the device, because none of the
+code between that point and the pci_set_power_state() call in
+do_pci_enable_device() invoked later depends on it.
 
-pci_enable_device_flags() updates the state of a PCI device by reading
-from the PCI_PM_CTRL register. This may change the stored power state of
-the device without running the appropriate platform power transition.
+Moreover, doing that is actively harmful in some cases.  For example,
+if the given PCI device depends on an ACPI power resource whose _STA
+method initially returns 0 ("off"), but the config space of the PCI
+device is accessible and the power state retrieved from the
+PCI_PM_CTRL register is D0, the current_state field in the struct
+pci_dev representing that device will get out of sync with the
+power.state of its ACPI companion object and that will lead to
+power management issues going forward.
 
-Due to the stored power-state being changed, the later call to
-pci_set_power_state(..., PCI_D0) in do_pci_enable_device() can evaluate
-to a no-op if the stored state has been changed to D0 via that. This
-will then prevent the appropriate platform power transition to be run,
-which can on some devices and platforms lead to platform and PCI power
-state being entirely different, i.e. out-of-sync. On ACPI platforms,
-this can lead to power resources not being turned on, even though they
-are marked as required for D0.
+To avoid such issues it is better to leave the current_state value
+as is until it is changed to PCI_D0 by do_pci_enable_device() as
+appropriate.  However, the power state of the device is not changed
+to PCI_D0 if it is already enabled when pci_enable_device_flags()
+gets called for it, so update its current_state in that case, but
+use pci_update_current_state() covering platform PM too for that.
 
-Specifically, on the Microsoft Surface Book 2 and 3, some ACPI power
-regions that should be "on" for the D0 state (and others) are
-initialized as "off" in ACPI, whereas the PCI device is in D0. As the
-state is updated in pci_enable_device_flags() without ensuring that the
-platform state is also updated, the power resource will never be
-properly turned on. Instead, it lives in a sort of on-but-marked-as-off
-zombie-state, which confuses things down the line when attempting to
-transition the device into D3cold: As the resource is already marked as
-off, it won't be turned off and the device does not fully enter D3cold,
-causing increased power consumption during (runtime-)suspend.
-
-By replacing pci_set_power_state() in do_pci_enable_device() with
-pci_power_up(), we can force pci_platform_power_transition() to be
-called, which will then check if the platform power state needs updating
-and appropriate actions need to be taken.
-
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
-
+Link: https://lore.kernel.org/lkml/20210314000439.3138941-1-luzmaximilian@gmail.com/
+Reported-by: Maximilian Luz <luzmaximilian@gmail.com>
+Tested-by: Maximilian Luz <luzmaximilian@gmail.com>
+Signed-off-by: Rafael J. Wysocki <rafael.j.wysocki@intel.com>
+Reviewed-by: Mika Westerberg <mika.westerberg@linux.intel.com>
 Patchset: surface-hotplug
 ---
- drivers/pci/pci.c | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
+ drivers/pci/pci.c | 16 +++-------------
+ 1 file changed, 3 insertions(+), 13 deletions(-)
 
 diff --git a/drivers/pci/pci.c b/drivers/pci/pci.c
-index 9449dfde2841..50d51e30d634 100644
+index 9449dfde2841..5ddc27d9a275 100644
 --- a/drivers/pci/pci.c
 +++ b/drivers/pci/pci.c
-@@ -1800,7 +1800,7 @@ static int do_pci_enable_device(struct pci_dev *dev, int bars)
- 	u16 cmd;
- 	u8 pin;
+@@ -1870,20 +1870,10 @@ static int pci_enable_device_flags(struct pci_dev *dev, unsigned long flags)
+ 	int err;
+ 	int i, bars = 0;
  
--	err = pci_set_power_state(dev, PCI_D0);
-+	err = pci_power_up(dev);
- 	if (err < 0 && err != -EIO)
- 		return err;
+-	/*
+-	 * Power state could be unknown at this point, either due to a fresh
+-	 * boot or a device removal call.  So get the current power state
+-	 * so that things like MSI message writing will behave as expected
+-	 * (e.g. if the device really is in D0 at enable time).
+-	 */
+-	if (dev->pm_cap) {
+-		u16 pmcsr;
+-		pci_read_config_word(dev, dev->pm_cap + PCI_PM_CTRL, &pmcsr);
+-		dev->current_state = (pmcsr & PCI_PM_CTRL_STATE_MASK);
+-	}
+-
+-	if (atomic_inc_return(&dev->enable_cnt) > 1)
++	if (atomic_inc_return(&dev->enable_cnt) > 1) {
++		pci_update_current_state(dev, dev->current_state);
+ 		return 0;		/* already enabled */
++	}
  
+ 	bridge = pci_upstream_bridge(dev);
+ 	if (bridge)
 -- 
 2.30.2
 
-From c9e87b8e23244775e0ff34bf36976707eb608c32 Mon Sep 17 00:00:00 2001
+From 7c9284c5ecaa194bb1c6a36ac6e112d36da476bf Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 5 Feb 2021 02:26:57 +0100
 Subject: [PATCH] platform/surface: Add Surface Hot-Plug driver
