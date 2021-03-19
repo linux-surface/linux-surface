@@ -1,4 +1,4 @@
-From 3c20c796e0456daa33f9c68accaf44f7a6701b85 Mon Sep 17 00:00:00 2001
+From ab0bbef8f4abc27c14ec93e4f678222193fa63c5 Mon Sep 17 00:00:00 2001
 From: Chuhong Yuan <hslester96@gmail.com>
 Date: Wed, 24 Jul 2019 19:27:45 +0800
 Subject: [PATCH] mwifiex: pcie: Use dev_get_drvdata
@@ -19,7 +19,7 @@ Patchset: wifi
  1 file changed, 2 insertions(+), 6 deletions(-)
 
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
-index 991b9cc18000..2aa0436d3548 100644
+index 5907b34037c2..4e655038e3f3 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie.c
 +++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
 @@ -150,10 +150,8 @@ static bool mwifiex_pcie_ok_to_access_hw(struct mwifiex_adapter *adapter)
@@ -47,166 +47,9 @@ index 991b9cc18000..2aa0436d3548 100644
  	if (!card->adapter) {
  		dev_err(dev, "adapter structure is not valid\n");
 -- 
-2.30.1
+2.30.2
 
-From 56f05fbfbc4152873d8b6e4d3536823102b0257b Mon Sep 17 00:00:00 2001
-From: Tsuchiya Yuto <kitakar@gmail.com>
-Date: Thu, 24 Sep 2020 18:02:06 +0900
-Subject: [PATCH] mwifiex: pcie: skip cancel_work_sync() on reset failure path
-
-If a reset is performed, but even the reset fails for some reasons (e.g.,
-on Surface devices, the fw reset requires another quirks),
-cancel_work_sync() hangs in mwifiex_cleanup_pcie().
-
-    # reset performed after firmware went into bad state
-    kernel: mwifiex_pcie 0000:01:00.0: WLAN FW already running! Skip FW dnld
-    kernel: mwifiex_pcie 0000:01:00.0: WLAN FW is active
-    # but even the reset failed
-    kernel: mwifiex_pcie 0000:01:00.0: mwifiex_cmd_timeout_func: Timeout cmd id = 0xfa, act = 0xa000
-    kernel: mwifiex_pcie 0000:01:00.0: num_data_h2c_failure = 0
-    kernel: mwifiex_pcie 0000:01:00.0: num_cmd_h2c_failure = 0
-    kernel: mwifiex_pcie 0000:01:00.0: is_cmd_timedout = 1
-    kernel: mwifiex_pcie 0000:01:00.0: num_tx_timeout = 0
-    kernel: mwifiex_pcie 0000:01:00.0: last_cmd_index = 2
-    kernel: mwifiex_pcie 0000:01:00.0: last_cmd_id: 16 00 a4 00 fa 00 a4 00 7f 00
-    kernel: mwifiex_pcie 0000:01:00.0: last_cmd_act: 00 00 00 00 00 a0 00 00 00 00
-    kernel: mwifiex_pcie 0000:01:00.0: last_cmd_resp_index = 0
-    kernel: mwifiex_pcie 0000:01:00.0: last_cmd_resp_id: 16 80 7f 80 16 80 a4 80 7f 80
-    kernel: mwifiex_pcie 0000:01:00.0: last_event_index = 1 kernel: mwifiex_pcie 0000:01:00.0: last_event: 58 00 58 00 58 00 58 00 58 00
-    kernel: mwifiex_pcie 0000:01:00.0: data_sent=0 cmd_sent=1
-    kernel: mwifiex_pcie 0000:01:00.0: ps_mode=0 ps_state=0
-    kernel: mwifiex_pcie 0000:01:00.0: info: _mwifiex_fw_dpc: unregister device
-    # mwifiex_pcie_work hanged
-    kernel: INFO: task kworker/0:0:24857 blocked for more than 122 seconds.
-    kernel:       Tainted: G        W  OE     5.3.11-arch1-1 #1
-    kernel: "echo 0 > /proc/sys/kernel/hung_task_timeout_secs" disables this message.
-    kernel: kworker/0:0     D    0 24857      2 0x80004000
-    kernel: Workqueue: events mwifiex_pcie_work [mwifiex_pcie]
-    kernel: Call Trace:
-    kernel:  ? __schedule+0x27f/0x6d0
-    kernel:  schedule+0x43/0xd0
-    kernel:  schedule_timeout+0x299/0x3d0
-    kernel:  ? __switch_to_asm+0x40/0x70
-    kernel:  wait_for_common+0xeb/0x190
-    kernel:  ? wake_up_q+0x60/0x60
-    kernel:  __flush_work+0x130/0x1e0
-    kernel:  ? flush_workqueue_prep_pwqs+0x130/0x130
-    kernel:  __cancel_work_timer+0x123/0x1b0
-    kernel:  mwifiex_cleanup_pcie+0x28/0xd0 [mwifiex_pcie]
-    kernel:  mwifiex_free_adapter+0x24/0xe0 [mwifiex]
-    kernel:  _mwifiex_fw_dpc+0x28d/0x520 [mwifiex]
-    kernel:  mwifiex_reinit_sw+0x15d/0x2c0 [mwifiex]
-    kernel:  mwifiex_pcie_reset_done+0x50/0x80 [mwifiex_pcie]
-    kernel:  pci_try_reset_function+0x38/0x70
-    kernel:  process_one_work+0x1d1/0x3a0
-    kernel:  worker_thread+0x4a/0x3d0
-    kernel:  kthread+0xfb/0x130
-    kernel:  ? process_one_work+0x3a0/0x3a0
-    kernel:  ? kthread_park+0x80/0x80
-    kernel:  ret_from_fork+0x35/0x40
-
-This is a deadlock caused by calling cancel_work_sync() in
-mwifiex_cleanup_pcie():
-
-- Device resets are done via mwifiex_pcie_card_reset()
-- which schedules card->work to call mwifiex_pcie_card_reset_work()
-- which calls pci_try_reset_function().
-- This leads to mwifiex_pcie_reset_done() be called on the same workqueue,
-  which in turn calls
-- mwifiex_reinit_sw() and that calls
-- _mwifiex_fw_dpc().
-
-The problem is now that _mwifiex_fw_dpc() calls mwifiex_free_adapter()
-in case firmware initialization fails. That ends up calling
-mwifiex_cleanup_pcie().
-
-Note that all those calls are still running on the workqueue. So when
-mwifiex_cleanup_pcie() now calls cancel_work_sync(), it's really waiting
-on itself to complete, causing a deadlock.
-
-This commit fixes the deadlock by skipping cancel_work_sync() on a reset
-failure path.
-
-After this commit, when reset fails, the following output is
-expected to be shown:
-
-    kernel: mwifiex_pcie 0000:03:00.0: info: _mwifiex_fw_dpc: unregister device
-    kernel: mwifiex: Failed to bring up adapter: -5
-    kernel: mwifiex_pcie 0000:03:00.0: reinit failed: -5
-
-To reproduce this issue, for example, try putting the root port of wifi
-into D3 (replace "00:1d.3" with your setup).
-
-    # put into D3 (root port)
-    sudo setpci -v -s 00:1d.3 CAP_PM+4.b=0b
-
-Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
-Patchset: wifi
----
- drivers/net/wireless/marvell/mwifiex/pcie.c | 18 +++++++++++++++++-
- drivers/net/wireless/marvell/mwifiex/pcie.h |  2 ++
- 2 files changed, 19 insertions(+), 1 deletion(-)
-
-diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
-index 2aa0436d3548..4e655038e3f3 100644
---- a/drivers/net/wireless/marvell/mwifiex/pcie.c
-+++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
-@@ -377,6 +377,8 @@ static void mwifiex_pcie_reset_prepare(struct pci_dev *pdev)
- 	clear_bit(MWIFIEX_IFACE_WORK_DEVICE_DUMP, &card->work_flags);
- 	clear_bit(MWIFIEX_IFACE_WORK_CARD_RESET, &card->work_flags);
- 	mwifiex_dbg(adapter, INFO, "%s, successful\n", __func__);
-+
-+	card->pci_reset_ongoing = true;
- }
- 
- /*
-@@ -405,6 +407,8 @@ static void mwifiex_pcie_reset_done(struct pci_dev *pdev)
- 		dev_err(&pdev->dev, "reinit failed: %d\n", ret);
- 	else
- 		mwifiex_dbg(adapter, INFO, "%s, successful\n", __func__);
-+
-+	card->pci_reset_ongoing = false;
- }
- 
- static const struct pci_error_handlers mwifiex_pcie_err_handler = {
-@@ -2996,7 +3000,19 @@ static void mwifiex_cleanup_pcie(struct mwifiex_adapter *adapter)
- 	int ret;
- 	u32 fw_status;
- 
--	cancel_work_sync(&card->work);
-+	/* Perform the cancel_work_sync() only when we're not resetting
-+	 * the card. It's because that function never returns if we're
-+	 * in reset path. If we're here when resetting the card, it means
-+	 * that we failed to reset the card (reset failure path).
-+	 */
-+	if (!card->pci_reset_ongoing) {
-+		mwifiex_dbg(adapter, MSG, "performing cancel_work_sync()...\n");
-+		cancel_work_sync(&card->work);
-+		mwifiex_dbg(adapter, MSG, "cancel_work_sync() done\n");
-+	} else {
-+		mwifiex_dbg(adapter, MSG,
-+			    "skipped cancel_work_sync() because we're in card reset failure path\n");
-+	}
- 
- 	ret = mwifiex_read_reg(adapter, reg->fw_status, &fw_status);
- 	if (fw_status == FIRMWARE_READY_PCIE) {
-diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.h b/drivers/net/wireless/marvell/mwifiex/pcie.h
-index f7ce9b6db6b4..72d0c01ff359 100644
---- a/drivers/net/wireless/marvell/mwifiex/pcie.h
-+++ b/drivers/net/wireless/marvell/mwifiex/pcie.h
-@@ -391,6 +391,8 @@ struct pcie_service_card {
- 	struct mwifiex_msix_context share_irq_ctx;
- 	struct work_struct work;
- 	unsigned long work_flags;
-+
-+	bool pci_reset_ongoing;
- };
- 
- static inline int
--- 
-2.30.1
-
-From 191f988190b6773a8c3dbe671b5234ab4fb92aa3 Mon Sep 17 00:00:00 2001
+From 65a76a34c24e969188d16660e911a503acae3e3e Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Mon, 28 Sep 2020 17:46:49 +0900
 Subject: [PATCH] mwifiex: pcie: add DMI-based quirk impl for Surface devices
@@ -412,9 +255,9 @@ index 000000000000..5326ae7e5671
 +
 +void mwifiex_initialize_quirks(struct pcie_service_card *card);
 -- 
-2.30.1
+2.30.2
 
-From ec580d28dbb510001db6b51d08e240a243630b06 Mon Sep 17 00:00:00 2001
+From a5a477fa529a17acf8cc254f182db8acf254c6cf Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Tue, 29 Sep 2020 17:25:22 +0900
 Subject: [PATCH] mwifiex: pcie: add reset_d3cold quirk for Surface gen4+
@@ -613,9 +456,9 @@ index 5326ae7e5671..8b9dcb5070d8 100644
  void mwifiex_initialize_quirks(struct pcie_service_card *card);
 +int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
 -- 
-2.30.1
+2.30.2
 
-From 32cb1e46bc43ac38c05e68ea9595e231caa16095 Mon Sep 17 00:00:00 2001
+From 26cbec4939bca28bdb89273c4bef340bd134c845 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Tue, 29 Sep 2020 17:32:22 +0900
 Subject: [PATCH] mwifiex: pcie: add reset_wsid quirk for Surface 3
@@ -792,9 +635,9 @@ index 8b9dcb5070d8..3ef7440418e3 100644
  int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
 +int mwifiex_pcie_reset_wsid_quirk(struct pci_dev *pdev);
 -- 
-2.30.1
+2.30.2
 
-From 37b304e5d9a2b8d2ce61788648a41c88eb652ec1 Mon Sep 17 00:00:00 2001
+From 4680d846a758ad37eb92e27bc7b2178f0041f2be Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Wed, 30 Sep 2020 18:08:24 +0900
 Subject: [PATCH] mwifiex: pcie: (OEMB) add quirk for Surface 3 with broken DMI
@@ -854,9 +697,9 @@ index f0a6fa0a7ae5..34dcd84f02a6 100644
  		.ident = "Surface Pro 3",
  		.matches = {
 -- 
-2.30.1
+2.30.2
 
-From 8cd49ec455fdaecfe0037a1f38ab4d5141a8dac1 Mon Sep 17 00:00:00 2001
+From 95794c5e9a2121de1436edde527bc75e94053733 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Thu, 24 Sep 2020 01:56:34 +0900
 Subject: [PATCH] mwifiex: pcie: use shutdown_sw()/reinit_sw() on
@@ -996,9 +839,9 @@ index 290427c98630..d80eb18fb0d1 100644
  	return 0;
  }
 -- 
-2.30.1
+2.30.2
 
-From 6479fa57e51bb8a1d2e6b0d1d3383160ca98755c Mon Sep 17 00:00:00 2001
+From 8771e7ff6ec0fdc56d18bb656cd02e784e65a807 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Mon, 24 Aug 2020 17:11:35 +0900
 Subject: [PATCH] mwifiex: pcie: add enable_device_dump module parameter
@@ -1045,9 +888,9 @@ index d80eb18fb0d1..ea766584d3b7 100644
  	if (!adapter->devdump_data) {
  		mwifiex_dbg(adapter, ERROR,
 -- 
-2.30.1
+2.30.2
 
-From 1bc88e00766005dd6d5d5aa5a0050544ae20bc60 Mon Sep 17 00:00:00 2001
+From 42b6c6fc76a60991d1742aa87ec486935e4a0cd7 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Sun, 4 Oct 2020 00:11:49 +0900
 Subject: [PATCH] mwifiex: pcie: disable bridge_d3 for Surface gen4+
@@ -1200,9 +1043,9 @@ index 3ef7440418e3..a95ebac06e13 100644
  void mwifiex_initialize_quirks(struct pcie_service_card *card);
  int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
 -- 
-2.30.1
+2.30.2
 
-From 8955118667c29df85e9e8c5b30a334d98d50a20c Mon Sep 17 00:00:00 2001
+From ba119f4fea7c7de35f78f2cdca32cbc21ec68d84 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Sun, 4 Oct 2020 00:25:48 +0900
 Subject: [PATCH] mwifiex: add allow_ps_mode module parameter
@@ -1262,9 +1105,9 @@ index 650191db25cb..dd1f08a2325f 100644
  }
  
 -- 
-2.30.1
+2.30.2
 
-From 0adb74069b15a386347d5089290c0a0b351878e1 Mon Sep 17 00:00:00 2001
+From c54e493c572041a5af58a7316dcb94b7f0d84820 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Sun, 4 Oct 2020 00:38:48 +0900
 Subject: [PATCH] mwifiex: print message when changing ps_mode
@@ -1297,9 +1140,9 @@ index dd1f08a2325f..ee88da92b97c 100644
  }
  
 -- 
-2.30.1
+2.30.2
 
-From df746ef44e22458ffdf6d7d45b729cce747dc3ae Mon Sep 17 00:00:00 2001
+From 8b3a1e9985f45f14c58a18e0b8eec4b4ae24315f Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Sun, 4 Oct 2020 00:59:37 +0900
 Subject: [PATCH] mwifiex: disable ps_mode explicitly by default instead
@@ -1345,5 +1188,5 @@ index 4ed10cf82f9a..ed0fffb9eba6 100644
  
  		if (drcs) {
 -- 
-2.30.1
+2.30.2
 
