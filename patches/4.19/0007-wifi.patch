@@ -1,4 +1,4 @@
-From ab0bbef8f4abc27c14ec93e4f678222193fa63c5 Mon Sep 17 00:00:00 2001
+From 381cfd496c4a36e9a9c98c9cb10817748a85fab0 Mon Sep 17 00:00:00 2001
 From: Chuhong Yuan <hslester96@gmail.com>
 Date: Wed, 24 Jul 2019 19:27:45 +0800
 Subject: [PATCH] mwifiex: pcie: Use dev_get_drvdata
@@ -47,9 +47,9 @@ index 5907b34037c2..4e655038e3f3 100644
  	if (!card->adapter) {
  		dev_err(dev, "adapter structure is not valid\n");
 -- 
-2.30.2
+2.31.0
 
-From 65a76a34c24e969188d16660e911a503acae3e3e Mon Sep 17 00:00:00 2001
+From 973c728899bba7404f9d5755ae7e880876dbce8b Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Mon, 28 Sep 2020 17:46:49 +0900
 Subject: [PATCH] mwifiex: pcie: add DMI-based quirk impl for Surface devices
@@ -255,9 +255,9 @@ index 000000000000..5326ae7e5671
 +
 +void mwifiex_initialize_quirks(struct pcie_service_card *card);
 -- 
-2.30.2
+2.31.0
 
-From a5a477fa529a17acf8cc254f182db8acf254c6cf Mon Sep 17 00:00:00 2001
+From db7083346e3a91c4f8cff336c403a668a6435005 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Tue, 29 Sep 2020 17:25:22 +0900
 Subject: [PATCH] mwifiex: pcie: add reset_d3cold quirk for Surface gen4+
@@ -456,9 +456,9 @@ index 5326ae7e5671..8b9dcb5070d8 100644
  void mwifiex_initialize_quirks(struct pcie_service_card *card);
 +int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
 -- 
-2.30.2
+2.31.0
 
-From 26cbec4939bca28bdb89273c4bef340bd134c845 Mon Sep 17 00:00:00 2001
+From 6032ac4b5d1188d9d139daf7c80e7cb45b3b6b17 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Tue, 29 Sep 2020 17:32:22 +0900
 Subject: [PATCH] mwifiex: pcie: add reset_wsid quirk for Surface 3
@@ -635,9 +635,9 @@ index 8b9dcb5070d8..3ef7440418e3 100644
  int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
 +int mwifiex_pcie_reset_wsid_quirk(struct pci_dev *pdev);
 -- 
-2.30.2
+2.31.0
 
-From 4680d846a758ad37eb92e27bc7b2178f0041f2be Mon Sep 17 00:00:00 2001
+From f30cabee7e9b6b63ec9509e3d8314d4e2f563597 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Wed, 30 Sep 2020 18:08:24 +0900
 Subject: [PATCH] mwifiex: pcie: (OEMB) add quirk for Surface 3 with broken DMI
@@ -697,200 +697,9 @@ index f0a6fa0a7ae5..34dcd84f02a6 100644
  		.ident = "Surface Pro 3",
  		.matches = {
 -- 
-2.30.2
+2.31.0
 
-From 95794c5e9a2121de1436edde527bc75e94053733 Mon Sep 17 00:00:00 2001
-From: Tsuchiya Yuto <kitakar@gmail.com>
-Date: Thu, 24 Sep 2020 01:56:34 +0900
-Subject: [PATCH] mwifiex: pcie: use shutdown_sw()/reinit_sw() on
- suspend()/resume()
-
-There are issues with S0ix achievement and AP scanning after suspend
-with the current Host Sleep method.
-
-When using the Host Sleep method, it prevents the platform to reach S0ix
-during suspend. Also, after suspend, sometimes AP scanning won't work,
-resulting in non-working wifi.
-
-To fix such issues, perform shutdown_sw()/reinit_sw() instead of Host
-Sleep.
-
-As a side effect, this patch disables wakeups (means that Wake-On-WLAN
-can't be used anymore, if it was working before), and might also reset
-some internal states.
-
-Note that suspend() no longer checks if it's already suspended.
-
-With the previous Host Sleep method, the check was done by looking at
-adapter->hs_activated in mwifiex_enable_hs() [sta_ioctl.c], but not
-MWIFIEX_IS_SUSPENDED. So, what the previous method checked was instead
-Host Sleep state, not suspend itself. Therefore, there is no need to check
-the suspend state now.
-
-Also removed comment for suspend state check at top of suspend()
-accordingly.
-
-Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
-Patchset: wifi
----
- drivers/net/wireless/marvell/mwifiex/main.c |  4 +--
- drivers/net/wireless/marvell/mwifiex/pcie.c | 29 +++++++--------------
- 2 files changed, 12 insertions(+), 21 deletions(-)
-
-diff --git a/drivers/net/wireless/marvell/mwifiex/main.c b/drivers/net/wireless/marvell/mwifiex/main.c
-index ceac611ef086..55b71e3d0127 100644
---- a/drivers/net/wireless/marvell/mwifiex/main.c
-+++ b/drivers/net/wireless/marvell/mwifiex/main.c
-@@ -1458,7 +1458,7 @@ static void mwifiex_uninit_sw(struct mwifiex_adapter *adapter)
- }
- 
- /*
-- * This function gets called during PCIe function level reset.
-+ * This function can be used for shutting down the adapter SW.
-  */
- int mwifiex_shutdown_sw(struct mwifiex_adapter *adapter)
- {
-@@ -1485,7 +1485,7 @@ int mwifiex_shutdown_sw(struct mwifiex_adapter *adapter)
- }
- EXPORT_SYMBOL_GPL(mwifiex_shutdown_sw);
- 
--/* This function gets called during PCIe function level reset. Required
-+/* This function can be used for reinitting the adapter SW. Required
-  * code is extracted from mwifiex_add_card()
-  */
- int
-diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
-index 290427c98630..d80eb18fb0d1 100644
---- a/drivers/net/wireless/marvell/mwifiex/pcie.c
-+++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
-@@ -145,8 +145,7 @@ static bool mwifiex_pcie_ok_to_access_hw(struct mwifiex_adapter *adapter)
-  * registered functions must have drivers with suspend and resume
-  * methods. Failing that the kernel simply removes the whole card.
-  *
-- * If already not suspended, this function allocates and sends a host
-- * sleep activate request to the firmware and turns off the traffic.
-+ * This function shuts down the adapter.
-  */
- static int mwifiex_pcie_suspend(struct device *dev)
- {
-@@ -154,31 +153,21 @@ static int mwifiex_pcie_suspend(struct device *dev)
- 	struct pcie_service_card *card = dev_get_drvdata(dev);
- 
- 
--	/* Might still be loading firmware */
--	wait_for_completion(&card->fw_done);
--
- 	adapter = card->adapter;
- 	if (!adapter) {
- 		dev_err(dev, "adapter is not valid\n");
- 		return 0;
- 	}
- 
--	mwifiex_enable_wake(adapter);
--
--	/* Enable the Host Sleep */
--	if (!mwifiex_enable_hs(adapter)) {
-+	/* Shut down SW */
-+	if (mwifiex_shutdown_sw(adapter)) {
- 		mwifiex_dbg(adapter, ERROR,
- 			    "cmd: failed to suspend\n");
--		clear_bit(MWIFIEX_IS_HS_ENABLING, &adapter->work_flags);
--		mwifiex_disable_wake(adapter);
- 		return -EFAULT;
- 	}
- 
--	flush_workqueue(adapter->workqueue);
--
- 	/* Indicate device suspended */
- 	set_bit(MWIFIEX_IS_SUSPENDED, &adapter->work_flags);
--	clear_bit(MWIFIEX_IS_HS_ENABLING, &adapter->work_flags);
- 
- 	return 0;
- }
-@@ -188,13 +177,13 @@ static int mwifiex_pcie_suspend(struct device *dev)
-  * registered functions must have drivers with suspend and resume
-  * methods. Failing that the kernel simply removes the whole card.
-  *
-- * If already not resumed, this function turns on the traffic and
-- * sends a host sleep cancel request to the firmware.
-+ * If already not resumed, this function reinits the adapter.
-  */
- static int mwifiex_pcie_resume(struct device *dev)
- {
- 	struct mwifiex_adapter *adapter;
- 	struct pcie_service_card *card = dev_get_drvdata(dev);
-+	int ret;
- 
- 
- 	if (!card->adapter) {
-@@ -212,9 +201,11 @@ static int mwifiex_pcie_resume(struct device *dev)
- 
- 	clear_bit(MWIFIEX_IS_SUSPENDED, &adapter->work_flags);
- 
--	mwifiex_cancel_hs(mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_STA),
--			  MWIFIEX_ASYNC_CMD);
--	mwifiex_disable_wake(adapter);
-+	ret = mwifiex_reinit_sw(adapter);
-+	if (ret)
-+		dev_err(dev, "reinit failed: %d\n", ret);
-+	else
-+		mwifiex_dbg(adapter, INFO, "%s, successful\n", __func__);
- 
- 	return 0;
- }
--- 
-2.30.2
-
-From 8771e7ff6ec0fdc56d18bb656cd02e784e65a807 Mon Sep 17 00:00:00 2001
-From: Tsuchiya Yuto <kitakar@gmail.com>
-Date: Mon, 24 Aug 2020 17:11:35 +0900
-Subject: [PATCH] mwifiex: pcie: add enable_device_dump module parameter
-
-The devicve_dump may take a little bit long time and users may want to
-disable the dump for daily usage.
-
-This commit adds a new module parameter and disables device_dump by
-default.
-
-Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
-Patchset: wifi
----
- drivers/net/wireless/marvell/mwifiex/pcie.c | 11 +++++++++++
- 1 file changed, 11 insertions(+)
-
-diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
-index d80eb18fb0d1..ea766584d3b7 100644
---- a/drivers/net/wireless/marvell/mwifiex/pcie.c
-+++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
-@@ -34,6 +34,11 @@
- 
- static struct mwifiex_if_ops pcie_ops;
- 
-+static bool enable_device_dump;
-+module_param(enable_device_dump, bool, 0644);
-+MODULE_PARM_DESC(enable_device_dump,
-+		 "enable device_dump (default: disabled)");
-+
- static const struct of_device_id mwifiex_pcie_of_match_table[] = {
- 	{ .compatible = "pci11ab,2b42" },
- 	{ .compatible = "pci1b4b,2b42" },
-@@ -2791,6 +2796,12 @@ static void mwifiex_pcie_fw_dump(struct mwifiex_adapter *adapter)
- 
- static void mwifiex_pcie_device_dump_work(struct mwifiex_adapter *adapter)
- {
-+	if (!enable_device_dump) {
-+		mwifiex_dbg(adapter, MSG,
-+			    "device_dump is disabled by module parameter\n");
-+		return;
-+	}
-+
- 	adapter->devdump_data = vzalloc(MWIFIEX_FW_DUMP_SIZE);
- 	if (!adapter->devdump_data) {
- 		mwifiex_dbg(adapter, ERROR,
--- 
-2.30.2
-
-From 42b6c6fc76a60991d1742aa87ec486935e4a0cd7 Mon Sep 17 00:00:00 2001
+From d5f4b2b092a6cf31f484231426d0352c7321d50e Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Sun, 4 Oct 2020 00:11:49 +0900
 Subject: [PATCH] mwifiex: pcie: disable bridge_d3 for Surface gen4+
@@ -912,10 +721,10 @@ Patchset: wifi
  3 files changed, 27 insertions(+), 8 deletions(-)
 
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
-index ea766584d3b7..f8c7e6ce0c3c 100644
+index 290427c98630..d0e002cfc295 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie.c
 +++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
-@@ -226,6 +226,7 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
+@@ -230,6 +230,7 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
  					const struct pci_device_id *ent)
  {
  	struct pcie_service_card *card;
@@ -923,7 +732,7 @@ index ea766584d3b7..f8c7e6ce0c3c 100644
  	int ret;
  
  	pr_debug("info: vendor=0x%4.04X device=0x%4.04X rev=%d\n",
-@@ -267,6 +268,12 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
+@@ -271,6 +272,12 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
  		return -1;
  	}
  
@@ -1043,150 +852,1280 @@ index 3ef7440418e3..a95ebac06e13 100644
  void mwifiex_initialize_quirks(struct pcie_service_card *card);
  int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
 -- 
-2.30.2
+2.31.0
 
-From ba119f4fea7c7de35f78f2cdca32cbc21ec68d84 Mon Sep 17 00:00:00 2001
-From: Tsuchiya Yuto <kitakar@gmail.com>
-Date: Sun, 4 Oct 2020 00:25:48 +0900
-Subject: [PATCH] mwifiex: add allow_ps_mode module parameter
+From de0b4e918cbe3566f719a29ec5b137021bef9325 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Tue, 10 Nov 2020 12:49:56 +0100
+Subject: [PATCH] mwifiex: Use non-posted PCI register writes
 
-This commit adds the allow_ps_mode module parameter and set it false
-(disallowed) by default, to make ps_mode (power_save) control easier.
+On the 88W8897 card it's very important the TX ring write pointer is
+updated correctly to its new value before setting the TX ready
+interrupt, otherwise the firmware appears to crash (probably because
+it's trying to DMA-read from the wrong place).
 
-On some setups (e.g., with 5GHz AP), power_save causes connection
-completely unstable. So, we need to disable it. However, userspace tools
-may try to enable it. For this reason, we need to tell userspace that
-power_save is disallowed by default.
+Since PCI uses "posted writes" when writing to a register, it's not
+guaranteed that a write will happen immediately. That means the pointer
+might be outdated when setting the TX ready interrupt, leading to
+firmware crashes especially when ASPM L1 and L1 substates are enabled
+(because of the higher link latency, the write will probably take
+longer).
 
-When this parameter is set to false, changing the power_save mode will
-be disallowed like the following:
+So fix those firmware crashes by always forcing non-posted writes. We do
+that by simply reading back the register after writing it, just as a lot
+of other drivers do.
 
-    $ sudo iw dev mlan0 set power_save on
-    command failed: Operation not permitted (-1)
+There are two reproducers that are fixed with this patch:
 
-Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+1) During rx/tx traffic and with ASPM L1 substates enabled (the enabled
+substates are platform dependent), the firmware crashes and eventually a
+command timeout appears in the logs. That crash is fixed by using a
+non-posted write in mwifiex_pcie_send_data().
+
+2) When sending lots of commands to the card, waking it up from sleep in
+very quick intervals, the firmware eventually crashes. That crash
+appears to be fixed by some other non-posted write included here.
+
 Patchset: wifi
 ---
- drivers/net/wireless/marvell/mwifiex/cfg80211.c | 16 ++++++++++++++++
- 1 file changed, 16 insertions(+)
+ drivers/net/wireless/marvell/mwifiex/pcie.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
 
-diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
-index 650191db25cb..dd1f08a2325f 100644
---- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
-+++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
-@@ -25,6 +25,11 @@
- static char *reg_alpha2;
- module_param(reg_alpha2, charp, 0);
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
+index d0e002cfc295..aae276fc1155 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
+@@ -88,6 +88,12 @@ static int mwifiex_write_reg(struct mwifiex_adapter *adapter, int reg, u32 data)
  
-+static bool allow_ps_mode;
-+module_param(allow_ps_mode, bool, 0644);
-+MODULE_PARM_DESC(allow_ps_mode,
-+		 "allow WiFi power management to be enabled. (default: disallowed)");
+ 	iowrite32(data, card->pci_mmap1 + reg);
+ 
++	/* Do a read-back, which makes the write non-posted, ensuring the
++	 * completion before returning.
++	 * The firmware of the 88W8897 card is buggy and this avoids crashes.
++	 */
++	ioread32(card->pci_mmap1 + reg);
 +
- static const struct ieee80211_iface_limit mwifiex_ap_sta_limits[] = {
+ 	return 0;
+ }
+ 
+-- 
+2.31.0
+
+From 5b6607f4d0c226f71a9b7415f09ae2f938d8215b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Tue, 3 Nov 2020 13:28:04 +0100
+Subject: [PATCH] mwifiex: Add quirk resetting the PCI bridge on MS Surface
+ devices
+
+The most recent firmware of the 88W8897 card reports a hardcoded LTR
+value to the system during initialization, probably as an (unsuccessful)
+attempt of the developers to fix firmware crashes. This LTR value
+prevents most of the Microsoft Surface devices from entering deep
+powersaving states (either platform C-State 10 or S0ix state), because
+the exit latency of that state would be higher than what the card can
+tolerate.
+
+Turns out the card works just the same (including the firmware crashes)
+no matter if that hardcoded LTR value is reported or not, so it's kind
+of useless and only prevents us from saving power.
+
+To get rid of those hardcoded LTR reports, it's possible to reset the
+PCI bridge device after initializing the cards firmware. I'm not exactly
+sure why that works, maybe the power management subsystem of the PCH
+resets its stored LTR values when doing a function level reset of the
+bridge device. Doing the reset once after starting the wifi firmware
+works very well, probably because the firmware only reports that LTR
+value a single time during firmware startup.
+
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/pcie.c   | 12 +++++++++
+ .../wireless/marvell/mwifiex/pcie_quirks.c    | 26 +++++++++++++------
+ .../wireless/marvell/mwifiex/pcie_quirks.h    |  1 +
+ 3 files changed, 31 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
+index aae276fc1155..6b06f2a76cdc 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
+@@ -1610,9 +1610,21 @@ mwifiex_pcie_send_boot_cmd(struct mwifiex_adapter *adapter, struct sk_buff *skb)
+ static int mwifiex_pcie_init_fw_port(struct mwifiex_adapter *adapter)
+ {
+ 	struct pcie_service_card *card = adapter->card;
++	struct pci_dev *pdev = card->dev;
++	struct pci_dev *parent_pdev = pci_upstream_bridge(pdev);
+ 	const struct mwifiex_pcie_card_reg *reg = card->pcie.reg;
+ 	int tx_wrap = card->txbd_wrptr & reg->tx_wrap_mask;
+ 
++	/* Trigger a function level reset of the PCI bridge device, this makes
++	 * the firmware of PCIe 88W8897 cards stop reporting a fixed LTR value
++	 * that prevents the system from entering package C10 and S0ix powersaving
++	 * states.
++	 * We need to do it here because it must happen after firmware
++	 * initialization and this function is called after that is done.
++	 */
++	if (card->quirks & QUIRK_DO_FLR_ON_BRIDGE)
++		pci_reset_function(parent_pdev);
++
+ 	/* Write the RX ring read pointer in to reg->rx_rdptr */
+ 	if (mwifiex_write_reg(adapter, reg->rx_rdptr, card->rxbd_rdptr |
+ 			      tx_wrap)) {
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
+index a2aeb2af907e..6885575826a6 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
+@@ -33,7 +33,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 4"),
+ 		},
+ 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
+-					QUIRK_NO_BRIDGE_D3),
++					QUIRK_NO_BRIDGE_D3 |
++					QUIRK_DO_FLR_ON_BRIDGE),
+ 	},
  	{
- 		.max = 3, .types = BIT(NL80211_IFTYPE_STATION) |
-@@ -439,6 +444,17 @@ mwifiex_cfg80211_set_power_mgmt(struct wiphy *wiphy,
+ 		.ident = "Surface Pro 5",
+@@ -43,7 +44,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1796"),
+ 		},
+ 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
+-					QUIRK_NO_BRIDGE_D3),
++					QUIRK_NO_BRIDGE_D3 |
++					QUIRK_DO_FLR_ON_BRIDGE),
+ 	},
+ 	{
+ 		.ident = "Surface Pro 5 (LTE)",
+@@ -53,7 +55,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_1807"),
+ 		},
+ 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
+-					QUIRK_NO_BRIDGE_D3),
++					QUIRK_NO_BRIDGE_D3 |
++					QUIRK_DO_FLR_ON_BRIDGE),
+ 	},
+ 	{
+ 		.ident = "Surface Pro 6",
+@@ -62,7 +65,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 6"),
+ 		},
+ 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
+-					QUIRK_NO_BRIDGE_D3),
++					QUIRK_NO_BRIDGE_D3 |
++					QUIRK_DO_FLR_ON_BRIDGE),
+ 	},
+ 	{
+ 		.ident = "Surface Book 1",
+@@ -71,7 +75,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book"),
+ 		},
+ 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
+-					QUIRK_NO_BRIDGE_D3),
++					QUIRK_NO_BRIDGE_D3 |
++					QUIRK_DO_FLR_ON_BRIDGE),
+ 	},
+ 	{
+ 		.ident = "Surface Book 2",
+@@ -80,7 +85,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Book 2"),
+ 		},
+ 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
+-					QUIRK_NO_BRIDGE_D3),
++					QUIRK_NO_BRIDGE_D3 |
++					QUIRK_DO_FLR_ON_BRIDGE),
+ 	},
+ 	{
+ 		.ident = "Surface Laptop 1",
+@@ -89,7 +95,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop"),
+ 		},
+ 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
+-					QUIRK_NO_BRIDGE_D3),
++					QUIRK_NO_BRIDGE_D3 |
++					QUIRK_DO_FLR_ON_BRIDGE),
+ 	},
+ 	{
+ 		.ident = "Surface Laptop 2",
+@@ -98,7 +105,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
+ 			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Laptop 2"),
+ 		},
+ 		.driver_data = (void *)(QUIRK_FW_RST_D3COLD |
+-					QUIRK_NO_BRIDGE_D3),
++					QUIRK_NO_BRIDGE_D3 |
++					QUIRK_DO_FLR_ON_BRIDGE),
+ 	},
+ 	{
+ 		.ident = "Surface 3",
+@@ -147,6 +155,8 @@ void mwifiex_initialize_quirks(struct pcie_service_card *card)
+ 	if (card->quirks & QUIRK_NO_BRIDGE_D3)
+ 		dev_info(&pdev->dev,
+ 			 "quirk no_brigde_d3 enabled\n");
++	if (card->quirks & QUIRK_DO_FLR_ON_BRIDGE)
++		dev_info(&pdev->dev, "quirk do_flr_on_bridge enabled\n");
+ }
  
- 	ps_mode = enabled;
+ static void mwifiex_pcie_set_power_d3cold(struct pci_dev *pdev)
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
+index a95ebac06e13..4ec2ae72f632 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
++++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
+@@ -12,6 +12,7 @@
+  */
+ #define QUIRK_FW_RST_WSID_S3	BIT(1)
+ #define QUIRK_NO_BRIDGE_D3	BIT(2)
++#define QUIRK_DO_FLR_ON_BRIDGE	BIT(3)
  
-+	/* Allow ps_mode to be enabled only when allow_ps_mode is true */
-+	if (ps_mode && !allow_ps_mode) {
-+		mwifiex_dbg(priv->adapter, MSG,
-+			    "Enabling ps_mode disallowed by modparam\n");
+ void mwifiex_initialize_quirks(struct pcie_service_card *card);
+ int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
+-- 
+2.31.0
+
+From 325e3c77c1768d7ad8e5d531c79d83713c9e70ac Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Sun, 28 Mar 2021 21:10:06 +0200
+Subject: [PATCH] mwifiex: Try waking the firmware until we get an interrupt
+
+It seems that the firmware of the 88W8897 card sometimes ignores or
+misses when we try to wake it up by reading the firmware status
+register. This leads to the firmware wakeup timeout expiring and the
+driver resetting the card because we assume the firmware has hung up or
+crashed (unfortunately that's not unlikely with this card).
+
+Turns out that most of the time the firmware actually didn't hang up,
+but simply "missed" our wakeup request and doesn't send us an AWAKE
+event.
+
+Trying again to read the firmware status register after a short timeout
+usually makes the firmware wake we up as expected, so add a small retry
+loop to mwifiex_pm_wakeup_card() that looks at the interrupt status to
+check whether the card woke up.
+
+The number of tries and timeout lengths for this were determined
+experimentally: The firmware usually takes about 500 us to wake up
+after we attempt to read the status register. In some cases where the
+firmware is very busy (for example while doing a bluetooth scan) it
+might even miss our requests for multiple milliseconds, which is why
+after 15 tries the waiting time gets increased to 10 ms. The maximum
+number of tries it took to wake the firmware when testing this was
+around 20, so a maximum number of 50 tries should give us plenty of
+safety margin.
+
+A good reproducer for this issue is letting the firmware sleep and wake
+up in very short intervals, for example by pinging an device on the
+network every 0.1 seconds.
+
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/pcie.c | 29 ++++++++++++++++-----
+ 1 file changed, 23 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
+index 6b06f2a76cdc..45dc0bfe26ba 100644
+--- a/drivers/net/wireless/marvell/mwifiex/pcie.c
++++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
+@@ -518,6 +518,7 @@ static int mwifiex_pm_wakeup_card(struct mwifiex_adapter *adapter)
+ {
+ 	struct pcie_service_card *card = adapter->card;
+ 	const struct mwifiex_pcie_card_reg *reg = card->pcie.reg;
++	int n_tries = 0;
+ 
+ 	mwifiex_dbg(adapter, EVENT,
+ 		    "event: Wakeup device...\n");
+@@ -525,12 +526,28 @@ static int mwifiex_pm_wakeup_card(struct mwifiex_adapter *adapter)
+ 	if (reg->sleep_cookie)
+ 		mwifiex_pcie_dev_wakeup_delay(adapter);
+ 
+-	/* Accessing fw_status register will wakeup device */
+-	if (mwifiex_write_reg(adapter, reg->fw_status, FIRMWARE_READY_PCIE)) {
+-		mwifiex_dbg(adapter, ERROR,
+-			    "Writing fw_status register failed\n");
+-		return -1;
+-	}
++	/* Access the fw_status register to wake up the device.
++	 * Since the 88W8897 firmware sometimes appears to ignore or miss
++	 * that wakeup request, we continue trying until we receive an
++	 * interrupt from the card.
++	 */
++	do {
++		if (mwifiex_write_reg(adapter, reg->fw_status, FIRMWARE_READY_PCIE)) {
++			mwifiex_dbg(adapter, ERROR,
++				    "Writing fw_status register failed\n");
++			return -1;
++		}
 +
-+		/* Return -EPERM to inform userspace tools that setting
-+		 * power_save to be enabled is not permitted.
-+		 */
-+		return -EPERM;
++		n_tries++;
++
++		if (n_tries <= 15)
++			usleep_range(400, 700);
++		else
++			msleep(10);
++	} while (n_tries <= 50 && READ_ONCE(adapter->int_status) == 0);
++
++	mwifiex_dbg(adapter, EVENT,
++		    "event: Tried %d times until firmware woke up\n", n_tries);
+ 
+ 	if (reg->sleep_cookie) {
+ 		mwifiex_pcie_dev_wakeup_delay(adapter);
+-- 
+2.31.0
+
+From 495f50d493e3976988325cdfdd7bdbb7dd0e86d7 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Thu, 25 Mar 2021 11:33:02 +0100
+Subject: [PATCH] Bluetooth: btusb: Lower passive lescan interval on Marvell
+ 88W8897
+
+The Marvell 88W8897 combined wifi and bluetooth card (pcie+usb version)
+is used in a lot of Microsoft Surface devices, and all those devices
+suffer from very low 2.4GHz wifi connection speeds while bluetooth is
+enabled. The reason for that is that the default passive scanning
+interval for Bluetooth Low Energy devices is quite high in Linux
+(interval of 60 msec and scan window of 30 msec, see hci_core.c), and
+the Marvell chip is known for its bad bt+wifi coexisting performance.
+
+So decrease that passive scan interval and make the scan window shorter
+on this particular device to allow for spending more time transmitting
+wifi signals: The new scan interval is 250 msec (0x190 * 0.625 msec) and
+the new scan window is 6.25 msec (0xa * 0,625 msec).
+
+This change has a very large impact on the 2.4GHz wifi speeds and gets
+it up to performance comparable with the Windows driver, which seems to
+apply a similar quirk.
+
+The interval and window length were tested and found to work very well
+with a lot of Bluetooth Low Energy devices, including the Surface Pen, a
+Bluetooth Speaker and two modern Bluetooth headphones. All devices were
+discovered immediately after turning them on. Even lower values were
+also tested, but they introduced longer delays until devices get
+discovered.
+
+Patchset: wifi
+---
+ drivers/bluetooth/btusb.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/drivers/bluetooth/btusb.c b/drivers/bluetooth/btusb.c
+index 1b0adf5c2376..283a90928f0e 100644
+--- a/drivers/bluetooth/btusb.c
++++ b/drivers/bluetooth/btusb.c
+@@ -69,6 +69,7 @@ static struct usb_driver btusb_driver;
+ #define BTUSB_BCM2045		0x40000
+ #define BTUSB_IFNUM_2		0x80000
+ #define BTUSB_CW6622		0x100000
++#define BTUSB_LOWER_LESCAN_INTERVAL	0x200000
+ 
+ static const struct usb_device_id btusb_table[] = {
+ 	/* Generic Bluetooth USB device */
+@@ -341,6 +342,7 @@ static const struct usb_device_id blacklist_table[] = {
+ 	{ USB_DEVICE(0x1286, 0x2044), .driver_info = BTUSB_MARVELL },
+ 	{ USB_DEVICE(0x1286, 0x2046), .driver_info = BTUSB_MARVELL },
+ 	{ USB_DEVICE(0x1286, 0x204e), .driver_info = BTUSB_MARVELL },
++	{ USB_DEVICE(0x1286, 0x204c), .driver_info = BTUSB_LOWER_LESCAN_INTERVAL },
+ 
+ 	/* Intel Bluetooth devices */
+ 	{ USB_DEVICE(0x8087, 0x0025), .driver_info = BTUSB_INTEL_NEW },
+@@ -3105,6 +3107,19 @@ static int btusb_probe(struct usb_interface *intf,
+ 	if (id->driver_info & BTUSB_MARVELL)
+ 		hdev->set_bdaddr = btusb_set_bdaddr_marvell;
+ 
++	/* The Marvell 88W8897 combined wifi and bluetooth card is known for
++	 * very bad bt+wifi coexisting performance.
++	 *
++	 * Decrease the passive BT Low Energy scan interval a bit
++	 * (0x0190 * 0.625 msec = 250 msec) and make the scan window shorter
++	 * (0x000a * 0,625 msec = 6.25 msec). This allows for significantly
++	 * higher wifi throughput while passively scanning for BT LE devices.
++	 */
++	if (id->driver_info & BTUSB_LOWER_LESCAN_INTERVAL) {
++		hdev->le_scan_interval = 0x0190;
++		hdev->le_scan_window = 0x000a;
 +	}
 +
- 	return mwifiex_drv_set_power(priv, &ps_mode);
- }
- 
+ 	if (id->driver_info & BTUSB_SWAVE) {
+ 		set_bit(HCI_QUIRK_FIXUP_INQUIRY_MODE, &hdev->quirks);
+ 		set_bit(HCI_QUIRK_BROKEN_LOCAL_COMMANDS, &hdev->quirks);
 -- 
-2.30.2
+2.31.0
 
-From c54e493c572041a5af58a7316dcb94b7f0d84820 Mon Sep 17 00:00:00 2001
-From: Tsuchiya Yuto <kitakar@gmail.com>
-Date: Sun, 4 Oct 2020 00:38:48 +0900
-Subject: [PATCH] mwifiex: print message when changing ps_mode
+From 4caaace06bc19f7a5f7cf7999416198201c780e4 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Wed, 11 Nov 2020 12:31:26 +0100
+Subject: [PATCH] mwifiex: Small cleanup for handling virtual interface type
+ changes
 
-Users may want to know the ps_mode state change (e.g., diagnosing
-connection issues). This commit adds the print when changing ps_mode.
+Handle the obvious invalid virtual interface type changes with a general
+check instead of looking at the individual change.
 
-Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+For type changes from P2P_CLIENT to P2P_GO and the other way round, this
+changes the behavior slightly: We now still do nothing, but return
+-EOPNOTSUPP instead of 0. Now that behavior was incorrect before and
+still is, because type changes between these two types are actually
+possible and supported, which we'll fix in a following commit.
+
 Patchset: wifi
 ---
- drivers/net/wireless/marvell/mwifiex/cfg80211.c | 7 +++++++
- 1 file changed, 7 insertions(+)
+ .../net/wireless/marvell/mwifiex/cfg80211.c   | 39 +++++++------------
+ 1 file changed, 14 insertions(+), 25 deletions(-)
 
 diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
-index dd1f08a2325f..ee88da92b97c 100644
+index 650191db25cb..5badf7fef37e 100644
 --- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
 +++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
-@@ -455,6 +455,13 @@ mwifiex_cfg80211_set_power_mgmt(struct wiphy *wiphy,
- 		return -EPERM;
+@@ -1145,6 +1145,20 @@ mwifiex_cfg80211_change_virtual_intf(struct wiphy *wiphy,
+ 		return -EBUSY;
  	}
  
-+	if (ps_mode)
-+		mwifiex_dbg(priv->adapter, MSG,
-+			    "Enabling ps_mode, disable if unstable.\n");
-+	else
-+		mwifiex_dbg(priv->adapter, MSG,
-+			    "Disabling ps_mode.\n");
++	if (type == NL80211_IFTYPE_UNSPECIFIED) {
++		mwifiex_dbg(priv->adapter, INFO,
++			    "%s: no new type specified, keeping old type %d\n",
++			    dev->name, curr_iftype);
++		return 0;
++	}
 +
- 	return mwifiex_drv_set_power(priv, &ps_mode);
- }
- 
++	if (curr_iftype == type) {
++		mwifiex_dbg(priv->adapter, INFO,
++			    "%s: interface already is of type %d\n",
++			    dev->name, curr_iftype);
++		return 0;
++	}
++
+ 	switch (curr_iftype) {
+ 	case NL80211_IFTYPE_ADHOC:
+ 		switch (type) {
+@@ -1164,12 +1178,6 @@ mwifiex_cfg80211_change_virtual_intf(struct wiphy *wiphy,
+ 		case NL80211_IFTYPE_AP:
+ 			return mwifiex_change_vif_to_ap(dev, curr_iftype, type,
+ 							params);
+-		case NL80211_IFTYPE_UNSPECIFIED:
+-			mwifiex_dbg(priv->adapter, INFO,
+-				    "%s: kept type as IBSS\n", dev->name);
+-			/* fall through */
+-		case NL80211_IFTYPE_ADHOC:	/* This shouldn't happen */
+-			return 0;
+ 		default:
+ 			mwifiex_dbg(priv->adapter, ERROR,
+ 				    "%s: changing to %d not supported\n",
+@@ -1195,12 +1203,6 @@ mwifiex_cfg80211_change_virtual_intf(struct wiphy *wiphy,
+ 		case NL80211_IFTYPE_AP:
+ 			return mwifiex_change_vif_to_ap(dev, curr_iftype, type,
+ 							params);
+-		case NL80211_IFTYPE_UNSPECIFIED:
+-			mwifiex_dbg(priv->adapter, INFO,
+-				    "%s: kept type as STA\n", dev->name);
+-			/* fall through */
+-		case NL80211_IFTYPE_STATION:	/* This shouldn't happen */
+-			return 0;
+ 		default:
+ 			mwifiex_dbg(priv->adapter, ERROR,
+ 				    "%s: changing to %d not supported\n",
+@@ -1218,12 +1220,6 @@ mwifiex_cfg80211_change_virtual_intf(struct wiphy *wiphy,
+ 		case NL80211_IFTYPE_P2P_GO:
+ 			return mwifiex_change_vif_to_p2p(dev, curr_iftype,
+ 							 type, params);
+-		case NL80211_IFTYPE_UNSPECIFIED:
+-			mwifiex_dbg(priv->adapter, INFO,
+-				    "%s: kept type as AP\n", dev->name);
+-			/* fall through */
+-		case NL80211_IFTYPE_AP:		/* This shouldn't happen */
+-			return 0;
+ 		default:
+ 			mwifiex_dbg(priv->adapter, ERROR,
+ 				    "%s: changing to %d not supported\n",
+@@ -1258,13 +1254,6 @@ mwifiex_cfg80211_change_virtual_intf(struct wiphy *wiphy,
+ 				return -EFAULT;
+ 			return mwifiex_change_vif_to_ap(dev, curr_iftype, type,
+ 							params);
+-		case NL80211_IFTYPE_UNSPECIFIED:
+-			mwifiex_dbg(priv->adapter, INFO,
+-				    "%s: kept type as P2P\n", dev->name);
+-			/* fall through */
+-		case NL80211_IFTYPE_P2P_CLIENT:
+-		case NL80211_IFTYPE_P2P_GO:
+-			return 0;
+ 		default:
+ 			mwifiex_dbg(priv->adapter, ERROR,
+ 				    "%s: changing to %d not supported\n",
 -- 
-2.30.2
+2.31.0
 
-From 8b3a1e9985f45f14c58a18e0b8eec4b4ae24315f Mon Sep 17 00:00:00 2001
-From: Tsuchiya Yuto <kitakar@gmail.com>
-Date: Sun, 4 Oct 2020 00:59:37 +0900
-Subject: [PATCH] mwifiex: disable ps_mode explicitly by default instead
+From 01f2323fe1f25c13e40a1171184c33c0e8dd7743 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Wed, 11 Nov 2020 12:44:39 +0100
+Subject: [PATCH] mwifiex: Use function to check whether interface type change
+ is allowed
 
-At least on Surface devices, the ps_mode causes connection unstable,
-especially with 5GHz APs. Then, it eventually causes fw crashing.
+Instead of bailing out in the function which is supposed to do the type
+change, detect invalid changes beforehand using a generic function and
+return an error if the change is not allowed.
 
-This commit disables ps_mode by default instead of enabling it.
-
-Required code is extracted from mwifiex_drv_set_power().
-
-Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
 Patchset: wifi
 ---
- drivers/net/wireless/marvell/mwifiex/sta_cmd.c | 11 ++++++++---
- 1 file changed, 8 insertions(+), 3 deletions(-)
+ .../net/wireless/marvell/mwifiex/cfg80211.c   | 139 ++++++++++++------
+ 1 file changed, 92 insertions(+), 47 deletions(-)
 
-diff --git a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
-index 4ed10cf82f9a..ed0fffb9eba6 100644
---- a/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
-+++ b/drivers/net/wireless/marvell/mwifiex/sta_cmd.c
-@@ -2340,14 +2340,19 @@ int mwifiex_sta_init_cmd(struct mwifiex_private *priv, u8 first_sta, bool init)
- 			return -1;
+diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+index 5badf7fef37e..e73334679992 100644
+--- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
++++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+@@ -943,6 +943,76 @@ mwifiex_init_new_priv_params(struct mwifiex_private *priv,
+ 	return 0;
+ }
  
- 		if (priv->bss_type != MWIFIEX_BSS_TYPE_UAP) {
--			/* Enable IEEE PS by default */
--			priv->adapter->ps_mode = MWIFIEX_802_11_POWER_MODE_PSP;
-+			/* Disable IEEE PS by default */
-+			priv->adapter->ps_mode = MWIFIEX_802_11_POWER_MODE_CAM;
- 			ret = mwifiex_send_cmd(priv,
- 					       HostCmd_CMD_802_11_PS_MODE_ENH,
--					       EN_AUTO_PS, BITMAP_STA_PS, NULL,
-+					       DIS_AUTO_PS, BITMAP_STA_PS, NULL,
- 					       true);
- 			if (ret)
- 				return -1;
-+			ret = mwifiex_send_cmd(priv,
-+					       HostCmd_CMD_802_11_PS_MODE_ENH,
-+					       GET_PS, 0, NULL, false);
-+			if (ret)
-+				return -1;
++static bool
++is_vif_type_change_allowed(struct mwifiex_adapter *adapter,
++			   enum nl80211_iftype old_iftype,
++			   enum nl80211_iftype new_iftype)
++{
++	switch (old_iftype) {
++	case NL80211_IFTYPE_ADHOC:
++		switch (new_iftype) {
++		case NL80211_IFTYPE_STATION:
++			return true;
++		case NL80211_IFTYPE_P2P_CLIENT:
++		case NL80211_IFTYPE_P2P_GO:
++			return adapter->curr_iface_comb.p2p_intf !=
++			       adapter->iface_limit.p2p_intf;
++		case NL80211_IFTYPE_AP:
++			return adapter->curr_iface_comb.uap_intf !=
++			       adapter->iface_limit.uap_intf;
++		default:
++			return false;
++		}
++
++	case NL80211_IFTYPE_STATION:
++		switch (new_iftype) {
++		case NL80211_IFTYPE_ADHOC:
++			return true;
++		case NL80211_IFTYPE_P2P_CLIENT:
++		case NL80211_IFTYPE_P2P_GO:
++			return adapter->curr_iface_comb.p2p_intf !=
++			       adapter->iface_limit.p2p_intf;
++		case NL80211_IFTYPE_AP:
++			return adapter->curr_iface_comb.uap_intf !=
++			       adapter->iface_limit.uap_intf;
++		default:
++			return false;
++		}
++
++	case NL80211_IFTYPE_AP:
++		switch (new_iftype) {
++		case NL80211_IFTYPE_ADHOC:
++		case NL80211_IFTYPE_STATION:
++			return adapter->curr_iface_comb.sta_intf !=
++			       adapter->iface_limit.sta_intf;
++		case NL80211_IFTYPE_P2P_CLIENT:
++		case NL80211_IFTYPE_P2P_GO:
++			return adapter->curr_iface_comb.p2p_intf !=
++			       adapter->iface_limit.p2p_intf;
++		default:
++			return false;
++		}
++
++	case NL80211_IFTYPE_P2P_CLIENT:
++	case NL80211_IFTYPE_P2P_GO:
++		switch (new_iftype) {
++		case NL80211_IFTYPE_ADHOC:
++		case NL80211_IFTYPE_STATION:
++			return true;
++		case NL80211_IFTYPE_AP:
++			return adapter->curr_iface_comb.uap_intf !=
++			       adapter->iface_limit.uap_intf;
++		default:
++			return false;
++		}
++
++	default:
++		break;
++	}
++
++	return false;
++}
++
+ static int
+ mwifiex_change_vif_to_p2p(struct net_device *dev,
+ 			  enum nl80211_iftype curr_iftype,
+@@ -959,13 +1029,6 @@ mwifiex_change_vif_to_p2p(struct net_device *dev,
+ 
+ 	adapter = priv->adapter;
+ 
+-	if (adapter->curr_iface_comb.p2p_intf ==
+-	    adapter->iface_limit.p2p_intf) {
+-		mwifiex_dbg(adapter, ERROR,
+-			    "cannot create multiple P2P ifaces\n");
+-		return -1;
+-	}
+-
+ 	mwifiex_dbg(adapter, INFO,
+ 		    "%s: changing role to p2p\n", dev->name);
+ 
+@@ -1031,15 +1094,6 @@ mwifiex_change_vif_to_sta_adhoc(struct net_device *dev,
+ 
+ 	adapter = priv->adapter;
+ 
+-	if ((curr_iftype != NL80211_IFTYPE_P2P_CLIENT &&
+-	     curr_iftype != NL80211_IFTYPE_P2P_GO) &&
+-	    (adapter->curr_iface_comb.sta_intf ==
+-	     adapter->iface_limit.sta_intf)) {
+-		mwifiex_dbg(adapter, ERROR,
+-			    "cannot create multiple station/adhoc ifaces\n");
+-		return -1;
+-	}
+-
+ 	if (type == NL80211_IFTYPE_STATION)
+ 		mwifiex_dbg(adapter, INFO,
+ 			    "%s: changing role to station\n", dev->name);
+@@ -1090,13 +1144,6 @@ mwifiex_change_vif_to_ap(struct net_device *dev,
+ 
+ 	adapter = priv->adapter;
+ 
+-	if (adapter->curr_iface_comb.uap_intf ==
+-	    adapter->iface_limit.uap_intf) {
+-		mwifiex_dbg(adapter, ERROR,
+-			    "cannot create multiple AP ifaces\n");
+-		return -1;
+-	}
+-
+ 	mwifiex_dbg(adapter, INFO,
+ 		    "%s: changing role to AP\n", dev->name);
+ 
+@@ -1159,6 +1206,13 @@ mwifiex_cfg80211_change_virtual_intf(struct wiphy *wiphy,
+ 		return 0;
+ 	}
+ 
++	if (!is_vif_type_change_allowed(priv->adapter, curr_iftype, type)) {
++		mwifiex_dbg(priv->adapter, ERROR,
++			    "%s: change from type %d to %d is not allowed\n",
++			    dev->name, curr_iftype, type);
++		return -EOPNOTSUPP;
++	}
++
+ 	switch (curr_iftype) {
+ 	case NL80211_IFTYPE_ADHOC:
+ 		switch (type) {
+@@ -1179,12 +1233,9 @@ mwifiex_cfg80211_change_virtual_intf(struct wiphy *wiphy,
+ 			return mwifiex_change_vif_to_ap(dev, curr_iftype, type,
+ 							params);
+ 		default:
+-			mwifiex_dbg(priv->adapter, ERROR,
+-				    "%s: changing to %d not supported\n",
+-				    dev->name, type);
+-			return -EOPNOTSUPP;
++			goto errnotsupp;
+ 		}
+-		break;
++
+ 	case NL80211_IFTYPE_STATION:
+ 		switch (type) {
+ 		case NL80211_IFTYPE_ADHOC:
+@@ -1204,12 +1255,9 @@ mwifiex_cfg80211_change_virtual_intf(struct wiphy *wiphy,
+ 			return mwifiex_change_vif_to_ap(dev, curr_iftype, type,
+ 							params);
+ 		default:
+-			mwifiex_dbg(priv->adapter, ERROR,
+-				    "%s: changing to %d not supported\n",
+-				    dev->name, type);
+-			return -EOPNOTSUPP;
++			goto errnotsupp;
+ 		}
+-		break;
++
+ 	case NL80211_IFTYPE_AP:
+ 		switch (type) {
+ 		case NL80211_IFTYPE_ADHOC:
+@@ -1221,12 +1269,9 @@ mwifiex_cfg80211_change_virtual_intf(struct wiphy *wiphy,
+ 			return mwifiex_change_vif_to_p2p(dev, curr_iftype,
+ 							 type, params);
+ 		default:
+-			mwifiex_dbg(priv->adapter, ERROR,
+-				    "%s: changing to %d not supported\n",
+-				    dev->name, type);
+-			return -EOPNOTSUPP;
++			goto errnotsupp;
+ 		}
+-		break;
++
+ 	case NL80211_IFTYPE_P2P_CLIENT:
+ 	case NL80211_IFTYPE_P2P_GO:
+ 		switch (type) {
+@@ -1255,21 +1300,21 @@ mwifiex_cfg80211_change_virtual_intf(struct wiphy *wiphy,
+ 			return mwifiex_change_vif_to_ap(dev, curr_iftype, type,
+ 							params);
+ 		default:
+-			mwifiex_dbg(priv->adapter, ERROR,
+-				    "%s: changing to %d not supported\n",
+-				    dev->name, type);
+-			return -EOPNOTSUPP;
++			goto errnotsupp;
+ 		}
+-		break;
++
+ 	default:
+-		mwifiex_dbg(priv->adapter, ERROR,
+-			    "%s: unknown iftype: %d\n",
+-			    dev->name, dev->ieee80211_ptr->iftype);
+-		return -EOPNOTSUPP;
++		goto errnotsupp;
+ 	}
+ 
+ 
+ 	return 0;
++
++errnotsupp:
++	mwifiex_dbg(priv->adapter, ERROR,
++		    "unsupported interface type transition: %d to %d\n",
++		    curr_iftype, type);
++	return -EOPNOTSUPP;
+ }
+ 
+ static void
+-- 
+2.31.0
+
+From 7146e47c1b30ddc1fa6fbe9a11447f70431e015f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Wed, 11 Nov 2020 13:33:04 +0100
+Subject: [PATCH] mwifiex: Run SET_BSS_MODE when changing from P2P to STATION
+ vif-type
+
+We currently handle changing from the P2P to the STATION virtual
+interface type slightly different than changing from P2P to ADHOC: When
+changing to STATION, we don't send the SET_BSS_MODE command. We do send
+that command on all other type-changes though, and it probably makes
+sense to send the command since after all we just changed our BSS_MODE.
+Looking at prior changes to this part of the code, it seems that this is
+simply a leftover from old refactorings.
+
+Since sending the SET_BSS_MODE command is the only difference between
+mwifiex_change_vif_to_sta_adhoc() and the current code, we can now use
+mwifiex_change_vif_to_sta_adhoc() for both switching to ADHOC and
+STATION interface type.
+
+This does not fix any particular bug and just "looked right", so there's
+a small chance it might be a regression.
+
+Patchset: wifi
+---
+ .../net/wireless/marvell/mwifiex/cfg80211.c   | 22 ++++---------------
+ 1 file changed, 4 insertions(+), 18 deletions(-)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+index e73334679992..99da637692cc 100644
+--- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
++++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+@@ -1274,29 +1274,15 @@ mwifiex_cfg80211_change_virtual_intf(struct wiphy *wiphy,
+ 
+ 	case NL80211_IFTYPE_P2P_CLIENT:
+ 	case NL80211_IFTYPE_P2P_GO:
++		if (mwifiex_cfg80211_deinit_p2p(priv))
++			return -EFAULT;
++
+ 		switch (type) {
+-		case NL80211_IFTYPE_STATION:
+-			if (mwifiex_cfg80211_deinit_p2p(priv))
+-				return -EFAULT;
+-			priv->adapter->curr_iface_comb.p2p_intf--;
+-			priv->adapter->curr_iface_comb.sta_intf++;
+-			dev->ieee80211_ptr->iftype = type;
+-			if (mwifiex_deinit_priv_params(priv))
+-				return -1;
+-			if (mwifiex_init_new_priv_params(priv, dev, type))
+-				return -1;
+-			if (mwifiex_sta_init_cmd(priv, false, false))
+-				return -1;
+-			break;
+ 		case NL80211_IFTYPE_ADHOC:
+-			if (mwifiex_cfg80211_deinit_p2p(priv))
+-				return -EFAULT;
++		case NL80211_IFTYPE_STATION:
+ 			return mwifiex_change_vif_to_sta_adhoc(dev, curr_iftype,
+ 							       type, params);
+-			break;
+ 		case NL80211_IFTYPE_AP:
+-			if (mwifiex_cfg80211_deinit_p2p(priv))
+-				return -EFAULT;
+ 			return mwifiex_change_vif_to_ap(dev, curr_iftype, type,
+ 							params);
+ 		default:
+-- 
+2.31.0
+
+From 9a62b579978ebd59a7698e160d4e677e3d1878cc Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Wed, 11 Nov 2020 14:42:54 +0100
+Subject: [PATCH] mwifiex: Use helper function for counting interface types
+
+Use a small helper function to increment and decrement the counter of
+the interface types we currently manage. This makes the code that
+actually changes and sets up the interface type a bit less messy and
+also helps avoiding mistakes in case someone increments/decrements a
+counter wrongly.
+
+Patchset: wifi
+---
+ .../net/wireless/marvell/mwifiex/cfg80211.c   | 110 ++++++------------
+ 1 file changed, 35 insertions(+), 75 deletions(-)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+index 99da637692cc..feb3a858d8c1 100644
+--- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
++++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+@@ -1013,6 +1013,32 @@ is_vif_type_change_allowed(struct mwifiex_adapter *adapter,
+ 	return false;
+ }
+ 
++static void
++update_vif_type_counter(struct mwifiex_adapter *adapter,
++			enum nl80211_iftype iftype,
++			int change)
++{
++	switch (iftype) {
++	case NL80211_IFTYPE_UNSPECIFIED:
++	case NL80211_IFTYPE_ADHOC:
++	case NL80211_IFTYPE_STATION:
++		adapter->curr_iface_comb.sta_intf += change;
++		break;
++	case NL80211_IFTYPE_AP:
++		adapter->curr_iface_comb.uap_intf += change;
++		break;
++	case NL80211_IFTYPE_P2P_CLIENT:
++	case NL80211_IFTYPE_P2P_GO:
++		adapter->curr_iface_comb.p2p_intf += change;
++		break;
++	default:
++		mwifiex_dbg(adapter, ERROR,
++			    "%s: Unsupported iftype passed: %d\n",
++			    __func__, iftype);
++		break;
++	}
++}
++
+ static int
+ mwifiex_change_vif_to_p2p(struct net_device *dev,
+ 			  enum nl80211_iftype curr_iftype,
+@@ -1060,19 +1086,8 @@ mwifiex_change_vif_to_p2p(struct net_device *dev,
+ 	if (mwifiex_sta_init_cmd(priv, false, false))
+ 		return -1;
+ 
+-	switch (curr_iftype) {
+-	case NL80211_IFTYPE_STATION:
+-	case NL80211_IFTYPE_ADHOC:
+-		adapter->curr_iface_comb.sta_intf--;
+-		break;
+-	case NL80211_IFTYPE_AP:
+-		adapter->curr_iface_comb.uap_intf--;
+-		break;
+-	default:
+-		break;
+-	}
+-
+-	adapter->curr_iface_comb.p2p_intf++;
++	update_vif_type_counter(adapter, curr_iftype, -1);
++	update_vif_type_counter(adapter, type, +1);
+ 	dev->ieee80211_ptr->iftype = type;
+ 
+ 	return 0;
+@@ -1111,20 +1126,10 @@ mwifiex_change_vif_to_sta_adhoc(struct net_device *dev,
+ 	if (mwifiex_sta_init_cmd(priv, false, false))
+ 		return -1;
+ 
+-	switch (curr_iftype) {
+-	case NL80211_IFTYPE_P2P_CLIENT:
+-	case NL80211_IFTYPE_P2P_GO:
+-		adapter->curr_iface_comb.p2p_intf--;
+-		break;
+-	case NL80211_IFTYPE_AP:
+-		adapter->curr_iface_comb.uap_intf--;
+-		break;
+-	default:
+-		break;
+-	}
+-
+-	adapter->curr_iface_comb.sta_intf++;
++	update_vif_type_counter(adapter, curr_iftype, -1);
++	update_vif_type_counter(adapter, type, +1);
+ 	dev->ieee80211_ptr->iftype = type;
++
+ 	return 0;
+ }
+ 
+@@ -1157,20 +1162,8 @@ mwifiex_change_vif_to_ap(struct net_device *dev,
+ 	if (mwifiex_sta_init_cmd(priv, false, false))
+ 		return -1;
+ 
+-	switch (curr_iftype) {
+-	case NL80211_IFTYPE_P2P_CLIENT:
+-	case NL80211_IFTYPE_P2P_GO:
+-		adapter->curr_iface_comb.p2p_intf--;
+-		break;
+-	case NL80211_IFTYPE_STATION:
+-	case NL80211_IFTYPE_ADHOC:
+-		adapter->curr_iface_comb.sta_intf--;
+-		break;
+-	default:
+-		break;
+-	}
+-
+-	adapter->curr_iface_comb.uap_intf++;
++	update_vif_type_counter(adapter, curr_iftype, -1);
++	update_vif_type_counter(adapter, type, +1);
+ 	dev->ieee80211_ptr->iftype = type;
+ 	return 0;
+ }
+@@ -3091,23 +3084,7 @@ struct wireless_dev *mwifiex_add_virtual_intf(struct wiphy *wiphy,
+ 	mwifiex_dev_debugfs_init(priv);
+ #endif
+ 
+-	switch (type) {
+-	case NL80211_IFTYPE_UNSPECIFIED:
+-	case NL80211_IFTYPE_STATION:
+-	case NL80211_IFTYPE_ADHOC:
+-		adapter->curr_iface_comb.sta_intf++;
+-		break;
+-	case NL80211_IFTYPE_AP:
+-		adapter->curr_iface_comb.uap_intf++;
+-		break;
+-	case NL80211_IFTYPE_P2P_CLIENT:
+-		adapter->curr_iface_comb.p2p_intf++;
+-		break;
+-	default:
+-		/* This should be dead code; checked above */
+-		mwifiex_dbg(adapter, ERROR, "type not supported\n");
+-		return ERR_PTR(-EINVAL);
+-	}
++	update_vif_type_counter(adapter, type, +1);
+ 
+ 	return &priv->wdev;
+ 
+@@ -3173,24 +3150,7 @@ int mwifiex_del_virtual_intf(struct wiphy *wiphy, struct wireless_dev *wdev)
+ 	/* Clear the priv in adapter */
+ 	priv->netdev = NULL;
+ 
+-	switch (priv->bss_mode) {
+-	case NL80211_IFTYPE_UNSPECIFIED:
+-	case NL80211_IFTYPE_STATION:
+-	case NL80211_IFTYPE_ADHOC:
+-		adapter->curr_iface_comb.sta_intf--;
+-		break;
+-	case NL80211_IFTYPE_AP:
+-		adapter->curr_iface_comb.uap_intf--;
+-		break;
+-	case NL80211_IFTYPE_P2P_CLIENT:
+-	case NL80211_IFTYPE_P2P_GO:
+-		adapter->curr_iface_comb.p2p_intf--;
+-		break;
+-	default:
+-		mwifiex_dbg(adapter, ERROR,
+-			    "del_virtual_intf: type not supported\n");
+-		break;
+-	}
++	update_vif_type_counter(adapter, priv->bss_mode, -1);
+ 
+ 	priv->bss_mode = NL80211_IFTYPE_UNSPECIFIED;
+ 
+-- 
+2.31.0
+
+From e0f3d0a199fc1e7feff28af283b64d3dda035ca8 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Fri, 26 Mar 2021 15:56:58 +0100
+Subject: [PATCH] mwifiex: Update virtual interface counters right after
+ setting bss_type
+
+In mwifiex_init_new_priv_params() we update our private driver state to
+reflect the currently selected virtual interface type. Most notably we
+set the bss_mode to the mode we're going to put the firmware in.
+
+Now after we updated the driver state we actually start talking to the
+firmware and instruct it to set up the new mode. Those commands can and
+will sometimes fail, in which case we return with an error from
+mwifiex_change_vif_to_*. We currently update our virtual interface type
+counters after this return, which means the code is never reached when a
+firmware error happens and we never update the counters. Since we have
+updated our bss_mode earlier though, the counters now no longer reflect
+the actual state of the driver.
+
+This will break things on the next virtual interface change, because the
+virtual interface type we're switching away from didn't get its counter
+incremented, and we end up decrementing a 0-counter.
+
+To fix this, simply update the virtual interface type counters right
+after updating our driver structures, so that they are always in sync.
+
+Patchset: wifi
+---
+ .../net/wireless/marvell/mwifiex/cfg80211.c   | 25 +++++++++++--------
+ 1 file changed, 14 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+index feb3a858d8c1..54d9e789aa14 100644
+--- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
++++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+@@ -1063,6 +1063,10 @@ mwifiex_change_vif_to_p2p(struct net_device *dev,
+ 	if (mwifiex_init_new_priv_params(priv, dev, type))
+ 		return -1;
+ 
++	update_vif_type_counter(adapter, curr_iftype, -1);
++	update_vif_type_counter(adapter, type, +1);
++	dev->ieee80211_ptr->iftype = type;
++
+ 	switch (type) {
+ 	case NL80211_IFTYPE_P2P_CLIENT:
+ 		if (mwifiex_cfg80211_init_p2p_client(priv))
+@@ -1086,10 +1090,6 @@ mwifiex_change_vif_to_p2p(struct net_device *dev,
+ 	if (mwifiex_sta_init_cmd(priv, false, false))
+ 		return -1;
+ 
+-	update_vif_type_counter(adapter, curr_iftype, -1);
+-	update_vif_type_counter(adapter, type, +1);
+-	dev->ieee80211_ptr->iftype = type;
+-
+ 	return 0;
+ }
+ 
+@@ -1120,16 +1120,17 @@ mwifiex_change_vif_to_sta_adhoc(struct net_device *dev,
+ 		return -1;
+ 	if (mwifiex_init_new_priv_params(priv, dev, type))
+ 		return -1;
++
++	update_vif_type_counter(adapter, curr_iftype, -1);
++	update_vif_type_counter(adapter, type, +1);
++	dev->ieee80211_ptr->iftype = type;
++
+ 	if (mwifiex_send_cmd(priv, HostCmd_CMD_SET_BSS_MODE,
+ 			     HostCmd_ACT_GEN_SET, 0, NULL, true))
+ 		return -1;
+ 	if (mwifiex_sta_init_cmd(priv, false, false))
+ 		return -1;
+ 
+-	update_vif_type_counter(adapter, curr_iftype, -1);
+-	update_vif_type_counter(adapter, type, +1);
+-	dev->ieee80211_ptr->iftype = type;
+-
+ 	return 0;
+ }
+ 
+@@ -1156,15 +1157,17 @@ mwifiex_change_vif_to_ap(struct net_device *dev,
+ 		return -1;
+ 	if (mwifiex_init_new_priv_params(priv, dev, type))
+ 		return -1;
++
++	update_vif_type_counter(adapter, curr_iftype, -1);
++	update_vif_type_counter(adapter, type, +1);
++	dev->ieee80211_ptr->iftype = type;
++
+ 	if (mwifiex_send_cmd(priv, HostCmd_CMD_SET_BSS_MODE,
+ 			     HostCmd_ACT_GEN_SET, 0, NULL, true))
+ 		return -1;
+ 	if (mwifiex_sta_init_cmd(priv, false, false))
+ 		return -1;
+ 
+-	update_vif_type_counter(adapter, curr_iftype, -1);
+-	update_vif_type_counter(adapter, type, +1);
+-	dev->ieee80211_ptr->iftype = type;
+ 	return 0;
+ }
+ /*
+-- 
+2.31.0
+
+From bea450e3e81133d6c0542357e120c3200ad8e9d2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Wed, 11 Nov 2020 13:42:40 +0100
+Subject: [PATCH] mwifiex: Allow switching interface type from P2P_CLIENT to
+ P2P_GO
+
+It's possible to change virtual interface type between P2P_CLIENT and
+P2P_GO, the card supports that just fine, and it happens for example
+when using miracast with the miraclecast software.
+
+So allow type changes between P2P_CLIENT and P2P_GO and simply call into
+mwifiex_change_vif_to_p2p(), which handles this just fine. We have to
+call mwifiex_cfg80211_deinit_p2p() before though to make sure the old
+p2p mode is properly uninitialized.
+
+Patchset: wifi
+---
+ .../net/wireless/marvell/mwifiex/cfg80211.c   | 36 +++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+index 54d9e789aa14..ec5ed00b4b89 100644
+--- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
++++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+@@ -994,11 +994,26 @@ is_vif_type_change_allowed(struct mwifiex_adapter *adapter,
  		}
  
- 		if (drcs) {
+ 	case NL80211_IFTYPE_P2P_CLIENT:
++		switch (new_iftype) {
++		case NL80211_IFTYPE_ADHOC:
++		case NL80211_IFTYPE_STATION:
++			return true;
++		case NL80211_IFTYPE_P2P_GO:
++			return true;
++		case NL80211_IFTYPE_AP:
++			return adapter->curr_iface_comb.uap_intf !=
++			       adapter->iface_limit.uap_intf;
++		default:
++			return false;
++		}
++
+ 	case NL80211_IFTYPE_P2P_GO:
+ 		switch (new_iftype) {
+ 		case NL80211_IFTYPE_ADHOC:
+ 		case NL80211_IFTYPE_STATION:
+ 			return true;
++		case NL80211_IFTYPE_P2P_CLIENT:
++			return true;
+ 		case NL80211_IFTYPE_AP:
+ 			return adapter->curr_iface_comb.uap_intf !=
+ 			       adapter->iface_limit.uap_intf;
+@@ -1269,6 +1284,24 @@ mwifiex_cfg80211_change_virtual_intf(struct wiphy *wiphy,
+ 		}
+ 
+ 	case NL80211_IFTYPE_P2P_CLIENT:
++		if (mwifiex_cfg80211_deinit_p2p(priv))
++			return -EFAULT;
++
++		switch (type) {
++		case NL80211_IFTYPE_ADHOC:
++		case NL80211_IFTYPE_STATION:
++			return mwifiex_change_vif_to_sta_adhoc(dev, curr_iftype,
++							       type, params);
++		case NL80211_IFTYPE_P2P_GO:
++			return mwifiex_change_vif_to_p2p(dev, curr_iftype,
++							 type, params);
++		case NL80211_IFTYPE_AP:
++			return mwifiex_change_vif_to_ap(dev, curr_iftype, type,
++							params);
++		default:
++			goto errnotsupp;
++		}
++
+ 	case NL80211_IFTYPE_P2P_GO:
+ 		if (mwifiex_cfg80211_deinit_p2p(priv))
+ 			return -EFAULT;
+@@ -1278,6 +1311,9 @@ mwifiex_cfg80211_change_virtual_intf(struct wiphy *wiphy,
+ 		case NL80211_IFTYPE_STATION:
+ 			return mwifiex_change_vif_to_sta_adhoc(dev, curr_iftype,
+ 							       type, params);
++		case NL80211_IFTYPE_P2P_CLIENT:
++			return mwifiex_change_vif_to_p2p(dev, curr_iftype,
++							 type, params);
+ 		case NL80211_IFTYPE_AP:
+ 			return mwifiex_change_vif_to_ap(dev, curr_iftype, type,
+ 							params);
 -- 
-2.30.2
+2.31.0
+
+From 90aec18ec01a9c8127385134d055fc80e1b8e527 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Fri, 26 Mar 2021 15:31:08 +0100
+Subject: [PATCH] mwifiex: Handle interface type changes from AP to STATION
+
+Looks like this case was simply overseen, so handle it, too.
+
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/cfg80211.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+index ec5ed00b4b89..0fc554abfea3 100644
+--- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
++++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+@@ -1272,6 +1272,7 @@ mwifiex_cfg80211_change_virtual_intf(struct wiphy *wiphy,
+ 	case NL80211_IFTYPE_AP:
+ 		switch (type) {
+ 		case NL80211_IFTYPE_ADHOC:
++		case NL80211_IFTYPE_STATION:
+ 			return mwifiex_change_vif_to_sta_adhoc(dev, curr_iftype,
+ 							       type, params);
+ 			break;
+-- 
+2.31.0
+
+From 5dee0442a2575000fbd6c90302030ae5740c6af9 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Fri, 26 Mar 2021 15:32:16 +0100
+Subject: [PATCH] mwifiex: Properly initialize private structure on interface
+ type changes
+
+When creating a new virtual interface in mwifiex_add_virtual_intf(), we
+update our internal driver states like bss_type, bss_priority, bss_role
+and bss_mode to reflect the mode the firmware will be set to.
+
+When switching virtual interface mode using
+mwifiex_init_new_priv_params() though, we currently only update bss_mode
+and bss_role. In order for the interface mode switch to actually work,
+we also need to update bss_type to its proper value, so do that.
+
+This fixes a crash of the firmware (because the driver tries to execute
+commands that are invalid in AP mode) when switching from station mode
+to AP mode.
+
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/cfg80211.c | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+index 0fc554abfea3..7c6d31eb058c 100644
+--- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
++++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+@@ -912,16 +912,20 @@ mwifiex_init_new_priv_params(struct mwifiex_private *priv,
+ 	switch (type) {
+ 	case NL80211_IFTYPE_STATION:
+ 	case NL80211_IFTYPE_ADHOC:
+-		priv->bss_role =  MWIFIEX_BSS_ROLE_STA;
++		priv->bss_role = MWIFIEX_BSS_ROLE_STA;
++		priv->bss_type = MWIFIEX_BSS_TYPE_STA;
+ 		break;
+ 	case NL80211_IFTYPE_P2P_CLIENT:
+-		priv->bss_role =  MWIFIEX_BSS_ROLE_STA;
++		priv->bss_role = MWIFIEX_BSS_ROLE_STA;
++		priv->bss_type = MWIFIEX_BSS_TYPE_P2P;
+ 		break;
+ 	case NL80211_IFTYPE_P2P_GO:
+-		priv->bss_role =  MWIFIEX_BSS_ROLE_UAP;
++		priv->bss_role = MWIFIEX_BSS_ROLE_UAP;
++		priv->bss_type = MWIFIEX_BSS_TYPE_P2P;
+ 		break;
+ 	case NL80211_IFTYPE_AP:
+ 		priv->bss_role = MWIFIEX_BSS_ROLE_UAP;
++		priv->bss_type = MWIFIEX_BSS_TYPE_UAP;
+ 		break;
+ 	default:
+ 		mwifiex_dbg(adapter, ERROR,
+-- 
+2.31.0
+
+From d4935b972499b2a37a4f088d842909b708f23bc5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Sat, 27 Mar 2021 12:19:14 +0100
+Subject: [PATCH] mwifiex: Fix copy-paste mistake when creating virtual
+ interface
+
+The BSS priority here for a new P2P_CLIENT device was accidentally set
+to an enum that's certainly not meant for this. Since
+MWIFIEX_BSS_ROLE_STA is 0 anyway, we can just set the bss_priority to 0
+instead here.
+
+Patchset: wifi
+---
+ drivers/net/wireless/marvell/mwifiex/cfg80211.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/net/wireless/marvell/mwifiex/cfg80211.c b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+index 7c6d31eb058c..16a94f06a518 100644
+--- a/drivers/net/wireless/marvell/mwifiex/cfg80211.c
++++ b/drivers/net/wireless/marvell/mwifiex/cfg80211.c
+@@ -3017,7 +3017,7 @@ struct wireless_dev *mwifiex_add_virtual_intf(struct wiphy *wiphy,
+ 		priv->bss_type = MWIFIEX_BSS_TYPE_P2P;
+ 
+ 		priv->frame_type = MWIFIEX_DATA_FRAME_TYPE_ETH_II;
+-		priv->bss_priority = MWIFIEX_BSS_ROLE_STA;
++		priv->bss_priority = 0;
+ 		priv->bss_role = MWIFIEX_BSS_ROLE_STA;
+ 		priv->bss_started = 0;
+ 
+-- 
+2.31.0
 
