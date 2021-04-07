@@ -1,4 +1,4 @@
-From 40e6f0f5994a24675197fd731493c9f767b0b8f5 Mon Sep 17 00:00:00 2001
+From 900419eddae69fa11f7e14b3ba56b0bf72815f3e Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:15:40 +0200
 Subject: [PATCH] ACPI: Fix buffer/integer type mismatch
@@ -79,9 +79,9 @@ index b272c329d45d..cf547883a993 100644
  		} else {	/* IPMI */
  
 -- 
-2.31.0
+2.31.1
 
-From 1eda8dd25f1d24f5d4fc533d459e9139671c370d Mon Sep 17 00:00:00 2001
+From 68acbd80a83eb4f71f530c64b0ad1141fd4d8861 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 24 Sep 2019 17:38:12 +0200
 Subject: [PATCH] serdev: Add ACPI devices by ResourceSource field
@@ -267,9 +267,9 @@ index c66a04d24f1d..1b18d12d217f 100644
  	if (!ctrl->serdev)
  		return -ENODEV;
 -- 
-2.31.0
+2.31.1
 
-From 9435d33972cfa3f7ec1d54c0f5b63aa8bae8de6b Mon Sep 17 00:00:00 2001
+From 247b3d408a582c35f84431e9ab84d084c71a0222 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] Add file2alias support for Surface Aggregator devices
@@ -368,9 +368,9 @@ index 7f40b6aab689..76e3b1d7db45 100644
  
  /* Create MODULE_ALIAS() statements.
 -- 
-2.31.0
+2.31.1
 
-From 0b61b08d16cf3e36d8aad06b5068f57f0e8eaaa2 Mon Sep 17 00:00:00 2001
+From b0d09c327b317a95163eb5468929158a0dfd2260 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] platform/x86: Add support for Surface System Aggregator
@@ -432,8 +432,8 @@ Patchset: surface-sam
  drivers/platform/x86/surface_perfmode.c       |  122 +
  drivers/power/supply/Kconfig                  |   32 +
  drivers/power/supply/Makefile                 |    2 +
- drivers/power/supply/surface_battery.c        |  897 ++++++
- drivers/power/supply/surface_charger.c        |  296 ++
+ drivers/power/supply/surface_battery.c        |  806 ++++++
+ drivers/power/supply/surface_charger.c        |  282 ++
  include/linux/mod_devicetable.h               |    5 +-
  include/linux/surface_acpi_notify.h           |   39 +
  include/linux/surface_aggregator/controller.h |  824 ++++++
@@ -443,7 +443,7 @@ Patchset: surface-sam
  include/uapi/linux/surface_aggregator/dtx.h   |  146 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 55 files changed, 19213 insertions(+), 7 deletions(-)
+ 55 files changed, 19108 insertions(+), 7 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -15147,7 +15147,7 @@ index 000000000000..1b87bdd6dd1e
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/platform/x86/surface_dtx.c b/drivers/platform/x86/surface_dtx.c
 new file mode 100644
-index 000000000000..93e365e070f1
+index 000000000000..f6abd2d850a3
 --- /dev/null
 +++ b/drivers/platform/x86/surface_dtx.c
 @@ -0,0 +1,1287 @@
@@ -15800,7 +15800,7 @@ index 000000000000..93e365e070f1
 +
 +	default:
 +		return 0;
-+	};
++	}
 +
 +	if (in->length != len) {
 +		dev_err(ddev->dev,
@@ -16619,10 +16619,10 @@ index a26b402c45d9..c8dd853ee382 100644
 +obj-$(CONFIG_CHARGER_SURFACE)	+= surface_charger.o
 diff --git a/drivers/power/supply/surface_battery.c b/drivers/power/supply/surface_battery.c
 new file mode 100644
-index 000000000000..bcbd7ca1f9f1
+index 000000000000..0aef4afdc6bf
 --- /dev/null
 +++ b/drivers/power/supply/surface_battery.c
-@@ -0,0 +1,897 @@
+@@ -0,0 +1,806 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Battery driver for 7th-generation Microsoft Surface devices via Surface
@@ -16768,7 +16768,7 @@ index 000000000000..bcbd7ca1f9f1
 +/* -- State management. ----------------------------------------------------- */
 +
 +/*
-+ * Delay for battery update quirk. See spwr_battery_recheck_adapter() below
++ * Delay for battery update quirk. See spwr_external_power_changed() below
 + * for more details.
 + */
 +#define SPWR_AC_BAT_UPDATE_DELAY	msecs_to_jiffies(5000)
@@ -16961,21 +16961,6 @@ index 000000000000..bcbd7ca1f9f1
 +	return status;
 +}
 +
-+static int spwr_battery_recheck_adapter(struct spwr_battery_device *bat)
-+{
-+	/*
-+	 * Handle battery update quirk: When the battery is fully charged (or
-+	 * charged up to the limit imposed by the UEFI battery limit) and the
-+	 * adapter is plugged in or removed, the EC does not send a separate
-+	 * event for the state (charging/discharging) change. Furthermore it
-+	 * may take some time until the state is updated on the battery.
-+	 * Schedule an update to solve this.
-+	 */
-+
-+	schedule_delayed_work(&bat->update_work, SPWR_AC_BAT_UPDATE_DELAY);
-+	return 0;
-+}
-+
 +static u32 spwr_notify_bat(struct ssam_event_notifier *nf, const struct ssam_event *event)
 +{
 +	struct spwr_battery_device *bat = container_of(nf, struct spwr_battery_device, notif);
@@ -16983,18 +16968,6 @@ index 000000000000..bcbd7ca1f9f1
 +
 +	dev_dbg(&bat->sdev->dev, "power event (cid = %#04x, iid = %#04x, tid = %#04x)\n",
 +		event->command_id, event->instance_id, event->target_id);
-+
-+	/* Handled here, needs to be handled for all targets/instances. */
-+	if (event->command_id == SAM_EVENT_CID_BAT_ADP) {
-+		status = spwr_battery_recheck_adapter(bat);
-+		return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
-+	}
-+
-+	if (bat->sdev->uid.target != event->target_id)
-+		return 0;
-+
-+	if (bat->sdev->uid.instance != event->instance_id)
-+		return 0;
 +
 +	switch (event->command_id) {
 +	case SAM_EVENT_CID_BAT_BIX:
@@ -17036,11 +17009,28 @@ index 000000000000..bcbd7ca1f9f1
 +	bat = container_of(dwork, struct spwr_battery_device, update_work);
 +
 +	status = spwr_battery_update_bst(bat, false);
-+	if (!status)
-+		power_supply_changed(bat->psy);
-+
-+	if (status)
++	if (status) {
 +		dev_err(&bat->sdev->dev, "failed to update battery state: %d\n", status);
++		return;
++	}
++
++	power_supply_changed(bat->psy);
++}
++
++static void spwr_external_power_changed(struct power_supply *psy)
++{
++	struct spwr_battery_device *bat = power_supply_get_drvdata(psy);
++
++	/*
++	 * Handle battery update quirk: When the battery is fully charged (or
++	 * charged up to the limit imposed by the UEFI battery limit) and the
++	 * adapter is plugged in or removed, the EC does not send a separate
++	 * event for the state (charging/discharging) change. Furthermore it
++	 * may take some time until the state is updated on the battery.
++	 * Schedule an update to solve this.
++	 */
++
++	schedule_delayed_work(&bat->update_work, SPWR_AC_BAT_UPDATE_DELAY);
 +}
 +
 +
@@ -17134,10 +17124,10 @@ index 000000000000..bcbd7ca1f9f1
 +	lockdep_assert_held(&bat->lock);
 +
 +	if (full_cap == 0 || full_cap == SPWR_BATTERY_VALUE_UNKNOWN)
-+		return -ENODEV;
++		return -ENODATA;
 +
 +	if (remaining_cap == SPWR_BATTERY_VALUE_UNKNOWN)
-+		return -ENODEV;
++		return -ENODATA;
 +
 +	return remaining_cap * 100 / full_cap;
 +}
@@ -17198,7 +17188,7 @@ index 000000000000..bcbd7ca1f9f1
 +		if (value != SPWR_BATTERY_VALUE_UNKNOWN)
 +			val->intval = value;
 +		else
-+			status = -ENODEV;
++			status = -ENODATA;
 +		break;
 +
 +	case POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN:
@@ -17206,7 +17196,7 @@ index 000000000000..bcbd7ca1f9f1
 +		if (value != SPWR_BATTERY_VALUE_UNKNOWN)
 +			val->intval = value * 1000;
 +		else
-+			status = -ENODEV;
++			status = -ENODATA;
 +		break;
 +
 +	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
@@ -17214,7 +17204,7 @@ index 000000000000..bcbd7ca1f9f1
 +		if (value != SPWR_BATTERY_VALUE_UNKNOWN)
 +			val->intval = value * 1000;
 +		else
-+			status = -ENODEV;
++			status = -ENODATA;
 +		break;
 +
 +	case POWER_SUPPLY_PROP_CURRENT_NOW:
@@ -17223,7 +17213,7 @@ index 000000000000..bcbd7ca1f9f1
 +		if (value != SPWR_BATTERY_VALUE_UNKNOWN)
 +			val->intval = value * 1000;
 +		else
-+			status = -ENODEV;
++			status = -ENODATA;
 +		break;
 +
 +	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
@@ -17232,7 +17222,7 @@ index 000000000000..bcbd7ca1f9f1
 +		if (value != SPWR_BATTERY_VALUE_UNKNOWN)
 +			val->intval = value * 1000;
 +		else
-+			status = -ENODEV;
++			status = -ENODATA;
 +		break;
 +
 +	case POWER_SUPPLY_PROP_CHARGE_FULL:
@@ -17241,7 +17231,7 @@ index 000000000000..bcbd7ca1f9f1
 +		if (value != SPWR_BATTERY_VALUE_UNKNOWN)
 +			val->intval = value * 1000;
 +		else
-+			status = -ENODEV;
++			status = -ENODATA;
 +		break;
 +
 +	case POWER_SUPPLY_PROP_CHARGE_NOW:
@@ -17250,7 +17240,7 @@ index 000000000000..bcbd7ca1f9f1
 +		if (value != SPWR_BATTERY_VALUE_UNKNOWN)
 +			val->intval = value * 1000;
 +		else
-+			status = -ENODEV;
++			status = -ENODATA;
 +		break;
 +
 +	case POWER_SUPPLY_PROP_CAPACITY:
@@ -17284,57 +17274,6 @@ index 000000000000..bcbd7ca1f9f1
 +}
 +
 +
-+/* -- Alarm attribute. ------------------------------------------------------ */
-+
-+static ssize_t spwr_battery_alarm_show(struct device *dev, struct device_attribute *attr, char *buf)
-+{
-+	struct power_supply *psy = dev_get_drvdata(dev);
-+	struct spwr_battery_device *bat = power_supply_get_drvdata(psy);
-+	int status;
-+
-+	mutex_lock(&bat->lock);
-+	status = scnprintf(buf, PAGE_SIZE, "%d\n", bat->alarm * 1000);
-+	mutex_unlock(&bat->lock);
-+
-+	return status;
-+}
-+
-+static ssize_t spwr_battery_alarm_store(struct device *dev, struct device_attribute *attr,
-+					const char *buf, size_t count)
-+{
-+	struct power_supply *psy = dev_get_drvdata(dev);
-+	struct spwr_battery_device *bat = power_supply_get_drvdata(psy);
-+	unsigned long value;
-+	int status;
-+
-+	status = kstrtoul(buf, 0, &value);
-+	if (status)
-+		return status;
-+
-+	mutex_lock(&bat->lock);
-+
-+	if (!spwr_battery_present(bat)) {
-+		mutex_unlock(&bat->lock);
-+		return -ENODEV;
-+	}
-+
-+	status = spwr_battery_set_alarm_unlocked(bat, value / 1000);
-+	if (status) {
-+		mutex_unlock(&bat->lock);
-+		return status;
-+	}
-+
-+	mutex_unlock(&bat->lock);
-+	return count;
-+}
-+
-+static const struct device_attribute alarm_attr = {
-+	.attr = {.name = "alarm", .mode = 0644},
-+	.show = spwr_battery_alarm_show,
-+	.store = spwr_battery_alarm_store,
-+};
-+
-+
 +/* -- Device setup. --------------------------------------------------------- */
 +
 +static void spwr_battery_init(struct spwr_battery_device *bat, struct ssam_device *sdev,
@@ -17350,7 +17289,7 @@ index 000000000000..bcbd7ca1f9f1
 +	bat->notif.event.reg = registry;
 +	bat->notif.event.id.target_category = sdev->uid.category;
 +	bat->notif.event.id.instance = 0;
-+	bat->notif.event.mask = SSAM_EVENT_MASK_NONE;
++	bat->notif.event.mask = SSAM_EVENT_MASK_STRICT;
 +	bat->notif.event.flags = SSAM_EVENT_SEQUENCED;
 +
 +	bat->psy_desc.name = bat->name;
@@ -17358,11 +17297,6 @@ index 000000000000..bcbd7ca1f9f1
 +	bat->psy_desc.get_property = spwr_battery_get_property;
 +
 +	INIT_DELAYED_WORK(&bat->update_work, spwr_battery_update_bst_workfn);
-+}
-+
-+static void spwr_battery_destroy(struct spwr_battery_device *bat)
-+{
-+	mutex_destroy(&bat->lock);
 +}
 +
 +static int spwr_battery_register(struct spwr_battery_device *bat)
@@ -17400,6 +17334,8 @@ index 000000000000..bcbd7ca1f9f1
 +
 +	mutex_unlock(&bat->lock);
 +
++	bat->psy_desc.external_power_changed = spwr_external_power_changed;
++
 +	switch (get_unaligned_le32(&bat->bix.power_unit)) {
 +	case SAM_BATTERY_POWER_UNIT_mW:
 +		bat->psy_desc.properties = spwr_battery_props_eng;
@@ -17418,33 +17354,11 @@ index 000000000000..bcbd7ca1f9f1
 +	}
 +
 +	psy_cfg.drv_data = bat;
-+	bat->psy = power_supply_register(&bat->sdev->dev, &bat->psy_desc, &psy_cfg);
++	bat->psy = devm_power_supply_register(&bat->sdev->dev, &bat->psy_desc, &psy_cfg);
 +	if (IS_ERR(bat->psy))
 +		return PTR_ERR(bat->psy);
 +
-+	status = ssam_notifier_register(bat->sdev->ctrl, &bat->notif);
-+	if (status)
-+		goto err_notif;
-+
-+	status = device_create_file(&bat->psy->dev, &alarm_attr);
-+	if (status)
-+		goto err_file;
-+
-+	return 0;
-+
-+err_file:
-+	ssam_notifier_unregister(bat->sdev->ctrl, &bat->notif);
-+err_notif:
-+	power_supply_unregister(bat->psy);
-+	return status;
-+}
-+
-+static void spwr_battery_unregister(struct spwr_battery_device *bat)
-+{
-+	ssam_notifier_unregister(bat->sdev->ctrl, &bat->notif);
-+	cancel_delayed_work_sync(&bat->update_work);
-+	device_remove_file(&bat->psy->dev, &alarm_attr);
-+	power_supply_unregister(bat->psy);
++	return ssam_notifier_register(bat->sdev->ctrl, &bat->notif);
 +}
 +
 +
@@ -17460,7 +17374,6 @@ index 000000000000..bcbd7ca1f9f1
 +{
 +	const struct spwr_psy_properties *p;
 +	struct spwr_battery_device *bat;
-+	int status;
 +
 +	p = ssam_device_get_match_data(sdev);
 +	if (!p)
@@ -17473,19 +17386,15 @@ index 000000000000..bcbd7ca1f9f1
 +	spwr_battery_init(bat, sdev, p->registry, p->name);
 +	ssam_device_set_drvdata(sdev, bat);
 +
-+	status = spwr_battery_register(bat);
-+	if (status)
-+		spwr_battery_destroy(bat);
-+
-+	return status;
++	return spwr_battery_register(bat);
 +}
 +
 +static void surface_battery_remove(struct ssam_device *sdev)
 +{
 +	struct spwr_battery_device *bat = ssam_device_get_drvdata(sdev);
 +
-+	spwr_battery_unregister(bat);
-+	spwr_battery_destroy(bat);
++	ssam_notifier_unregister(sdev->ctrl, &bat->notif);
++	cancel_delayed_work_sync(&bat->update_work);
 +}
 +
 +static const struct spwr_psy_properties spwr_psy_props_bat1 = {
@@ -17522,10 +17431,10 @@ index 000000000000..bcbd7ca1f9f1
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/power/supply/surface_charger.c b/drivers/power/supply/surface_charger.c
 new file mode 100644
-index 000000000000..982f9b9ef6f5
+index 000000000000..4b30b482b457
 --- /dev/null
 +++ b/drivers/power/supply/surface_charger.c
-@@ -0,0 +1,296 @@
+@@ -0,0 +1,282 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * AC driver for 7th-generation Microsoft Surface devices via Surface System
@@ -17694,6 +17603,11 @@ index 000000000000..982f9b9ef6f5
 +
 +/* -- Device setup. --------------------------------------------------------- */
 +
++static char *battery_supplied_to[] = {
++	"BAT1",
++	"BAT2",
++};
++
 +static void spwr_ac_init(struct spwr_ac_device *ac, struct ssam_device *sdev,
 +			 struct ssam_event_registry registry, const char *name)
 +{
@@ -17717,11 +17631,6 @@ index 000000000000..982f9b9ef6f5
 +	ac->psy_desc.get_property = spwr_ac_get_property;
 +}
 +
-+static void spwr_ac_destroy(struct spwr_ac_device *ac)
-+{
-+	mutex_destroy(&ac->lock);
-+}
-+
 +static int spwr_ac_register(struct spwr_ac_device *ac)
 +{
 +	struct power_supply_config psy_cfg = {};
@@ -17737,22 +17646,14 @@ index 000000000000..982f9b9ef6f5
 +		return -ENODEV;
 +
 +	psy_cfg.drv_data = ac;
-+	ac->psy = power_supply_register(&ac->sdev->dev, &ac->psy_desc, &psy_cfg);
++	psy_cfg.supplied_to = battery_supplied_to;
++	psy_cfg.num_supplicants = ARRAY_SIZE(battery_supplied_to);
++
++	ac->psy = devm_power_supply_register(&ac->sdev->dev, &ac->psy_desc, &psy_cfg);
 +	if (IS_ERR(ac->psy))
 +		return PTR_ERR(ac->psy);
 +
-+	status = ssam_notifier_register(ac->sdev->ctrl, &ac->notif);
-+	if (status)
-+		power_supply_unregister(ac->psy);
-+
-+	return status;
-+}
-+
-+static int spwr_ac_unregister(struct spwr_ac_device *ac)
-+{
-+	ssam_notifier_unregister(ac->sdev->ctrl, &ac->notif);
-+	power_supply_unregister(ac->psy);
-+	return 0;
++	return ssam_notifier_register(ac->sdev->ctrl, &ac->notif);
 +}
 +
 +
@@ -17768,7 +17669,6 @@ index 000000000000..982f9b9ef6f5
 +{
 +	const struct spwr_psy_properties *p;
 +	struct spwr_ac_device *ac;
-+	int status;
 +
 +	p = ssam_device_get_match_data(sdev);
 +	if (!p)
@@ -17781,19 +17681,14 @@ index 000000000000..982f9b9ef6f5
 +	spwr_ac_init(ac, sdev, p->registry, p->name);
 +	ssam_device_set_drvdata(sdev, ac);
 +
-+	status = spwr_ac_register(ac);
-+	if (status)
-+		spwr_ac_destroy(ac);
-+
-+	return status;
++	return spwr_ac_register(ac);
 +}
 +
 +static void surface_ac_remove(struct ssam_device *sdev)
 +{
 +	struct spwr_ac_device *ac = ssam_device_get_drvdata(sdev);
 +
-+	spwr_ac_unregister(ac);
-+	spwr_ac_destroy(ac);
++	ssam_notifier_unregister(sdev->ctrl, &ac->notif);
 +}
 +
 +static const struct spwr_psy_properties spwr_psy_props_adp1 = {
@@ -20106,5 +20001,5 @@ index 76e3b1d7db45..f171616ab318 100644
  	ADD(alias, "f", match_flags & SSAM_MATCH_FUNCTION, function);
  
 -- 
-2.31.0
+2.31.1
 
