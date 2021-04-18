@@ -19,6 +19,7 @@ Follow the instructions below to install the latest kernel.
 * Surface Pro 2017
 * Surface Pro 6
 * Surface Pro 7
+* Surface Pro 7+
 * Surface Studio
 
 ### Features / What's Working
