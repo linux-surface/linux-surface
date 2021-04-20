@@ -30,13 +30,14 @@ See the [feature matrix](https://github.com/linux-surface/linux-surface/wiki/Sup
 
 * For the most part, things are tested on a Surface Book 2.
   While most things are reportedly fully working on other devices, your mileage may vary.
-  Please look at the issues list for possible exceptions. 
+  Please look at the issues list for possible exceptions.
 
 ## Installation and Setup
 
 We provide package repositories for the patched kernel and other utilities.
-Please refer to the [detailed installation and setup guide][wiki-setup]. There,
-you may also find device-specific caveats.
+Please refer to the [detailed installation and setup guide][wiki-setup].
+There, you may also find device-specific caveats.
+After installation, you may want to have a look at the [wiki][wiki] and the `contrib/` directory for useful tweaks.
 
 If you want to compile the kernel yourself (e.g. if your distribution is not supported), please have a look at the [wiki][wiki-compiling].
 
@@ -59,6 +60,7 @@ These patches fall thus, if not explicitly stated otherwise, under the license o
 Please refer to the specific patch and source in question for further information.
 License texts can be obtained at https://github.com/torvalds/linux/tree/master/LICENSES.
 
+[wiki-setup]: https://github.com/linux-surface/linux-surface/wiki
 [wiki-setup]: https://github.com/linux-surface/linux-surface/wiki/Installation-and-Setup
 [wiki-compiling]: https://github.com/linux-surface/linux-surface/wiki/Compiling-the-Kernel-from-Source
 
