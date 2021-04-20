@@ -1,0 +1,142 @@
+#!/bin/sh
+#
+# One-shot automatic screen rotation
+#
+# If the attached keyboard is switched off, whenever the tablet is
+# rotated, it is best to put this command into the panel, because
+# hotkeys do not work.
+#
+# On Cinnamon, the 'Command Launcher' add-on can be used with the
+# following settings:
+#   Panel Icon:                         rotation-allowed-symbolic
+#   Tooltip:                            Set screen rotation
+#   Keyboard shortcut:                  unassigned | unassigned
+#   Show notification on completion:    NO
+#   Command:                            rotate-screen
+#   Run as root:                        NO
+#   Run in alternate directory:         NO
+#
+# Anchestors:
+#   mildmojo
+#   https://gist.github.com/mildmojo/48e9025070a2ba40795c
+#   mbinnun:
+#   https://gist.github.com/mildmojo/48e9025070a2ba40795c#gistcomment-2694429
+#
+
+# Check for commands needed
+GDBUS=`which gdbus`
+if test -z $GDBUS; then
+    echo "Command 'gdbus' not found."
+    exit 1
+fi
+
+XINPUT=`which xinput`
+if test -z $XINPUT; then
+    echo "Command 'xinput' not found."
+    exit 2
+fi
+
+XRANDR=`which xrandr`
+if test -z $GDBUS; then
+    echo "Command 'xrandr' not found."
+fi
+
+
+get_orientation () {
+    # Get the orientation from the DBus
+    #
+    # No options.
+
+    # DBus to query to get the current orientation
+    DBUS="--system --dest net.hadess.SensorProxy --object-path /net/hadess/SensorProxy"
+
+    # Check, if DBus is available
+    ORIENTATION=`$GDBUS call $DBUS \
+                        --method org.freedesktop.DBus.Properties.Get \
+                                 net.hadess.SensorProxy HasAccelerometer`
+    if test "$ORIENTATION" != "(<true>,)"; then
+        echo "No sensor available!"
+        exit 10
+    fi
+
+    # Get the orientation from the DBus
+    ORIENTATION=`$GDBUS call $DBUS \
+                        --method org.freedesktop.DBus.Properties.Get \
+                        net.hadess.SensorProxy AccelerometerOrientation`
+
+    # Release the DBus
+    $GDBUS call --system $DBUS --method net.hadess.SensorProxy.ReleaseAccelerometer > /dev/null
+
+    # Normalize the orientation
+    case $ORIENTATION in
+        "(<'normal'>,)")
+            ORIENTATION=normal
+            ;;
+        "(<'bottom-up'>,)")
+            ORIENTATION=inverted
+            ;;
+        "(<'left-up'>,)")
+            ORIENTATION=left
+            ;;
+        "(<'right-up'>,)")
+            ORIENTATION=right
+            ;;
+        *)
+            echo "Orientation $ORIENTATION unknown!"
+            exit 11
+    esac
+
+    # Return the orientation found
+    echo $ORIENTATION
+}
+
+
+do_rotate () {
+    # Rotate screen and pointers
+    #
+    # $1: The new orientation
+    # $2: The screen to rotate
+    # $3-: The pointers to rotate
+
+    TRANSFORM='Coordinate Transformation Matrix'
+
+    ORIENTATION=$1
+    shift
+
+    # Rotate the screen
+    $XRANDR --output $1 --rotate $ORIENTATION
+    shift
+
+    # Rotate all pointers
+    while test $# -gt 0; do
+        case $ORIENTATION in
+            normal)
+                $XINPUT set-prop $1 "$TRANSFORM" 1 0 0 0 1 0 0 0 1
+                ;;
+            inverted)
+                $XINPUT set-prop $1 "$TRANSFORM" -1 0 1 0 -1 1 0 0 1
+                ;;
+            left)
+                $XINPUT set-prop $1 "$TRANSFORM" 0 -1 1 1 0 0 0 0 1
+                ;;
+            right)
+                $XINPUT set-prop $1 "$TRANSFORM" 0 1 0 -1 0 1 0 0 1
+                ;;
+        esac
+        shift
+    done
+}
+
+
+# Get the tablet's orientation
+ORIENTATION=`get_orientation`
+
+# Get all pointers
+POINTERS=`$XINPUT | grep slave | grep pointer | sed -e 's/^.*id=\([[:digit:]]\+\).*$/\1/'`
+
+# Get the display and its orientation
+XDISPLAY=`$XRANDR --current --verbose | grep primary | cut --delimiter=" " -f1`
+
+# Rotate the screen and pointers
+echo "Rotate display $XDISPLAY to $ORIENTATION orientation (Pointers: `echo $POINTERS | sed 's/\n/ /g'`)"
+do_rotate $ORIENTATION $XDISPLAY $POINTERS
