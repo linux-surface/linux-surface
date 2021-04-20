@@ -60,7 +60,7 @@ These patches fall thus, if not explicitly stated otherwise, under the license o
 Please refer to the specific patch and source in question for further information.
 License texts can be obtained at https://github.com/torvalds/linux/tree/master/LICENSES.
 
-[wiki-setup]: https://github.com/linux-surface/linux-surface/wiki
+[wiki]: https://github.com/linux-surface/linux-surface/wiki
 [wiki-setup]: https://github.com/linux-surface/linux-surface/wiki/Installation-and-Setup
 [wiki-compiling]: https://github.com/linux-surface/linux-surface/wiki/Compiling-the-Kernel-from-Source
 
