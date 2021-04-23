@@ -1,4 +1,4 @@
-From 82f9f57a8d2911fd0b1d13b5461e1d6af7cfc889 Mon Sep 17 00:00:00 2001
+From 66bdcf71ffb02cb1f87325a11d12a340c968301e Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] Add file2alias support for Surface Aggregator Module devices
@@ -99,7 +99,7 @@ index 2417dd1dee33..a6c583362b92 100644
 -- 
 2.31.1
 
-From 05a2242bbd6bb5823f3557cc7f480904e51d3d25 Mon Sep 17 00:00:00 2001
+From 387d68285ce1da37755ba55bbe3491c898dd9aee Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] platform/x86: Add support for Surface System Aggregator
@@ -3031,7 +3031,7 @@ index 000000000000..3477b31611ae
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/hid/surface-hid/surface_hid_core.c b/drivers/hid/surface-hid/surface_hid_core.c
 new file mode 100644
-index 000000000000..7b27ec392232
+index 000000000000..5571e74abe91
 --- /dev/null
 +++ b/drivers/hid/surface-hid/surface_hid_core.c
 @@ -0,0 +1,272 @@
@@ -3205,9 +3205,9 @@ index 000000000000..7b27ec392232
 +
 +	shid->hid->dev.parent = shid->dev;
 +	shid->hid->bus = BUS_HOST;
-+	shid->hid->vendor = cpu_to_le16(shid->attrs.vendor);
-+	shid->hid->product = cpu_to_le16(shid->attrs.product);
-+	shid->hid->version = cpu_to_le16(shid->hid_desc.hid_version);
++	shid->hid->vendor = get_unaligned_le16(&shid->attrs.vendor);
++	shid->hid->product = get_unaligned_le16(&shid->attrs.product);
++	shid->hid->version = get_unaligned_le16(&shid->hid_desc.hid_version);
 +	shid->hid->country = shid->hid_desc.country_code;
 +
 +	snprintf(shid->hid->name, sizeof(shid->hid->name), "Microsoft Surface %04X:%04X",
@@ -5273,7 +5273,7 @@ index 000000000000..7712baaed6a5
 +#endif /* _SURFACE_AGGREGATOR_BUS_H */
 diff --git a/drivers/platform/x86/surface_aggregator/controller.c b/drivers/platform/x86/surface_aggregator/controller.c
 new file mode 100644
-index 000000000000..aa6f37b4f46e
+index 000000000000..88ec47cae5bf
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/controller.c
 @@ -0,0 +1,2579 @@
@@ -6319,7 +6319,7 @@ index 000000000000..aa6f37b4f46e
 +	union acpi_object *obj;
 +	u64 val;
 +
-+	if (!(funcs & BIT(func)))
++	if (!(funcs & BIT_ULL(func)))
 +		return 0; /* Not supported, leave *ret at its default value */
 +
 +	obj = acpi_evaluate_dsm_typed(handle, &SSAM_SSH_DSM_GUID,
@@ -16365,7 +16365,7 @@ index dd4b86318cd9..9fdd34956153 100644
 +obj-$(CONFIG_CHARGER_SURFACE)	+= surface_charger.o
 diff --git a/drivers/power/supply/surface_battery.c b/drivers/power/supply/surface_battery.c
 new file mode 100644
-index 000000000000..4116dd839ecd
+index 000000000000..7efa431a62b2
 --- /dev/null
 +++ b/drivers/power/supply/surface_battery.c
 @@ -0,0 +1,865 @@
@@ -17068,7 +17068,7 @@ index 000000000000..4116dd839ecd
 +	return count;
 +}
 +
-+DEVICE_ATTR_RW(alarm);
++static DEVICE_ATTR_RW(alarm);
 +
 +static struct attribute *spwr_battery_attrs[] = {
 +	&dev_attr_alarm.attr,
@@ -17173,7 +17173,7 @@ index 000000000000..4116dd839ecd
 +{
 +	return spwr_battery_recheck_full(dev_get_drvdata(dev));
 +}
-+SIMPLE_DEV_PM_OPS(surface_battery_pm_ops, NULL, surface_battery_resume);
++static SIMPLE_DEV_PM_OPS(surface_battery_pm_ops, NULL, surface_battery_resume);
 +
 +static int surface_battery_probe(struct ssam_device *sdev)
 +{
@@ -17236,7 +17236,7 @@ index 000000000000..4116dd839ecd
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/power/supply/surface_charger.c b/drivers/power/supply/surface_charger.c
 new file mode 100644
-index 000000000000..c2dd7e604d14
+index 000000000000..81a5b79822c9
 --- /dev/null
 +++ b/drivers/power/supply/surface_charger.c
 @@ -0,0 +1,282 @@
@@ -17468,7 +17468,7 @@ index 000000000000..c2dd7e604d14
 +{
 +	return spwr_ac_recheck(dev_get_drvdata(dev));
 +}
-+SIMPLE_DEV_PM_OPS(surface_ac_pm_ops, NULL, surface_ac_resume);
++static SIMPLE_DEV_PM_OPS(surface_ac_pm_ops, NULL, surface_ac_resume);
 +
 +static int surface_ac_probe(struct ssam_device *sdev)
 +{
