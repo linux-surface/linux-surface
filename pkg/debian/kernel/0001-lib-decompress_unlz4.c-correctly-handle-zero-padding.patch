@@ -1,0 +1,85 @@
+From 6d056d620ff6a61c84269f0cf71003829ffecd6a Mon Sep 17 00:00:00 2001
+From: Dimitri John Ledkov <xnox@ubuntu.com>
+Date: Thu, 14 Jan 2021 20:02:56 +0000
+Subject: [PATCH] lib/decompress_unlz4.c: correctly handle zero-padding around
+ initrds.
+
+lz4 compatible decompressor is simple. The format is underspecified and
+relies on EOF notification to determine when to stop. Initramfs buffer
+format[1] explicitly states that it can have arbitrary number of zero
+padding. Thus when operating without a fill function, be extra careful to
+ensure that sizes less than 4, or apperantly empty chunksizes are treated
+as EOF.
+
+To test this I have created two cpio initrds, first a normal one,
+main.cpio. And second one with just a single /test-file with content
+"second" second.cpio. Then i compressed both of them with gzip, and with
+lz4 -l. Then I created a padding of 4 bytes (dd if=/dev/zero of=pad4 bs=1
+count=4). To create four testcase initrds:
+
+ 1) main.cpio.gzip + extra.cpio.gzip = pad0.gzip
+ 2) main.cpio.lz4  + extra.cpio.lz4 = pad0.lz4
+ 3) main.cpio.gzip + pad4 + extra.cpio.gzip = pad4.gzip
+ 4) main.cpio.lz4  + pad4 + extra.cpio.lz4 = pad4.lz4
+
+The pad4 test-cases replicate the initrd load by grub, as it pads and
+aligns every initrd it loads.
+
+All of the above boot, however /test-file was not accessible in the initrd
+for the testcase #4, as decoding in lz4 decompressor failed. Also an error
+message printed which usually is harmless.
+
+Whith a patched kernel, all of the above testcases now pass, and /test-file
+is accessible.
+
+This fixes lz4 initrd decompress warning on every boot with grub. And more
+importantly this fixes inability to load multiple lz4 compressed initrds
+with grub.
+
+I guess I should convert above decompressor streams with/without padding
+into kunit tests, across all decompressor algorithms.
+
+[1] ./Documentation/driver-api/early-userspace/buffer-format.rst
+
+BugLink: https://bugs.launchpad.net/bugs/1835660
+Signed-off-by: Dimitri John Ledkov <xnox@ubuntu.com>
+---
+ lib/decompress_unlz4.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/lib/decompress_unlz4.c b/lib/decompress_unlz4.c
+index c0cfcfd486be..e6327391b6b6 100644
+--- a/lib/decompress_unlz4.c
++++ b/lib/decompress_unlz4.c
+@@ -112,6 +112,9 @@ STATIC inline int INIT unlz4(u8 *input, long in_len,
+ 				error("data corrupted");
+ 				goto exit_2;
+ 			}
++		} else if (size < 4) {
++			/* empty or end-of-file */
++			goto exit_3;
+ 		}
+ 
+ 		chunksize = get_unaligned_le32(inp);
+@@ -125,6 +128,10 @@ STATIC inline int INIT unlz4(u8 *input, long in_len,
+ 			continue;
+ 		}
+ 
++		if (!fill && chunksize == 0) {
++			/* empty or end-of-file */
++			goto exit_3;
++		}
+ 
+ 		if (posp)
+ 			*posp += 4;
+@@ -184,6 +191,7 @@ STATIC inline int INIT unlz4(u8 *input, long in_len,
+ 		}
+ 	}
+ 
++exit_3:
+ 	ret = 0;
+ exit_2:
+ 	if (!input)
+-- 
+2.31.1
+
