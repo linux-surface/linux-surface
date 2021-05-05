@@ -1,4 +1,4 @@
-From be3abd9293aed06324dbb1fd43a3139cfbd1f0d3 Mon Sep 17 00:00:00 2001
+From 1437ceaf262f797f286ddb4a6acba97fdfbe229b Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:15:40 +0200
 Subject: [PATCH] ACPI: Fix buffer/integer type mismatch
@@ -81,7 +81,7 @@ index b272c329d45d..cf547883a993 100644
 -- 
 2.31.1
 
-From 114cbb77add118206c5f0fffa33116c7014452ee Mon Sep 17 00:00:00 2001
+From ad7cb27c0a4b2287ebee6ad0256042062457d105 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 24 Sep 2019 17:38:12 +0200
 Subject: [PATCH] serdev: Add ACPI devices by ResourceSource field
@@ -269,7 +269,7 @@ index c66a04d24f1d..1b18d12d217f 100644
 -- 
 2.31.1
 
-From f65b49b8b0c90d2e8e6c78977e677542dde302d2 Mon Sep 17 00:00:00 2001
+From 97ed67be776dfde3f8d2af67393ec2c1572772ce Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] Add file2alias support for Surface Aggregator devices
@@ -370,7 +370,7 @@ index 7f40b6aab689..76e3b1d7db45 100644
 -- 
 2.31.1
 
-From 140baa02d4d494fb9213c7587dcfe97788bcbc5b Mon Sep 17 00:00:00 2001
+From a08fa84dd69b710cad8305cda692572b5475e708 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] platform/x86: Add support for Surface System Aggregator
@@ -432,7 +432,7 @@ Patchset: surface-sam
  drivers/platform/x86/surface_perfmode.c       |  122 +
  drivers/power/supply/Kconfig                  |   32 +
  drivers/power/supply/Makefile                 |    2 +
- drivers/power/supply/surface_battery.c        |  806 ++++++
+ drivers/power/supply/surface_battery.c        |  816 ++++++
  drivers/power/supply/surface_charger.c        |  282 ++
  include/linux/mod_devicetable.h               |    5 +-
  include/linux/surface_acpi_notify.h           |   39 +
@@ -443,7 +443,7 @@ Patchset: surface-sam
  include/uapi/linux/surface_aggregator/dtx.h   |  146 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 55 files changed, 19108 insertions(+), 7 deletions(-)
+ 55 files changed, 19118 insertions(+), 7 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -16619,10 +16619,10 @@ index a26b402c45d9..c8dd853ee382 100644
 +obj-$(CONFIG_CHARGER_SURFACE)	+= surface_charger.o
 diff --git a/drivers/power/supply/surface_battery.c b/drivers/power/supply/surface_battery.c
 new file mode 100644
-index 000000000000..749eb36538c9
+index 000000000000..1e48b2363f23
 --- /dev/null
 +++ b/drivers/power/supply/surface_battery.c
-@@ -0,0 +1,806 @@
+@@ -0,0 +1,816 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Battery driver for 7th-generation Microsoft Surface devices via Surface
@@ -16966,6 +16966,16 @@ index 000000000000..749eb36538c9
 +	struct spwr_battery_device *bat = container_of(nf, struct spwr_battery_device, notif);
 +	int status;
 +
++	/*
++	 * We cannot use strict matching when registering the notifier as the
++	 * EC expects us to register it against instance ID 0. Strict matching
++	 * would thus drop events, as those may have non-zero instance IDs in
++	 * this subsystem. So we need to check the instance ID of the event
++	 * here manually.
++	 */
++	if (event->instance_id != bat->sdev->uid.instance)
++		return 0;
++
 +	dev_dbg(&bat->sdev->dev, "power event (cid = %#04x, iid = %#04x, tid = %#04x)\n",
 +		event->command_id, event->instance_id, event->target_id);
 +
@@ -17288,8 +17298,8 @@ index 000000000000..749eb36538c9
 +	bat->notif.base.fn = spwr_notify_bat;
 +	bat->notif.event.reg = registry;
 +	bat->notif.event.id.target_category = sdev->uid.category;
-+	bat->notif.event.id.instance = 0;
-+	bat->notif.event.mask = SSAM_EVENT_MASK_STRICT;
++	bat->notif.event.id.instance = 0;	/* need to register with instance 0 */
++	bat->notif.event.mask = SSAM_EVENT_MASK_TARGET;
 +	bat->notif.event.flags = SSAM_EVENT_SEQUENCED;
 +
 +	bat->psy_desc.name = bat->name;
