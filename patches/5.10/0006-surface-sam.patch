@@ -1,4 +1,4 @@
-From c8c74bacbdc27b274a2b21bab82cad71837a5eb0 Mon Sep 17 00:00:00 2001
+From b27b0f0c3f32e8e3a8cebfc99b42944770834ae9 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] Add file2alias support for Surface Aggregator Module devices
@@ -99,7 +99,7 @@ index 2417dd1dee33..a6c583362b92 100644
 -- 
 2.31.1
 
-From e7e9b8d8f15fbacd2bc1c7cfdc3990dd5df082b1 Mon Sep 17 00:00:00 2001
+From 565972a447ea3859d213bb0784e456e2e875a29b Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] platform/x86: Add support for Surface System Aggregator
@@ -129,6 +129,8 @@ Patchset: surface-sam
  .../surface_aggregator/internal.rst           |  577 ++++
  .../surface_aggregator/overview.rst           |   77 +
  .../driver-api/surface_aggregator/ssh.rst     |  344 +++
+ arch/x86/kernel/i8259.c                       |   51 +-
+ drivers/acpi/acpi_apd.c                       |    1 +
  drivers/hid/Kconfig                           |    4 +-
  drivers/hid/Makefile                          |    2 +
  drivers/hid/surface-hid/Kconfig               |   42 +
@@ -137,6 +139,7 @@ Patchset: surface-sam
  drivers/hid/surface-hid/surface_hid_core.c    |  272 ++
  drivers/hid/surface-hid/surface_hid_core.h    |   77 +
  drivers/hid/surface-hid/surface_kbd.c         |  300 ++
+ drivers/pinctrl/pinctrl-amd.c                 |    1 +
  drivers/platform/x86/Kconfig                  |  102 +
  drivers/platform/x86/Makefile                 |    7 +
  drivers/platform/x86/surface_acpi_notify.c    |  886 ++++++
@@ -163,6 +166,7 @@ Patchset: surface-sam
  drivers/power/supply/Makefile                 |    2 +
  drivers/power/supply/surface_battery.c        |  875 ++++++
  drivers/power/supply/surface_charger.c        |  282 ++
+ drivers/tty/serial/8250/8250_dw.c             |    1 +
  include/linux/mod_devicetable.h               |    5 +-
  include/linux/surface_acpi_notify.h           |   39 +
  include/linux/surface_aggregator/controller.h |  824 ++++++
@@ -172,7 +176,7 @@ Patchset: surface-sam
  include/uapi/linux/surface_aggregator/dtx.h   |  146 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 55 files changed, 19198 insertions(+), 8 deletions(-)
+ 59 files changed, 19247 insertions(+), 13 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -2679,6 +2683,108 @@ index 000000000000..bf007d6c9873
 +(per party, effectively leading to synchronous communication regarding
 +frames) and at most three pending commands. The limit to synchronous frame
 +transfers seems to be consistent with behavior observed on Windows.
+diff --git a/arch/x86/kernel/i8259.c b/arch/x86/kernel/i8259.c
+index 282b4ee1339f..0da757c6b292 100644
+--- a/arch/x86/kernel/i8259.c
++++ b/arch/x86/kernel/i8259.c
+@@ -1,4 +1,7 @@
+ // SPDX-License-Identifier: GPL-2.0
++
++#define pr_fmt(fmt) "i8259: " fmt
++
+ #include <linux/linkage.h>
+ #include <linux/errno.h>
+ #include <linux/signal.h>
+@@ -16,6 +19,7 @@
+ #include <linux/io.h>
+ #include <linux/delay.h>
+ #include <linux/pgtable.h>
++#include <linux/dmi.h>
+ 
+ #include <linux/atomic.h>
+ #include <asm/timer.h>
+@@ -298,11 +302,39 @@ static void unmask_8259A(void)
+ 	raw_spin_unlock_irqrestore(&i8259A_lock, flags);
+ }
+ 
++/*
++ * DMI table to identify devices with quirky probe behavior. See comment in
++ * probe_8259A() for more details.
++ */
++static const struct dmi_system_id retry_probe_quirk_table[] = {
++	{
++		.ident = "Microsoft Surface Laptop 4 (AMD)",
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_4_1952:1953")
++		},
++	},
++	{}
++};
++
+ static int probe_8259A(void)
+ {
+ 	unsigned long flags;
+ 	unsigned char probe_val = ~(1 << PIC_CASCADE_IR);
+ 	unsigned char new_val;
++	unsigned int i, imax = 1;
++
++	/*
++	 * Some systems have a legacy PIC that doesn't immediately respond
++	 * after boot. We know it's there, we know it should respond and is
++	 * required for proper interrupt handling later on, so let's try a
++	 * couple of times.
++	 */
++	if (dmi_check_system(retry_probe_quirk_table)) {
++		pr_warn("system with broken legacy PIC detected, re-trying multiple times if necessary\n");
++		imax = 10;
++	}
++
+ 	/*
+ 	 * Check to see if we have a PIC.
+ 	 * Mask all except the cascade and read
+@@ -312,15 +344,24 @@ static int probe_8259A(void)
+ 	 */
+ 	raw_spin_lock_irqsave(&i8259A_lock, flags);
+ 
+-	outb(0xff, PIC_SLAVE_IMR);	/* mask all of 8259A-2 */
+-	outb(probe_val, PIC_MASTER_IMR);
+-	new_val = inb(PIC_MASTER_IMR);
+-	if (new_val != probe_val) {
+-		printk(KERN_INFO "Using NULL legacy PIC\n");
++	for (i = 0; i < imax; i++) {
++		outb(0xff, PIC_SLAVE_IMR);	/* mask all of 8259A-2 */
++		outb(probe_val, PIC_MASTER_IMR);
++		new_val = inb(PIC_MASTER_IMR);
++		if (new_val == probe_val)
++			break;
++	}
++
++	if (i == imax) {
++		pr_info("using NULL legacy PIC\n");
+ 		legacy_pic = &null_legacy_pic;
+ 	}
+ 
+ 	raw_spin_unlock_irqrestore(&i8259A_lock, flags);
++
++	if (imax > 1 && i < imax)
++		pr_info("got legacy PIC after %d tries\n", i + 1);
++
+ 	return nr_legacy_irqs();
+ }
+ 
+diff --git a/drivers/acpi/acpi_apd.c b/drivers/acpi/acpi_apd.c
+index 39359ce0eb2c..645e82a66bb0 100644
+--- a/drivers/acpi/acpi_apd.c
++++ b/drivers/acpi/acpi_apd.c
+@@ -226,6 +226,7 @@ static const struct acpi_device_id acpi_apd_device_ids[] = {
+ 	{ "AMDI0010", APD_ADDR(wt_i2c_desc) },
+ 	{ "AMD0020", APD_ADDR(cz_uart_desc) },
+ 	{ "AMDI0020", APD_ADDR(cz_uart_desc) },
++	{ "AMDI0022", APD_ADDR(cz_uart_desc) },
+ 	{ "AMD0030", },
+ 	{ "AMD0040", APD_ADDR(fch_misc_desc)},
+ 	{ "HYGO0010", APD_ADDR(wt_i2c_desc) },
 diff --git a/drivers/hid/Kconfig b/drivers/hid/Kconfig
 index 9b56226ce0d1..ee04d30d6d39 100644
 --- a/drivers/hid/Kconfig
@@ -3696,6 +3802,18 @@ index 000000000000..0635341bc517
 +MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 +MODULE_DESCRIPTION("HID legacy transport driver for Surface System Aggregator Module");
 +MODULE_LICENSE("GPL");
+diff --git a/drivers/pinctrl/pinctrl-amd.c b/drivers/pinctrl/pinctrl-amd.c
+index 899c16c17b6d..ef49402c0623 100644
+--- a/drivers/pinctrl/pinctrl-amd.c
++++ b/drivers/pinctrl/pinctrl-amd.c
+@@ -952,6 +952,7 @@ static int amd_gpio_remove(struct platform_device *pdev)
+ static const struct acpi_device_id amd_gpio_acpi_match[] = {
+ 	{ "AMD0030", 0 },
+ 	{ "AMDI0030", 0},
++	{ "AMDI0031", 0},
+ 	{ },
+ };
+ MODULE_DEVICE_TABLE(acpi, amd_gpio_acpi_match);
 diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
 index a9b12f4dcbd1..dbb07644c312 100644
 --- a/drivers/platform/x86/Kconfig
@@ -17246,7 +17364,7 @@ index 000000000000..5ec2e6bb2465
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/power/supply/surface_charger.c b/drivers/power/supply/surface_charger.c
 new file mode 100644
-index 000000000000..81a5b79822c9
+index 000000000000..a060c36c7766
 --- /dev/null
 +++ b/drivers/power/supply/surface_charger.c
 @@ -0,0 +1,282 @@
@@ -17318,7 +17436,7 @@ index 000000000000..81a5b79822c9
 +
 +static int spwr_ac_update_unlocked(struct spwr_ac_device *ac)
 +{
-+	u32 old = ac->state;
++	__le32 old = ac->state;
 +	int status;
 +
 +	lockdep_assert_held(&ac->lock);
@@ -17532,6 +17650,18 @@ index 000000000000..81a5b79822c9
 +MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 +MODULE_DESCRIPTION("AC driver for Surface System Aggregator Module");
 +MODULE_LICENSE("GPL");
+diff --git a/drivers/tty/serial/8250/8250_dw.c b/drivers/tty/serial/8250/8250_dw.c
+index 9e204f9b799a..a3a0154da567 100644
+--- a/drivers/tty/serial/8250/8250_dw.c
++++ b/drivers/tty/serial/8250/8250_dw.c
+@@ -714,6 +714,7 @@ static const struct acpi_device_id dw8250_acpi_match[] = {
+ 	{ "APMC0D08", 0},
+ 	{ "AMD0020", 0 },
+ 	{ "AMDI0020", 0 },
++	{ "AMDI0022", 0 },
+ 	{ "BRCM2032", 0 },
+ 	{ "HISI0031", 0 },
+ 	{ },
 diff --git a/include/linux/mod_devicetable.h b/include/linux/mod_devicetable.h
 index ef64063fac30..0b8f1feefe0e 100644
 --- a/include/linux/mod_devicetable.h
