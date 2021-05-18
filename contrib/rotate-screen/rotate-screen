@@ -24,19 +24,19 @@
 #
 
 # Check for commands needed
-GDBUS=`which gdbus`
+GDBUS=$(which gdbus)
 if test -z $GDBUS; then
     echo "Command 'gdbus' not found."
     exit 1
 fi
 
-XINPUT=`which xinput`
+XINPUT=$(which xinput)
 if test -z $XINPUT; then
     echo "Command 'xinput' not found."
     exit 2
 fi
 
-XRANDR=`which xrandr`
+XRANDR=$(which xrandr)
 if test -z $XRANDR; then
     echo "Command 'xrandr' not found."
 fi
@@ -51,18 +51,18 @@ get_orientation () {
     DBUS="--system --dest net.hadess.SensorProxy --object-path /net/hadess/SensorProxy"
 
     # Check, if DBus is available
-    ORIENTATION=`$GDBUS call $DBUS \
+    ORIENTATION=$($GDBUS call $DBUS \
                         --method org.freedesktop.DBus.Properties.Get \
-                                 net.hadess.SensorProxy HasAccelerometer`
+                                 net.hadess.SensorProxy HasAccelerometer)
     if test "$ORIENTATION" != "(<true>,)"; then
         echo "No sensor available!"
         exit 10
     fi
 
     # Get the orientation from the DBus
-    ORIENTATION=`$GDBUS call $DBUS \
+    ORIENTATION=$($GDBUS call $DBUS \
                         --method org.freedesktop.DBus.Properties.Get \
-                        net.hadess.SensorProxy AccelerometerOrientation`
+                        net.hadess.SensorProxy AccelerometerOrientation)
 
     # Release the DBus
     $GDBUS call --system $DBUS --method net.hadess.SensorProxy.ReleaseAccelerometer > /dev/null
@@ -129,14 +129,14 @@ do_rotate () {
 
 
 # Get the tablet's orientation
-ORIENTATION=`get_orientation`
+ORIENTATION=$(get_orientation)
 
 # Get all pointers
-POINTERS=`$XINPUT | grep slave | grep pointer | sed -e 's/^.*id=\([[:digit:]]\+\).*$/\1/'`
+POINTERS=$($XINPUT | grep slave | grep pointer | sed -e 's/^.*id=\([[:digit:]]\+\).*$/\1/')
 
 # Get the display and its orientation
-XDISPLAY=`$XRANDR --current --verbose | grep primary | cut --delimiter=" " -f1`
+XDISPLAY=$($XRANDR --current --verbose | grep primary | cut --delimiter=" " -f1)
 
 # Rotate the screen and pointers
-echo "Rotate display $XDISPLAY to $ORIENTATION orientation (Pointers: `echo $POINTERS | sed 's/\n/ /g'`)"
+echo "Rotate display $XDISPLAY to $ORIENTATION orientation (Pointers: $(echo $POINTERS | sed 's/\n/ /g'))"
 do_rotate $ORIENTATION $XDISPLAY $POINTERS
