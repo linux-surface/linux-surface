@@ -55,7 +55,8 @@ get_orientation () {
                         --method org.freedesktop.DBus.Properties.Get \
                                  net.hadess.SensorProxy HasAccelerometer)
     if test "$ORIENTATION" != "(<true>,)"; then
-        echo "No sensor available!"
+        echo "No sensor available! "
+        echo "(Do you have the 'iio-sensor-proxy' package installed and enabled?)"
         exit 10
     fi
 
@@ -130,6 +131,11 @@ do_rotate () {
 
 # Get the tablet's orientation
 ORIENTATION=$(get_orientation)
+ret=$?
+if test $ret != 0; then
+    echo $ORIENTATION
+    exit $ret
+fi
 
 # Get all pointers
 POINTERS=$($XINPUT | grep slave | grep pointer | sed -e 's/^.*id=\([[:digit:]]\+\).*$/\1/')
