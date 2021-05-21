@@ -1,6 +1,6 @@
-From 591d6d107d8f1a4509370a6805b2507992568977 Mon Sep 17 00:00:00 2001
+From 922db188178980c73bbc4fbe032763a921553315 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
-Date: Mon, 22 Feb 2021 13:07:30 +0000
+Date: Thu, 20 May 2021 15:09:21 +0100
 Subject: [PATCH] ACPI: scan: Extend acpi_walk_dep_device_list()
 
 The acpi_walk_dep_device_list() is not as generalisable as its name
@@ -10,26 +10,23 @@ a callback which can be applied to all the dependencies in acpi_dep_list.
 Replace all existing calls to the function with calls to a wrapper, passing
 a callback that applies the same dependency reduction.
 
-Suggested-by: Rafael J. Wysocki <rafael@kernel.org>
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
-Reviewed-by: Andy Shevchenko <andy.shevchenko@gmail.com>
-Acked-by: Wolfram Sang <wsa@kernel.org> # for changing I2C core
 Patchset: cameras
 ---
  drivers/acpi/ec.c                             |  2 +-
  drivers/acpi/pmic/intel_pmic_chtdc_ti.c       |  2 +-
- drivers/acpi/scan.c                           | 58 +++++++++++++------
- drivers/gpio/gpiolib-acpi.c                   |  2 +-
- drivers/i2c/i2c-core-acpi.c                   |  2 +-
- drivers/platform/surface/aggregator/core.c    |  2 +-
- drivers/platform/surface/surface3_power.c     |  2 +-
- .../platform/surface/surface_acpi_notify.c    |  2 +-
- include/acpi/acpi_bus.h                       |  7 +++
+ drivers/acpi/scan.c                           | 69 ++++++++++++++-----
+ drivers/gpio/gpiolib-acpi.c                   | 10 +--
+ drivers/i2c/i2c-core-acpi.c                   |  8 +--
+ drivers/platform/surface/aggregator/core.c    |  6 +-
+ drivers/platform/surface/surface3_power.c     | 22 +++---
+ .../platform/surface/surface_acpi_notify.c    |  7 +-
+ include/acpi/acpi_bus.h                       |  7 ++
  include/linux/acpi.h                          |  4 +-
- 10 files changed, 57 insertions(+), 26 deletions(-)
+ 10 files changed, 90 insertions(+), 47 deletions(-)
 
 diff --git a/drivers/acpi/ec.c b/drivers/acpi/ec.c
-index 13565629ce0a..a258db713bd2 100644
+index 13565629ce0a..3f7680a007a3 100644
 --- a/drivers/acpi/ec.c
 +++ b/drivers/acpi/ec.c
 @@ -1627,7 +1627,7 @@ static int acpi_ec_add(struct acpi_device *device)
@@ -37,12 +34,12 @@ index 13565629ce0a..a258db713bd2 100644
  
  	/* Reprobe devices depending on the EC */
 -	acpi_walk_dep_device_list(ec->handle);
-+	acpi_dev_flag_dependency_met(ec->handle);
++	acpi_dev_clear_dependencies(device);
  
  	acpi_handle_debug(ec->handle, "enumerated.\n");
  	return 0;
 diff --git a/drivers/acpi/pmic/intel_pmic_chtdc_ti.c b/drivers/acpi/pmic/intel_pmic_chtdc_ti.c
-index a5101b07611a..59cca504325e 100644
+index a5101b07611a..fef7831d0d63 100644
 --- a/drivers/acpi/pmic/intel_pmic_chtdc_ti.c
 +++ b/drivers/acpi/pmic/intel_pmic_chtdc_ti.c
 @@ -117,7 +117,7 @@ static int chtdc_ti_pmic_opregion_probe(struct platform_device *pdev)
@@ -50,12 +47,12 @@ index a5101b07611a..59cca504325e 100644
  
  	/* Re-enumerate devices depending on PMIC */
 -	acpi_walk_dep_device_list(ACPI_HANDLE(pdev->dev.parent));
-+	acpi_dev_flag_dependency_met(ACPI_HANDLE(pdev->dev.parent));
++	acpi_dev_clear_dependencies(ACPI_COMPANION(pdev->dev.parent));
  	return 0;
  }
  
 diff --git a/drivers/acpi/scan.c b/drivers/acpi/scan.c
-index 6efe7edd7b1e..44e4783d8e95 100644
+index 345777bf7af9..f5440729ffe9 100644
 --- a/drivers/acpi/scan.c
 +++ b/drivers/acpi/scan.c
 @@ -47,12 +47,6 @@ static DEFINE_MUTEX(acpi_hp_context_lock);
@@ -71,13 +68,12 @@ index 6efe7edd7b1e..44e4783d8e95 100644
  void acpi_scan_lock_acquire(void)
  {
  	mutex_lock(&acpi_scan_lock);
-@@ -2141,30 +2135,58 @@ static void acpi_bus_attach(struct acpi_device *device, bool first_pass)
+@@ -2142,30 +2136,69 @@ static void acpi_bus_attach(struct acpi_device *device, bool first_pass)
  		device->handler->hotplug.notify_online(device);
  }
  
 -void acpi_walk_dep_device_list(acpi_handle handle)
-+static int __acpi_dev_flag_dependency_met(struct acpi_dep_data *dep,
-+					  void *data)
++static int acpi_scan_clear_dep(struct acpi_dep_data *dep, void *data)
  {
 -	struct acpi_dep_data *dep, *tmp;
  	struct acpi_device *adev;
@@ -92,12 +88,25 @@ index 6efe7edd7b1e..44e4783d8e95 100644
 +
 +	list_del(&dep->node);
 +	kfree(dep);
++
 +	return 0;
 +}
 +
-+void acpi_walk_dep_device_list(acpi_handle handle,
-+			       int (*callback)(struct acpi_dep_data *, void *),
-+			       void *data)
++/**
++ * acpi_walk_dep_device_list - Apply a callback to every entry in acpi_dep_list
++ * @handle:	The ACPI handle of the supplier device
++ * @callback:	Pointer to the callback function to apply
++ * @data:	Pointer to some data to pass to the callback
++ *
++ * The return value of the callback determines this function's behaviour. If 0
++ * is returned we continue to iterate over acpi_dep_list. If a positive value
++ * is returned then the loop is broken but this function returns 0. If a
++ * negative value is returned by the callback then the loop is broken and that
++ * value is returned as the final error.
++ */
++int acpi_walk_dep_device_list(acpi_handle handle,
++			      int (*callback)(struct acpi_dep_data *, void *),
++			      void *data)
 +{
 +	struct acpi_dep_data *dep, *tmp;
 +	int ret;
@@ -121,94 +130,215 @@ index 6efe7edd7b1e..44e4783d8e95 100644
  		}
  	}
  	mutex_unlock(&acpi_dep_list_lock);
++
++	return ret > 0 ? 0 : ret;
  }
  EXPORT_SYMBOL_GPL(acpi_walk_dep_device_list);
  
 +/**
-+ * acpi_dev_flag_dependency_met() - Inform consumers of @handle that the device
-+ *				    is now active
-+ * @handle: acpi_handle for the supplier device
++ * acpi_dev_clear_dependencies - Inform consumers that the device is now active
++ * @supplier: Pointer to the supplier &struct acpi_device
 + *
-+ * This function walks through the dependencies list and informs each consumer
-+ * of @handle that their dependency upon it is now met. Devices with no more
-+ * unmet dependencies will be attached to the acpi bus.
++ * Clear dependencies on the given device.
 + */
-+void acpi_dev_flag_dependency_met(acpi_handle handle)
++void acpi_dev_clear_dependencies(struct acpi_device *supplier)
 +{
-+	acpi_walk_dep_device_list(handle, __acpi_dev_flag_dependency_met, NULL);
++	acpi_walk_dep_device_list(supplier->handle, acpi_scan_clear_dep, NULL);
 +}
-+EXPORT_SYMBOL_GPL(acpi_dev_flag_dependency_met);
++EXPORT_SYMBOL_GPL(acpi_dev_clear_dependencies);
 +
  /**
   * acpi_bus_scan - Add ACPI device node objects in a given namespace scope.
   * @handle: Root of the namespace scope to scan.
 diff --git a/drivers/gpio/gpiolib-acpi.c b/drivers/gpio/gpiolib-acpi.c
-index 1aacd2a5a1fd..4a16e0d9b257 100644
+index 1aacd2a5a1fd..ad4609467db0 100644
 --- a/drivers/gpio/gpiolib-acpi.c
 +++ b/drivers/gpio/gpiolib-acpi.c
+@@ -1233,14 +1233,14 @@ static void acpi_gpiochip_scan_gpios(struct acpi_gpio_chip *achip)
+ void acpi_gpiochip_add(struct gpio_chip *chip)
+ {
+ 	struct acpi_gpio_chip *acpi_gpio;
+-	acpi_handle handle;
++	struct acpi_device *adev;
+ 	acpi_status status;
+ 
+ 	if (!chip || !chip->parent)
+ 		return;
+ 
+-	handle = ACPI_HANDLE(chip->parent);
+-	if (!handle)
++	adev = ACPI_COMPANION(chip->parent);
++	if (!adev)
+ 		return;
+ 
+ 	acpi_gpio = kzalloc(sizeof(*acpi_gpio), GFP_KERNEL);
+@@ -1254,7 +1254,7 @@ void acpi_gpiochip_add(struct gpio_chip *chip)
+ 	INIT_LIST_HEAD(&acpi_gpio->events);
+ 	INIT_LIST_HEAD(&acpi_gpio->deferred_req_irqs_list_entry);
+ 
+-	status = acpi_attach_data(handle, acpi_gpio_chip_dh, acpi_gpio);
++	status = acpi_attach_data(adev->handle, acpi_gpio_chip_dh, acpi_gpio);
+ 	if (ACPI_FAILURE(status)) {
+ 		dev_err(chip->parent, "Failed to attach ACPI GPIO chip\n");
+ 		kfree(acpi_gpio);
 @@ -1263,7 +1263,7 @@ void acpi_gpiochip_add(struct gpio_chip *chip)
  
  	acpi_gpiochip_request_regions(acpi_gpio);
  	acpi_gpiochip_scan_gpios(acpi_gpio);
 -	acpi_walk_dep_device_list(handle);
-+	acpi_dev_flag_dependency_met(handle);
++	acpi_dev_clear_dependencies(adev);
  }
  
  void acpi_gpiochip_remove(struct gpio_chip *chip)
 diff --git a/drivers/i2c/i2c-core-acpi.c b/drivers/i2c/i2c-core-acpi.c
-index deceed0d76c6..1e7ae3421de1 100644
+index deceed0d76c6..13eb5ac82729 100644
 --- a/drivers/i2c/i2c-core-acpi.c
 +++ b/drivers/i2c/i2c-core-acpi.c
-@@ -279,7 +279,7 @@ void i2c_acpi_register_devices(struct i2c_adapter *adap)
- 	if (!handle)
+@@ -259,8 +259,8 @@ static acpi_status i2c_acpi_add_device(acpi_handle handle, u32 level,
+  */
+ void i2c_acpi_register_devices(struct i2c_adapter *adap)
+ {
++	struct acpi_device *adev;
+ 	acpi_status status;
+-	acpi_handle handle;
+ 
+ 	if (!has_acpi_companion(&adap->dev))
+ 		return;
+@@ -275,11 +275,11 @@ void i2c_acpi_register_devices(struct i2c_adapter *adap)
+ 	if (!adap->dev.parent)
+ 		return;
+ 
+-	handle = ACPI_HANDLE(adap->dev.parent);
+-	if (!handle)
++	adev = ACPI_COMPANION(adap->dev.parent);
++	if (!adev)
  		return;
  
 -	acpi_walk_dep_device_list(handle);
-+	acpi_dev_flag_dependency_met(handle);
++	acpi_dev_clear_dependencies(adev);
  }
  
  static const struct acpi_device_id i2c_acpi_force_400khz_device_ids[] = {
 diff --git a/drivers/platform/surface/aggregator/core.c b/drivers/platform/surface/aggregator/core.c
-index 8dc2c267bcd6..f8c691720caf 100644
+index 8dc2c267bcd6..517f774a6e60 100644
 --- a/drivers/platform/surface/aggregator/core.c
 +++ b/drivers/platform/surface/aggregator/core.c
+@@ -621,8 +621,8 @@ static const struct acpi_gpio_mapping ssam_acpi_gpios[] = {
+ 
+ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ {
++	struct acpi_device *ssh = ACPI_COMPANION(&serdev->dev);
+ 	struct ssam_controller *ctrl;
+-	acpi_handle *ssh = ACPI_HANDLE(&serdev->dev);
+ 	acpi_status astatus;
+ 	int status;
+ 
+@@ -652,7 +652,7 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 	if (status)
+ 		goto err_devopen;
+ 
+-	astatus = ssam_serdev_setup_via_acpi(ssh, serdev);
++	astatus = ssam_serdev_setup_via_acpi(ssh->handle, serdev);
+ 	if (ACPI_FAILURE(astatus)) {
+ 		status = -ENXIO;
+ 		goto err_devinit;
 @@ -706,7 +706,7 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
  	 *       For now let's thus default power/wakeup to false.
  	 */
  	device_set_wakeup_capable(&serdev->dev, true);
 -	acpi_walk_dep_device_list(ssh);
-+	acpi_dev_flag_dependency_met(ssh);
++	acpi_dev_clear_dependencies(ssh);
  
  	return 0;
  
 diff --git a/drivers/platform/surface/surface3_power.c b/drivers/platform/surface/surface3_power.c
-index cc4f9cba6856..ad895285d3e9 100644
+index cc4f9cba6856..dea82aa1abd4 100644
 --- a/drivers/platform/surface/surface3_power.c
 +++ b/drivers/platform/surface/surface3_power.c
-@@ -478,7 +478,7 @@ static int mshw0011_install_space_handler(struct i2c_client *client)
+@@ -446,12 +446,12 @@ mshw0011_space_handler(u32 function, acpi_physical_address command,
+ 
+ static int mshw0011_install_space_handler(struct i2c_client *client)
+ {
+-	acpi_handle handle;
++	struct acpi_device *adev;
+ 	struct mshw0011_handler_data *data;
+ 	acpi_status status;
+ 
+-	handle = ACPI_HANDLE(&client->dev);
+-	if (!handle)
++	adev = ACPI_COMPANION(&client->dev);
++	if (!adev)
+ 		return -ENODEV;
+ 
+ 	data = kzalloc(sizeof(struct mshw0011_handler_data),
+@@ -460,25 +460,25 @@ static int mshw0011_install_space_handler(struct i2c_client *client)
+ 		return -ENOMEM;
+ 
+ 	data->client = client;
+-	status = acpi_bus_attach_private_data(handle, (void *)data);
++	status = acpi_bus_attach_private_data(adev->handle, (void *)data);
+ 	if (ACPI_FAILURE(status)) {
+ 		kfree(data);
+ 		return -ENOMEM;
+ 	}
+ 
+-	status = acpi_install_address_space_handler(handle,
+-				ACPI_ADR_SPACE_GSBUS,
+-				&mshw0011_space_handler,
+-				NULL,
+-				data);
++	status = acpi_install_address_space_handler(adev->handle,
++						    ACPI_ADR_SPACE_GSBUS,
++						    &mshw0011_space_handler,
++						    NULL,
++						    data);
+ 	if (ACPI_FAILURE(status)) {
+ 		dev_err(&client->dev, "Error installing i2c space handler\n");
+-		acpi_bus_detach_private_data(handle);
++		acpi_bus_detach_private_data(adev->handle);
+ 		kfree(data);
  		return -ENOMEM;
  	}
  
 -	acpi_walk_dep_device_list(handle);
-+	acpi_dev_flag_dependency_met(handle);
++	acpi_dev_clear_dependencies(adev);
  	return 0;
  }
  
 diff --git a/drivers/platform/surface/surface_acpi_notify.c b/drivers/platform/surface/surface_acpi_notify.c
-index ef9c1f8e8336..e18dc4e30af2 100644
+index ef9c1f8e8336..8339988d95c1 100644
 --- a/drivers/platform/surface/surface_acpi_notify.c
 +++ b/drivers/platform/surface/surface_acpi_notify.c
-@@ -835,7 +835,7 @@ static int san_probe(struct platform_device *pdev)
+@@ -798,7 +798,7 @@ static int san_consumer_links_setup(struct platform_device *pdev)
+ 
+ static int san_probe(struct platform_device *pdev)
+ {
+-	acpi_handle san = ACPI_HANDLE(&pdev->dev);
++	struct acpi_device *san = ACPI_COMPANION(&pdev->dev);
+ 	struct ssam_controller *ctrl;
+ 	struct san_data *data;
+ 	acpi_status astatus;
+@@ -821,7 +821,8 @@ static int san_probe(struct platform_device *pdev)
+ 
+ 	platform_set_drvdata(pdev, data);
+ 
+-	astatus = acpi_install_address_space_handler(san, ACPI_ADR_SPACE_GSBUS,
++	astatus = acpi_install_address_space_handler(san->handle,
++						     ACPI_ADR_SPACE_GSBUS,
+ 						     &san_opreg_handler, NULL,
+ 						     &data->info);
+ 	if (ACPI_FAILURE(astatus))
+@@ -835,7 +836,7 @@ static int san_probe(struct platform_device *pdev)
  	if (status)
  		goto err_install_dev;
  
 -	acpi_walk_dep_device_list(san);
-+	acpi_dev_flag_dependency_met(san);
++	acpi_dev_clear_dependencies(san);
  	return 0;
  
  err_install_dev:
 diff --git a/include/acpi/acpi_bus.h b/include/acpi/acpi_bus.h
-index f28b097c658f..128eec2a26f6 100644
+index f28b097c658f..849f3540ed53 100644
 --- a/include/acpi/acpi_bus.h
 +++ b/include/acpi/acpi_bus.h
 @@ -279,6 +279,12 @@ struct acpi_device_power {
@@ -228,12 +358,12 @@ index f28b097c658f..128eec2a26f6 100644
  
  bool acpi_dev_hid_uid_match(struct acpi_device *adev, const char *hid2, const char *uid2);
  
-+void acpi_dev_flag_dependency_met(acpi_handle handle);
++void acpi_dev_clear_dependencies(struct acpi_device *supplier);
  struct acpi_device *
  acpi_dev_get_next_match_dev(struct acpi_device *adev, const char *hid, const char *uid, s64 hrv);
  struct acpi_device *
 diff --git a/include/linux/acpi.h b/include/linux/acpi.h
-index 3bdcfc4401b7..b560e47b700c 100644
+index 3bdcfc4401b7..c2da6b8939c0 100644
 --- a/include/linux/acpi.h
 +++ b/include/linux/acpi.h
 @@ -666,7 +666,9 @@ extern bool acpi_driver_match_device(struct device *dev,
@@ -241,18 +371,18 @@ index 3bdcfc4401b7..b560e47b700c 100644
  int acpi_device_uevent_modalias(struct device *, struct kobj_uevent_env *);
  int acpi_device_modalias(struct device *, char *, int);
 -void acpi_walk_dep_device_list(acpi_handle handle);
-+void acpi_walk_dep_device_list(acpi_handle handle,
-+			       int (*callback)(struct acpi_dep_data *, void *),
-+			       void *data);
++int acpi_walk_dep_device_list(acpi_handle handle,
++			      int (*callback)(struct acpi_dep_data *, void *),
++			      void *data);
  
  struct platform_device *acpi_create_platform_device(struct acpi_device *,
  						    struct property_entry *);
 -- 
 2.31.1
 
-From 33c9cac05908772acd83bf10c261f60602087f7c Mon Sep 17 00:00:00 2001
+From 5031cd19554014c4e0853233975d02e9b19dcc92 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
-Date: Mon, 22 Feb 2021 13:07:31 +0000
+Date: Thu, 20 May 2021 15:09:22 +0100
 Subject: [PATCH] ACPI: scan: Add function to fetch dependent of acpi device
 
 In some ACPI tables we encounter, devices use the _DEP method to assert
@@ -261,23 +391,23 @@ specification intends. We need to be able to find those devices "from"
 the dependee, so add a callback and a wrapper to walk over the
 acpi_dep_list and return the dependent ACPI device.
 
-Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Reviewed-by: Andy Shevchenko <andy.shevchenko@gmail.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
- drivers/acpi/scan.c     | 34 ++++++++++++++++++++++++++++++++++
+ drivers/acpi/scan.c     | 38 ++++++++++++++++++++++++++++++++++++++
  include/acpi/acpi_bus.h |  1 +
- 2 files changed, 35 insertions(+)
+ 2 files changed, 39 insertions(+)
 
 diff --git a/drivers/acpi/scan.c b/drivers/acpi/scan.c
-index 44e4783d8e95..a4735a479249 100644
+index f5440729ffe9..4fcc7c95af78 100644
 --- a/drivers/acpi/scan.c
 +++ b/drivers/acpi/scan.c
-@@ -2135,6 +2135,21 @@ static void acpi_bus_attach(struct acpi_device *device, bool first_pass)
+@@ -2136,6 +2136,21 @@ static void acpi_bus_attach(struct acpi_device *device, bool first_pass)
  		device->handler->hotplug.notify_online(device);
  }
  
-+static int __acpi_dev_get_dependent_dev(struct acpi_dep_data *dep, void *data)
++static int acpi_return_dep_dev(struct acpi_dep_data *dep, void *data)
 +{
 +	struct acpi_device *adev;
 +	int ret;
@@ -292,27 +422,31 @@ index 44e4783d8e95..a4735a479249 100644
 +	return 1;
 +}
 +
- static int __acpi_dev_flag_dependency_met(struct acpi_dep_data *dep,
- 					  void *data)
+ static int acpi_scan_clear_dep(struct acpi_dep_data *dep, void *data)
  {
-@@ -2187,6 +2202,25 @@ void acpi_dev_flag_dependency_met(acpi_handle handle)
+ 	struct acpi_device *adev;
+@@ -2199,6 +2214,29 @@ void acpi_dev_clear_dependencies(struct acpi_device *supplier)
  }
- EXPORT_SYMBOL_GPL(acpi_dev_flag_dependency_met);
+ EXPORT_SYMBOL_GPL(acpi_dev_clear_dependencies);
  
 +/**
-+ * acpi_dev_get_dependent_dev - Return ACPI device dependent on @adev
-+ * @adev: Pointer to the dependee device
++ * acpi_dev_get_dependent_dev - Return ACPI device dependent on @supplier
++ * @supplier: Pointer to the dependee device
 + *
 + * Returns the first &struct acpi_device which declares itself dependent on
-+ * @adev via the _DEP buffer, parsed from the acpi_dep_list.
++ * @supplier via the _DEP buffer, parsed from the acpi_dep_list.
++ *
++ * The caller is responsible for putting the reference to adev when it is no
++ * longer needed.
 + */
-+struct acpi_device *
-+acpi_dev_get_dependent_dev(struct acpi_device *supplier)
++struct acpi_device *acpi_dev_get_dependent_dev(struct acpi_device *supplier)
 +{
 +	struct acpi_device *adev = NULL;
 +
-+	acpi_walk_dep_device_list(supplier->handle,
-+				  __acpi_dev_get_dependent_dev, &adev);
++	acpi_walk_dep_device_list(supplier->handle, acpi_return_dep_dev, &adev);
++
++	if (adev)
++		get_device(&adev->dev);
 +
 +	return adev;
 +}
@@ -322,13 +456,13 @@ index 44e4783d8e95..a4735a479249 100644
   * acpi_bus_scan - Add ACPI device node objects in a given namespace scope.
   * @handle: Root of the namespace scope to scan.
 diff --git a/include/acpi/acpi_bus.h b/include/acpi/acpi_bus.h
-index 128eec2a26f6..d00dec1ad9fb 100644
+index 849f3540ed53..b531750eb422 100644
 --- a/include/acpi/acpi_bus.h
 +++ b/include/acpi/acpi_bus.h
 @@ -691,6 +691,7 @@ static inline bool acpi_device_can_poweroff(struct acpi_device *adev)
  bool acpi_dev_hid_uid_match(struct acpi_device *adev, const char *hid2, const char *uid2);
  
- void acpi_dev_flag_dependency_met(acpi_handle handle);
+ void acpi_dev_clear_dependencies(struct acpi_device *supplier);
 +struct acpi_device *acpi_dev_get_dependent_dev(struct acpi_device *supplier);
  struct acpi_device *
  acpi_dev_get_next_match_dev(struct acpi_device *adev, const char *hid, const char *uid, s64 hrv);
@@ -336,9 +470,9 @@ index 128eec2a26f6..d00dec1ad9fb 100644
 -- 
 2.31.1
 
-From 08df91b22b4fec76672d805eeb9dce4b53fb06c2 Mon Sep 17 00:00:00 2001
+From 86138e2d23adeb4c89e1798fa7e99215e82bf41f Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
-Date: Mon, 22 Feb 2021 13:07:32 +0000
+Date: Thu, 20 May 2021 15:09:23 +0100
 Subject: [PATCH] i2c: core: Add a format macro for I2C device names
 
 Some places in the kernel allow users to map resources to a device
@@ -349,12 +483,12 @@ users to refer to an I2C device by name before it has been instantiated,
 so create a macro for the format that's accessible outside the I2C layer
 and use it in i2c_dev_set_name().
 
+Acked-by: Wolfram Sang <wsa@kernel.org>
 Suggested-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
 Reviewed-by: Sakari Ailus <sakari.ailus@linux.intel.com>
 Reviewed-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 Signed-off-by: Daniel Scally <djrscally@gmail.com>
-Acked-by: Wolfram Sang <wsa@kernel.org> # for changing I2C core
 Patchset: cameras
 ---
  drivers/i2c/i2c-core-base.c | 4 ++--
@@ -381,7 +515,7 @@ index f21362355973..e2cf16f27d65 100644
  	}
  
 diff --git a/include/linux/i2c.h b/include/linux/i2c.h
-index 56622658b215..4d40a4b46810 100644
+index a670ae129f4b..a2f6ee71b5be 100644
 --- a/include/linux/i2c.h
 +++ b/include/linux/i2c.h
 @@ -39,6 +39,9 @@ enum i2c_slave_event;
@@ -397,71 +531,53 @@ index 56622658b215..4d40a4b46810 100644
 -- 
 2.31.1
 
-From 003452ecb0e7726fe2442869ce6ac30182f33b29 Mon Sep 17 00:00:00 2001
+From f942d86b5b3fcbe6b96157a4fcb6753226826f80 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
-Date: Mon, 22 Feb 2021 13:07:33 +0000
+Date: Thu, 20 May 2021 15:09:24 +0100
 Subject: [PATCH] gpiolib: acpi: Export acpi_get_gpiod()
 
-I need to be able to translate GPIO resources in an ACPI device's _CRS
+We need to be able to translate GPIO resources in an ACPI device's _CRS
 into GPIO descriptor array. Those are represented in _CRS as a pathname
-to a GPIO device plus the pin's index number: this function is perfect
-for that purpose.
+to a GPIO device plus the pin's index number: the acpi_get_gpiod()
+function is perfect for that purpose.
 
 As it's currently only used internally within the GPIO layer, provide and
 export a wrapper function that additionally holds a reference to the GPIO
 device.
 
-Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Reviewed-by: Andy Shevchenko <andy.shevchenko@gmail.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
- drivers/gpio/gpiolib-acpi.c   | 36 +++++++++++++++++++++++++++++++----
- include/linux/gpio/consumer.h |  7 +++++++
- 2 files changed, 39 insertions(+), 4 deletions(-)
+ drivers/gpio/gpiolib-acpi.c   | 28 ++++++++++++++++++++++++++++
+ include/linux/gpio/consumer.h |  2 ++
+ 2 files changed, 30 insertions(+)
 
 diff --git a/drivers/gpio/gpiolib-acpi.c b/drivers/gpio/gpiolib-acpi.c
-index 4a16e0d9b257..5f99d698f60d 100644
+index ad4609467db0..f401f3b1d5d2 100644
 --- a/drivers/gpio/gpiolib-acpi.c
 +++ b/drivers/gpio/gpiolib-acpi.c
-@@ -102,7 +102,8 @@ static int acpi_gpiochip_find(struct gpio_chip *gc, void *data)
- }
- 
- /**
-- * acpi_get_gpiod() - Translate ACPI GPIO pin to GPIO descriptor usable with GPIO API
-+ * __acpi_get_gpiod() - Translate ACPI GPIO pin to GPIO descriptor usable with
-+ *			GPIO API
-  * @path:	ACPI GPIO controller full path name, (e.g. "\\_SB.GPO1")
-  * @pin:	ACPI GPIO pin number (0-based, controller-relative)
-  *
-@@ -111,7 +112,7 @@ static int acpi_gpiochip_find(struct gpio_chip *gc, void *data)
-  * controller does not have GPIO chip registered at the moment. This is to
-  * support probe deferral.
-  */
--static struct gpio_desc *acpi_get_gpiod(char *path, int pin)
-+static struct gpio_desc *__acpi_get_gpiod(char *path, int pin)
- {
- 	struct gpio_chip *chip;
- 	acpi_handle handle;
-@@ -128,6 +129,33 @@ static struct gpio_desc *acpi_get_gpiod(char *path, int pin)
+@@ -128,6 +128,34 @@ static struct gpio_desc *acpi_get_gpiod(char *path, int pin)
  	return gpiochip_get_desc(chip, pin);
  }
  
 +/**
-+ * acpi_get_gpiod() - Translate ACPI GPIO pin to GPIO descriptor usable with
-+ *		      GPIO API, and hold a refcount to the GPIO device.
-+ * @path:	ACPI GPIO controller full path name, (e.g. "\\_SB.GPO1")
-+ * @pin:	ACPI GPIO pin number (0-based, controller-relative)
-+ * @label:	Label to pass to gpiod_request()
++ * acpi_get_and_request_gpiod() - Translate ACPI GPIO pin to GPIO descriptor
++ *                               and hold a refcount to the GPIO device.
++ * @path:      ACPI GPIO controller full path name, (e.g. "\\_SB.GPO1")
++ * @pin:       ACPI GPIO pin number (0-based, controller-relative)
++ * @label:     Label to pass to gpiod_request()
 + *
-+ * This function is a simple pass-through to __acpi_get_gpiod(), except that as
-+ * it is intended for use outside of the GPIO layer (in a similar fashion to
++ * This function is a simple pass-through to acpi_get_gpiod(), except that
++ * as it is intended for use outside of the GPIO layer (in a similar fashion to
 + * gpiod_get_index() for example) it also holds a reference to the GPIO device.
 + */
-+struct gpio_desc *acpi_get_gpiod(char *path, int pin, char *label)
++struct gpio_desc *acpi_get_and_request_gpiod(char *path, int pin, char *label)
 +{
-+	struct gpio_desc *gpio = __acpi_get_gpiod(path, pin);
++	struct gpio_desc *gpio;
 +	int ret;
 +
++	gpio = acpi_get_gpiod(path, pin);
 +	if (IS_ERR(gpio))
 +		return gpio;
 +
@@ -471,53 +587,139 @@ index 4a16e0d9b257..5f99d698f60d 100644
 +
 +	return gpio;
 +}
-+EXPORT_SYMBOL_GPL(acpi_get_gpiod);
++EXPORT_SYMBOL_GPL(acpi_get_and_request_gpiod);
 +
  static irqreturn_t acpi_gpio_irq_handler(int irq, void *data)
  {
  	struct acpi_gpio_event *event = data;
-@@ -693,8 +721,8 @@ static int acpi_populate_gpio_lookup(struct acpi_resource *ares, void *data)
- 		if (lookup->info.quirks & ACPI_GPIO_QUIRK_ABSOLUTE_NUMBER)
- 			desc = gpio_to_desc(agpio->pin_table[pin_index]);
- 		else
--			desc = acpi_get_gpiod(agpio->resource_source.string_ptr,
--					      agpio->pin_table[pin_index]);
-+			desc = __acpi_get_gpiod(agpio->resource_source.string_ptr,
-+						agpio->pin_table[pin_index]);
- 		lookup->desc = desc;
- 		lookup->info.pin_config = agpio->pin_config;
- 		lookup->info.debounce = agpio->debounce_timeout;
 diff --git a/include/linux/gpio/consumer.h b/include/linux/gpio/consumer.h
-index c73b25bc9213..e26fb586b6c8 100644
+index c73b25bc9213..566feb56601f 100644
 --- a/include/linux/gpio/consumer.h
 +++ b/include/linux/gpio/consumer.h
 @@ -692,6 +692,8 @@ int devm_acpi_dev_add_driver_gpios(struct device *dev,
  				   const struct acpi_gpio_mapping *gpios);
  void devm_acpi_dev_remove_driver_gpios(struct device *dev);
  
-+struct gpio_desc *acpi_get_gpiod(char *path, int pin, char *label);
++struct gpio_desc *acpi_get_and_request_gpiod(char *path, int pin, char *label);
 +
  #else  /* CONFIG_GPIOLIB && CONFIG_ACPI */
  
  struct acpi_device;
-@@ -710,6 +712,11 @@ static inline int devm_acpi_dev_add_driver_gpios(struct device *dev,
- }
- static inline void devm_acpi_dev_remove_driver_gpios(struct device *dev) {}
- 
-+struct gpio_desc *acpi_get_gpiod(char *path, int pin, char *label)
-+{
-+	return NULL;
-+}
-+
- #endif /* CONFIG_GPIOLIB && CONFIG_ACPI */
- 
- 
 -- 
 2.31.1
 
-From 3ab66500a16f4876900c8f82a1b96af94936c366 Mon Sep 17 00:00:00 2001
+From 8bac3adcdc94701e226fc91b5be81230576971a8 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
-Date: Mon, 22 Feb 2021 13:07:34 +0000
+Date: Thu, 20 May 2021 15:09:25 +0100
+Subject: [PATCH] clkdev: Make clkdev_drop() null aware
+
+To simplify error handling paths, many functions are no-ops when passed
+NULL pointers, for example gpiod_remove_lookup_table(). Mirror that
+behaviour for clkdev_drop().
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/clk/clkdev.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/clk/clkdev.c b/drivers/clk/clkdev.c
+index 0f2e3fcf0f19..c082720f8ade 100644
+--- a/drivers/clk/clkdev.c
++++ b/drivers/clk/clkdev.c
+@@ -286,6 +286,9 @@ EXPORT_SYMBOL(clk_add_alias);
+  */
+ void clkdev_drop(struct clk_lookup *cl)
+ {
++	if (!cl)
++		return;
++
+ 	mutex_lock(&clocks_mutex);
+ 	list_del(&cl->node);
+ 	mutex_unlock(&clocks_mutex);
+-- 
+2.31.1
+
+From f87df429bfdc16395f3a12284972b7842c2ef081 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Thu, 20 May 2021 15:09:26 +0100
+Subject: [PATCH] gpiolib: acpi: Add acpi_gpio_get_io_resource()
+
+Add a function to verify that a given acpi_resource represents an IO
+type GPIO resource, and return it if so.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/gpio/gpiolib-acpi.c | 23 +++++++++++++++++++++++
+ include/linux/acpi.h        |  7 +++++++
+ 2 files changed, 30 insertions(+)
+
+diff --git a/drivers/gpio/gpiolib-acpi.c b/drivers/gpio/gpiolib-acpi.c
+index f401f3b1d5d2..9004b0c7cada 100644
+--- a/drivers/gpio/gpiolib-acpi.c
++++ b/drivers/gpio/gpiolib-acpi.c
+@@ -196,6 +196,29 @@ bool acpi_gpio_get_irq_resource(struct acpi_resource *ares,
+ }
+ EXPORT_SYMBOL_GPL(acpi_gpio_get_irq_resource);
+ 
++/**
++ * acpi_gpio_get_io_resource - Fetch details of an ACPI resource if it is a GPIO
++ *			       I/O resource or return False if not.
++ * @ares:	Pointer to the ACPI resource to fetch
++ * @agpio:	Pointer to a &struct acpi_resource_gpio to store the output pointer
++ */
++bool acpi_gpio_get_io_resource(struct acpi_resource *ares,
++			       struct acpi_resource_gpio **agpio)
++{
++	struct acpi_resource_gpio *gpio;
++
++	if (ares->type != ACPI_RESOURCE_TYPE_GPIO)
++		return false;
++
++	gpio = &ares->data.gpio;
++	if (gpio->connection_type != ACPI_RESOURCE_GPIO_TYPE_IO)
++		return false;
++
++	*agpio = gpio;
++	return true;
++}
++EXPORT_SYMBOL_GPL(acpi_gpio_get_io_resource);
++
+ static void acpi_gpiochip_request_irq(struct acpi_gpio_chip *acpi_gpio,
+ 				      struct acpi_gpio_event *event)
+ {
+diff --git a/include/linux/acpi.h b/include/linux/acpi.h
+index c2da6b8939c0..07a0044397e1 100644
+--- a/include/linux/acpi.h
++++ b/include/linux/acpi.h
+@@ -1088,6 +1088,8 @@ void __acpi_handle_debug(struct _ddebug *descriptor, acpi_handle handle, const c
+ #if defined(CONFIG_ACPI) && defined(CONFIG_GPIOLIB)
+ bool acpi_gpio_get_irq_resource(struct acpi_resource *ares,
+ 				struct acpi_resource_gpio **agpio);
++bool acpi_gpio_get_io_resource(struct acpi_resource *ares,
++			       struct acpi_resource_gpio **agpio);
+ int acpi_dev_gpio_irq_get_by(struct acpi_device *adev, const char *name, int index);
+ #else
+ static inline bool acpi_gpio_get_irq_resource(struct acpi_resource *ares,
+@@ -1095,6 +1097,11 @@ static inline bool acpi_gpio_get_irq_resource(struct acpi_resource *ares,
+ {
+ 	return false;
+ }
++static inline bool acpi_gpio_get_io_resource(struct acpi_resource *ares,
++					     struct acpi_resource_gpio **agpio)
++{
++	return false;
++}
+ static inline int acpi_dev_gpio_irq_get_by(struct acpi_device *adev,
+ 					   const char *name, int index)
+ {
+-- 
+2.31.1
+
+From ac17eb1c7e6c21f956e69e3226779839ce0d23e0 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Thu, 20 May 2021 15:09:27 +0100
 Subject: [PATCH] platform/x86: Add intel_skl_int3472 driver
 
 ACPI devices with _HID INT3472 are currently matched to the tps68470
@@ -546,15 +748,17 @@ Patchset: cameras
  MAINTAINERS                                   |   5 +
  drivers/platform/x86/Kconfig                  |   2 +
  drivers/platform/x86/Makefile                 |   1 +
- drivers/platform/x86/intel-int3472/Kconfig    |  31 +
- drivers/platform/x86/intel-int3472/Makefile   |   4 +
- .../intel-int3472/intel_skl_int3472_common.c  | 106 ++++
- .../intel-int3472/intel_skl_int3472_common.h  | 110 ++++
- .../intel_skl_int3472_discrete.c              | 592 ++++++++++++++++++
- .../intel_skl_int3472_tps68470.c              | 113 ++++
- 9 files changed, 964 insertions(+)
+ drivers/platform/x86/intel-int3472/Kconfig    |  31 ++
+ drivers/platform/x86/intel-int3472/Makefile   |   5 +
+ .../intel_skl_int3472_clk_and_regulator.c     | 195 +++++++++
+ .../intel-int3472/intel_skl_int3472_common.c  | 106 +++++
+ .../intel-int3472/intel_skl_int3472_common.h  | 113 +++++
+ .../intel_skl_int3472_discrete.c              | 409 ++++++++++++++++++
+ .../intel_skl_int3472_tps68470.c              | 109 +++++
+ 10 files changed, 976 insertions(+)
  create mode 100644 drivers/platform/x86/intel-int3472/Kconfig
  create mode 100644 drivers/platform/x86/intel-int3472/Makefile
+ create mode 100644 drivers/platform/x86/intel-int3472/intel_skl_int3472_clk_and_regulator.c
  create mode 100644 drivers/platform/x86/intel-int3472/intel_skl_int3472_common.c
  create mode 100644 drivers/platform/x86/intel-int3472/intel_skl_int3472_common.h
  create mode 100644 drivers/platform/x86/intel-int3472/intel_skl_int3472_discrete.c
@@ -603,17 +807,17 @@ index 60d554073749..4cbcff47a571 100644
  # MSI
 diff --git a/drivers/platform/x86/intel-int3472/Kconfig b/drivers/platform/x86/intel-int3472/Kconfig
 new file mode 100644
-index 000000000000..b94622245c21
+index 000000000000..f0fd0df65e4d
 --- /dev/null
 +++ b/drivers/platform/x86/intel-int3472/Kconfig
 @@ -0,0 +1,31 @@
 +config INTEL_SKL_INT3472
 +	tristate "Intel SkyLake ACPI INT3472 Driver"
 +	depends on ACPI
-+	depends on REGULATOR
-+	depends on GPIOLIB
 +	depends on COMMON_CLK && CLKDEV_LOOKUP
 +	depends on I2C
++	depends on GPIOLIB
++	depends on REGULATOR
 +	select MFD_CORE
 +	select REGMAP_I2C
 +	help
@@ -640,17 +844,219 @@ index 000000000000..b94622245c21
 +	  The module will be named "intel-skl-int3472"
 diff --git a/drivers/platform/x86/intel-int3472/Makefile b/drivers/platform/x86/intel-int3472/Makefile
 new file mode 100644
-index 000000000000..c887ee7d52ca
+index 000000000000..48bd97f0a04e
 --- /dev/null
 +++ b/drivers/platform/x86/intel-int3472/Makefile
-@@ -0,0 +1,4 @@
+@@ -0,0 +1,5 @@
 +obj-$(CONFIG_INTEL_SKL_INT3472)		+= intel_skl_int3472.o
 +intel_skl_int3472-objs			:= intel_skl_int3472_common.o \
 +					   intel_skl_int3472_discrete.o \
-+					   intel_skl_int3472_tps68470.o
++					   intel_skl_int3472_tps68470.o \
++					   intel_skl_int3472_clk_and_regulator.o
+diff --git a/drivers/platform/x86/intel-int3472/intel_skl_int3472_clk_and_regulator.c b/drivers/platform/x86/intel-int3472/intel_skl_int3472_clk_and_regulator.c
+new file mode 100644
+index 000000000000..82b95f753549
+--- /dev/null
++++ b/drivers/platform/x86/intel-int3472/intel_skl_int3472_clk_and_regulator.c
+@@ -0,0 +1,195 @@
++// SPDX-License-Identifier: GPL-2.0
++/* Author: Dan Scally <djrscally@gmail.com> */
++
++#include <linux/acpi.h>
++#include <linux/clkdev.h>
++#include <linux/clk-provider.h>
++#include <linux/device.h>
++#include <linux/gpio/consumer.h>
++#include <linux/regulator/driver.h>
++#include <linux/slab.h>
++
++#include "intel_skl_int3472_common.h"
++
++/*
++ * The regulators have to have .ops to be valid, but the only ops we actually
++ * support are .enable and .disable which are handled via .ena_gpiod. Pass an
++ * empty struct to clear the check without lying about capabilities.
++ */
++static const struct regulator_ops int3472_gpio_regulator_ops;
++
++static int skl_int3472_clk_prepare(struct clk_hw *hw)
++{
++	struct int3472_gpio_clock *clk = to_int3472_clk(hw);
++
++	gpiod_set_value(clk->ena_gpio, 1);
++	gpiod_set_value(clk->led_gpio, 1);
++
++	return 0;
++}
++
++static void skl_int3472_clk_unprepare(struct clk_hw *hw)
++{
++	struct int3472_gpio_clock *clk = to_int3472_clk(hw);
++
++	gpiod_set_value(clk->ena_gpio, 0);
++	gpiod_set_value(clk->led_gpio, 0);
++}
++
++static int skl_int3472_clk_enable(struct clk_hw *hw)
++{
++	/*
++	 * We're just turning a GPIO on to enable the clock, which operation
++	 * has the potential to sleep. Given .enable() cannot sleep, but
++	 * .prepare() can, we toggle the GPIO in .prepare() instead. Thus,
++	 * nothing to do here.
++	 */
++	return 0;
++}
++
++static void skl_int3472_clk_disable(struct clk_hw *hw)
++{
++	/* Likewise, nothing to do here... */
++}
++
++static unsigned int skl_int3472_get_clk_frequency(struct int3472_discrete_device *int3472)
++{
++	union acpi_object *obj;
++	unsigned int freq;
++
++	obj = skl_int3472_get_acpi_buffer(int3472->sensor, "SSDB");
++	if (IS_ERR(obj))
++		return 0; /* report rate as 0 on error */
++
++	if (obj->buffer.length < CIO2_SENSOR_SSDB_MCLKSPEED_OFFSET + sizeof(u32)) {
++		dev_err(int3472->dev, "The buffer is too small\n");
++		goto out_free_buff;
++	}
++
++	freq = *(u32 *)(obj->buffer.pointer + CIO2_SENSOR_SSDB_MCLKSPEED_OFFSET);
++
++out_free_buff:
++	kfree(obj);
++	return freq;
++}
++
++static unsigned long skl_int3472_clk_recalc_rate(struct clk_hw *hw,
++						 unsigned long parent_rate)
++{
++	struct int3472_gpio_clock *clk = to_int3472_clk(hw);
++
++	return clk->frequency;
++}
++
++static const struct clk_ops skl_int3472_clock_ops = {
++	.prepare = skl_int3472_clk_prepare,
++	.unprepare = skl_int3472_clk_unprepare,
++	.enable = skl_int3472_clk_enable,
++	.disable = skl_int3472_clk_disable,
++	.recalc_rate = skl_int3472_clk_recalc_rate,
++};
++
++int skl_int3472_register_clock(struct int3472_discrete_device *int3472)
++{
++	struct clk_init_data init = {
++		.ops = &skl_int3472_clock_ops,
++		.flags = CLK_GET_RATE_NOCACHE,
++	};
++	int ret = 0;
++
++	init.name = kasprintf(GFP_KERNEL, "%s-clk",
++			      acpi_dev_name(int3472->adev));
++	if (!init.name)
++		return -ENOMEM;
++
++	int3472->clock.frequency = skl_int3472_get_clk_frequency(int3472);
++
++	int3472->clock.clk_hw.init = &init;
++	int3472->clock.clk = clk_register(&int3472->adev->dev,
++					  &int3472->clock.clk_hw);
++	if (IS_ERR(int3472->clock.clk)) {
++		ret = PTR_ERR(int3472->clock.clk);
++		goto out_free_init_name;
++	}
++
++	int3472->clock.cl = clkdev_create(int3472->clock.clk, NULL,
++					  int3472->sensor_name);
++	if (!int3472->clock.cl) {
++		ret = -ENOMEM;
++		goto err_unregister_clk;
++	}
++
++	goto out_free_init_name;
++
++err_unregister_clk:
++	clk_unregister(int3472->clock.clk);
++out_free_init_name:
++	kfree(init.name);
++
++	return ret;
++}
++
++int skl_int3472_register_regulator(struct int3472_discrete_device *int3472,
++				   struct acpi_resource *ares)
++{
++	char *path = ares->data.gpio.resource_source.string_ptr;
++	const struct int3472_sensor_config *sensor_config;
++	struct regulator_consumer_supply supply_map;
++	struct regulator_init_data init_data = { };
++	struct regulator_config cfg = { };
++	int ret;
++
++	sensor_config = int3472->sensor_config;
++	if (IS_ERR(sensor_config)) {
++		dev_err(int3472->dev, "No sensor module config\n");
++		return PTR_ERR(sensor_config);
++	}
++
++	if (!sensor_config->supply_map.supply) {
++		dev_err(int3472->dev, "No supply name defined\n");
++		return -ENODEV;
++	}
++
++	init_data.constraints.valid_ops_mask = REGULATOR_CHANGE_STATUS;
++	init_data.num_consumer_supplies = 1;
++	supply_map = sensor_config->supply_map;
++	supply_map.dev_name = int3472->sensor_name;
++	init_data.consumer_supplies = &supply_map;
++
++	snprintf(int3472->regulator.regulator_name,
++		 sizeof(int3472->regulator.regulator_name), "%s-regulator",
++		 acpi_dev_name(int3472->adev));
++	snprintf(int3472->regulator.supply_name,
++		 GPIO_REGULATOR_SUPPLY_NAME_LENGTH, "supply-0");
++
++	int3472->regulator.rdesc = INT3472_REGULATOR(
++						int3472->regulator.regulator_name,
++						int3472->regulator.supply_name,
++						&int3472_gpio_regulator_ops);
++
++	int3472->regulator.gpio = acpi_get_and_request_gpiod(path,
++							     ares->data.gpio.pin_table[0],
++							     "int3472,regulator");
++	if (IS_ERR(int3472->regulator.gpio)) {
++		dev_err(int3472->dev, "Failed to get regulator GPIO line\n");
++		return PTR_ERR(int3472->regulator.gpio);
++	}
++
++	cfg.dev = &int3472->adev->dev;
++	cfg.init_data = &init_data;
++	cfg.ena_gpiod = int3472->regulator.gpio;
++
++	int3472->regulator.rdev = regulator_register(&int3472->regulator.rdesc,
++						     &cfg);
++	if (IS_ERR(int3472->regulator.rdev)) {
++		ret = PTR_ERR(int3472->regulator.rdev);
++		goto err_free_gpio;
++	}
++
++	return 0;
++
++err_free_gpio:
++	gpiod_put(int3472->regulator.gpio);
++
++	return ret;
++}
 diff --git a/drivers/platform/x86/intel-int3472/intel_skl_int3472_common.c b/drivers/platform/x86/intel-int3472/intel_skl_int3472_common.c
 new file mode 100644
-index 000000000000..f61166b6c497
+index 000000000000..8712ef9d8f59
 --- /dev/null
 +++ b/drivers/platform/x86/intel-int3472/intel_skl_int3472_common.c
 @@ -0,0 +1,106 @@
@@ -681,7 +1087,7 @@ index 000000000000..f61166b6c497
 +		return ERR_PTR(-ENODEV);
 +
 +	if (obj->type != ACPI_TYPE_BUFFER) {
-+		dev_err(&adev->dev, "%s object is not an ACPI buffer\n", id);
++		acpi_handle_err(handle, "%s object is not an ACPI buffer\n", id);
 +		kfree(obj);
 +		return ERR_PTR(-EINVAL);
 +	}
@@ -699,7 +1105,7 @@ index 000000000000..f61166b6c497
 +		return PTR_ERR(obj);
 +
 +	if (obj->buffer.length > sizeof(*cldb)) {
-+		dev_err(&adev->dev, "The CLDB buffer is too large\n");
++		acpi_handle_err(adev->handle, "The CLDB buffer is too large\n");
 +		ret = -EINVAL;
 +		goto out_free_obj;
 +	}
@@ -736,7 +1142,7 @@ index 000000000000..f61166b6c497
 +
 +static int skl_int3472_init(void)
 +{
-+	int ret = 0;
++	int ret;
 +
 +	ret = platform_driver_register(&int3472_discrete);
 +	if (ret)
@@ -762,10 +1168,10 @@ index 000000000000..f61166b6c497
 +MODULE_LICENSE("GPL v2");
 diff --git a/drivers/platform/x86/intel-int3472/intel_skl_int3472_common.h b/drivers/platform/x86/intel-int3472/intel_skl_int3472_common.h
 new file mode 100644
-index 000000000000..9169356cd522
+index 000000000000..4c923d15e3b1
 --- /dev/null
 +++ b/drivers/platform/x86/intel-int3472/intel_skl_int3472_common.h
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,113 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/* Author: Dan Scally <djrscally@gmail.com> */
 +
@@ -808,9 +1214,9 @@ index 000000000000..9169356cd522
 +#define to_int3472_device(clk)					\
 +	container_of(clk, struct int3472_discrete_device, clock)
 +
-+struct platform_device;
-+struct i2c_client;
 +struct acpi_device;
++struct i2c_client;
++struct platform_device;
 +
 +struct int3472_cldb {
 +	u8 version;
@@ -828,8 +1234,8 @@ index 000000000000..9169356cd522
 +};
 +
 +struct int3472_gpio_function_remap {
-+	char *documented;
-+	char *actual;
++	const char *documented;
++	const char *actual;
 +};
 +
 +struct int3472_sensor_config {
@@ -844,7 +1250,7 @@ index 000000000000..9169356cd522
 +	struct acpi_device *sensor;
 +	const char *sensor_name;
 +
-+	struct int3472_sensor_config *sensor_config;
++	const struct int3472_sensor_config *sensor_config;
 +
 +	struct int3472_gpio_regulator {
 +		char regulator_name[GPIO_REGULATOR_NAME_LENGTH];
@@ -874,27 +1280,32 @@ index 000000000000..9169356cd522
 +union acpi_object *skl_int3472_get_acpi_buffer(struct acpi_device *adev,
 +					       char *id);
 +int skl_int3472_fill_cldb(struct acpi_device *adev, struct int3472_cldb *cldb);
++int skl_int3472_register_clock(struct int3472_discrete_device *int3472);
++int skl_int3472_register_regulator(struct int3472_discrete_device *int3472,
++				   struct acpi_resource *ares);
 +
 +#endif
 diff --git a/drivers/platform/x86/intel-int3472/intel_skl_int3472_discrete.c b/drivers/platform/x86/intel-int3472/intel_skl_int3472_discrete.c
 new file mode 100644
-index 000000000000..40652161bbbf
+index 000000000000..cb91ab9e65cc
 --- /dev/null
 +++ b/drivers/platform/x86/intel-int3472/intel_skl_int3472_discrete.c
-@@ -0,0 +1,592 @@
+@@ -0,0 +1,409 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/* Author: Dan Scally <djrscally@gmail.com> */
 +
 +#include <linux/acpi.h>
 +#include <linux/clkdev.h>
++#include <linux/clk-provider.h>
++#include <linux/device.h>
 +#include <linux/gpio/consumer.h>
++#include <linux/gpio/machine.h>
 +#include <linux/i2c.h>
 +#include <linux/kernel.h>
 +#include <linux/module.h>
 +#include <linux/overflow.h>
 +#include <linux/platform_device.h>
-+#include <linux/regulator/driver.h>
-+#include <linux/slab.h>
++#include <linux/uuid.h>
 +
 +#include "intel_skl_int3472_common.h"
 +
@@ -937,99 +1348,19 @@ index 000000000000..40652161bbbf
 +	{ }
 +};
 +
-+static struct int3472_sensor_config int3472_sensor_configs[] = {
++static const struct int3472_sensor_config int3472_sensor_configs[] = {
 +	/* Lenovo Miix 510-12ISK - OV2680, Front */
-+	{ "GNDF140809R", { 0 }, ov2680_gpio_function_remaps},
++	{ "GNDF140809R", { 0 }, ov2680_gpio_function_remaps },
 +	/* Lenovo Miix 510-12ISK - OV5648, Rear */
-+	{ "GEFF150023R", REGULATOR_SUPPLY("avdd", NULL), NULL},
++	{ "GEFF150023R", REGULATOR_SUPPLY("avdd", NULL), NULL },
 +	/* Surface Go 1&2 - OV5693, Front */
-+	{ "YHCU", REGULATOR_SUPPLY("avdd", NULL), NULL},
++	{ "YHCU", REGULATOR_SUPPLY("avdd", NULL), NULL },
 +};
 +
-+/*
-+ * The regulators have to have .ops to be valid, but the only ops we actually
-+ * support are .enable and .disable which are handled via .ena_gpiod. Pass an
-+ * empty struct to clear the check without lying about capabilities.
-+ */
-+static const struct regulator_ops int3472_gpio_regulator_ops = { 0 };
-+
-+static int skl_int3472_clk_prepare(struct clk_hw *hw)
-+{
-+	struct int3472_gpio_clock *clk = to_int3472_clk(hw);
-+
-+	gpiod_set_value(clk->ena_gpio, 1);
-+	if (clk->led_gpio)
-+		gpiod_set_value(clk->led_gpio, 1);
-+
-+	return 0;
-+}
-+
-+static void skl_int3472_clk_unprepare(struct clk_hw *hw)
-+{
-+	struct int3472_gpio_clock *clk = to_int3472_clk(hw);
-+
-+	gpiod_set_value(clk->ena_gpio, 0);
-+	if (clk->led_gpio)
-+		gpiod_set_value(clk->led_gpio, 0);
-+}
-+
-+static int skl_int3472_clk_enable(struct clk_hw *hw)
-+{
-+	/*
-+	 * We're just turning a GPIO on to enable, which operation has the
-+	 * potential to sleep. Given enable cannot sleep, but prepare can,
-+	 * we toggle the GPIO in prepare instead. Thus, nothing to do here.
-+	 */
-+	return 0;
-+}
-+
-+static void skl_int3472_clk_disable(struct clk_hw *hw)
-+{
-+	/* Likewise, nothing to do here... */
-+}
-+
-+static unsigned int skl_int3472_get_clk_frequency(struct int3472_discrete_device *int3472)
-+{
-+	union acpi_object *obj;
-+	unsigned int ret = 0;
-+
-+	obj = skl_int3472_get_acpi_buffer(int3472->sensor, "SSDB");
-+	if (IS_ERR(obj))
-+		return 0; /* report rate as 0 on error */
-+
-+	if (obj->buffer.length < CIO2_SENSOR_SSDB_MCLKSPEED_OFFSET + sizeof(u32)) {
-+		dev_err(int3472->dev, "The buffer is too small\n");
-+		goto out_free_buff;
-+	}
-+
-+	ret = *(u32 *)(obj->buffer.pointer + CIO2_SENSOR_SSDB_MCLKSPEED_OFFSET);
-+
-+out_free_buff:
-+	kfree(obj);
-+	return ret;
-+}
-+
-+static unsigned long skl_int3472_clk_recalc_rate(struct clk_hw *hw,
-+						 unsigned long parent_rate)
-+{
-+	struct int3472_gpio_clock *clk = to_int3472_clk(hw);
-+	struct int3472_discrete_device *int3472 = to_int3472_device(clk);
-+
-+	return int3472->clock.frequency;
-+}
-+
-+static const struct clk_ops skl_int3472_clock_ops = {
-+	.prepare = skl_int3472_clk_prepare,
-+	.unprepare = skl_int3472_clk_unprepare,
-+	.enable = skl_int3472_clk_enable,
-+	.disable = skl_int3472_clk_disable,
-+	.recalc_rate = skl_int3472_clk_recalc_rate,
-+};
-+
-+static struct int3472_sensor_config *
++static const struct int3472_sensor_config *
 +skl_int3472_get_sensor_module_config(struct int3472_discrete_device *int3472)
 +{
-+	struct int3472_sensor_config *ret;
++	const struct int3472_sensor_config *ret;
 +	union acpi_object *obj;
 +	unsigned int i;
 +
@@ -1050,7 +1381,7 @@ index 000000000000..40652161bbbf
 +		goto out_free_obj;
 +	}
 +
-+	ret = NULL;
++	ret = ERR_PTR(-EINVAL);
 +	for (i = 0; i < ARRAY_SIZE(int3472_sensor_configs); i++) {
 +		if (!strcmp(int3472_sensor_configs[i].sensor_module_name,
 +			    obj->string.pointer)) {
@@ -1066,7 +1397,7 @@ index 000000000000..40652161bbbf
 +
 +static int skl_int3472_map_gpio_to_sensor(struct int3472_discrete_device *int3472,
 +					  struct acpi_resource *ares,
-+					  char *func, u32 polarity)
++					  const char *func, u32 polarity)
 +{
 +	char *path = ares->data.gpio.resource_source.string_ptr;
 +	const struct int3472_sensor_config *sensor_config;
@@ -1082,15 +1413,15 @@ index 000000000000..40652161bbbf
 +	}
 +
 +	sensor_config = int3472->sensor_config;
-+	if (!IS_ERR_OR_NULL(sensor_config) && sensor_config->function_maps) {
-+		const struct int3472_gpio_function_remap *remap =
-+			sensor_config->function_maps;
++	if (!IS_ERR(sensor_config) && sensor_config->function_maps) {
++		const struct int3472_gpio_function_remap *remap;
 +
-+		for (; remap->documented; ++remap)
++		for (remap = sensor_config->function_maps; remap->documented; remap++) {
 +			if (!strcmp(func, remap->documented)) {
 +				func = remap->actual;
 +				break;
 +			}
++		}
 +	}
 +
 +	/* Functions mapped to NULL should not be mapped to the sensor */
@@ -1125,131 +1456,28 @@ index 000000000000..40652161bbbf
 +
 +	switch (type) {
 +	case INT3472_GPIO_TYPE_CLK_ENABLE:
-+		gpio = acpi_get_gpiod(path, ares->data.gpio.pin_table[0],
-+				      "int3472,clk-enable");
++		gpio = acpi_get_and_request_gpiod(path, ares->data.gpio.pin_table[0],
++						  "int3472,clk-enable");
 +		if (IS_ERR(gpio))
 +			return (PTR_ERR(gpio));
 +
 +		int3472->clock.ena_gpio = gpio;
 +		break;
 +	case INT3472_GPIO_TYPE_PRIVACY_LED:
-+		gpio = acpi_get_gpiod(path, ares->data.gpio.pin_table[0],
-+				      "int3472,privacy-led");
++		gpio = acpi_get_and_request_gpiod(path, ares->data.gpio.pin_table[0],
++						  "int3472,privacy-led");
 +		if (IS_ERR(gpio))
 +			return (PTR_ERR(gpio));
 +
 +		int3472->clock.led_gpio = gpio;
 +		break;
 +	default:
-+		dev_err(int3472->dev, "Invalid GPIO type 0x%hx for clock\n",
++		dev_err(int3472->dev, "Invalid GPIO type 0x%02x for clock\n",
 +			type);
 +		break;
 +	}
 +
 +	return 0;
-+}
-+
-+static int skl_int3472_register_clock(struct int3472_discrete_device *int3472)
-+{
-+	struct clk_init_data init = {
-+		.ops = &skl_int3472_clock_ops,
-+		.flags = CLK_GET_RATE_NOCACHE,
-+	};
-+	int ret = 0;
-+
-+	init.name = kasprintf(GFP_KERNEL, "%s-clk",
-+			      acpi_dev_name(int3472->adev));
-+	if (!init.name)
-+		return -ENOMEM;
-+
-+	int3472->clock.frequency = skl_int3472_get_clk_frequency(int3472);
-+
-+	int3472->clock.clk_hw.init = &init;
-+	int3472->clock.clk = clk_register(&int3472->adev->dev,
-+					  &int3472->clock.clk_hw);
-+	if (IS_ERR(int3472->clock.clk)) {
-+		ret = PTR_ERR(int3472->clock.clk);
-+		goto out_free_init_name;
-+	}
-+
-+	int3472->clock.cl = clkdev_create(int3472->clock.clk, NULL,
-+					  int3472->sensor_name);
-+	if (!int3472->clock.cl) {
-+		ret = -ENOMEM;
-+		goto err_unregister_clk;
-+	}
-+
-+	goto out_free_init_name;
-+
-+err_unregister_clk:
-+	clk_unregister(int3472->clock.clk);
-+out_free_init_name:
-+	kfree(init.name);
-+
-+	return ret;
-+}
-+
-+static int skl_int3472_register_regulator(struct int3472_discrete_device *int3472,
-+					  struct acpi_resource *ares)
-+{
-+	char *path = ares->data.gpio.resource_source.string_ptr;
-+	struct int3472_sensor_config *sensor_config;
-+	struct regulator_init_data init_data = { };
-+	struct regulator_config cfg = { };
-+	int ret;
-+
-+	sensor_config = int3472->sensor_config;
-+	if (IS_ERR_OR_NULL(sensor_config)) {
-+		dev_err(int3472->dev, "No sensor module config\n");
-+		return PTR_ERR(sensor_config);
-+	}
-+
-+	if (!sensor_config->supply_map.supply) {
-+		dev_err(int3472->dev, "No supply name defined\n");
-+		return -ENODEV;
-+	}
-+
-+	init_data.constraints.valid_ops_mask = REGULATOR_CHANGE_STATUS;
-+	init_data.num_consumer_supplies = 1;
-+	sensor_config->supply_map.dev_name = int3472->sensor_name;
-+	init_data.consumer_supplies = &sensor_config->supply_map;
-+
-+	snprintf(int3472->regulator.regulator_name,
-+		 sizeof(int3472->regulator.regulator_name), "%s-regulator",
-+		 acpi_dev_name(int3472->adev));
-+	snprintf(int3472->regulator.supply_name,
-+		 GPIO_REGULATOR_SUPPLY_NAME_LENGTH, "supply-0");
-+
-+	int3472->regulator.rdesc = INT3472_REGULATOR(
-+						int3472->regulator.regulator_name,
-+						int3472->regulator.supply_name,
-+						&int3472_gpio_regulator_ops);
-+
-+	int3472->regulator.gpio = acpi_get_gpiod(path,
-+						 ares->data.gpio.pin_table[0],
-+						 "int3472,regulator");
-+	if (IS_ERR(int3472->regulator.gpio)) {
-+		dev_err(int3472->dev, "Failed to get regulator GPIO lines\n");
-+		return PTR_ERR(int3472->regulator.gpio);
-+	}
-+
-+	cfg.dev = &int3472->adev->dev;
-+	cfg.init_data = &init_data;
-+	cfg.ena_gpiod = int3472->regulator.gpio;
-+
-+	int3472->regulator.rdev = regulator_register(&int3472->regulator.rdesc,
-+						     &cfg);
-+	if (IS_ERR(int3472->regulator.rdev)) {
-+		ret = PTR_ERR(int3472->regulator.rdev);
-+		goto err_free_gpio;
-+	}
-+
-+	return 0;
-+
-+err_free_gpio:
-+	gpiod_put(int3472->regulator.gpio);
-+
-+	return ret;
 +}
 +
 +/**
@@ -1287,14 +1515,13 @@ index 000000000000..40652161bbbf
 +					     void *data)
 +{
 +	struct int3472_discrete_device *int3472 = data;
-+	u16 pin = ares->data.gpio.pin_table[0];
++	struct acpi_resource_gpio *agpio;
 +	union acpi_object *obj;
-+	char *err_msg;
-+	int ret = 0;
++	const char *err_msg;
++	int ret;
 +	u8 type;
 +
-+	if (ares->type != ACPI_RESOURCE_TYPE_GPIO ||
-+	    ares->data.gpio.connection_type != ACPI_RESOURCE_GPIO_TYPE_IO)
++	if (!acpi_gpio_get_io_resource(ares, &agpio))
 +		return 1; /* Deliberately positive so parsing continues */
 +
 +	/*
@@ -1307,7 +1534,8 @@ index 000000000000..40652161bbbf
 +				      NULL, ACPI_TYPE_INTEGER);
 +
 +	if (!obj) {
-+		dev_warn(int3472->dev, "No _DSM entry for GPIO pin %u\n", pin);
++		dev_warn(int3472->dev, "No _DSM entry for GPIO pin %u\n",
++			 ares->data.gpio.pin_table[0]);
 +		return 1;
 +	}
 +
@@ -1350,22 +1578,24 @@ index 000000000000..40652161bbbf
 +		break;
 +	}
 +
-+	if (ret < 0 && ret != -EPROBE_DEFER)
-+		dev_err(int3472->dev, err_msg);
-+
 +	int3472->n_gpios++;
 +	ACPI_FREE(obj);
 +
-+	return ret;
++	if (ret)
++		return dev_err_probe(int3472->dev, ret, err_msg);
++
++	return 0;
 +}
 +
 +static int skl_int3472_parse_crs(struct int3472_discrete_device *int3472)
 +{
-+	struct list_head resource_list;
++	LIST_HEAD(resource_list);
 +	int ret;
 +
-+	INIT_LIST_HEAD(&resource_list);
-+
++	/*
++	 * No error check, because not having a sensor config is not necessarily
++	 * a failure mode.
++	 */
 +	int3472->sensor_config = skl_int3472_get_sensor_module_config(int3472);
 +
 +	ret = acpi_dev_get_resources(int3472->adev, &resource_list,
@@ -1413,8 +1643,8 @@ index 000000000000..40652161bbbf
 +	}
 +
 +	/* Max num GPIOs we've seen plus a terminator */
-+	int3472 = kzalloc(struct_size(int3472, gpios.table,
-+			  INT3472_MAX_SENSOR_GPIOS + 1), GFP_KERNEL);
++	int3472 = devm_kzalloc(&pdev->dev, struct_size(int3472, gpios.table,
++			       INT3472_MAX_SENSOR_GPIOS + 1), GFP_KERNEL);
 +	if (!int3472)
 +		return -ENOMEM;
 +
@@ -1423,16 +1653,24 @@ index 000000000000..40652161bbbf
 +	platform_set_drvdata(pdev, int3472);
 +
 +	int3472->sensor = acpi_dev_get_dependent_dev(adev);
-+	if (IS_ERR_OR_NULL(int3472->sensor)) {
-+		dev_err(&pdev->dev,
-+			"INT3472 seems to have no dependents.\n");
-+		ret = -ENODEV;
-+		goto err_free_int3472;
++	if (!int3472->sensor) {
++		dev_err(&pdev->dev, "INT3472 seems to have no dependents.\n");
++		return -ENODEV;
 +	}
-+	get_device(&int3472->sensor->dev);
 +
-+	int3472->sensor_name = kasprintf(GFP_KERNEL, I2C_DEV_NAME_FORMAT,
-+					 acpi_dev_name(int3472->sensor));
++	int3472->sensor_name = devm_kasprintf(int3472->dev, GFP_KERNEL,
++					      I2C_DEV_NAME_FORMAT,
++					      acpi_dev_name(int3472->sensor));
++	if (!int3472->sensor_name) {
++		ret = -ENOMEM;
++		goto err_put_sensor;
++	}
++
++	/*
++	 * Initialising this list means we can call gpiod_remove_lookup_table()
++	 * in failure paths without issue.
++	 */
++	INIT_LIST_HEAD(&int3472->gpios.list);
 +
 +	ret = skl_int3472_parse_crs(int3472);
 +	if (ret) {
@@ -1442,8 +1680,9 @@ index 000000000000..40652161bbbf
 +
 +	return 0;
 +
-+err_free_int3472:
-+	kfree(int3472);
++err_put_sensor:
++	acpi_dev_put(int3472->sensor);
++
 +	return ret;
 +}
 +
@@ -1451,35 +1690,22 @@ index 000000000000..40652161bbbf
 +{
 +	struct int3472_discrete_device *int3472 = platform_get_drvdata(pdev);
 +
-+	if (int3472->gpios.dev_id)
-+		gpiod_remove_lookup_table(&int3472->gpios);
-+
-+	if (!IS_ERR(int3472->regulator.rdev))
-+		regulator_unregister(int3472->regulator.rdev);
-+
-+	if (!IS_ERR(int3472->clock.clk))
-+		clk_unregister(int3472->clock.clk);
-+
-+	if (int3472->clock.cl)
-+		clkdev_drop(int3472->clock.cl);
-+
++	gpiod_remove_lookup_table(&int3472->gpios);
++	regulator_unregister(int3472->regulator.rdev);
++	clk_unregister(int3472->clock.clk);
++	clkdev_drop(int3472->clock.cl);
 +	gpiod_put(int3472->regulator.gpio);
 +	gpiod_put(int3472->clock.ena_gpio);
 +	gpiod_put(int3472->clock.led_gpio);
-+
-+	acpi_dev_put(int3472->sensor);
-+
-+	kfree(int3472->sensor_name);
-+	kfree(int3472);
 +
 +	return 0;
 +}
 diff --git a/drivers/platform/x86/intel-int3472/intel_skl_int3472_tps68470.c b/drivers/platform/x86/intel-int3472/intel_skl_int3472_tps68470.c
 new file mode 100644
-index 000000000000..d0d2391e263f
+index 000000000000..843eaa27e9da
 --- /dev/null
 +++ b/drivers/platform/x86/intel-int3472/intel_skl_int3472_tps68470.c
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,109 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/* Author: Dan Scally <djrscally@gmail.com> */
 +
@@ -1491,15 +1717,15 @@ index 000000000000..d0d2391e263f
 +
 +#include "intel_skl_int3472_common.h"
 +
-+static const struct mfd_cell tps68470_c[] = {
++static const struct mfd_cell tps68470_cros[] = {
 +	{ .name = "tps68470-gpio" },
 +	{ .name = "tps68470_pmic_opregion" },
 +};
 +
-+static const struct mfd_cell tps68470_w[] = {
++static const struct mfd_cell tps68470_win[] = {
 +	{ .name = "tps68470-gpio" },
 +	{ .name = "tps68470-clk" },
-+	{ .name = "tps68470-regulator"},
++	{ .name = "tps68470-regulator" },
 +};
 +
 +static const struct regmap_config tps68470_regmap_config = {
@@ -1533,7 +1759,6 @@ index 000000000000..d0d2391e263f
 +{
 +	struct acpi_device *adev = ACPI_COMPANION(&client->dev);
 +	struct int3472_cldb cldb = { 0 };
-+	bool cldb_present = true;
 +	struct regmap *regmap;
 +	int ret;
 +
@@ -1575,15 +1800,12 @@ index 000000000000..d0d2391e263f
 +	}
 +
 +	if (ret)
-+		cldb_present = false;
-+
-+	if (cldb_present)
 +		ret = devm_mfd_add_devices(&client->dev, PLATFORM_DEVID_NONE,
-+					   tps68470_w, ARRAY_SIZE(tps68470_w),
++					   tps68470_cros, ARRAY_SIZE(tps68470_cros),
 +					   NULL, 0, NULL);
 +	else
 +		ret = devm_mfd_add_devices(&client->dev, PLATFORM_DEVID_NONE,
-+					   tps68470_c, ARRAY_SIZE(tps68470_c),
++					   tps68470_win, ARRAY_SIZE(tps68470_win),
 +					   NULL, 0, NULL);
 +
 +	if (ret) {
@@ -1596,19 +1818,19 @@ index 000000000000..d0d2391e263f
 -- 
 2.31.1
 
-From c7b44f93abcfd82438c5b33d7383176be283a630 Mon Sep 17 00:00:00 2001
+From 01eaa6e97db7229d68ef869c3549e6a42b744dda Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
-Date: Mon, 22 Feb 2021 13:07:35 +0000
+Date: Thu, 20 May 2021 15:09:28 +0100
 Subject: [PATCH] mfd: tps68470: Remove tps68470 MFD driver
 
 This driver only covered one scenario in which ACPI devices with _HID
 INT3472 are found, and its functionality has been taken over by the
 intel-skl-int3472 module, so remove it.
 
-Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
-Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Acked-by: Andy Shevchenko <andy.shevchenko@gmail.com>
 Acked-by: Lee Jones <lee.jones@linaro.org>
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
 Patchset: cameras
 ---
  drivers/acpi/pmic/Kconfig |  2 +-
@@ -1792,7 +2014,7 @@ index 4a4df4ffd18c..000000000000
 -- 
 2.31.1
 
-From 8b4111b5d20b51965c1561c4316615db387f4e33 Mon Sep 17 00:00:00 2001
+From b7cce7551ed208e0884b5a7ce5454e630bbe1de6 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 5 Apr 2021 23:56:53 +0100
 Subject: [PATCH] media: ipu3-cio2: Toggle sensor streaming in pm runtime ops
@@ -1852,7 +2074,7 @@ index fecef85bd62e..9dafb9470708 100644
 -- 
 2.31.1
 
-From dbf58a64ff8155205e2b3d9a96e1af4ef58acafe Mon Sep 17 00:00:00 2001
+From 6d57a64c0e0ef76eb51950d9b1e16e2c6230af25 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 5 Apr 2021 23:56:54 +0100
 Subject: [PATCH] media: i2c: Add support for ov5693 sensor
@@ -3495,7 +3717,7 @@ index 000000000000..da2ca99a7ad3
 -- 
 2.31.1
 
-From f0059d1809d52b6b42a7100efe9e26f9df1249f5 Mon Sep 17 00:00:00 2001
+From a17b86c1fbc147311de52ffbeb3dd754d8d63c5c Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Fabian=20W=C3=BCthrich?= <me@fabwu.ch>
 Date: Fri, 22 Jan 2021 20:58:13 +0100
 Subject: [PATCH] cio2-bridge: Parse sensor orientation and rotation
@@ -3658,7 +3880,7 @@ index dd0ffcafa489..924d99d20328 100644
 -- 
 2.31.1
 
-From 7d1ac2ea2079508ce20b4bf694275a4947499be8 Mon Sep 17 00:00:00 2001
+From fd66c84c310c0532e2155115677669b4ac28a3f8 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Fabian=20W=C3=BCthrich?= <me@fabwu.ch>
 Date: Sun, 24 Jan 2021 11:07:42 +0100
 Subject: [PATCH] cio2-bridge: Use macros and add warnings
@@ -3762,7 +3984,7 @@ index 924d99d20328..e1e388cc9f45 100644
 -- 
 2.31.1
 
-From 117dcddf9a443ac3b7a579e7b427e3143e4d43c6 Mon Sep 17 00:00:00 2001
+From 75aa5e7a32043c82a48f906dd8ee6759bb485049 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Fabian=20W=C3=BCthrich?= <me@fabwu.ch>
 Date: Thu, 6 May 2021 07:52:44 +0200
 Subject: [PATCH] cio2-bridge: Use correct dev_properties size
@@ -3785,6 +4007,41 @@ index e1e388cc9f45..deaf5804f70d 100644
  	struct property_entry cio2_properties[3];
  	struct software_node_ref_args local_ref[1];
  	struct software_node_ref_args remote_ref[1];
+-- 
+2.31.1
+
+From b7c26cee187d11d2d2ac9e3812b0b9cc882f5f99 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Thu, 20 May 2021 23:31:04 +0100
+Subject: [PATCH] media: i2c: Fix vertical flip in ov5693
+
+The pinkness experienced by users with rotated sensors in their laptops
+was due to an incorrect setting for the vertical flip function; the
+datasheet for the sensor gives the settings as bits 1&2 in one place and
+bits 1&6 in another.
+
+Switch to flipping bit 6 instead of bit 2 for 0x3820 in the vertical
+flip function to fix the pink hue.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov5693.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
+index da2ca99a7ad3..52279eeffc54 100644
+--- a/drivers/media/i2c/ov5693.c
++++ b/drivers/media/i2c/ov5693.c
+@@ -133,7 +133,7 @@
+ #define OV5693_SUB_INC_Y_REG			0x3815
+ 
+ #define OV5693_FORMAT1_REG			0x3820
+-#define OV5693_FORMAT1_FLIP_VERT_ISP_EN		BIT(2)
++#define OV5693_FORMAT1_FLIP_VERT_ISP_EN		BIT(6)
+ #define OV5693_FORMAT1_FLIP_VERT_SENSOR_EN	BIT(1)
+ #define OV5693_FORMAT1_VBIN_EN			BIT(0)
+ #define OV5693_FORMAT2_REG			0x3821
 -- 
 2.31.1
 
