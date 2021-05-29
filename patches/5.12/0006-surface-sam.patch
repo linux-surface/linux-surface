@@ -7779,7 +7779,7 @@ index 2d4acf21117c..c5950a3b4e4c 100644
 -- 
 2.31.1
 
-From 1277ae342495763832aa7c177a1ed959c242d705 Mon Sep 17 00:00:00 2001
+From 2de100520fe38868cbdc3b18a904f947be7e49f4 Mon Sep 17 00:00:00 2001
 From: Sachi King <nakato@nakato.io>
 Date: Sat, 29 May 2021 17:47:38 +1000
 Subject: [PATCH] ACPI: Add quirk for Surface Laptop 4 AMD missing irq 7
@@ -7843,6 +7843,39 @@ index 14cd3186dc77..ab3ba60cb6da 100644
  	/* Fill in identity legacy mappings where no override */
  	mp_config_acpi_legacy_irqs();
  
+-- 
+2.31.1
+
+From 6c447f73fba0aa9071801a5bd6f439eabf86b202 Mon Sep 17 00:00:00 2001
+From: Sachi King <nakato@nakato.io>
+Date: Sat, 29 May 2021 22:27:25 +1000
+Subject: [PATCH] platform/x86: amd-pmc: Add device HID for AMD PMC
+
+The Surface Laptop 4 appears to have used AMD0005 for the PMC instead of
+the AMDI0005 which would match the ACPI ID Registry.
+
+AMD appears to have previously used "AMD" in a number of IDs in the past,
+and AMD is not allocated to any other entity as an ID, so adding this ID
+should not cause any harm.
+
+Signed-off-by: Sachi King <nakato@nakato.io>
+Patchset: surface-sam
+---
+ drivers/platform/x86/amd-pmc.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/platform/x86/amd-pmc.c b/drivers/platform/x86/amd-pmc.c
+index b9da58ee9b1e..0b5578a8a449 100644
+--- a/drivers/platform/x86/amd-pmc.c
++++ b/drivers/platform/x86/amd-pmc.c
+@@ -275,6 +275,7 @@ static int amd_pmc_remove(struct platform_device *pdev)
+ static const struct acpi_device_id amd_pmc_acpi_ids[] = {
+ 	{"AMDI0005", 0},
+ 	{"AMD0004", 0},
++	{"AMD0005", 0},
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(acpi, amd_pmc_acpi_ids);
 -- 
 2.31.1
 
