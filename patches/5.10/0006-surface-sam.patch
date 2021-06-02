@@ -1,4 +1,4 @@
-From 1aa1743da4e6bda85c3c4c165a8b5e5d3e0a3b10 Mon Sep 17 00:00:00 2001
+From adb894593798f74723c07c5b7e31206b2c698e7b Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] Add file2alias support for Surface Aggregator Module devices
@@ -99,7 +99,7 @@ index 2417dd1dee33..a6c583362b92 100644
 -- 
 2.31.1
 
-From d8108ce09a04b16e040832468e22060cc06dd7f6 Mon Sep 17 00:00:00 2001
+From ef8704e7ffff7ba7df374f10a0abcedf7f3214a6 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] platform/x86: Add support for Surface System Aggregator
@@ -129,7 +129,7 @@ Patchset: surface-sam
  .../surface_aggregator/internal.rst           |  577 ++++
  .../surface_aggregator/overview.rst           |   77 +
  .../driver-api/surface_aggregator/ssh.rst     |  344 +++
- arch/x86/kernel/i8259.c                       |   51 +-
+ arch/x86/kernel/acpi/boot.c                   |   17 +
  drivers/acpi/acpi_apd.c                       |    1 +
  drivers/hid/Kconfig                           |    4 +-
  drivers/hid/Makefile                          |    2 +
@@ -176,7 +176,7 @@ Patchset: surface-sam
  include/uapi/linux/surface_aggregator/dtx.h   |  146 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 59 files changed, 19221 insertions(+), 13 deletions(-)
+ 59 files changed, 19192 insertions(+), 8 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -2683,35 +2683,23 @@ index 000000000000..bf007d6c9873
 +(per party, effectively leading to synchronous communication regarding
 +frames) and at most three pending commands. The limit to synchronous frame
 +transfers seems to be consistent with behavior observed on Windows.
-diff --git a/arch/x86/kernel/i8259.c b/arch/x86/kernel/i8259.c
-index 282b4ee1339f..0da757c6b292 100644
---- a/arch/x86/kernel/i8259.c
-+++ b/arch/x86/kernel/i8259.c
-@@ -1,4 +1,7 @@
- // SPDX-License-Identifier: GPL-2.0
-+
-+#define pr_fmt(fmt) "i8259: " fmt
-+
- #include <linux/linkage.h>
- #include <linux/errno.h>
- #include <linux/signal.h>
-@@ -16,6 +19,7 @@
- #include <linux/io.h>
- #include <linux/delay.h>
+diff --git a/arch/x86/kernel/acpi/boot.c b/arch/x86/kernel/acpi/boot.c
+index 14cd3186dc77..ab3ba60cb6da 100644
+--- a/arch/x86/kernel/acpi/boot.c
++++ b/arch/x86/kernel/acpi/boot.c
+@@ -21,6 +21,7 @@
+ #include <linux/efi-bgrt.h>
+ #include <linux/serial_core.h>
  #include <linux/pgtable.h>
 +#include <linux/dmi.h>
  
- #include <linux/atomic.h>
- #include <asm/timer.h>
-@@ -298,11 +302,39 @@ static void unmask_8259A(void)
- 	raw_spin_unlock_irqrestore(&i8259A_lock, flags);
+ #include <asm/e820/api.h>
+ #include <asm/irqdomain.h>
+@@ -1155,6 +1156,17 @@ static void __init mp_config_acpi_legacy_irqs(void)
+ 	}
  }
  
-+/*
-+ * DMI table to identify devices with quirky probe behavior. See comment in
-+ * probe_8259A() for more details.
-+ */
-+static const struct dmi_system_id retry_probe_quirk_table[] = {
++static const struct dmi_system_id surface_quirk[] __initconst = {
 +	{
 +		.ident = "Microsoft Surface Laptop 4 (AMD)",
 +		.matches = {
@@ -2722,56 +2710,20 @@ index 282b4ee1339f..0da757c6b292 100644
 +	{}
 +};
 +
- static int probe_8259A(void)
- {
- 	unsigned long flags;
- 	unsigned char probe_val = ~(1 << PIC_CASCADE_IR);
- 	unsigned char new_val;
-+	unsigned int i, imax = 1;
-+
-+	/*
-+	 * Some systems have a legacy PIC that doesn't immediately respond
-+	 * after boot. We know it's there, we know it should respond and is
-+	 * required for proper interrupt handling later on, so let's try a
-+	 * couple of times.
-+	 */
-+	if (dmi_check_system(retry_probe_quirk_table)) {
-+		pr_warn("system with broken legacy PIC detected, re-trying multiple times if necessary\n");
-+		imax = 10;
+ /*
+  * Parse IOAPIC related entries in MADT
+  * returns 0 on success, < 0 on error
+@@ -1212,6 +1224,11 @@ static int __init acpi_parse_madt_ioapic_entries(void)
+ 		acpi_sci_ioapic_setup(acpi_gbl_FADT.sci_interrupt, 0, 0,
+ 				      acpi_gbl_FADT.sci_interrupt);
+ 
++	if (dmi_check_system(surface_quirk)) {
++		pr_warn("Surface hack: Override irq 7\n");
++		mp_override_legacy_irq(7, 3, 3, 7);
 +	}
 +
- 	/*
- 	 * Check to see if we have a PIC.
- 	 * Mask all except the cascade and read
-@@ -312,15 +344,24 @@ static int probe_8259A(void)
- 	 */
- 	raw_spin_lock_irqsave(&i8259A_lock, flags);
- 
--	outb(0xff, PIC_SLAVE_IMR);	/* mask all of 8259A-2 */
--	outb(probe_val, PIC_MASTER_IMR);
--	new_val = inb(PIC_MASTER_IMR);
--	if (new_val != probe_val) {
--		printk(KERN_INFO "Using NULL legacy PIC\n");
-+	for (i = 0; i < imax; i++) {
-+		outb(0xff, PIC_SLAVE_IMR);	/* mask all of 8259A-2 */
-+		outb(probe_val, PIC_MASTER_IMR);
-+		new_val = inb(PIC_MASTER_IMR);
-+		if (new_val == probe_val)
-+			break;
-+	}
-+
-+	if (i == imax) {
-+		pr_info("using NULL legacy PIC\n");
- 		legacy_pic = &null_legacy_pic;
- 	}
- 
- 	raw_spin_unlock_irqrestore(&i8259A_lock, flags);
-+
-+	if (imax > 1 && i < imax)
-+		pr_info("got legacy PIC after %d tries\n", i + 1);
-+
- 	return nr_legacy_irqs();
- }
+ 	/* Fill in identity legacy mappings where no override */
+ 	mp_config_acpi_legacy_irqs();
  
 diff --git a/drivers/acpi/acpi_apd.c b/drivers/acpi/acpi_apd.c
 index 39359ce0eb2c..645e82a66bb0 100644
@@ -3815,7 +3767,7 @@ index 899c16c17b6d..ef49402c0623 100644
  };
  MODULE_DEVICE_TABLE(acpi, amd_gpio_acpi_match);
 diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
-index a9b12f4dcbd1..dbb07644c312 100644
+index 6a53f63bde62..d44d3fb9ca72 100644
 --- a/drivers/platform/x86/Kconfig
 +++ b/drivers/platform/x86/Kconfig
 @@ -870,6 +870,108 @@ config INTEL_VBTN
