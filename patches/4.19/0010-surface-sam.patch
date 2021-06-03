@@ -1,4 +1,4 @@
-From 6fbb3eabb4f2416201449cda63ba77338d7deb67 Mon Sep 17 00:00:00 2001
+From b18cbfbe9d487c24e272578afcf74cc68af93636 Mon Sep 17 00:00:00 2001
 From: qzed <qzed@users.noreply.github.com>
 Date: Mon, 26 Aug 2019 01:15:40 +0200
 Subject: [PATCH] ACPI: Fix buffer/integer type mismatch
@@ -81,7 +81,7 @@ index b272c329d45d..cf547883a993 100644
 -- 
 2.31.1
 
-From 4106bf27de1b49aa2c47727a58d979b33ca1e506 Mon Sep 17 00:00:00 2001
+From 9528beca1088b8ab0b21aaf0b93864c36cf4b441 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 24 Sep 2019 17:38:12 +0200
 Subject: [PATCH] serdev: Add ACPI devices by ResourceSource field
@@ -269,7 +269,7 @@ index c66a04d24f1d..1b18d12d217f 100644
 -- 
 2.31.1
 
-From 0e718cd4bb7aa3924403cbd160b1eb62677e33d0 Mon Sep 17 00:00:00 2001
+From d3efb7a6b79a5c4b2fcef1d86c4a99f3279acb67 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] Add file2alias support for Surface Aggregator devices
@@ -370,7 +370,7 @@ index 7f40b6aab689..76e3b1d7db45 100644
 -- 
 2.31.1
 
-From a12b16039b68277800d652d15b9a334baf12d1b5 Mon Sep 17 00:00:00 2001
+From 97b74a8f0b897844b8659e667d56d113c6ea19be Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] platform/x86: Add support for Surface System Aggregator
@@ -391,7 +391,7 @@ Patchset: surface-sam
  Documentation/driver-api/index.rst            |    1 +
  .../surface_aggregator/client-api.rst         |   38 +
  .../driver-api/surface_aggregator/client.rst  |  393 +++
- .../surface_aggregator/clients/cdev.rst       |   87 +
+ .../surface_aggregator/clients/cdev.rst       |  204 ++
  .../surface_aggregator/clients/dtx.rst        |  712 +++++
  .../surface_aggregator/clients/index.rst      |   22 +
  .../surface_aggregator/clients/san.rst        |   44 +
@@ -415,7 +415,7 @@ Patchset: surface-sam
  .../platform/x86/surface_aggregator/Makefile  |   17 +
  drivers/platform/x86/surface_aggregator/bus.c |  415 +++
  drivers/platform/x86/surface_aggregator/bus.h |   27 +
- .../x86/surface_aggregator/controller.c       | 2570 +++++++++++++++++
+ .../x86/surface_aggregator/controller.c       | 2718 +++++++++++++++++
  .../x86/surface_aggregator/controller.h       |  285 ++
  .../platform/x86/surface_aggregator/core.c    |  850 ++++++
  .../x86/surface_aggregator/ssh_msgb.h         |  205 ++
@@ -426,24 +426,24 @@ Patchset: surface-sam
  .../surface_aggregator/ssh_request_layer.c    | 1263 ++++++++
  .../surface_aggregator/ssh_request_layer.h    |  143 +
  .../platform/x86/surface_aggregator/trace.h   |  632 ++++
- .../platform/x86/surface_aggregator_cdev.c    |  322 +++
+ .../platform/x86/surface_aggregator_cdev.c    |  804 +++++
  .../x86/surface_aggregator_registry.c         |  618 ++++
  drivers/platform/x86/surface_dtx.c            | 1281 ++++++++
  drivers/platform/x86/surface_perfmode.c       |  122 +
  drivers/power/supply/Kconfig                  |   32 +
  drivers/power/supply/Makefile                 |    2 +
- drivers/power/supply/surface_battery.c        |  816 ++++++
+ drivers/power/supply/surface_battery.c        |  816 +++++
  drivers/power/supply/surface_charger.c        |  282 ++
  include/linux/mod_devicetable.h               |    5 +-
  include/linux/surface_acpi_notify.h           |   39 +
- include/linux/surface_aggregator/controller.h |  824 ++++++
+ include/linux/surface_aggregator/controller.h |  849 +++++
  include/linux/surface_aggregator/device.h     |  423 +++
- include/linux/surface_aggregator/serial_hub.h |  668 +++++
- include/uapi/linux/surface_aggregator/cdev.h  |   78 +
+ include/linux/surface_aggregator/serial_hub.h |  668 ++++
+ include/uapi/linux/surface_aggregator/cdev.h  |  147 +
  include/uapi/linux/surface_aggregator/dtx.h   |  146 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 55 files changed, 19112 insertions(+), 7 deletions(-)
+ 55 files changed, 19953 insertions(+), 7 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -947,16 +947,15 @@ index 000000000000..26d13085a117
 +with the same flag and it is considered a bug to do otherwise.
 diff --git a/Documentation/driver-api/surface_aggregator/clients/cdev.rst b/Documentation/driver-api/surface_aggregator/clients/cdev.rst
 new file mode 100644
-index 000000000000..248c1372d879
+index 000000000000..0134a841a079
 --- /dev/null
 +++ b/Documentation/driver-api/surface_aggregator/clients/cdev.rst
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,204 @@
 +.. SPDX-License-Identifier: GPL-2.0+
 +
-+.. |u8| replace:: :c:type:`u8 <u8>`
-+.. |u16| replace:: :c:type:`u16 <u16>`
 +.. |ssam_cdev_request| replace:: :c:type:`struct ssam_cdev_request <ssam_cdev_request>`
 +.. |ssam_cdev_request_flags| replace:: :c:type:`enum ssam_cdev_request_flags <ssam_cdev_request_flags>`
++.. |ssam_cdev_event| replace:: :c:type:`struct ssam_cdev_event <ssam_cdev_event>`
 +
 +==============================
 +User-Space EC Interface (cdev)
@@ -975,6 +974,40 @@ index 000000000000..248c1372d879
 +
 +A small python library and scripts for accessing this interface can be found
 +at https://github.com/linux-surface/surface-aggregator-module/tree/master/scripts/ssam.
++
++.. contents::
++
++
++Receiving Events
++================
++
++Events can be received by reading from the device-file. The are represented by
++the |ssam_cdev_event| datatype.
++
++Before events are available to be read, however, the desired notifiers must be
++registered via the ``SSAM_CDEV_NOTIF_REGISTER`` IOCTL. Notifiers are, in
++essence, callbacks, called when the EC sends an event. They are, in this
++interface, associated with a specific target category and device-file-instance.
++They forward any event of this category to the buffer of the corresponding
++instance, from which it can then be read.
++
++Notifiers themselves do not enable events on the EC. Thus, it may additionally
++be necessary to enable events via the ``SSAM_CDEV_EVENT_ENABLE`` IOCTL. While
++notifiers work per-client (i.e. per-device-file-instance), events are enabled
++globally, for the EC and all of its clients (regardless of userspace or
++non-userspace). The ``SSAM_CDEV_EVENT_ENABLE`` and ``SSAM_CDEV_EVENT_DISABLE``
++IOCTLs take care of reference counting the events, such that an event is
++enabled as long as there is a client that has requested it.
++
++Note that enabled events are not automatically disabled once the client
++instance is closed. Therefore any client process (or group of processes) should
++balance their event enable calls with the corresponding event disable calls. It
++is, however, perfectly valid to enable and disable events on different client
++instances. For example, it is valid to set up notifiers and read events on
++client instance ``A``, enable those events on instance ``B`` (note that these
++will also be received by A since events are enabled/disabled globally), and
++after no more events are desired, disable the previously enabled events via
++instance ``C``.
 +
 +
 +Controller IOCTLs
@@ -998,9 +1031,33 @@ index 000000000000..248c1372d879
 +     - ``REQUEST``
 +     - Perform synchronous SAM request.
 +
++   * - ``0xA5``
++     - ``2``
++     - ``W``
++     - ``NOTIF_REGISTER``
++     - Register event notifier.
 +
-+``REQUEST``
-+-----------
++   * - ``0xA5``
++     - ``3``
++     - ``W``
++     - ``NOTIF_UNREGISTER``
++     - Unregister event notifier.
++
++   * - ``0xA5``
++     - ``4``
++     - ``W``
++     - ``EVENT_ENABLE``
++     - Enable event source.
++
++   * - ``0xA5``
++     - ``5``
++     - ``W``
++     - ``EVENT_DISABLE``
++     - Disable event source.
++
++
++``SSAM_CDEV_REQUEST``
++---------------------
 +
 +Defined as ``_IOWR(0xA5, 1, struct ssam_cdev_request)``.
 +
@@ -1035,7 +1092,67 @@ index 000000000000..248c1372d879
 +inside the IOCTL, but the request ``status`` member may still be negative in
 +case the actual execution of the request failed after it has been submitted.
 +
-+A full definition of the argument struct is provided below:
++A full definition of the argument struct is provided below.
++
++``SSAM_CDEV_NOTIF_REGISTER``
++----------------------------
++
++Defined as ``_IOW(0xA5, 2, struct ssam_cdev_notifier_desc)``.
++
++Register a notifier for the event target category specified in the given
++notifier description with the specified priority. Notifiers registration is
++required to receive events, but does not enable events themselves. After a
++notifier for a specific target category has been registered, all events of that
++category will be forwarded to the userspace client and can then be read from
++the device file instance. Note that events may have to be enabled, e.g. via the
++``SSAM_CDEV_EVENT_ENABLE`` IOCTL, before the EC will send them.
++
++Only one notifier can be registered per target category and client instance. If
++a notifier has already been registered, this IOCTL will fail with ``-EEXIST``.
++
++Notifiers will automatically be removed when the device file instance is
++closed.
++
++``SSAM_CDEV_NOTIF_UNREGISTER``
++------------------------------
++
++Defined as ``_IOW(0xA5, 3, struct ssam_cdev_notifier_desc)``.
++
++Unregisters the notifier associated with the specified target category. The
++priority field will be ignored by this IOCTL. If no notifier has been
++registered for this client instance and the given category, this IOCTL will
++fail with ``-ENOENT``.
++
++``SSAM_CDEV_EVENT_ENABLE``
++--------------------------
++
++Defined as ``_IOW(0xA5, 4, struct ssam_cdev_event_desc)``.
++
++Enable the event associated with the given event descriptor.
++
++Note that this call will not register a notifier itself, it will only enable
++events on the controller. If you want to receive events by reading from the
++device file, you will need to register the corresponding notifier(s) on that
++instance.
++
++Events are not automatically disabled when the device file is closed. This must
++be done manually, via a call to the ``SSAM_CDEV_EVENT_DISABLE`` IOCTL.
++
++``SSAM_CDEV_EVENT_DISABLE``
++---------------------------
++
++Defined as ``_IOW(0xA5, 5, struct ssam_cdev_event_desc)``.
++
++Disable the event associated with the given event descriptor.
++
++Note that this will not unregister any notifiers. Events may still be received
++and forwarded to user-space after this call. The only safe way of stopping
++events from being received is unregistering all previously registered
++notifiers.
++
++
++Structures and Enums
++====================
 +
 +.. kernel-doc:: include/uapi/linux/surface_aggregator/cdev.h
 diff --git a/Documentation/driver-api/surface_aggregator/clients/dtx.rst b/Documentation/driver-api/surface_aggregator/clients/dtx.rst
@@ -4983,12 +5100,12 @@ index 000000000000..ef9c1f8e8336
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/platform/x86/surface_aggregator/Kconfig b/drivers/platform/x86/surface_aggregator/Kconfig
 new file mode 100644
-index 000000000000..44c2493706bc
+index 000000000000..cab020324256
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/Kconfig
 @@ -0,0 +1,69 @@
 +# SPDX-License-Identifier: GPL-2.0+
-+# Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++# Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 +
 +menuconfig SURFACE_AGGREGATOR
 +	tristate "Microsoft Surface System Aggregator Module Subsystem and Drivers"
@@ -5058,12 +5175,12 @@ index 000000000000..44c2493706bc
 +	  Intended for development and debugging.
 diff --git a/drivers/platform/x86/surface_aggregator/Makefile b/drivers/platform/x86/surface_aggregator/Makefile
 new file mode 100644
-index 000000000000..c112e2c7112b
+index 000000000000..c8498c41e758
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/Makefile
 @@ -0,0 +1,17 @@
 +# SPDX-License-Identifier: GPL-2.0+
-+# Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++# Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 +
 +# For include/trace/define_trace.h to include trace.h
 +CFLAGS_core.o = -I$(src)
@@ -5081,7 +5198,7 @@ index 000000000000..c112e2c7112b
 +endif
 diff --git a/drivers/platform/x86/surface_aggregator/bus.c b/drivers/platform/x86/surface_aggregator/bus.c
 new file mode 100644
-index 000000000000..b77927b278ca
+index 000000000000..e525f34eb92c
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/bus.c
 @@ -0,0 +1,415 @@
@@ -5089,7 +5206,7 @@ index 000000000000..b77927b278ca
 +/*
 + * Surface System Aggregator Module bus and device integration.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <linux/device.h>
@@ -5502,7 +5619,7 @@ index 000000000000..b77927b278ca
 +}
 diff --git a/drivers/platform/x86/surface_aggregator/bus.h b/drivers/platform/x86/surface_aggregator/bus.h
 new file mode 100644
-index 000000000000..7712baaed6a5
+index 000000000000..ed032c2cbdb2
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/bus.h
 @@ -0,0 +1,27 @@
@@ -5510,7 +5627,7 @@ index 000000000000..7712baaed6a5
 +/*
 + * Surface System Aggregator Module bus and device integration.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#ifndef _SURFACE_AGGREGATOR_BUS_H
@@ -5535,15 +5652,15 @@ index 000000000000..7712baaed6a5
 +#endif /* _SURFACE_AGGREGATOR_BUS_H */
 diff --git a/drivers/platform/x86/surface_aggregator/controller.c b/drivers/platform/x86/surface_aggregator/controller.c
 new file mode 100644
-index 000000000000..dd1f0ed9481c
+index 000000000000..b5ddce8c35cb
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/controller.c
-@@ -0,0 +1,2570 @@
+@@ -0,0 +1,2718 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Main SSAM/SSH controller structure and functionality.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <linux/acpi.h>
@@ -7439,7 +7556,7 @@ index 000000000000..dd1f0ed9481c
 +{
 +	int status;
 +
-+	status = __ssam_ssh_event_request(ctrl, reg, reg.cid_enable, id, flags);
++	status = __ssam_ssh_event_request(ctrl, reg, reg.cid_disable, id, flags);
 +
 +	if (status < 0 && status != -EINVAL) {
 +		ssam_err(ctrl,
@@ -7659,9 +7776,15 @@ index 000000000000..dd1f0ed9481c
 + * @ctrl: The controller to register the notifier on.
 + * @n:    The event notifier to register.
 + *
-+ * Register an event notifier and increment the usage counter of the
-+ * associated SAM event. If the event was previously not enabled, it will be
-+ * enabled during this call.
++ * Register an event notifier. Increment the usage counter of the associated
++ * SAM event if the notifier is not marked as an observer. If the event is not
++ * marked as an observer and is currently not enabled, it will be enabled
++ * during this call. If the notifier is marked as an observer, no attempt will
++ * be made at enabling any event and no reference count will be modified.
++ *
++ * Notifiers marked as observers do not need to be associated with one specific
++ * event, i.e. as long as no event matching is performed, only the event target
++ * category needs to be set.
 + *
 + * Return: Returns zero on success, %-ENOSPC if there have already been
 + * %INT_MAX notifiers for the event ID/type associated with the notifier block
@@ -7670,11 +7793,10 @@ index 000000000000..dd1f0ed9481c
 + * for the specific associated event, returns the status of the event-enable
 + * EC-command.
 + */
-+int ssam_notifier_register(struct ssam_controller *ctrl,
-+			   struct ssam_event_notifier *n)
++int ssam_notifier_register(struct ssam_controller *ctrl, struct ssam_event_notifier *n)
 +{
 +	u16 rqid = ssh_tc_to_rqid(n->event.id.target_category);
-+	struct ssam_nf_refcount_entry *entry;
++	struct ssam_nf_refcount_entry *entry = NULL;
 +	struct ssam_nf_head *nf_head;
 +	struct ssam_nf *nf;
 +	int status;
@@ -7687,29 +7809,32 @@ index 000000000000..dd1f0ed9481c
 +
 +	mutex_lock(&nf->lock);
 +
-+	entry = ssam_nf_refcount_inc(nf, n->event.reg, n->event.id);
-+	if (IS_ERR(entry)) {
-+		mutex_unlock(&nf->lock);
-+		return PTR_ERR(entry);
-+	}
++	if (!(n->flags & SSAM_EVENT_NOTIFIER_OBSERVER)) {
++		entry = ssam_nf_refcount_inc(nf, n->event.reg, n->event.id);
++		if (IS_ERR(entry)) {
++			mutex_unlock(&nf->lock);
++			return PTR_ERR(entry);
++		}
 +
-+	ssam_dbg(ctrl, "enabling event (reg: %#04x, tc: %#04x, iid: %#04x, rc: %d)\n",
-+		 n->event.reg.target_category, n->event.id.target_category,
-+		 n->event.id.instance, entry->refcount);
++		ssam_dbg(ctrl, "enabling event (reg: %#04x, tc: %#04x, iid: %#04x, rc: %d)\n",
++			 n->event.reg.target_category, n->event.id.target_category,
++			 n->event.id.instance, entry->refcount);
++	}
 +
 +	status = ssam_nfblk_insert(nf_head, &n->base);
 +	if (status) {
-+		entry = ssam_nf_refcount_dec(nf, n->event.reg, n->event.id);
-+		if (entry->refcount == 0)
-+			kfree(entry);
++		if (entry) {
++			entry = ssam_nf_refcount_dec(nf, n->event.reg, n->event.id);
++			if (entry->refcount == 0)
++				kfree(entry);
++		}
 +
 +		mutex_unlock(&nf->lock);
 +		return status;
 +	}
 +
-+	if (entry->refcount == 1) {
-+		status = ssam_ssh_event_enable(ctrl, n->event.reg, n->event.id,
-+					       n->event.flags);
++	if (entry && entry->refcount == 1) {
++		status = ssam_ssh_event_enable(ctrl, n->event.reg, n->event.id, n->event.flags);
 +		if (status) {
 +			ssam_nfblk_remove(&n->base);
 +			kfree(ssam_nf_refcount_dec(nf, n->event.reg, n->event.id));
@@ -7720,7 +7845,7 @@ index 000000000000..dd1f0ed9481c
 +
 +		entry->flags = n->event.flags;
 +
-+	} else if (entry->flags != n->event.flags) {
++	} else if (entry && entry->flags != n->event.flags) {
 +		ssam_warn(ctrl,
 +			  "inconsistent flags when enabling event: got %#04x, expected %#04x (reg: %#04x, tc: %#04x, iid: %#04x)\n",
 +			  n->event.flags, entry->flags, n->event.reg.target_category,
@@ -7737,17 +7862,16 @@ index 000000000000..dd1f0ed9481c
 + * @ctrl: The controller the notifier has been registered on.
 + * @n:    The event notifier to unregister.
 + *
-+ * Unregister an event notifier and decrement the usage counter of the
-+ * associated SAM event. If the usage counter reaches zero, the event will be
-+ * disabled.
++ * Unregister an event notifier. Decrement the usage counter of the associated
++ * SAM event if the notifier is not marked as an observer. If the usage counter
++ * reaches zero, the event will be disabled.
 + *
 + * Return: Returns zero on success, %-ENOENT if the given notifier block has
 + * not been registered on the controller. If the given notifier block was the
 + * last one associated with its specific event, returns the status of the
 + * event-disable EC-command.
 + */
-+int ssam_notifier_unregister(struct ssam_controller *ctrl,
-+			     struct ssam_event_notifier *n)
++int ssam_notifier_unregister(struct ssam_controller *ctrl, struct ssam_event_notifier *n)
 +{
 +	u16 rqid = ssh_tc_to_rqid(n->event.id.target_category);
 +	struct ssam_nf_refcount_entry *entry;
@@ -7767,6 +7891,13 @@ index 000000000000..dd1f0ed9481c
 +		mutex_unlock(&nf->lock);
 +		return -ENOENT;
 +	}
++
++	/*
++	 * If this is an observer notifier, do not attempt to disable the
++	 * event, just remove it.
++	 */
++	if (n->flags & SSAM_EVENT_NOTIFIER_OBSERVER)
++		goto remove;
 +
 +	entry = ssam_nf_refcount_dec(nf, n->event.reg, n->event.id);
 +	if (WARN_ON(!entry)) {
@@ -7792,8 +7923,7 @@ index 000000000000..dd1f0ed9481c
 +	}
 +
 +	if (entry->refcount == 0) {
-+		status = ssam_ssh_event_disable(ctrl, n->event.reg, n->event.id,
-+						n->event.flags);
++		status = ssam_ssh_event_disable(ctrl, n->event.reg, n->event.id, n->event.flags);
 +		kfree(entry);
 +	}
 +
@@ -7805,6 +7935,141 @@ index 000000000000..dd1f0ed9481c
 +	return status;
 +}
 +EXPORT_SYMBOL_GPL(ssam_notifier_unregister);
++
++/**
++ * ssam_controller_event_enable() - Enable the specified event.
++ * @ctrl:  The controller to enable the event for.
++ * @reg:   The event registry to use for enabling the event.
++ * @id:    The event ID specifying the event to be enabled.
++ * @flags: The SAM event flags used for enabling the event.
++ *
++ * Increment the event reference count of the specified event. If the event has
++ * not been enabled previously, it will be enabled by this call.
++ *
++ * Note: In general, ssam_notifier_register() with a non-observer notifier
++ * should be preferred for enabling/disabling events, as this will guarantee
++ * proper ordering and event forwarding in case of errors during event
++ * enabling/disabling.
++ *
++ * Return: Returns zero on success, %-ENOSPC if the reference count for the
++ * specified event has reached its maximum, %-ENOMEM if the corresponding event
++ * entry could not be allocated. If this is the first time that this event has
++ * been enabled (i.e. the reference count was incremented from zero to one by
++ * this call), returns the status of the event-enable EC-command.
++ */
++int ssam_controller_event_enable(struct ssam_controller *ctrl,
++				 struct ssam_event_registry reg,
++				 struct ssam_event_id id, u8 flags)
++{
++	u16 rqid = ssh_tc_to_rqid(id.target_category);
++	struct ssam_nf_refcount_entry *entry;
++	struct ssam_nf_head *nf_head;
++	struct ssam_nf *nf;
++	int status;
++
++	if (!ssh_rqid_is_event(rqid))
++		return -EINVAL;
++
++	nf = &ctrl->cplt.event.notif;
++	nf_head = &nf->head[ssh_rqid_to_event(rqid)];
++
++	mutex_lock(&nf->lock);
++
++	entry = ssam_nf_refcount_inc(nf, reg, id);
++	if (IS_ERR(entry)) {
++		mutex_unlock(&nf->lock);
++		return PTR_ERR(entry);
++	}
++
++	ssam_dbg(ctrl, "enabling event (reg: %#04x, tc: %#04x, iid: %#04x, rc: %d)\n",
++		 reg.target_category, id.target_category, id.instance,
++		 entry->refcount);
++
++	if (entry->refcount == 1) {
++		status = ssam_ssh_event_enable(ctrl, reg, id, flags);
++		if (status) {
++			kfree(ssam_nf_refcount_dec(nf, reg, id));
++			mutex_unlock(&nf->lock);
++			return status;
++		}
++
++		entry->flags = flags;
++
++	} else if (entry->flags != flags) {
++		ssam_warn(ctrl,
++			  "inconsistent flags when enabling event: got %#04x, expected %#04x (reg: %#04x, tc: %#04x, iid: %#04x)\n",
++			  flags, entry->flags, reg.target_category,
++			  id.target_category, id.instance);
++	}
++
++	mutex_unlock(&nf->lock);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(ssam_controller_event_enable);
++
++/**
++ * ssam_controller_event_disable() - Disable the specified event.
++ * @ctrl:  The controller to disable the event for.
++ * @reg:   The event registry to use for disabling the event.
++ * @id:    The event ID specifying the event to be disabled.
++ * @flags: The flags used when enabling the event.
++ *
++ * Decrement the reference count of the specified event. If the reference count
++ * reaches zero, the event will be disabled.
++ *
++ * Note: In general, ssam_notifier_register()/ssam_notifier_unregister() with a
++ * non-observer notifier should be preferred for enabling/disabling events, as
++ * this will guarantee proper ordering and event forwarding in case of errors
++ * during event enabling/disabling.
++ *
++ * Return: Returns zero on success, %-ENOENT if the given event has not been
++ * enabled on the controller. If the reference count of the event reaches zero
++ * during this call, returns the status of the event-disable EC-command.
++ */
++int ssam_controller_event_disable(struct ssam_controller *ctrl,
++				  struct ssam_event_registry reg,
++				  struct ssam_event_id id, u8 flags)
++{
++	u16 rqid = ssh_tc_to_rqid(id.target_category);
++	struct ssam_nf_refcount_entry *entry;
++	struct ssam_nf_head *nf_head;
++	struct ssam_nf *nf;
++	int status = 0;
++
++	if (!ssh_rqid_is_event(rqid))
++		return -EINVAL;
++
++	nf = &ctrl->cplt.event.notif;
++	nf_head = &nf->head[ssh_rqid_to_event(rqid)];
++
++	mutex_lock(&nf->lock);
++
++	entry = ssam_nf_refcount_dec(nf, reg, id);
++	if (WARN_ON(!entry)) {
++		mutex_unlock(&nf->lock);
++		return -ENOENT;
++	}
++
++	ssam_dbg(ctrl, "disabling event (reg: %#04x, tc: %#04x, iid: %#04x, rc: %d)\n",
++		 reg.target_category, id.target_category, id.instance,
++		 entry->refcount);
++
++	if (entry->flags != flags) {
++		ssam_warn(ctrl,
++			  "inconsistent flags when disabling event: got %#04x, expected %#04x (reg: %#04x, tc: %#04x, iid: %#04x)\n",
++			  flags, entry->flags, reg.target_category,
++			  id.target_category, id.instance);
++	}
++
++	if (entry->refcount == 0) {
++		status = ssam_ssh_event_disable(ctrl, reg, id, flags);
++		kfree(entry);
++	}
++
++	mutex_unlock(&nf->lock);
++	return status;
++}
++EXPORT_SYMBOL_GPL(ssam_controller_event_disable);
 +
 +/**
 + * ssam_notifier_disable_registered() - Disable events for all registered
@@ -8111,7 +8376,7 @@ index 000000000000..dd1f0ed9481c
 +}
 diff --git a/drivers/platform/x86/surface_aggregator/controller.h b/drivers/platform/x86/surface_aggregator/controller.h
 new file mode 100644
-index 000000000000..8297d34e7489
+index 000000000000..a0963c3562ff
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/controller.h
 @@ -0,0 +1,285 @@
@@ -8119,7 +8384,7 @@ index 000000000000..8297d34e7489
 +/*
 + * Main SSAM/SSH controller structure and functionality.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#ifndef _SURFACE_AGGREGATOR_CONTROLLER_H
@@ -8402,7 +8667,7 @@ index 000000000000..8297d34e7489
 +#endif /* _SURFACE_AGGREGATOR_CONTROLLER_H */
 diff --git a/drivers/platform/x86/surface_aggregator/core.c b/drivers/platform/x86/surface_aggregator/core.c
 new file mode 100644
-index 000000000000..1b35f3e284da
+index 000000000000..698be0e24e9e
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/core.c
 @@ -0,0 +1,850 @@
@@ -8415,7 +8680,7 @@ index 000000000000..1b35f3e284da
 + * Handles communication via requests as well as enabling, disabling, and
 + * relaying of events.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <linux/acpi.h>
@@ -9258,7 +9523,7 @@ index 000000000000..1b35f3e284da
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/platform/x86/surface_aggregator/ssh_msgb.h b/drivers/platform/x86/surface_aggregator/ssh_msgb.h
 new file mode 100644
-index 000000000000..1221f642dda1
+index 000000000000..e562958ffdf0
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/ssh_msgb.h
 @@ -0,0 +1,205 @@
@@ -9266,7 +9531,7 @@ index 000000000000..1221f642dda1
 +/*
 + * SSH message builder functions.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#ifndef _SURFACE_AGGREGATOR_SSH_MSGB_H
@@ -9469,7 +9734,7 @@ index 000000000000..1221f642dda1
 +#endif /* _SURFACE_AGGREGATOR_SSH_MSGB_H */
 diff --git a/drivers/platform/x86/surface_aggregator/ssh_packet_layer.c b/drivers/platform/x86/surface_aggregator/ssh_packet_layer.c
 new file mode 100644
-index 000000000000..d4a82b42a881
+index 000000000000..8a06beb39aee
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/ssh_packet_layer.c
 @@ -0,0 +1,2074 @@
@@ -9477,7 +9742,7 @@ index 000000000000..d4a82b42a881
 +/*
 + * SSH packet transport layer.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <asm/unaligned.h>
@@ -11549,7 +11814,7 @@ index 000000000000..d4a82b42a881
 +}
 diff --git a/drivers/platform/x86/surface_aggregator/ssh_packet_layer.h b/drivers/platform/x86/surface_aggregator/ssh_packet_layer.h
 new file mode 100644
-index 000000000000..e8757d03f279
+index 000000000000..2eb329f0b91a
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/ssh_packet_layer.h
 @@ -0,0 +1,190 @@
@@ -11557,7 +11822,7 @@ index 000000000000..e8757d03f279
 +/*
 + * SSH packet transport layer.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#ifndef _SURFACE_AGGREGATOR_SSH_PACKET_LAYER_H
@@ -11745,7 +12010,7 @@ index 000000000000..e8757d03f279
 +#endif /* _SURFACE_AGGREGATOR_SSH_PACKET_LAYER_H */
 diff --git a/drivers/platform/x86/surface_aggregator/ssh_parser.c b/drivers/platform/x86/surface_aggregator/ssh_parser.c
 new file mode 100644
-index 000000000000..e2dead8de94a
+index 000000000000..b77912f8f13b
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/ssh_parser.c
 @@ -0,0 +1,228 @@
@@ -11753,7 +12018,7 @@ index 000000000000..e2dead8de94a
 +/*
 + * SSH message parser.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <asm/unaligned.h>
@@ -11979,7 +12244,7 @@ index 000000000000..e2dead8de94a
 +}
 diff --git a/drivers/platform/x86/surface_aggregator/ssh_parser.h b/drivers/platform/x86/surface_aggregator/ssh_parser.h
 new file mode 100644
-index 000000000000..63c38d350988
+index 000000000000..3bd6e180fd16
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/ssh_parser.h
 @@ -0,0 +1,154 @@
@@ -11987,7 +12252,7 @@ index 000000000000..63c38d350988
 +/*
 + * SSH message parser.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#ifndef _SURFACE_AGGREGATOR_SSH_PARSER_H
@@ -12139,7 +12404,7 @@ index 000000000000..63c38d350988
 +#endif /* _SURFACE_AGGREGATOR_SSH_PARSER_h */
 diff --git a/drivers/platform/x86/surface_aggregator/ssh_request_layer.c b/drivers/platform/x86/surface_aggregator/ssh_request_layer.c
 new file mode 100644
-index 000000000000..52a83a8fcf82
+index 000000000000..bfe1aaf38065
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/ssh_request_layer.c
 @@ -0,0 +1,1263 @@
@@ -12147,7 +12412,7 @@ index 000000000000..52a83a8fcf82
 +/*
 + * SSH request transport layer.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <asm/unaligned.h>
@@ -13408,7 +13673,7 @@ index 000000000000..52a83a8fcf82
 +}
 diff --git a/drivers/platform/x86/surface_aggregator/ssh_request_layer.h b/drivers/platform/x86/surface_aggregator/ssh_request_layer.h
 new file mode 100644
-index 000000000000..cb35815858d1
+index 000000000000..9c3cbae2d4bd
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/ssh_request_layer.h
 @@ -0,0 +1,143 @@
@@ -13416,7 +13681,7 @@ index 000000000000..cb35815858d1
 +/*
 + * SSH request transport layer.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#ifndef _SURFACE_AGGREGATOR_SSH_REQUEST_LAYER_H
@@ -13557,7 +13822,7 @@ index 000000000000..cb35815858d1
 +#endif /* _SURFACE_AGGREGATOR_SSH_REQUEST_LAYER_H */
 diff --git a/drivers/platform/x86/surface_aggregator/trace.h b/drivers/platform/x86/surface_aggregator/trace.h
 new file mode 100644
-index 000000000000..eb332bb53ae4
+index 000000000000..de64cf169060
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator/trace.h
 @@ -0,0 +1,632 @@
@@ -13565,7 +13830,7 @@ index 000000000000..eb332bb53ae4
 +/*
 + * Trace points for SSAM/SSH.
 + *
-+ * Copyright (C) 2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2020-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#undef TRACE_SYSTEM
@@ -14195,38 +14460,77 @@ index 000000000000..eb332bb53ae4
 +#include <trace/define_trace.h>
 diff --git a/drivers/platform/x86/surface_aggregator_cdev.c b/drivers/platform/x86/surface_aggregator_cdev.c
 new file mode 100644
-index 000000000000..cad859e1402d
+index 000000000000..93969d9f7f9a
 --- /dev/null
 +++ b/drivers/platform/x86/surface_aggregator_cdev.c
-@@ -0,0 +1,322 @@
+@@ -0,0 +1,804 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Provides user-space access to the SSAM EC via the /dev/surface/aggregator
 + * misc device. Intended for debugging and development.
 + *
-+ * Copyright (C) 2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2020-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#include <linux/fs.h>
++#include <linux/ioctl.h>
 +#include <linux/kernel.h>
++#include <linux/kfifo.h>
 +#include <linux/kref.h>
 +#include <linux/miscdevice.h>
 +#include <linux/module.h>
 +#include <linux/platform_device.h>
++#include <linux/poll.h>
 +#include <linux/rwsem.h>
 +#include <linux/slab.h>
 +#include <linux/uaccess.h>
++#include <linux/vmalloc.h>
 +
 +#include <linux/surface_aggregator/cdev.h>
 +#include <linux/surface_aggregator/controller.h>
 +
 +#define SSAM_CDEV_DEVICE_NAME	"surface_aggregator_cdev"
 +
++
++/* -- Main structures. ------------------------------------------------------ */
++
++enum ssam_cdev_device_state {
++	SSAM_CDEV_DEVICE_SHUTDOWN_BIT = BIT(0),
++};
++
 +struct ssam_cdev {
 +	struct kref kref;
 +	struct rw_semaphore lock;
++
++	struct device *dev;
 +	struct ssam_controller *ctrl;
 +	struct miscdevice mdev;
++	unsigned long flags;
++
++	struct rw_semaphore client_lock;  /* Guards client list. */
++	struct list_head client_list;
++};
++
++struct ssam_cdev_client;
++
++struct ssam_cdev_notifier {
++	struct ssam_cdev_client *client;
++	struct ssam_event_notifier nf;
++};
++
++struct ssam_cdev_client {
++	struct ssam_cdev *cdev;
++	struct list_head node;
++
++	struct mutex notifier_lock;	/* Guards notifier access for registration */
++	struct ssam_cdev_notifier *notifier[SSH_NUM_EVENTS];
++
++	struct mutex read_lock;		/* Guards FIFO buffer read access */
++	struct mutex write_lock;	/* Guards FIFO buffer write access */
++	DECLARE_KFIFO(buffer, u8, 4096);
++
++	wait_queue_head_t waitq;
++	struct fasync_struct *fasync;
 +};
 +
 +static void __ssam_cdev_release(struct kref *kref)
@@ -14248,24 +14552,171 @@ index 000000000000..cad859e1402d
 +		kref_put(&cdev->kref, __ssam_cdev_release);
 +}
 +
-+static int ssam_cdev_device_open(struct inode *inode, struct file *filp)
-+{
-+	struct miscdevice *mdev = filp->private_data;
-+	struct ssam_cdev *cdev = container_of(mdev, struct ssam_cdev, mdev);
 +
-+	filp->private_data = ssam_cdev_get(cdev);
-+	return stream_open(inode, filp);
-+}
++/* -- Notifier handling. ---------------------------------------------------- */
 +
-+static int ssam_cdev_device_release(struct inode *inode, struct file *filp)
++static u32 ssam_cdev_notifier(struct ssam_event_notifier *nf, const struct ssam_event *in)
 +{
-+	ssam_cdev_put(filp->private_data);
++	struct ssam_cdev_notifier *cdev_nf = container_of(nf, struct ssam_cdev_notifier, nf);
++	struct ssam_cdev_client *client = cdev_nf->client;
++	struct ssam_cdev_event event;
++	size_t n = struct_size(&event, data, in->length);
++
++	/* Translate event. */
++	event.target_category = in->target_category;
++	event.target_id = in->target_id;
++	event.command_id = in->command_id;
++	event.instance_id = in->instance_id;
++	event.length = in->length;
++
++	mutex_lock(&client->write_lock);
++
++	/* Make sure we have enough space. */
++	if (kfifo_avail(&client->buffer) < n) {
++		dev_warn(client->cdev->dev,
++			 "buffer full, dropping event (tc: %#04x, tid: %#04x, cid: %#04x, iid: %#04x)\n",
++			 in->target_category, in->target_id, in->command_id, in->instance_id);
++		mutex_unlock(&client->write_lock);
++		return 0;
++	}
++
++	/* Copy event header and payload. */
++	kfifo_in(&client->buffer, (const u8 *)&event, struct_size(&event, data, 0));
++	kfifo_in(&client->buffer, &in->data[0], in->length);
++
++	mutex_unlock(&client->write_lock);
++
++	/* Notify waiting readers. */
++	kill_fasync(&client->fasync, SIGIO, POLL_IN);
++	wake_up_interruptible(&client->waitq);
++
++	/*
++	 * Don't mark events as handled, this is the job of a proper driver and
++	 * not the debugging interface.
++	 */
 +	return 0;
 +}
 +
-+static long ssam_cdev_request(struct ssam_cdev *cdev, unsigned long arg)
++static int ssam_cdev_notifier_register(struct ssam_cdev_client *client, u8 category, int priority)
 +{
-+	struct ssam_cdev_request __user *r;
++	struct ssam_cdev_notifier *nf;
++	int index = ((int)category) - 1;
++	int status;
++
++	lockdep_assert_held_read(&client->cdev->lock);
++
++	/* Validate notifier target category. */
++	if (index < 0 || index >= SSH_NUM_EVENTS)
++		return -EINVAL;
++
++	mutex_lock(&client->notifier_lock);
++
++	/* Check if the notifier has already been registered. */
++	if (client->notifier[index]) {
++		mutex_unlock(&client->notifier_lock);
++		return -EEXIST;
++	}
++
++	/* Allocate new notifier. */
++	nf = kzalloc(sizeof(*nf), GFP_KERNEL);
++	if (!nf) {
++		mutex_unlock(&client->notifier_lock);
++		return -ENOMEM;
++	}
++
++	/*
++	 * Create a dummy notifier with the minimal required fields for
++	 * observer registration. Note that we can skip fully specifying event
++	 * and registry here as we do not need any matching and use silent
++	 * registration, which does not enable the corresponding event.
++	 */
++	nf->client = client;
++	nf->nf.base.fn = ssam_cdev_notifier;
++	nf->nf.base.priority = priority;
++	nf->nf.event.id.target_category = category;
++	nf->nf.event.mask = 0;	/* Do not do any matching. */
++	nf->nf.flags = SSAM_EVENT_NOTIFIER_OBSERVER;
++
++	/* Register notifier. */
++	status = ssam_notifier_register(client->cdev->ctrl, &nf->nf);
++	if (status)
++		kfree(nf);
++	else
++		client->notifier[index] = nf;
++
++	mutex_unlock(&client->notifier_lock);
++	return status;
++}
++
++static int ssam_cdev_notifier_unregister(struct ssam_cdev_client *client, u8 category)
++{
++	int index = ((int)category) - 1;
++	int status;
++
++	lockdep_assert_held_read(&client->cdev->lock);
++
++	/* Validate notifier target category. */
++	if (index < 0 || index >= SSH_NUM_EVENTS)
++		return -EINVAL;
++
++	mutex_lock(&client->notifier_lock);
++
++	/* Check if the notifier is currently registered. */
++	if (!client->notifier[index]) {
++		mutex_unlock(&client->notifier_lock);
++		return -ENOENT;
++	}
++
++	/* Unregister and free notifier. */
++	status = ssam_notifier_unregister(client->cdev->ctrl, &client->notifier[index]->nf);
++	kfree(client->notifier[index]);
++	client->notifier[index] = NULL;
++
++	mutex_unlock(&client->notifier_lock);
++	return status;
++}
++
++static void ssam_cdev_notifier_unregister_all(struct ssam_cdev_client *client)
++{
++	int i;
++
++	down_read(&client->cdev->lock);
++
++	/*
++	 * This function may be used during shutdown, thus we need to test for
++	 * cdev->ctrl instead of the SSAM_CDEV_DEVICE_SHUTDOWN_BIT bit.
++	 */
++	if (client->cdev->ctrl) {
++		for (i = 0; i < SSH_NUM_EVENTS; i++)
++			ssam_cdev_notifier_unregister(client, i + 1);
++
++	} else {
++		int count = 0;
++
++		/*
++		 * Device has been shut down. Any notifier remaining is a bug,
++		 * so warn about that as this would otherwise hardly be
++		 * noticeable. Nevertheless, free them as well.
++		 */
++		mutex_lock(&client->notifier_lock);
++		for (i = 0; i < SSH_NUM_EVENTS; i++) {
++			count += !!(client->notifier[i]);
++			kfree(client->notifier[i]);
++			client->notifier[i] = NULL;
++		}
++		mutex_unlock(&client->notifier_lock);
++
++		WARN_ON(count > 0);
++	}
++
++	up_read(&client->cdev->lock);
++}
++
++
++/* -- IOCTL functions. ------------------------------------------------------ */
++
++static long ssam_cdev_request(struct ssam_cdev_client *client, struct ssam_cdev_request __user *r)
++{
 +	struct ssam_cdev_request rqst;
 +	struct ssam_request spec = {};
 +	struct ssam_response rsp = {};
@@ -14273,7 +14724,8 @@ index 000000000000..cad859e1402d
 +	void __user *rspdata;
 +	int status = 0, ret = 0, tmp;
 +
-+	r = (struct ssam_cdev_request __user *)arg;
++	lockdep_assert_held_read(&client->cdev->lock);
++
 +	ret = copy_from_user(&rqst, r, sizeof(struct ssam_cdev_request));
 +	if (ret)
 +		goto out;
@@ -14353,7 +14805,7 @@ index 000000000000..cad859e1402d
 +	}
 +
 +	/* Perform request. */
-+	status = ssam_request_sync(cdev->ctrl, &spec, &rsp);
++	status = ssam_request_sync(client->cdev->ctrl, &spec, &rsp);
 +	if (status)
 +		goto out;
 +
@@ -14378,47 +14830,311 @@ index 000000000000..cad859e1402d
 +	return ret;
 +}
 +
-+static long __ssam_cdev_device_ioctl(struct ssam_cdev *cdev, unsigned int cmd,
++static long ssam_cdev_notif_register(struct ssam_cdev_client *client,
++				     const struct ssam_cdev_notifier_desc __user *d)
++{
++	struct ssam_cdev_notifier_desc desc;
++	long ret;
++
++	lockdep_assert_held_read(&client->cdev->lock);
++
++	ret = copy_from_user(&desc, d, sizeof(*d));
++	if (ret)
++		return ret;
++
++	return ssam_cdev_notifier_register(client, desc.target_category, desc.priority);
++}
++
++static long ssam_cdev_notif_unregister(struct ssam_cdev_client *client,
++				       const struct ssam_cdev_notifier_desc __user *d)
++{
++	struct ssam_cdev_notifier_desc desc;
++	long ret;
++
++	lockdep_assert_held_read(&client->cdev->lock);
++
++	ret = copy_from_user(&desc, d, sizeof(*d));
++	if (ret)
++		return ret;
++
++	return ssam_cdev_notifier_unregister(client, desc.target_category);
++}
++
++static long ssam_cdev_event_enable(struct ssam_cdev_client *client,
++				   const struct ssam_cdev_event_desc __user *d)
++{
++	struct ssam_cdev_event_desc desc;
++	struct ssam_event_registry reg;
++	struct ssam_event_id id;
++	long ret;
++
++	lockdep_assert_held_read(&client->cdev->lock);
++
++	/* Read descriptor from user-space. */
++	ret = copy_from_user(&desc, d, sizeof(*d));
++	if (ret)
++		return ret;
++
++	/* Translate descriptor. */
++	reg.target_category = desc.reg.target_category;
++	reg.target_id = desc.reg.target_id;
++	reg.cid_enable = desc.reg.cid_enable;
++	reg.cid_disable = desc.reg.cid_disable;
++
++	id.target_category = desc.id.target_category;
++	id.instance = desc.id.instance;
++
++	/* Disable event. */
++	return ssam_controller_event_enable(client->cdev->ctrl, reg, id, desc.flags);
++}
++
++static long ssam_cdev_event_disable(struct ssam_cdev_client *client,
++				    const struct ssam_cdev_event_desc __user *d)
++{
++	struct ssam_cdev_event_desc desc;
++	struct ssam_event_registry reg;
++	struct ssam_event_id id;
++	long ret;
++
++	lockdep_assert_held_read(&client->cdev->lock);
++
++	/* Read descriptor from user-space. */
++	ret = copy_from_user(&desc, d, sizeof(*d));
++	if (ret)
++		return ret;
++
++	/* Translate descriptor. */
++	reg.target_category = desc.reg.target_category;
++	reg.target_id = desc.reg.target_id;
++	reg.cid_enable = desc.reg.cid_enable;
++	reg.cid_disable = desc.reg.cid_disable;
++
++	id.target_category = desc.id.target_category;
++	id.instance = desc.id.instance;
++
++	/* Disable event. */
++	return ssam_controller_event_disable(client->cdev->ctrl, reg, id, desc.flags);
++}
++
++
++/* -- File operations. ------------------------------------------------------ */
++
++static int ssam_cdev_device_open(struct inode *inode, struct file *filp)
++{
++	struct miscdevice *mdev = filp->private_data;
++	struct ssam_cdev_client *client;
++	struct ssam_cdev *cdev = container_of(mdev, struct ssam_cdev, mdev);
++
++	/* Initialize client */
++	client = vzalloc(sizeof(*client));
++	if (!client)
++		return -ENOMEM;
++
++	client->cdev = ssam_cdev_get(cdev);
++
++	INIT_LIST_HEAD(&client->node);
++
++	mutex_init(&client->notifier_lock);
++
++	mutex_init(&client->read_lock);
++	mutex_init(&client->write_lock);
++	INIT_KFIFO(client->buffer);
++	init_waitqueue_head(&client->waitq);
++
++	filp->private_data = client;
++
++	/* Attach client. */
++	down_write(&cdev->client_lock);
++
++	if (test_bit(SSAM_CDEV_DEVICE_SHUTDOWN_BIT, &cdev->flags)) {
++		up_write(&cdev->client_lock);
++		ssam_cdev_put(client->cdev);
++		vfree(client);
++		return -ENODEV;
++	}
++	list_add_tail(&client->node, &cdev->client_list);
++
++	up_write(&cdev->client_lock);
++
++	stream_open(inode, filp);
++	return 0;
++}
++
++static int ssam_cdev_device_release(struct inode *inode, struct file *filp)
++{
++	struct ssam_cdev_client *client = filp->private_data;
++
++	/* Force-unregister all remaining notifiers of this client. */
++	ssam_cdev_notifier_unregister_all(client);
++
++	/* Detach client. */
++	down_write(&client->cdev->client_lock);
++	list_del(&client->node);
++	up_write(&client->cdev->client_lock);
++
++	/* Free client. */
++	mutex_destroy(&client->write_lock);
++	mutex_destroy(&client->read_lock);
++
++	mutex_destroy(&client->notifier_lock);
++
++	ssam_cdev_put(client->cdev);
++	vfree(client);
++
++	return 0;
++}
++
++static long __ssam_cdev_device_ioctl(struct ssam_cdev_client *client, unsigned int cmd,
 +				     unsigned long arg)
 +{
++	lockdep_assert_held_read(&client->cdev->lock);
++
 +	switch (cmd) {
 +	case SSAM_CDEV_REQUEST:
-+		return ssam_cdev_request(cdev, arg);
++		return ssam_cdev_request(client, (struct ssam_cdev_request __user *)arg);
++
++	case SSAM_CDEV_NOTIF_REGISTER:
++		return ssam_cdev_notif_register(client,
++						(struct ssam_cdev_notifier_desc __user *)arg);
++
++	case SSAM_CDEV_NOTIF_UNREGISTER:
++		return ssam_cdev_notif_unregister(client,
++						  (struct ssam_cdev_notifier_desc __user *)arg);
++
++	case SSAM_CDEV_EVENT_ENABLE:
++		return ssam_cdev_event_enable(client, (struct ssam_cdev_event_desc __user *)arg);
++
++	case SSAM_CDEV_EVENT_DISABLE:
++		return ssam_cdev_event_disable(client, (struct ssam_cdev_event_desc __user *)arg);
 +
 +	default:
 +		return -ENOTTY;
 +	}
 +}
 +
-+static long ssam_cdev_device_ioctl(struct file *file, unsigned int cmd,
-+				   unsigned long arg)
++static long ssam_cdev_device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 +{
-+	struct ssam_cdev *cdev = file->private_data;
++	struct ssam_cdev_client *client = file->private_data;
 +	long status;
 +
 +	/* Ensure that controller is valid for as long as we need it. */
++	if (down_read_killable(&client->cdev->lock))
++		return -ERESTARTSYS;
++
++	if (test_bit(SSAM_CDEV_DEVICE_SHUTDOWN_BIT, &client->cdev->flags)) {
++		up_read(&client->cdev->lock);
++		return -ENODEV;
++	}
++
++	status = __ssam_cdev_device_ioctl(client, cmd, arg);
++
++	up_read(&client->cdev->lock);
++	return status;
++}
++
++static ssize_t ssam_cdev_read(struct file *file, char __user *buf, size_t count, loff_t *offs)
++{
++	struct ssam_cdev_client *client = file->private_data;
++	struct ssam_cdev *cdev = client->cdev;
++	unsigned int copied;
++	int status = 0;
++
 +	if (down_read_killable(&cdev->lock))
 +		return -ERESTARTSYS;
 +
-+	if (!cdev->ctrl) {
++	/* Make sure we're not shut down. */
++	if (test_bit(SSAM_CDEV_DEVICE_SHUTDOWN_BIT, &cdev->flags)) {
 +		up_read(&cdev->lock);
 +		return -ENODEV;
 +	}
 +
-+	status = __ssam_cdev_device_ioctl(cdev, cmd, arg);
++	do {
++		/* Check availability, wait if necessary. */
++		if (kfifo_is_empty(&client->buffer)) {
++			up_read(&cdev->lock);
++
++			if (file->f_flags & O_NONBLOCK)
++				return -EAGAIN;
++
++			status = wait_event_interruptible(client->waitq,
++							  !kfifo_is_empty(&client->buffer) ||
++							  test_bit(SSAM_CDEV_DEVICE_SHUTDOWN_BIT,
++								   &cdev->flags));
++			if (status < 0)
++				return status;
++
++			if (down_read_killable(&cdev->lock))
++				return -ERESTARTSYS;
++
++			/* Need to check that we're not shut down again. */
++			if (test_bit(SSAM_CDEV_DEVICE_SHUTDOWN_BIT, &cdev->flags)) {
++				up_read(&cdev->lock);
++				return -ENODEV;
++			}
++		}
++
++		/* Try to read from FIFO. */
++		if (mutex_lock_interruptible(&client->read_lock)) {
++			up_read(&cdev->lock);
++			return -ERESTARTSYS;
++		}
++
++		status = kfifo_to_user(&client->buffer, buf, count, &copied);
++		mutex_unlock(&client->read_lock);
++
++		if (status < 0) {
++			up_read(&cdev->lock);
++			return status;
++		}
++
++		/* We might not have gotten anything, check this here. */
++		if (copied == 0 && (file->f_flags & O_NONBLOCK)) {
++			up_read(&cdev->lock);
++			return -EAGAIN;
++		}
++	} while (copied == 0);
 +
 +	up_read(&cdev->lock);
-+	return status;
++	return copied;
++}
++
++static __poll_t ssam_cdev_poll(struct file *file, struct poll_table_struct *pt)
++{
++	struct ssam_cdev_client *client = file->private_data;
++	__poll_t events = 0;
++
++	if (test_bit(SSAM_CDEV_DEVICE_SHUTDOWN_BIT, &client->cdev->flags))
++		return EPOLLHUP | EPOLLERR;
++
++	poll_wait(file, &client->waitq, pt);
++
++	if (!kfifo_is_empty(&client->buffer))
++		events |= EPOLLIN | EPOLLRDNORM;
++
++	return events;
++}
++
++static int ssam_cdev_fasync(int fd, struct file *file, int on)
++{
++	struct ssam_cdev_client *client = file->private_data;
++
++	return fasync_helper(fd, file, on, &client->fasync);
 +}
 +
 +static const struct file_operations ssam_controller_fops = {
 +	.owner          = THIS_MODULE,
 +	.open           = ssam_cdev_device_open,
 +	.release        = ssam_cdev_device_release,
++	.read           = ssam_cdev_read,
++	.poll           = ssam_cdev_poll,
++	.fasync         = ssam_cdev_fasync,
 +	.unlocked_ioctl = ssam_cdev_device_ioctl,
 +	.compat_ioctl   = ssam_cdev_device_ioctl,
-+	.llseek         = noop_llseek,
++	.llseek         = no_llseek,
 +};
++
++
++/* -- Device and driver setup ----------------------------------------------- */
 +
 +static int ssam_dbg_device_probe(struct platform_device *pdev)
 +{
@@ -14437,12 +15153,16 @@ index 000000000000..cad859e1402d
 +	kref_init(&cdev->kref);
 +	init_rwsem(&cdev->lock);
 +	cdev->ctrl = ctrl;
++	cdev->dev = &pdev->dev;
 +
 +	cdev->mdev.parent   = &pdev->dev;
 +	cdev->mdev.minor    = MISC_DYNAMIC_MINOR;
 +	cdev->mdev.name     = "surface_aggregator";
 +	cdev->mdev.nodename = "surface/aggregator";
 +	cdev->mdev.fops     = &ssam_controller_fops;
++
++	init_rwsem(&cdev->client_lock);
++	INIT_LIST_HEAD(&cdev->client_list);
 +
 +	status = misc_register(&cdev->mdev);
 +	if (status) {
@@ -14457,8 +15177,32 @@ index 000000000000..cad859e1402d
 +static int ssam_dbg_device_remove(struct platform_device *pdev)
 +{
 +	struct ssam_cdev *cdev = platform_get_drvdata(pdev);
++	struct ssam_cdev_client *client;
 +
-+	misc_deregister(&cdev->mdev);
++	/*
++	 * Mark device as shut-down. Prevent new clients from being added and
++	 * new operations from being executed.
++	 */
++	set_bit(SSAM_CDEV_DEVICE_SHUTDOWN_BIT, &cdev->flags);
++
++	down_write(&cdev->client_lock);
++
++	/* Remove all notifiers registered by us. */
++	list_for_each_entry(client, &cdev->client_list, node) {
++		ssam_cdev_notifier_unregister_all(client);
++	}
++
++	/* Wake up async clients. */
++	list_for_each_entry(client, &cdev->client_list, node) {
++		kill_fasync(&client->fasync, SIGIO, POLL_HUP);
++	}
++
++	/* Wake up blocking clients. */
++	list_for_each_entry(client, &cdev->client_list, node) {
++		wake_up_interruptible(&client->waitq);
++	}
++
++	up_write(&cdev->client_lock);
 +
 +	/*
 +	 * The controller is only guaranteed to be valid for as long as the
@@ -14467,7 +15211,10 @@ index 000000000000..cad859e1402d
 +	 */
 +	down_write(&cdev->lock);
 +	cdev->ctrl = NULL;
++	cdev->dev = NULL;
 +	up_write(&cdev->lock);
++
++	misc_deregister(&cdev->mdev);
 +
 +	ssam_cdev_put(cdev);
 +	return 0;
@@ -17791,10 +18538,10 @@ index 000000000000..8e3e86c7d78c
 +#endif /* _LINUX_SURFACE_ACPI_NOTIFY_H */
 diff --git a/include/linux/surface_aggregator/controller.h b/include/linux/surface_aggregator/controller.h
 new file mode 100644
-index 000000000000..f4b1ba887384
+index 000000000000..8cee730e01f3
 --- /dev/null
 +++ b/include/linux/surface_aggregator/controller.h
-@@ -0,0 +1,824 @@
+@@ -0,0 +1,849 @@
 +/* SPDX-License-Identifier: GPL-2.0+ */
 +/*
 + * Surface System Aggregator Module (SSAM) controller interface.
@@ -17803,7 +18550,7 @@ index 000000000000..f4b1ba887384
 + * managing access and communication to and from the SSAM EC, as well as main
 + * communication structures and definitions.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#ifndef _LINUX_SURFACE_AGGREGATOR_CONTROLLER_H
@@ -18593,6 +19340,20 @@ index 000000000000..f4b1ba887384
 +	SSAM_EVENT_REGISTRY(SSAM_SSH_TC_REG, 0x02, 0x01, 0x02)
 +
 +/**
++ * enum ssam_event_notifier_flags - Flags for event notifiers.
++ * @SSAM_EVENT_NOTIFIER_OBSERVER:
++ *	The corresponding notifier acts as observer. Registering a notifier
++ *	with this flag set will not attempt to enable any event. Equally,
++ *	unregistering will not attempt to disable any event. Note that a
++ *	notifier with this flag may not even correspond to a certain event at
++ *	all, only to a specific event target category. Event matching will not
++ *	be influenced by this flag.
++ */
++enum ssam_event_notifier_flags {
++	SSAM_EVENT_NOTIFIER_OBSERVER = BIT(0),
++};
++
++/**
 + * struct ssam_event_notifier - Notifier block for SSAM events.
 + * @base:        The base notifier block with callback function and priority.
 + * @event:       The event for which this block will receive notifications.
@@ -18600,6 +19361,7 @@ index 000000000000..f4b1ba887384
 + * @event.id:    ID specifying the event.
 + * @event.mask:  Flags determining how events are matched to the notifier.
 + * @event.flags: Flags used for enabling the event.
++ * @flags:       Notifier flags (see &enum ssam_event_notifier_flags).
 + */
 +struct ssam_event_notifier {
 +	struct ssam_notifier_block base;
@@ -18610,6 +19372,8 @@ index 000000000000..f4b1ba887384
 +		enum ssam_event_mask mask;
 +		u8 flags;
 +	} event;
++
++	unsigned long flags;
 +};
 +
 +int ssam_notifier_register(struct ssam_controller *ctrl,
@@ -18618,10 +19382,18 @@ index 000000000000..f4b1ba887384
 +int ssam_notifier_unregister(struct ssam_controller *ctrl,
 +			     struct ssam_event_notifier *n);
 +
++int ssam_controller_event_enable(struct ssam_controller *ctrl,
++				 struct ssam_event_registry reg,
++				 struct ssam_event_id id, u8 flags);
++
++int ssam_controller_event_disable(struct ssam_controller *ctrl,
++				  struct ssam_event_registry reg,
++				  struct ssam_event_id id, u8 flags);
++
 +#endif /* _LINUX_SURFACE_AGGREGATOR_CONTROLLER_H */
 diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
 new file mode 100644
-index 000000000000..9345ad67fb6a
+index 000000000000..c092211a154d
 --- /dev/null
 +++ b/include/linux/surface_aggregator/device.h
 @@ -0,0 +1,423 @@
@@ -18634,7 +19406,7 @@ index 000000000000..9345ad67fb6a
 + * Provides support for non-platform/non-ACPI SSAM clients via dedicated
 + * subsystem.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#ifndef _LINUX_SURFACE_AGGREGATOR_DEVICE_H
@@ -19050,7 +19822,7 @@ index 000000000000..9345ad67fb6a
 +#endif /* _LINUX_SURFACE_AGGREGATOR_DEVICE_H */
 diff --git a/include/linux/surface_aggregator/serial_hub.h b/include/linux/surface_aggregator/serial_hub.h
 new file mode 100644
-index 000000000000..c78ab6e472c8
+index 000000000000..f02d89168533
 --- /dev/null
 +++ b/include/linux/surface_aggregator/serial_hub.h
 @@ -0,0 +1,668 @@
@@ -19062,7 +19834,7 @@ index 000000000000..c78ab6e472c8
 + * Surface System Aggregator Module (SSAM). Provides the interface for basic
 + * packet- and request-based communication with the SSAM EC via SSH.
 + *
-+ * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#ifndef _LINUX_SURFACE_AGGREGATOR_SERIAL_HUB_H
@@ -19724,10 +20496,10 @@ index 000000000000..c78ab6e472c8
 +#endif /* _LINUX_SURFACE_AGGREGATOR_SERIAL_HUB_H */
 diff --git a/include/uapi/linux/surface_aggregator/cdev.h b/include/uapi/linux/surface_aggregator/cdev.h
 new file mode 100644
-index 000000000000..fbcce04abfe9
+index 000000000000..08f46b60b151
 --- /dev/null
 +++ b/include/uapi/linux/surface_aggregator/cdev.h
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,147 @@
 +/* SPDX-License-Identifier: GPL-2.0+ WITH Linux-syscall-note */
 +/*
 + * Surface System Aggregator Module (SSAM) user-space EC interface.
@@ -19736,7 +20508,7 @@ index 000000000000..fbcce04abfe9
 + * device. This device provides direct user-space access to the SSAM EC.
 + * Intended for debugging and development.
 + *
-+ * Copyright (C) 2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2020-2021 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
 +#ifndef _UAPI_LINUX_SURFACE_AGGREGATOR_CDEV_H
@@ -19803,7 +20575,76 @@ index 000000000000..fbcce04abfe9
 +	} response;
 +} __attribute__((__packed__));
 +
-+#define SSAM_CDEV_REQUEST	_IOWR(0xA5, 1, struct ssam_cdev_request)
++/**
++ * struct ssam_cdev_notifier_desc - Notifier descriptor.
++ * @priority:        Priority value determining the order in which notifier
++ *                   callbacks will be called. A higher value means higher
++ *                   priority, i.e. the associated callback will be executed
++ *                   earlier than other (lower priority) callbacks.
++ * @target_category: The event target category for which this notifier should
++ *                   receive events.
++ *
++ * Specifies the notifier that should be registered or unregistered,
++ * specifically with which priority and for which target category of events.
++ */
++struct ssam_cdev_notifier_desc {
++	__s32 priority;
++	__u8 target_category;
++} __attribute__((__packed__));
++
++/**
++ * struct ssam_cdev_event_desc - Event descriptor.
++ * @reg:                 Registry via which the event will be enabled/disabled.
++ * @reg.target_category: Target category for the event registry requests.
++ * @reg.target_id:       Target ID for the event registry requests.
++ * @reg.cid_enable:      Command ID for the event-enable request.
++ * @reg.cid_disable:     Command ID for the event-disable request.
++ * @id:                  ID specifying the event.
++ * @id.target_category:  Target category of the event source.
++ * @id.instance:         Instance ID of the event source.
++ * @flags:               Flags used for enabling the event.
++ *
++ * Specifies which event should be enabled/disabled and how to do that.
++ */
++struct ssam_cdev_event_desc {
++	struct {
++		__u8 target_category;
++		__u8 target_id;
++		__u8 cid_enable;
++		__u8 cid_disable;
++	} reg;
++
++	struct {
++		__u8 target_category;
++		__u8 instance;
++	} id;
++
++	__u8 flags;
++} __attribute__((__packed__));
++
++/**
++ * struct ssam_cdev_event - SSAM event sent by the EC.
++ * @target_category: Target category of the event source. See &enum ssam_ssh_tc.
++ * @target_id:       Target ID of the event source.
++ * @command_id:      Command ID of the event.
++ * @instance_id:     Instance ID of the event source.
++ * @length:          Length of the event payload in bytes.
++ * @data:            Event payload data.
++ */
++struct ssam_cdev_event {
++	__u8 target_category;
++	__u8 target_id;
++	__u8 command_id;
++	__u8 instance_id;
++	__u16 length;
++	__u8 data[];
++} __attribute__((__packed__));
++
++#define SSAM_CDEV_REQUEST		_IOWR(0xA5, 1, struct ssam_cdev_request)
++#define SSAM_CDEV_NOTIF_REGISTER	_IOW(0xA5, 2, struct ssam_cdev_notifier_desc)
++#define SSAM_CDEV_NOTIF_UNREGISTER	_IOW(0xA5, 3, struct ssam_cdev_notifier_desc)
++#define SSAM_CDEV_EVENT_ENABLE		_IOW(0xA5, 4, struct ssam_cdev_event_desc)
++#define SSAM_CDEV_EVENT_DISABLE		_IOW(0xA5, 5, struct ssam_cdev_event_desc)
 +
 +#endif /* _UAPI_LINUX_SURFACE_AGGREGATOR_CDEV_H */
 diff --git a/include/uapi/linux/surface_aggregator/dtx.h b/include/uapi/linux/surface_aggregator/dtx.h
