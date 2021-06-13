@@ -1,4 +1,4 @@
-From 311f61be8d550dad45ed63339caa05e072fbbda0 Mon Sep 17 00:00:00 2001
+From c6b8be443a14682a9a0d8ce89c0b5be5fb7cf108 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 5 Nov 2020 13:09:45 +0100
 Subject: [PATCH] hid/multitouch: Turn off Type Cover keyboard backlight when
@@ -34,7 +34,7 @@ Patchset: surface-typecover
  1 file changed, 98 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index ccda72f748ee..96fb231fd266 100644
+index c20945ed1dc1..93a93f991649 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -38,7 +38,10 @@
@@ -106,7 +106,7 @@ index ccda72f748ee..96fb231fd266 100644
  	{ }
  };
  
-@@ -1665,6 +1685,69 @@ static void mt_expired_timeout(struct timer_list *t)
+@@ -1669,6 +1689,69 @@ static void mt_expired_timeout(struct timer_list *t)
  	clear_bit(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
  }
  
@@ -176,7 +176,7 @@ index ccda72f748ee..96fb231fd266 100644
  static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  {
  	int ret, i;
-@@ -1688,6 +1771,9 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+@@ -1692,6 +1775,9 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  	td->inputmode_value = MT_INPUTMODE_TOUCHSCREEN;
  	hid_set_drvdata(hdev, td);
  
@@ -186,7 +186,7 @@ index ccda72f748ee..96fb231fd266 100644
  	INIT_LIST_HEAD(&td->applications);
  	INIT_LIST_HEAD(&td->reports);
  
-@@ -1712,15 +1798,19 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+@@ -1716,15 +1802,19 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  	timer_setup(&td->release_timer, mt_expired_timeout, 0);
  
  	ret = hid_parse(hdev);
@@ -208,7 +208,7 @@ index ccda72f748ee..96fb231fd266 100644
  
  	ret = sysfs_create_group(&hdev->dev.kobj, &mt_attribute_group);
  	if (ret)
-@@ -1756,6 +1846,7 @@ static void mt_remove(struct hid_device *hdev)
+@@ -1760,6 +1850,7 @@ static void mt_remove(struct hid_device *hdev)
  {
  	struct mt_device *td = hid_get_drvdata(hdev);
  
@@ -216,7 +216,7 @@ index ccda72f748ee..96fb231fd266 100644
  	del_timer_sync(&td->release_timer);
  
  	sysfs_remove_group(&hdev->dev.kobj, &mt_attribute_group);
-@@ -2103,6 +2194,11 @@ static const struct hid_device_id mt_devices[] = {
+@@ -2107,6 +2198,11 @@ static const struct hid_device_id mt_devices[] = {
  		MT_USB_DEVICE(USB_VENDOR_ID_XIROKU,
  			USB_DEVICE_ID_XIROKU_CSR2) },
  
@@ -229,5 +229,5 @@ index ccda72f748ee..96fb231fd266 100644
  	{ .driver_data = MT_CLS_GOOGLE,
  		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY, USB_VENDOR_ID_GOOGLE,
 -- 
-2.31.1
+2.32.0
 
