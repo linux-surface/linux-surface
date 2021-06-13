@@ -106,7 +106,8 @@ Patch3:     %{surface_source}/%{kernel_patches}/0004-ipts.patch
 Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam-over-hid.patch
 Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam.patch
 Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-typecover.patch
-Patch7:     %{surface_source}/%{kernel_patches}/0008-cameras.patch
+Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-go-touchscreen.patch
+Patch8:     %{surface_source}/%{kernel_patches}/0009-cameras.patch
 
 %else
 
