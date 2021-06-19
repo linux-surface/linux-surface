@@ -4,18 +4,15 @@
 
 %global kernel_tag_fc34 kernel-5.12.12-300.fc34
 %global kernel_tag_fc33 kernel-5.12.12-200.fc33
-%global kernel_tag_fc32 kernel-5.11.22-100.fc32
 
 %global kernel_release_fc34 1
 %global kernel_release_fc33 1
-%global kernel_release_fc32 2
 
 # This is what is printed in the GRUB menu. These cannot be fetched from the
 # buildhost, because in a container this will also say container. To get the
 # same text as the default kernels, just hardcode it. Hey, this is important!
 %global fedora_title_fc34 34 (Thirty Four)
 %global fedora_title_fc33 33 (Thirty Three)
-%global fedora_title_fc32 32 (Thirty Two)
 
 %global ls_patches_commit 7deb5ff4d270016e22b2520afb83e6983984dfae
 
@@ -97,8 +94,6 @@ Source21:   %{sb_key}
 Source100:  mod-sign.sh
 Source101:  parallel_xz.sh
 
-%if "%{kernel_majorver}" == "5.12"
-
 Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-oemb.patch
 Patch1:     %{surface_source}/%{kernel_patches}/0002-mwifiex.patch
 Patch2:     %{surface_source}/%{kernel_patches}/0003-ath10k.patch
@@ -109,21 +104,6 @@ Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-typecover.patch
 Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-go-touchscreen.patch
 Patch8:     %{surface_source}/%{kernel_patches}/0009-cameras.patch
 Patch9:     %{surface_source}/%{kernel_patches}/0010-s0ix-amd.patch
-
-%else
-
-Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-oemb.patch
-Patch1:     %{surface_source}/%{kernel_patches}/0002-wifi.patch
-Patch2:     %{surface_source}/%{kernel_patches}/0003-ipts.patch
-Patch3:     %{surface_source}/%{kernel_patches}/0004-surface-sam-over-hid.patch
-Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam.patch
-Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-hotplug.patch
-Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-typecover.patch
-Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-sensors.patch
-Patch8:     %{surface_source}/%{kernel_patches}/0009-cameras.patch
-Patch9:     %{surface_source}/%{kernel_patches}/0010-ath10k-firmware-override.patch
-
-%endif
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
