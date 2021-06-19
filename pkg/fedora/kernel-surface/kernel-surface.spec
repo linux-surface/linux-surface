@@ -2,8 +2,8 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc34 kernel-5.12.10-300.fc34
-%global kernel_tag_fc33 kernel-5.12.10-200.fc33
+%global kernel_tag_fc34 kernel-5.12.12-300.fc34
+%global kernel_tag_fc33 kernel-5.12.12-200.fc33
 %global kernel_tag_fc32 kernel-5.11.22-100.fc32
 
 %global kernel_release_fc34 1
@@ -17,7 +17,7 @@
 %global fedora_title_fc33 33 (Thirty Three)
 %global fedora_title_fc32 32 (Thirty Two)
 
-%global ls_patches_commit 1f958748b0bbee05232ea0a35c38ad81f1805a0b
+%global ls_patches_commit 7deb5ff4d270016e22b2520afb83e6983984dfae
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -108,6 +108,7 @@ Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam.patch
 Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-typecover.patch
 Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-go-touchscreen.patch
 Patch8:     %{surface_source}/%{kernel_patches}/0009-cameras.patch
+Patch9:     %{surface_source}/%{kernel_patches}/0010-s0ix-amd.patch
 
 %else
 
