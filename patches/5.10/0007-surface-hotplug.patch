@@ -1,4 +1,4 @@
-From 0b0cfb7a6cf0fa9be3992a3d434fe6d39ab61bf6 Mon Sep 17 00:00:00 2001
+From 285e0e845646ef2af161bd43e96299c4b22de90e Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 31 Oct 2020 20:46:33 +0100
 Subject: [PATCH] PCI: Add sysfs attribute for PCI device power state
@@ -71,7 +71,7 @@ index d15c881e2e7e..b15f754e6346 100644
 -- 
 2.32.0
 
-From eb3eaa3eb2005d8d10b1d1a2a8c9cf2817cc4a21 Mon Sep 17 00:00:00 2001
+From 36a4722d822bd3c69bc840eb3c7d550a0a9f06d5 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 14 Dec 2020 20:50:59 +0100
 Subject: [PATCH] platform/x86: Add Surface Hotplug driver
@@ -421,6 +421,50 @@ index 000000000000..cfcc15cfbacb
 +MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 +MODULE_DESCRIPTION("Surface Hot-Plug Signaling Driver for Surface Book Devices");
 +MODULE_LICENSE("GPL");
+-- 
+2.32.0
+
+From 426a41bc053c7e9f07e19f9d8f41481589e07cd2 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 2 Jul 2021 14:35:43 +0200
+Subject: [PATCH] Revert "Revert "PCI: PM: Do not read power state in
+ pci_enable_device_flags()""
+
+This reverts commit f11f9ff8a7c97b2a3990c7322304627d9b58d362.
+
+Patchset: surface-hotplug
+---
+ drivers/pci/pci.c | 16 +++-------------
+ 1 file changed, 3 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/pci/pci.c b/drivers/pci/pci.c
+index 9e971fffeb6a..d5d9ea864fe6 100644
+--- a/drivers/pci/pci.c
++++ b/drivers/pci/pci.c
+@@ -1874,20 +1874,10 @@ static int pci_enable_device_flags(struct pci_dev *dev, unsigned long flags)
+ 	int err;
+ 	int i, bars = 0;
+ 
+-	/*
+-	 * Power state could be unknown at this point, either due to a fresh
+-	 * boot or a device removal call.  So get the current power state
+-	 * so that things like MSI message writing will behave as expected
+-	 * (e.g. if the device really is in D0 at enable time).
+-	 */
+-	if (dev->pm_cap) {
+-		u16 pmcsr;
+-		pci_read_config_word(dev, dev->pm_cap + PCI_PM_CTRL, &pmcsr);
+-		dev->current_state = (pmcsr & PCI_PM_CTRL_STATE_MASK);
+-	}
+-
+-	if (atomic_inc_return(&dev->enable_cnt) > 1)
++	if (atomic_inc_return(&dev->enable_cnt) > 1) {
++		pci_update_current_state(dev, dev->current_state);
+ 		return 0;		/* already enabled */
++	}
+ 
+ 	bridge = pci_upstream_bridge(dev);
+ 	if (bridge)
 -- 
 2.32.0
 
