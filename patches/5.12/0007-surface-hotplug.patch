@@ -1,0 +1,44 @@
+From 0e803e7c36a7486f1b9ebf3dee79bda3f38b6086 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 2 Jul 2021 14:27:14 +0200
+Subject: [PATCH] Revert "Revert "PCI: PM: Do not read power state in
+ pci_enable_device_flags()""
+
+This reverts commit 133ad06e0419eea137cce7b0c453b9c9622de161.
+
+Patchset: surface-hotplug
+---
+ drivers/pci/pci.c | 16 +++-------------
+ 1 file changed, 3 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/pci/pci.c b/drivers/pci/pci.c
+index 16a17215f633..e4d4e399004b 100644
+--- a/drivers/pci/pci.c
++++ b/drivers/pci/pci.c
+@@ -1870,20 +1870,10 @@ static int pci_enable_device_flags(struct pci_dev *dev, unsigned long flags)
+ 	int err;
+ 	int i, bars = 0;
+ 
+-	/*
+-	 * Power state could be unknown at this point, either due to a fresh
+-	 * boot or a device removal call.  So get the current power state
+-	 * so that things like MSI message writing will behave as expected
+-	 * (e.g. if the device really is in D0 at enable time).
+-	 */
+-	if (dev->pm_cap) {
+-		u16 pmcsr;
+-		pci_read_config_word(dev, dev->pm_cap + PCI_PM_CTRL, &pmcsr);
+-		dev->current_state = (pmcsr & PCI_PM_CTRL_STATE_MASK);
+-	}
+-
+-	if (atomic_inc_return(&dev->enable_cnt) > 1)
++	if (atomic_inc_return(&dev->enable_cnt) > 1) {
++		pci_update_current_state(dev, dev->current_state);
+ 		return 0;		/* already enabled */
++	}
+ 
+ 	bridge = pci_upstream_bridge(dev);
+ 	if (bridge)
+-- 
+2.32.0
+
