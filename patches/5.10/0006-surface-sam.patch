@@ -1,4 +1,4 @@
-From bd47820c12655953b804bad3c98e2302ea4e19cb Mon Sep 17 00:00:00 2001
+From 3aac949a7ab2861f2db92f9084efffe740b4e87c Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:23:20 +0200
 Subject: [PATCH] Add file2alias support for Surface Aggregator Module devices
@@ -99,7 +99,7 @@ index 2417dd1dee33..a6c583362b92 100644
 -- 
 2.32.0
 
-From 40aef23cfd09e956a87b3851fefd314388e6c005 Mon Sep 17 00:00:00 2001
+From 368b4d45fe5b534a742af0804ebc4306c44329ef Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 17 Aug 2020 01:44:30 +0200
 Subject: [PATCH] platform/x86: Add support for Surface System Aggregator
@@ -138,7 +138,6 @@ Patchset: surface-sam
  drivers/hid/surface-hid/surface_hid_core.c    |  272 ++
  drivers/hid/surface-hid/surface_hid_core.h    |   77 +
  drivers/hid/surface-hid/surface_kbd.c         |  300 ++
- drivers/pinctrl/pinctrl-amd.c                 |    1 +
  drivers/platform/x86/Kconfig                  |  102 +
  drivers/platform/x86/Makefile                 |    7 +
  drivers/platform/x86/surface_acpi_notify.c    |  886 ++++++
@@ -174,7 +173,7 @@ Patchset: surface-sam
  include/uapi/linux/surface_aggregator/dtx.h   |  146 +
  scripts/mod/devicetable-offsets.c             |    3 +-
  scripts/mod/file2alias.c                      |   10 +-
- 57 files changed, 20106 insertions(+), 8 deletions(-)
+ 56 files changed, 20105 insertions(+), 8 deletions(-)
  create mode 100644 Documentation/driver-api/surface_aggregator/client-api.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/client.rst
  create mode 100644 Documentation/driver-api/surface_aggregator/clients/cdev.rst
@@ -3864,18 +3863,6 @@ index 000000000000..0635341bc517
 +MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
 +MODULE_DESCRIPTION("HID legacy transport driver for Surface System Aggregator Module");
 +MODULE_LICENSE("GPL");
-diff --git a/drivers/pinctrl/pinctrl-amd.c b/drivers/pinctrl/pinctrl-amd.c
-index 899c16c17b6d..ef49402c0623 100644
---- a/drivers/pinctrl/pinctrl-amd.c
-+++ b/drivers/pinctrl/pinctrl-amd.c
-@@ -952,6 +952,7 @@ static int amd_gpio_remove(struct platform_device *pdev)
- static const struct acpi_device_id amd_gpio_acpi_match[] = {
- 	{ "AMD0030", 0 },
- 	{ "AMDI0030", 0},
-+	{ "AMDI0031", 0},
- 	{ },
- };
- MODULE_DEVICE_TABLE(acpi, amd_gpio_acpi_match);
 diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
 index 6a53f63bde62..d44d3fb9ca72 100644
 --- a/drivers/platform/x86/Kconfig
@@ -17165,10 +17152,10 @@ index 000000000000..a9114e001d0d
 +MODULE_DESCRIPTION("Performance mode interface for Surface System Aggregator Module");
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/power/supply/Kconfig b/drivers/power/supply/Kconfig
-index 1699b9269a78..d4d756d95778 100644
+index 0aa46b451017..e96e136c60b4 100644
 --- a/drivers/power/supply/Kconfig
 +++ b/drivers/power/supply/Kconfig
-@@ -775,4 +775,36 @@ config RN5T618_POWER
+@@ -776,4 +776,36 @@ config RN5T618_POWER
  	  This driver can also be built as a module. If so, the module will be
  	  called rn5t618_power.
  
