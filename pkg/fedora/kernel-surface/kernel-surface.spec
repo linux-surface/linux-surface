@@ -104,7 +104,7 @@ Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-hotplug.patch
 Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-typecover.patch
 Patch8:     %{surface_source}/%{kernel_patches}/0009-cameras.patch
 Patch9:     %{surface_source}/%{kernel_patches}/0010-amd-gpio.patch
-Patch10:    %{surface_source}/%{kernel_patches}/0011-amd-s0ix.patch
+#Patch10:    %{surface_source}/%{kernel_patches}/0011-amd-s0ix.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
