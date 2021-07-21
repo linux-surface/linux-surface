@@ -2380,170 +2380,7 @@ index 2638d375e226..17c6fe830765 100644
 -- 
 2.32.0
 
-From 2c8f3b4e7134b49f4fb7cda79d478c8088310fd9 Mon Sep 17 00:00:00 2001
-From: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
-Date: Fri, 18 Jun 2021 15:55:15 +0300
-Subject: [PATCH] platform/x86: intel_skl_int3472: Move to intel/ subfolder
-
-Start collecting Intel x86 related drivers in its own subfolder.
-Move intel_skl_int3472 first.
-
-Signed-off-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
-Link: https://lore.kernel.org/r/20210618125516.53510-7-andriy.shevchenko@linux.intel.com
-Signed-off-by: Hans de Goede <hdegoede@redhat.com>
-Patchset: cameras
----
- MAINTAINERS                                   |  2 +-
- drivers/platform/x86/Kconfig                  |  4 ++--
- drivers/platform/x86/Makefile                 |  3 ++-
- drivers/platform/x86/intel/Kconfig            | 21 +++++++++++++++++++
- drivers/platform/x86/intel/Makefile           |  7 +++++++
- .../{intel-int3472 => intel/int3472}/Kconfig  |  0
- .../{intel-int3472 => intel/int3472}/Makefile |  0
- .../intel_skl_int3472_clk_and_regulator.c     |  0
- .../int3472}/intel_skl_int3472_common.c       |  0
- .../int3472}/intel_skl_int3472_common.h       |  0
- .../int3472}/intel_skl_int3472_discrete.c     |  0
- .../int3472}/intel_skl_int3472_tps68470.c     |  0
- 12 files changed, 33 insertions(+), 4 deletions(-)
- create mode 100644 drivers/platform/x86/intel/Kconfig
- create mode 100644 drivers/platform/x86/intel/Makefile
- rename drivers/platform/x86/{intel-int3472 => intel/int3472}/Kconfig (100%)
- rename drivers/platform/x86/{intel-int3472 => intel/int3472}/Makefile (100%)
- rename drivers/platform/x86/{intel-int3472 => intel/int3472}/intel_skl_int3472_clk_and_regulator.c (100%)
- rename drivers/platform/x86/{intel-int3472 => intel/int3472}/intel_skl_int3472_common.c (100%)
- rename drivers/platform/x86/{intel-int3472 => intel/int3472}/intel_skl_int3472_common.h (100%)
- rename drivers/platform/x86/{intel-int3472 => intel/int3472}/intel_skl_int3472_discrete.c (100%)
- rename drivers/platform/x86/{intel-int3472 => intel/int3472}/intel_skl_int3472_tps68470.c (100%)
-
-diff --git a/MAINTAINERS b/MAINTAINERS
-index 1db7311d78a6..bdafd166d80d 100644
---- a/MAINTAINERS
-+++ b/MAINTAINERS
-@@ -9389,7 +9389,7 @@ F:	drivers/platform/x86/intel_scu_*
- INTEL SKYLAKE INT3472 ACPI DEVICE DRIVER
- M:	Daniel Scally <djrscally@gmail.com>
- S:	Maintained
--F:	drivers/platform/x86/intel-int3472/
-+F:	drivers/platform/x86/intel/int3472/
- 
- INTEL SPEED SELECT TECHNOLOGY
- M:	Srinivas Pandruvada <srinivas.pandruvada@linux.intel.com>
-diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
-index 88134aaacefc..607b57478d78 100644
---- a/drivers/platform/x86/Kconfig
-+++ b/drivers/platform/x86/Kconfig
-@@ -639,6 +639,8 @@ config THINKPAD_ACPI_HOTKEY_POLL
- 	  If you are not sure, say Y here.  The driver enables polling only if
- 	  it is strictly necessary to do so.
- 
-+source "drivers/platform/x86/intel/Kconfig"
-+
- config INTEL_ATOMISP2_LED
- 	tristate "Intel AtomISP2 camera LED driver"
- 	depends on GPIOLIB && LEDS_GPIO
-@@ -697,8 +699,6 @@ config INTEL_CHT_INT33FE
- 	  device and CONFIG_TYPEC_FUSB302=m and CONFIG_BATTERY_MAX17042=m
- 	  for Type-C device.
- 
--source "drivers/platform/x86/intel-int3472/Kconfig"
--
- config INTEL_HID_EVENT
- 	tristate "INTEL HID Event"
- 	depends on ACPI
-diff --git a/drivers/platform/x86/Makefile b/drivers/platform/x86/Makefile
-index c0612c02d037..67491ac827c4 100644
---- a/drivers/platform/x86/Makefile
-+++ b/drivers/platform/x86/Makefile
-@@ -66,6 +66,8 @@ obj-$(CONFIG_SENSORS_HDAPS)	+= hdaps.o
- obj-$(CONFIG_THINKPAD_ACPI)	+= thinkpad_acpi.o
- 
- # Intel
-+obj-$(CONFIG_X86_PLATFORM_DRIVERS_INTEL)		+= intel/
-+
- obj-$(CONFIG_INTEL_ATOMISP2_LED)	+= intel_atomisp2_led.o
- obj-$(CONFIG_INTEL_ATOMISP2_PM)		+= intel_atomisp2_pm.o
- obj-$(CONFIG_INTEL_CHT_INT33FE)		+= intel_cht_int33fe.o
-@@ -76,7 +78,6 @@ obj-$(CONFIG_INTEL_HID_EVENT)		+= intel-hid.o
- obj-$(CONFIG_INTEL_INT0002_VGPIO)	+= intel_int0002_vgpio.o
- obj-$(CONFIG_INTEL_MENLOW)		+= intel_menlow.o
- obj-$(CONFIG_INTEL_OAKTRAIL)		+= intel_oaktrail.o
--obj-$(CONFIG_INTEL_SKL_INT3472)		+= intel-int3472/
- obj-$(CONFIG_INTEL_VBTN)		+= intel-vbtn.o
- 
- # MSI
-diff --git a/drivers/platform/x86/intel/Kconfig b/drivers/platform/x86/intel/Kconfig
-new file mode 100644
-index 000000000000..33f2dab03d3d
---- /dev/null
-+++ b/drivers/platform/x86/intel/Kconfig
-@@ -0,0 +1,21 @@
-+# SPDX-License-Identifier: GPL-2.0-only
-+#
-+# Intel x86 Platform Specific Drivers
-+#
-+
-+menuconfig X86_PLATFORM_DRIVERS_INTEL
-+	bool "Intel x86 Platform Specific Device Drivers"
-+	default y
-+	help
-+	  Say Y here to get to see options for device drivers for
-+	  various Intel x86 platforms, including vendor-specific
-+	  drivers. This option alone does not add any kernel code.
-+
-+	  If you say N, all options in this submenu will be skipped
-+	  and disabled.
-+
-+if X86_PLATFORM_DRIVERS_INTEL
-+
-+source "drivers/platform/x86/intel/int3472/Kconfig"
-+
-+endif # X86_PLATFORM_DRIVERS_INTEL
-diff --git a/drivers/platform/x86/intel/Makefile b/drivers/platform/x86/intel/Makefile
-new file mode 100644
-index 000000000000..3ac795d810f1
---- /dev/null
-+++ b/drivers/platform/x86/intel/Makefile
-@@ -0,0 +1,7 @@
-+# SPDX-License-Identifier: GPL-2.0
-+#
-+# Makefile for drivers/platform/x86/intel
-+# Intel x86 Platform-Specific Drivers
-+#
-+
-+obj-$(CONFIG_INTEL_SKL_INT3472)		+= int3472/
-diff --git a/drivers/platform/x86/intel-int3472/Kconfig b/drivers/platform/x86/intel/int3472/Kconfig
-similarity index 100%
-rename from drivers/platform/x86/intel-int3472/Kconfig
-rename to drivers/platform/x86/intel/int3472/Kconfig
-diff --git a/drivers/platform/x86/intel-int3472/Makefile b/drivers/platform/x86/intel/int3472/Makefile
-similarity index 100%
-rename from drivers/platform/x86/intel-int3472/Makefile
-rename to drivers/platform/x86/intel/int3472/Makefile
-diff --git a/drivers/platform/x86/intel-int3472/intel_skl_int3472_clk_and_regulator.c b/drivers/platform/x86/intel/int3472/intel_skl_int3472_clk_and_regulator.c
-similarity index 100%
-rename from drivers/platform/x86/intel-int3472/intel_skl_int3472_clk_and_regulator.c
-rename to drivers/platform/x86/intel/int3472/intel_skl_int3472_clk_and_regulator.c
-diff --git a/drivers/platform/x86/intel-int3472/intel_skl_int3472_common.c b/drivers/platform/x86/intel/int3472/intel_skl_int3472_common.c
-similarity index 100%
-rename from drivers/platform/x86/intel-int3472/intel_skl_int3472_common.c
-rename to drivers/platform/x86/intel/int3472/intel_skl_int3472_common.c
-diff --git a/drivers/platform/x86/intel-int3472/intel_skl_int3472_common.h b/drivers/platform/x86/intel/int3472/intel_skl_int3472_common.h
-similarity index 100%
-rename from drivers/platform/x86/intel-int3472/intel_skl_int3472_common.h
-rename to drivers/platform/x86/intel/int3472/intel_skl_int3472_common.h
-diff --git a/drivers/platform/x86/intel-int3472/intel_skl_int3472_discrete.c b/drivers/platform/x86/intel/int3472/intel_skl_int3472_discrete.c
-similarity index 100%
-rename from drivers/platform/x86/intel-int3472/intel_skl_int3472_discrete.c
-rename to drivers/platform/x86/intel/int3472/intel_skl_int3472_discrete.c
-diff --git a/drivers/platform/x86/intel-int3472/intel_skl_int3472_tps68470.c b/drivers/platform/x86/intel/int3472/intel_skl_int3472_tps68470.c
-similarity index 100%
-rename from drivers/platform/x86/intel-int3472/intel_skl_int3472_tps68470.c
-rename to drivers/platform/x86/intel/int3472/intel_skl_int3472_tps68470.c
--- 
-2.32.0
-
-From 2ca8dd619a7eb521e4289549aa8e6a3ab7cf8971 Mon Sep 17 00:00:00 2001
+From 8277d9fe644ad60fe5fefd54ceba3f59443e8c66 Mon Sep 17 00:00:00 2001
 From: Dan Carpenter <dan.carpenter@oracle.com>
 Date: Fri, 25 Jun 2021 16:01:04 +0300
 Subject: [PATCH] platform/x86: intel_skl_int3472: Uninitialized variable in
@@ -2563,13 +2400,13 @@ Link: https://lore.kernel.org/r/YNXTkLNtiTDlFlZa@mwanda
 Signed-off-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: cameras
 ---
- .../platform/x86/intel/int3472/intel_skl_int3472_discrete.c   | 4 ++--
+ .../platform/x86/intel-int3472/intel_skl_int3472_discrete.c   | 4 ++--
  1 file changed, 2 insertions(+), 2 deletions(-)
 
-diff --git a/drivers/platform/x86/intel/int3472/intel_skl_int3472_discrete.c b/drivers/platform/x86/intel/int3472/intel_skl_int3472_discrete.c
+diff --git a/drivers/platform/x86/intel-int3472/intel_skl_int3472_discrete.c b/drivers/platform/x86/intel-int3472/intel_skl_int3472_discrete.c
 index 17c6fe830765..9fe0a2527e1c 100644
---- a/drivers/platform/x86/intel/int3472/intel_skl_int3472_discrete.c
-+++ b/drivers/platform/x86/intel/int3472/intel_skl_int3472_discrete.c
+--- a/drivers/platform/x86/intel-int3472/intel_skl_int3472_discrete.c
++++ b/drivers/platform/x86/intel-int3472/intel_skl_int3472_discrete.c
 @@ -286,10 +286,10 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
  	int3472->ngpios++;
  	ACPI_FREE(obj);
@@ -2586,7 +2423,7 @@ index 17c6fe830765..9fe0a2527e1c 100644
 -- 
 2.32.0
 
-From fe04b16bb1e8cd203adfcae167d8854c493d8e64 Mon Sep 17 00:00:00 2001
+From a744627e44ebdd5fb70d218ecafc3e52c0b9b6e7 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 5 Apr 2021 23:56:53 +0100
 Subject: [PATCH] media: ipu3-cio2: Toggle sensor streaming in pm runtime ops
@@ -2646,7 +2483,7 @@ index fecef85bd62e..9dafb9470708 100644
 -- 
 2.32.0
 
-From b507643e34d1b8768a48540f6919fbbcc409607c Mon Sep 17 00:00:00 2001
+From 5018e674bf1246bb9fa8b4493db0352f8e1109de Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 5 Apr 2021 23:56:54 +0100
 Subject: [PATCH] media: i2c: Add support for ov5693 sensor
@@ -2672,7 +2509,7 @@ Patchset: cameras
  create mode 100644 drivers/media/i2c/ov5693.c
 
 diff --git a/MAINTAINERS b/MAINTAINERS
-index bdafd166d80d..123962e41739 100644
+index 1db7311d78a6..567a5b64d297 100644
 --- a/MAINTAINERS
 +++ b/MAINTAINERS
 @@ -13563,6 +13563,13 @@ S:	Maintained
@@ -4289,7 +4126,7 @@ index 000000000000..276f625d4d23
 -- 
 2.32.0
 
-From ecbcc0bc18332f6e3f4dc53bf1877eb166b89b06 Mon Sep 17 00:00:00 2001
+From e92c2233ce598c5a04ed9f073daf842e8abf92ed Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Fabian=20W=C3=BCthrich?= <me@fabwu.ch>
 Date: Fri, 22 Jan 2021 20:58:13 +0100
 Subject: [PATCH] cio2-bridge: Parse sensor orientation and rotation
@@ -4452,7 +4289,7 @@ index dd0ffcafa489..924d99d20328 100644
 -- 
 2.32.0
 
-From 58d0fadc1f6db32fd55d0764482829cd3e905454 Mon Sep 17 00:00:00 2001
+From 1b512cf8e1e77363a4b72bb4ce13770c295d9e05 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Fabian=20W=C3=BCthrich?= <me@fabwu.ch>
 Date: Sun, 24 Jan 2021 11:07:42 +0100
 Subject: [PATCH] cio2-bridge: Use macros and add warnings
@@ -4556,7 +4393,7 @@ index 924d99d20328..e1e388cc9f45 100644
 -- 
 2.32.0
 
-From 6090df42da546a24055e894184dc25f679eefb89 Mon Sep 17 00:00:00 2001
+From 6c82cd1840e58b189c6b632e0b5cfa3e066cd843 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Fabian=20W=C3=BCthrich?= <me@fabwu.ch>
 Date: Thu, 6 May 2021 07:52:44 +0200
 Subject: [PATCH] cio2-bridge: Use correct dev_properties size
@@ -4582,7 +4419,7 @@ index e1e388cc9f45..deaf5804f70d 100644
 -- 
 2.32.0
 
-From 23c9920bb64c8beea4fe2caf175656217cde1a91 Mon Sep 17 00:00:00 2001
+From 5c8f67925d518d45d6b058314328f8f8c1ed2da1 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 20 May 2021 23:31:04 +0100
 Subject: [PATCH] media: i2c: Fix vertical flip in ov5693
@@ -4617,7 +4454,7 @@ index 276f625d4d23..1653fb49f6e0 100644
 -- 
 2.32.0
 
-From 8a64066aafb879c46d7410ca1556cc8f7feec086 Mon Sep 17 00:00:00 2001
+From c4eab6c5c3cf286bc92835d67384dd14b6101c73 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Fri, 9 Jul 2021 16:39:18 +0100
 Subject: [PATCH] media: i2c: Add ACPI support to ov8865
@@ -4668,7 +4505,7 @@ index 9ecf180635ee..a28adf45b1b1 100644
 -- 
 2.32.0
 
-From 7ec1396b8cd04dfb7170bc78e7e222d526e4c3a5 Mon Sep 17 00:00:00 2001
+From cd7672ec93d6c4119739ea6f9e4407163b919416 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Jul 2021 21:20:17 +0100
 Subject: [PATCH] media: i2c: Fix incorrect value in comment
@@ -4698,7 +4535,7 @@ index a28adf45b1b1..7d716b0d47c1 100644
 -- 
 2.32.0
 
-From 1bb9de0400d99a53300f126de1bd2fa7208d63e9 Mon Sep 17 00:00:00 2001
+From 70622f1983070f298a027ea7d7084fb880baa96d Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Jul 2021 22:21:52 +0100
 Subject: [PATCH] media: i2c: Check fwnode->secondary for endpoint
@@ -4747,7 +4584,7 @@ index 7d716b0d47c1..5fb290a6fc6a 100644
 -- 
 2.32.0
 
-From 149a83ac30db3dbc6c3aea9b8c18d47a0da8f9c3 Mon Sep 17 00:00:00 2001
+From 0b0fdc2c12c8c2b20fb1b261ab73ef874e52dddf Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Jul 2021 22:00:25 +0100
 Subject: [PATCH] media: i2c: Support 19.2MHz input clock in ov8865
@@ -5062,7 +4899,7 @@ index 5fb290a6fc6a..cae7dc9da49d 100644
 -- 
 2.32.0
 
-From d0f61b9ae31e8301a7876d233ef72fd57dad8a8e Mon Sep 17 00:00:00 2001
+From 7d30067362c26686e7ec07f19476f40854933f59 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Jul 2021 22:19:10 +0100
 Subject: [PATCH] media: i2c: Add .get_selection() support to ov8865
@@ -5164,7 +5001,7 @@ index cae7dc9da49d..3ce0af7e0054 100644
 -- 
 2.32.0
 
-From 6611cde0f25e294b61024693a8d4eba01242e8ac Mon Sep 17 00:00:00 2001
+From 422fa6ca568b4c3017cedade379b5867f8973d8d Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sat, 10 Jul 2021 22:34:43 +0100
 Subject: [PATCH] media: i2c: Switch control to V4L2_CID_ANALOGUE_GAIN
@@ -5215,7 +5052,7 @@ index 3ce0af7e0054..c0c6b1d7e1ed 100644
 -- 
 2.32.0
 
-From 1d96e1322cf63d0bdeb65c68b232edce509b99c6 Mon Sep 17 00:00:00 2001
+From 098ad2823b9b584fb002a9f5189d5b081e781cd0 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 12 Jul 2021 22:54:56 +0100
 Subject: [PATCH] media: i2c: Add vblank control to ov8865
@@ -5325,7 +5162,7 @@ index c0c6b1d7e1ed..5f67d85e33bc 100644
 -- 
 2.32.0
 
-From e432936cfa2d86c486b6287b8b88a7844782b8ac Mon Sep 17 00:00:00 2001
+From 57b016527f120221e07d6f88c1e79033892f17bf Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Tue, 13 Jul 2021 23:40:33 +0100
 Subject: [PATCH] media: i2c: Add hblank control to ov8865
@@ -5395,7 +5232,7 @@ index 5f67d85e33bc..66754ff62a22 100644
 -- 
 2.32.0
 
-From f62f72885babb51aed1c5303984c158930c5ba77 Mon Sep 17 00:00:00 2001
+From 56c98963ff3bf7714979ae1422ae11296bd0b968 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Tue, 13 Jul 2021 23:43:17 +0100
 Subject: [PATCH] media: i2c: cap exposure at height + vblank in ov8865
@@ -5476,7 +5313,7 @@ index 66754ff62a22..93e741952050 100644
 -- 
 2.32.0
 
-From fa9f76e6045f25d12bf986424535e5c25956a403 Mon Sep 17 00:00:00 2001
+From 330e3a176fc74c2318fab7cbef5427d584c5d5eb Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 14 Jul 2021 18:05:44 +0100
 Subject: [PATCH] media: i2c: Remove unused macros from ov8865
@@ -5750,7 +5587,7 @@ index 93e741952050..fd4de2ea1fa9 100644
 -- 
 2.32.0
 
-From 31c84c46eddc130e9ccfc0bee5021cc8fed6ef9e Mon Sep 17 00:00:00 2001
+From 9deee711766e54b3914d743eaba36d0932ae6104 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Fri, 16 Jul 2021 00:00:54 +0100
 Subject: [PATCH] media: i2c: Switch exposure control unit to lines
@@ -5797,7 +5634,7 @@ index fd4de2ea1fa9..1905028742d5 100644
 -- 
 2.32.0
 
-From 4bdfc85c28431fdb7e6fa40101b4b9646d5aea1e Mon Sep 17 00:00:00 2001
+From 566d4898ef03986c333fa72b7903b050b765c18f Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Fri, 16 Jul 2021 22:56:15 +0100
 Subject: [PATCH] media: i2c: Add controls from fwnode to ov8865
@@ -5842,7 +5679,7 @@ index 1905028742d5..e88825ea76aa 100644
 -- 
 2.32.0
 
-From 9647b126e5c3604c09175ffa9f1e8f0bc113d5ba Mon Sep 17 00:00:00 2001
+From 74abcfb30ed278ef5dd99a51ce061f48c7eaaf61 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 14 Jul 2021 00:05:04 +0100
 Subject: [PATCH] media: ipu3-cio2: Add INT347A to cio2-bridge
