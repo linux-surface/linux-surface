@@ -1,7 +1,7 @@
+From 816b7fe4a492f9f49978e39a779a89992d8d4d32 Mon Sep 17 00:00:00 2001
 From: Ben Hutchings <ben@decadent.org.uk>
 Date: Tue, 26 Jun 2018 16:59:01 +0100
-Subject: Export symbols needed by Android drivers
-Bug-Debian: https://bugs.debian.org/901492
+Subject: [PATCH 1/2] Export symbols needed by Android drivers
 
 We want to enable use of the Android ashmem and binder drivers to
 support Anbox, but they should not be built-in as that would waste
@@ -9,13 +9,22 @@ resources and increase security attack surface on systems that don't
 need them.
 
 Export the currently un-exported symbols they depend on.
-
 ---
-Index: linux/fs/file.c
-===================================================================
---- linux.orig/fs/file.c
-+++ linux/fs/file.c
-@@ -409,6 +409,7 @@ struct files_struct *get_files_struct(st
+ fs/file.c           | 4 ++++
+ kernel/fork.c       | 1 +
+ kernel/sched/core.c | 1 +
+ kernel/signal.c     | 1 +
+ mm/memory.c         | 1 +
+ mm/shmem.c          | 1 +
+ mm/vmalloc.c        | 2 ++
+ security/security.c | 4 ++++
+ 8 files changed, 15 insertions(+)
+
+diff --git a/fs/file.c b/fs/file.c
+index 3762a3f136fd..3e10be834458 100644
+--- a/fs/file.c
++++ b/fs/file.c
+@@ -409,6 +409,7 @@ struct files_struct *get_files_struct(struct task_struct *task)
  
  	return files;
  }
@@ -23,7 +32,7 @@ Index: linux/fs/file.c
  
  void put_files_struct(struct files_struct *files)
  {
-@@ -421,6 +422,7 @@ void put_files_struct(struct files_struc
+@@ -421,6 +422,7 @@ void put_files_struct(struct files_struct *files)
  		kmem_cache_free(files_cachep, files);
  	}
  }
@@ -31,7 +40,7 @@ Index: linux/fs/file.c
  
  void reset_files_struct(struct files_struct *files)
  {
-@@ -534,6 +536,7 @@ out:
+@@ -534,6 +536,7 @@ int __alloc_fd(struct files_struct *files,
  	spin_unlock(&files->file_lock);
  	return error;
  }
@@ -39,7 +48,7 @@ Index: linux/fs/file.c
  
  static int alloc_fd(unsigned start, unsigned flags)
  {
-@@ -607,6 +610,7 @@ void __fd_install(struct files_struct *f
+@@ -607,6 +610,7 @@ void __fd_install(struct files_struct *files, unsigned int fd,
  	rcu_assign_pointer(fdt->fd[fd], file);
  	rcu_read_unlock_sched();
  }
@@ -47,11 +56,11 @@ Index: linux/fs/file.c
  
  void fd_install(unsigned int fd, struct file *file)
  {
-Index: linux/kernel/fork.c
-===================================================================
---- linux.orig/kernel/fork.c
-+++ linux/kernel/fork.c
-@@ -1048,6 +1048,7 @@ void mmput_async(struct mm_struct *mm)
+diff --git a/kernel/fork.c b/kernel/fork.c
+index cf535b9d5db7..08f3ff948b2d 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -1053,6 +1053,7 @@ void mmput_async(struct mm_struct *mm)
  		schedule_work(&mm->async_put_work);
  	}
  }
@@ -59,11 +68,23 @@ Index: linux/kernel/fork.c
  #endif
  
  /**
-Index: linux/kernel/signal.c
-===================================================================
---- linux.orig/kernel/signal.c
-+++ linux/kernel/signal.c
-@@ -1353,6 +1353,7 @@ struct sighand_struct *__lock_task_sigha
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index 013b1c6cb4ed..962eef6a146c 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -3976,6 +3976,7 @@ int can_nice(const struct task_struct *p, const int nice)
+ 	return (nice_rlim <= task_rlimit(p, RLIMIT_NICE) ||
+ 		capable(CAP_SYS_NICE));
+ }
++EXPORT_SYMBOL_GPL(can_nice);
+ 
+ #ifdef __ARCH_WANT_SYS_NICE
+ 
+diff --git a/kernel/signal.c b/kernel/signal.c
+index a02a25acf205..ab8c2d4d0e6d 100644
+--- a/kernel/signal.c
++++ b/kernel/signal.c
+@@ -1368,6 +1368,7 @@ struct sighand_struct *__lock_task_sighand(struct task_struct *tsk,
  
  	return sighand;
  }
@@ -71,11 +92,11 @@ Index: linux/kernel/signal.c
  
  /*
   * send signal info to all the members of a group
-Index: linux/mm/memory.c
-===================================================================
---- linux.orig/mm/memory.c
-+++ linux/mm/memory.c
-@@ -1611,6 +1611,7 @@ void zap_page_range(struct vm_area_struc
+diff --git a/mm/memory.c b/mm/memory.c
+index 49b546cdce0d..753bb3a3df81 100644
+--- a/mm/memory.c
++++ b/mm/memory.c
+@@ -1634,6 +1634,7 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long start,
  	mmu_notifier_invalidate_range_end(mm, start, end);
  	tlb_finish_mmu(&tlb, start, end);
  }
@@ -83,11 +104,11 @@ Index: linux/mm/memory.c
  
  /**
   * zap_page_range_single - remove user pages in a given range
-Index: linux/mm/shmem.c
-===================================================================
---- linux.orig/mm/shmem.c
-+++ linux/mm/shmem.c
-@@ -4039,6 +4039,7 @@ int shmem_zero_setup(struct vm_area_stru
+diff --git a/mm/shmem.c b/mm/shmem.c
+index 9fd0e72757cf..4440c837318d 100644
+--- a/mm/shmem.c
++++ b/mm/shmem.c
+@@ -4053,6 +4053,7 @@ int shmem_zero_setup(struct vm_area_struct *vma)
  
  	return 0;
  }
@@ -95,11 +116,11 @@ Index: linux/mm/shmem.c
  
  /**
   * shmem_read_mapping_page_gfp - read into page cache, using specified page allocation flags.
-Index: linux/mm/vmalloc.c
-===================================================================
---- linux.orig/mm/vmalloc.c
-+++ linux/mm/vmalloc.c
-@@ -1299,6 +1299,7 @@ int map_kernel_range_noflush(unsigned lo
+diff --git a/mm/vmalloc.c b/mm/vmalloc.c
+index 1817871b0239..809d14e0b06e 100644
+--- a/mm/vmalloc.c
++++ b/mm/vmalloc.c
+@@ -1300,6 +1300,7 @@ int map_kernel_range_noflush(unsigned long addr, unsigned long size,
  {
  	return vmap_page_range_noflush(addr, addr + size, prot, pages);
  }
@@ -107,7 +128,7 @@ Index: linux/mm/vmalloc.c
  
  /**
   * unmap_kernel_range_noflush - unmap kernel VM area
-@@ -1439,6 +1440,7 @@ struct vm_struct *get_vm_area(unsigned l
+@@ -1440,6 +1441,7 @@ struct vm_struct *get_vm_area(unsigned long size, unsigned long flags)
  				  NUMA_NO_NODE, GFP_KERNEL,
  				  __builtin_return_address(0));
  }
@@ -115,11 +136,11 @@ Index: linux/mm/vmalloc.c
  
  struct vm_struct *get_vm_area_caller(unsigned long size, unsigned long flags,
  				const void *caller)
-Index: linux/security/security.c
-===================================================================
---- linux.orig/security/security.c
-+++ linux/security/security.c
-@@ -236,24 +236,28 @@ int security_binder_set_context_mgr(stru
+diff --git a/security/security.c b/security/security.c
+index 9478444bf93f..9b06982fa2d4 100644
+--- a/security/security.c
++++ b/security/security.c
+@@ -236,24 +236,28 @@ int security_binder_set_context_mgr(struct task_struct *mgr)
  {
  	return call_int_hook(binder_set_context_mgr, 0, mgr);
  }
@@ -148,15 +169,6 @@ Index: linux/security/security.c
  
  int security_ptrace_access_check(struct task_struct *child, unsigned int mode)
  {
-Index: linux/kernel/sched/core.c
-===================================================================
---- linux.orig/kernel/sched/core.c
-+++ linux/kernel/sched/core.c
-@@ -3973,6 +3973,7 @@ int can_nice(const struct task_struct *p
- 	return (nice_rlim <= task_rlimit(p, RLIMIT_NICE) ||
- 		capable(CAP_SYS_NICE));
- }
-+EXPORT_SYMBOL_GPL(can_nice);
- 
- #ifdef __ARCH_WANT_SYS_NICE
- 
+-- 
+2.32.0
+

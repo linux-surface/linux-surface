@@ -1,0 +1,107 @@
+From ea5f38dafdd4a0c5482e4b4dbce0aef647411c13 Mon Sep 17 00:00:00 2001
+From: Ben Hutchings <ben@decadent.org.uk>
+Date: Fri, 22 Jun 2018 17:27:00 +0100
+Subject: [PATCH 2/2] android: Enable building ashmem and binder as modules
+
+We want to enable use of the Android ashmem and binder drivers to
+support Anbox, but they should not be built-in as that would waste
+resources and increase security attack surface on systems that don't
+need them.
+
+- Add a MODULE_LICENSE declaration to ashmem
+- Change the Makefiles to build each driver as an object with the
+  "_linux" suffix (which is what Anbox expects)
+- Change config symbol types to tristate
+---
+ drivers/android/Kconfig          | 2 +-
+ drivers/android/Makefile         | 5 +++--
+ drivers/android/binder_alloc.c   | 2 +-
+ drivers/staging/android/Kconfig  | 2 +-
+ drivers/staging/android/Makefile | 3 ++-
+ drivers/staging/android/ashmem.c | 3 +++
+ 6 files changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/android/Kconfig b/drivers/android/Kconfig
+index 432e9ad77070..5f054abd6a10 100644
+--- a/drivers/android/Kconfig
++++ b/drivers/android/Kconfig
+@@ -9,7 +9,7 @@ config ANDROID
+ if ANDROID
+ 
+ config ANDROID_BINDER_IPC
+-	bool "Android Binder IPC Driver"
++	tristate "Android Binder IPC Driver"
+ 	depends on MMU
+ 	default n
+ 	---help---
+diff --git a/drivers/android/Makefile b/drivers/android/Makefile
+index a01254c43ee3..e42257997ba8 100644
+--- a/drivers/android/Makefile
++++ b/drivers/android/Makefile
+@@ -1,4 +1,5 @@
+ ccflags-y += -I$(src)			# needed for trace events
+ 
+-obj-$(CONFIG_ANDROID_BINDER_IPC)	+= binder.o binder_alloc.o
+-obj-$(CONFIG_ANDROID_BINDER_IPC_SELFTEST) += binder_alloc_selftest.o
++obj-$(CONFIG_ANDROID_BINDER_IPC)	+= binder_linux.o
++binder_linux-y := binder.o binder_alloc.o
++binder_linux-$(CONFIG_ANDROID_BINDER_IPC_SELFTEST) += binder_alloc_selftest.o
+diff --git a/drivers/android/binder_alloc.c b/drivers/android/binder_alloc.c
+index 3371b986e3b4..b51dd2aaba90 100644
+--- a/drivers/android/binder_alloc.c
++++ b/drivers/android/binder_alloc.c
+@@ -44,7 +44,7 @@ enum {
+ };
+ static uint32_t binder_alloc_debug_mask = BINDER_DEBUG_USER_ERROR;
+ 
+-module_param_named(debug_mask, binder_alloc_debug_mask,
++module_param_named(alloc_debug_mask, binder_alloc_debug_mask,
+ 		   uint, 0644);
+ 
+ #define binder_alloc_debug(mask, x...) \
+diff --git a/drivers/staging/android/Kconfig b/drivers/staging/android/Kconfig
+index 17c5587805f5..c46669f32bfa 100644
+--- a/drivers/staging/android/Kconfig
++++ b/drivers/staging/android/Kconfig
+@@ -3,7 +3,7 @@ menu "Android"
+ if ANDROID
+ 
+ config ASHMEM
+-	bool "Enable the Anonymous Shared Memory Subsystem"
++	tristate "Enable the Anonymous Shared Memory Subsystem"
+ 	default n
+ 	depends on SHMEM
+ 	help
+diff --git a/drivers/staging/android/Makefile b/drivers/staging/android/Makefile
+index 90e6154f11a4..8202002bd72c 100644
+--- a/drivers/staging/android/Makefile
++++ b/drivers/staging/android/Makefile
+@@ -2,5 +2,6 @@ ccflags-y += -I$(src)			# needed for trace events
+ 
+ obj-y					+= ion/
+ 
+-obj-$(CONFIG_ASHMEM)			+= ashmem.o
++obj-$(CONFIG_ASHMEM)			+= ashmem_linux.o
++ashmem_linux-y += ashmem.o
+ obj-$(CONFIG_ANDROID_VSOC)		+= vsoc.o
+diff --git a/drivers/staging/android/ashmem.c b/drivers/staging/android/ashmem.c
+index a97bbd89fae2..1f1f16c39b58 100644
+--- a/drivers/staging/android/ashmem.c
++++ b/drivers/staging/android/ashmem.c
+@@ -24,6 +24,7 @@
+ #include <linux/bitops.h>
+ #include <linux/mutex.h>
+ #include <linux/shmem_fs.h>
++#include <linux/module.h>
+ #include "ashmem.h"
+ 
+ #define ASHMEM_NAME_PREFIX "dev/ashmem/"
+@@ -964,3 +965,5 @@ static int __init ashmem_init(void)
+ 	return ret;
+ }
+ device_initcall(ashmem_init);
++
++MODULE_LICENSE("GPL v2");
+-- 
+2.32.0
+
