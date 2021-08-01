@@ -1,4 +1,4 @@
-From a84c05b15d306e884a910abbbb114604a85fcce5 Mon Sep 17 00:00:00 2001
+From 15f0dc80ecd0a5275a238bd8160b76b61cb879d0 Mon Sep 17 00:00:00 2001
 From: kitakar5525 <34676735+kitakar5525@users.noreply.github.com>
 Date: Sat, 28 Sep 2019 17:48:21 +0200
 Subject: [PATCH] nvme: Backport changes for suspend
@@ -122,7 +122,7 @@ index 276975506709..29e062d29c04 100644
  void nvme_stop_keep_alive(struct nvme_ctrl *ctrl);
  int nvme_reset_ctrl(struct nvme_ctrl *ctrl);
 diff --git a/drivers/nvme/host/pci.c b/drivers/nvme/host/pci.c
-index 82d87d2e280c..55addeff3ce0 100644
+index d7cf3202cdd3..bdafe953c9a9 100644
 --- a/drivers/nvme/host/pci.c
 +++ b/drivers/nvme/host/pci.c
 @@ -26,6 +26,7 @@
@@ -141,7 +141,7 @@ index 82d87d2e280c..55addeff3ce0 100644
  
  	mempool_t *iod_mempool;
  
-@@ -2284,6 +2286,7 @@ static void nvme_reset_work(struct work_struct *work)
+@@ -2286,6 +2288,7 @@ static void nvme_reset_work(struct work_struct *work)
  	 */
  	if (dev->ctrl.ctrl_config & NVME_CC_ENABLE)
  		nvme_dev_disable(dev, false);
@@ -149,7 +149,7 @@ index 82d87d2e280c..55addeff3ce0 100644
  
  	mutex_lock(&dev->shutdown_lock);
  	result = nvme_pci_enable(dev);
-@@ -2623,16 +2626,101 @@ static void nvme_remove(struct pci_dev *pdev)
+@@ -2624,16 +2627,101 @@ static void nvme_remove(struct pci_dev *pdev)
  }
  
  #ifdef CONFIG_PM_SLEEP
@@ -252,7 +252,7 @@ index 82d87d2e280c..55addeff3ce0 100644
  {
  	struct pci_dev *pdev = to_pci_dev(dev);
  	struct nvme_dev *ndev = pci_get_drvdata(pdev);
-@@ -2640,9 +2728,16 @@ static int nvme_resume(struct device *dev)
+@@ -2641,9 +2729,16 @@ static int nvme_resume(struct device *dev)
  	nvme_reset_ctrl(&ndev->ctrl);
  	return 0;
  }
@@ -271,7 +271,7 @@ index 82d87d2e280c..55addeff3ce0 100644
  
  static pci_ers_result_t nvme_error_detected(struct pci_dev *pdev,
  						pci_channel_state_t state)
-@@ -2747,9 +2842,11 @@ static struct pci_driver nvme_driver = {
+@@ -2748,9 +2843,11 @@ static struct pci_driver nvme_driver = {
  	.probe		= nvme_probe,
  	.remove		= nvme_remove,
  	.shutdown	= nvme_shutdown,
