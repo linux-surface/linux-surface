@@ -1,4 +1,4 @@
-From 4889855e48e5dc7465e8f187cf955bb681738750 Mon Sep 17 00:00:00 2001
+From fc0e880581864996091eb1493106cfa688499e54 Mon Sep 17 00:00:00 2001
 From: Sachi King <nakato@nakato.io>
 Date: Sat, 29 May 2021 22:27:25 +1000
 Subject: [PATCH] platform/x86: amd-pmc: Add device HID for AMD PMC
@@ -17,10 +17,10 @@ Patchset: amd-s0ix
  1 file changed, 1 insertion(+)
 
 diff --git a/drivers/platform/x86/amd-pmc.c b/drivers/platform/x86/amd-pmc.c
-index b9da58ee9b1e..0b5578a8a449 100644
+index ca95c2a52e26..65a81d295beb 100644
 --- a/drivers/platform/x86/amd-pmc.c
 +++ b/drivers/platform/x86/amd-pmc.c
-@@ -275,6 +275,7 @@ static int amd_pmc_remove(struct platform_device *pdev)
+@@ -299,6 +299,7 @@ static int amd_pmc_remove(struct platform_device *pdev)
  static const struct acpi_device_id amd_pmc_acpi_ids[] = {
  	{"AMDI0005", 0},
  	{"AMD0004", 0},
@@ -31,7 +31,7 @@ index b9da58ee9b1e..0b5578a8a449 100644
 -- 
 2.32.0
 
-From 504c00ecbf80aba3f61abb48fe2c10ba3ca4424e Mon Sep 17 00:00:00 2001
+From b7decf4829b6fc0eee95391b7586ef4f358d0665 Mon Sep 17 00:00:00 2001
 From: Marcin Bachry <hegel666@gmail.com>
 Date: Tue, 16 Mar 2021 15:28:51 -0400
 Subject: [PATCH] PCI: quirks: Quirk PCI d3hot delay for AMD xhci
@@ -62,7 +62,7 @@ index 6d74386eadc2..446f8f7b0ee4 100644
 -- 
 2.32.0
 
-From 618a6568b8c78aa76b948de4523661c1b32eb2ef Mon Sep 17 00:00:00 2001
+From 9aa59beca56f76169a52013ee2373fe544d90ec5 Mon Sep 17 00:00:00 2001
 From: Mario Limonciello <mario.limonciello@amd.com>
 Date: Wed, 9 Jun 2021 13:40:17 -0500
 Subject: [PATCH] ACPI: Check StorageD3Enable _DSD property in ACPI code
@@ -199,7 +199,7 @@ index e8ba7063c000..66c43abef4a4 100644
 -- 
 2.32.0
 
-From 96f363d1fd7c2c84c34a56cc1f46428379b7dad5 Mon Sep 17 00:00:00 2001
+From 42069e4fbfb7443575d45864ce21fd97810dc354 Mon Sep 17 00:00:00 2001
 From: Mario Limonciello <mario.limonciello@amd.com>
 Date: Wed, 9 Jun 2021 13:40:18 -0500
 Subject: [PATCH] ACPI: Add quirks for AMD Renoir/Lucienne CPUs to force the D3
@@ -322,7 +322,7 @@ index bdc1ba00aee9..5298bb4d81fe 100644
 -- 
 2.32.0
 
-From 5f752254fac28f8c15b6c3c257e6e71e3aaae907 Mon Sep 17 00:00:00 2001
+From 7e06f35deb6284d96879a6a58b84a421aff69b8f Mon Sep 17 00:00:00 2001
 From: Alex Deucher <alexander.deucher@amd.com>
 Date: Wed, 17 Mar 2021 10:38:42 -0400
 Subject: [PATCH] platform/x86: force LPS0 functions for AMD
@@ -364,113 +364,65 @@ index 2d7ddb8a8cb6..482e6b23b21a 100644
 -- 
 2.32.0
 
-From 44dfe6c38ca8066e141e0a70cd7205ad4887e7eb Mon Sep 17 00:00:00 2001
+From bd205b477ba24671f8e09be2c467de750b7c73ab Mon Sep 17 00:00:00 2001
+From: Pratik Vishwakarma <Pratik.Vishwakarma@amd.com>
+Date: Thu, 17 Jun 2021 11:42:08 -0500
+Subject: [PATCH] ACPI: PM: s2idle: Use correct revision id
+
+AMD spec mentions only revision 0. With this change,
+device constraint list is populated properly.
+
+Signed-off-by: Pratik Vishwakarma <Pratik.Vishwakarma@amd.com>
+Patchset: amd-s0ix
+---
+ drivers/acpi/x86/s2idle.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/acpi/x86/s2idle.c b/drivers/acpi/x86/s2idle.c
+index 482e6b23b21a..4339e6da0dd6 100644
+--- a/drivers/acpi/x86/s2idle.c
++++ b/drivers/acpi/x86/s2idle.c
+@@ -96,7 +96,7 @@ static void lpi_device_get_constraints_amd(void)
+ 	int i, j, k;
+ 
+ 	out_obj = acpi_evaluate_dsm_typed(lps0_device_handle, &lps0_dsm_guid,
+-					  1, ACPI_LPS0_GET_DEVICE_CONSTRAINTS,
++					  rev_id, ACPI_LPS0_GET_DEVICE_CONSTRAINTS,
+ 					  NULL, ACPI_TYPE_PACKAGE);
+ 
+ 	if (!out_obj)
+-- 
+2.32.0
+
+From d02cfd1749187cd8dc7997a9268a5d6629a2f31a Mon Sep 17 00:00:00 2001
 From: Shyam Sundar S K <Shyam-sundar.S-k@amd.com>
-Date: Thu, 17 Jun 2021 17:00:35 +0530
-Subject: [PATCH] platform/x86: amd-pmc: Fix command completion code
+Date: Tue, 29 Jun 2021 14:17:59 +0530
+Subject: [PATCH] platform/x86: amd-pmc: call dump registers only once
 
-The protocol to submit a job request to SMU is to wait for
-AMD_PMC_REGISTER_RESPONSE to return 1,meaning SMU is ready to take
-requests. PMC driver has to make sure that the response code is always
-AMD_PMC_RESULT_OK before making any command submissions.
+Currently amd_pmc_dump_registers() routine is being called at
+multiple places. The best to call it is after command submission
+to SMU.
 
-Also, when we submit a message to SMU, we have to wait until it processes
-the request. Adding a read_poll_timeout() check as this was missing in
-the existing code.
-
-Fixes: 156ec4731cb2 ("platform/x86: amd-pmc: Add AMD platform support for S2Idle")
 Signed-off-by: Shyam Sundar S K <Shyam-sundar.S-k@amd.com>
 Reviewed-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: amd-s0ix
 ---
- drivers/platform/x86/amd-pmc.c | 10 +++++++++-
- 1 file changed, 9 insertions(+), 1 deletion(-)
+ drivers/platform/x86/amd-pmc.c | 5 +----
+ 1 file changed, 1 insertion(+), 4 deletions(-)
 
 diff --git a/drivers/platform/x86/amd-pmc.c b/drivers/platform/x86/amd-pmc.c
-index 0b5578a8a449..535e431f98a8 100644
+index 65a81d295beb..d08ff5907e4c 100644
 --- a/drivers/platform/x86/amd-pmc.c
 +++ b/drivers/platform/x86/amd-pmc.c
-@@ -140,7 +140,7 @@ static int amd_pmc_send_cmd(struct amd_pmc_dev *dev, bool set)
+@@ -182,6 +182,7 @@ static int amd_pmc_send_cmd(struct amd_pmc_dev *dev, bool set)
  
- 	/* Wait until we get a valid response */
- 	rc = readx_poll_timeout(ioread32, dev->regbase + AMD_PMC_REGISTER_RESPONSE,
--				val, val > 0, PMC_MSG_DELAY_MIN_US,
-+				val, val == AMD_PMC_RESULT_OK, PMC_MSG_DELAY_MIN_US,
- 				PMC_MSG_DELAY_MIN_US * RESPONSE_REGISTER_LOOP_MAX);
- 	if (rc) {
- 		dev_err(dev->dev, "failed to talk to SMU\n");
-@@ -156,6 +156,14 @@ static int amd_pmc_send_cmd(struct amd_pmc_dev *dev, bool set)
- 	/* Write message ID to message ID register */
- 	msg = (dev->cpu_id == AMD_CPU_ID_RN) ? MSG_OS_HINT_RN : MSG_OS_HINT_PCO;
- 	amd_pmc_reg_write(dev, AMD_PMC_REGISTER_MESSAGE, msg);
-+	/* Wait until we get a valid response */
-+	rc = readx_poll_timeout(ioread32, dev->regbase + AMD_PMC_REGISTER_RESPONSE,
-+				val, val == AMD_PMC_RESULT_OK, PMC_MSG_DELAY_MIN_US,
-+				PMC_MSG_DELAY_MIN_US * RESPONSE_REGISTER_LOOP_MAX);
-+	if (rc) {
-+		dev_err(dev->dev, "SMU response timed out\n");
-+		return rc;
-+	}
- 	return 0;
- }
- 
--- 
-2.32.0
-
-From 8a033f828c0dc65626f041e4377a8563c8fcc4b0 Mon Sep 17 00:00:00 2001
-From: Shyam Sundar S K <Shyam-sundar.S-k@amd.com>
-Date: Thu, 17 Jun 2021 17:00:36 +0530
-Subject: [PATCH] platform/x86: amd-pmc: Fix SMU firmware reporting mechanism
-
-It was lately understood that the current mechanism available in the
-driver to get SMU firmware info works only on internal SMU builds and
-there is a separate way to get all the SMU logging counters (addressed
-in the next patch). Hence remove all the smu info shown via debugfs as it
-is no more useful.
-
-Also, use dump registers routine only at one place i.e. after the command
-submission to SMU is done.
-
-Fixes: 156ec4731cb2 ("platform/x86: amd-pmc: Add AMD platform support for S2Idle")
-Signed-off-by: Shyam Sundar S K <Shyam-sundar.S-k@amd.com>
-Patchset: amd-s0ix
----
- drivers/platform/x86/amd-pmc.c | 15 +--------------
- 1 file changed, 1 insertion(+), 14 deletions(-)
-
-diff --git a/drivers/platform/x86/amd-pmc.c b/drivers/platform/x86/amd-pmc.c
-index 535e431f98a8..d32f0a0eeb9f 100644
---- a/drivers/platform/x86/amd-pmc.c
-+++ b/drivers/platform/x86/amd-pmc.c
-@@ -52,7 +52,6 @@
- #define AMD_CPU_ID_PCO			AMD_CPU_ID_RV
- #define AMD_CPU_ID_CZN			AMD_CPU_ID_RN
- 
--#define AMD_SMU_FW_VERSION		0x0
- #define PMC_MSG_DELAY_MIN_US		100
- #define RESPONSE_REGISTER_LOOP_MAX	200
- 
-@@ -88,11 +87,6 @@ static inline void amd_pmc_reg_write(struct amd_pmc_dev *dev, int reg_offset, u3
- #ifdef CONFIG_DEBUG_FS
- static int smu_fw_info_show(struct seq_file *s, void *unused)
- {
--	struct amd_pmc_dev *dev = s->private;
--	u32 value;
--
--	value = ioread32(dev->smu_base + AMD_SMU_FW_VERSION);
--	seq_printf(s, "SMU FW Info: %x\n", value);
- 	return 0;
- }
- DEFINE_SHOW_ATTRIBUTE(smu_fw_info);
-@@ -164,6 +158,7 @@ static int amd_pmc_send_cmd(struct amd_pmc_dev *dev, bool set)
- 		dev_err(dev->dev, "SMU response timed out\n");
- 		return rc;
- 	}
+ out_unlock:
+ 	mutex_unlock(&dev->lock);
 +	amd_pmc_dump_registers(dev);
- 	return 0;
+ 	return rc;
  }
  
-@@ -176,7 +171,6 @@ static int __maybe_unused amd_pmc_suspend(struct device *dev)
+@@ -194,7 +195,6 @@ static int __maybe_unused amd_pmc_suspend(struct device *dev)
  	if (rc)
  		dev_err(pdev->dev, "suspend failed\n");
  
@@ -478,7 +430,7 @@ index 535e431f98a8..d32f0a0eeb9f 100644
  	return 0;
  }
  
-@@ -189,7 +183,6 @@ static int __maybe_unused amd_pmc_resume(struct device *dev)
+@@ -207,7 +207,6 @@ static int __maybe_unused amd_pmc_resume(struct device *dev)
  	if (rc)
  		dev_err(pdev->dev, "resume failed\n");
  
@@ -486,30 +438,21 @@ index 535e431f98a8..d32f0a0eeb9f 100644
  	return 0;
  }
  
-@@ -256,17 +249,11 @@ static int amd_pmc_probe(struct platform_device *pdev)
- 	pci_dev_put(rdev);
- 	base_addr = ((u64)base_addr_hi << 32 | base_addr_lo);
- 
--	dev->smu_base = devm_ioremap(dev->dev, base_addr, AMD_PMC_MAPPING_SIZE);
--	if (!dev->smu_base)
--		return -ENOMEM;
--
- 	dev->regbase = devm_ioremap(dev->dev, base_addr + AMD_PMC_BASE_ADDR_OFFSET,
- 				    AMD_PMC_MAPPING_SIZE);
+@@ -279,8 +278,6 @@ static int amd_pmc_probe(struct platform_device *pdev)
  	if (!dev->regbase)
  		return -ENOMEM;
  
 -	amd_pmc_dump_registers(dev);
 -
+ 	mutex_init(&dev->lock);
  	platform_set_drvdata(pdev, dev);
  	amd_pmc_dbgfs_register(dev);
- 	return 0;
 -- 
 2.32.0
 
-From 6a0392fde32139f2a8d3d354fed6b145fa4f3e15 Mon Sep 17 00:00:00 2001
+From 9367cb28c141d148d626c81d6109b08abb6caa31 Mon Sep 17 00:00:00 2001
 From: Shyam Sundar S K <Shyam-sundar.S-k@amd.com>
-Date: Thu, 17 Jun 2021 17:00:37 +0530
+Date: Tue, 29 Jun 2021 14:18:00 +0530
 Subject: [PATCH] platform/x86: amd-pmc: Add support for logging SMU metrics
 
 SMU provides a way to dump the s0ix debug statistics in the form of a
@@ -523,13 +466,14 @@ As a side note, SMU subsystem logging is not supported on Picasso based
 SoC's.
 
 Signed-off-by: Shyam Sundar S K <Shyam-sundar.S-k@amd.com>
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: amd-s0ix
 ---
- drivers/platform/x86/amd-pmc.c | 148 +++++++++++++++++++++++++++++++--
- 1 file changed, 140 insertions(+), 8 deletions(-)
+ drivers/platform/x86/amd-pmc.c | 147 +++++++++++++++++++++++++++++++--
+ 1 file changed, 139 insertions(+), 8 deletions(-)
 
 diff --git a/drivers/platform/x86/amd-pmc.c b/drivers/platform/x86/amd-pmc.c
-index d32f0a0eeb9f..b5249fdeb95f 100644
+index d08ff5907e4c..cfa5c44bb170 100644
 --- a/drivers/platform/x86/amd-pmc.c
 +++ b/drivers/platform/x86/amd-pmc.c
 @@ -46,6 +46,14 @@
@@ -589,9 +533,9 @@ index d32f0a0eeb9f..b5249fdeb95f 100644
  	u32 cpu_id;
 +	u32 active_ips;
  	struct device *dev;
+ 	struct mutex lock; /* generic mutex lock */
  #if IS_ENABLED(CONFIG_DEBUG_FS)
- 	struct dentry *dbgfs_dir;
-@@ -73,6 +106,7 @@ struct amd_pmc_dev {
+@@ -74,6 +107,7 @@ struct amd_pmc_dev {
  };
  
  static struct amd_pmc_dev pmc;
@@ -599,7 +543,7 @@ index d32f0a0eeb9f..b5249fdeb95f 100644
  
  static inline u32 amd_pmc_reg_read(struct amd_pmc_dev *dev, int reg_offset)
  {
-@@ -84,9 +118,50 @@ static inline void amd_pmc_reg_write(struct amd_pmc_dev *dev, int reg_offset, u3
+@@ -85,9 +119,49 @@ static inline void amd_pmc_reg_write(struct amd_pmc_dev *dev, int reg_offset, u3
  	iowrite32(val, dev->regbase + reg_offset);
  }
  
@@ -625,7 +569,6 @@ index d32f0a0eeb9f..b5249fdeb95f 100644
  {
 +	struct amd_pmc_dev *dev = s->private;
 +	struct smu_metrics table;
-+	u32 value;
 +	int idx;
 +
 +	if (dev->cpu_id == AMD_CPU_ID_PCO)
@@ -650,7 +593,7 @@ index d32f0a0eeb9f..b5249fdeb95f 100644
  	return 0;
  }
  DEFINE_SHOW_ATTRIBUTE(smu_fw_info);
-@@ -112,6 +187,32 @@ static inline void amd_pmc_dbgfs_unregister(struct amd_pmc_dev *dev)
+@@ -113,6 +187,32 @@ static inline void amd_pmc_dbgfs_unregister(struct amd_pmc_dev *dev)
  }
  #endif /* CONFIG_DEBUG_FS */
  
@@ -683,7 +626,7 @@ index d32f0a0eeb9f..b5249fdeb95f 100644
  static void amd_pmc_dump_registers(struct amd_pmc_dev *dev)
  {
  	u32 value;
-@@ -126,10 +227,9 @@ static void amd_pmc_dump_registers(struct amd_pmc_dev *dev)
+@@ -127,10 +227,9 @@ static void amd_pmc_dump_registers(struct amd_pmc_dev *dev)
  	dev_dbg(dev->dev, "AMD_PMC_REGISTER_MESSAGE:%x\n", value);
  }
  
@@ -694,8 +637,8 @@ index d32f0a0eeb9f..b5249fdeb95f 100644
 -	u8 msg;
  	u32 val;
  
- 	/* Wait until we get a valid response */
-@@ -148,8 +248,8 @@ static int amd_pmc_send_cmd(struct amd_pmc_dev *dev, bool set)
+ 	mutex_lock(&dev->lock);
+@@ -150,8 +249,8 @@ static int amd_pmc_send_cmd(struct amd_pmc_dev *dev, bool set)
  	amd_pmc_reg_write(dev, AMD_PMC_REGISTER_ARGUMENT, set);
  
  	/* Write message ID to message ID register */
@@ -704,20 +647,21 @@ index d32f0a0eeb9f..b5249fdeb95f 100644
 +
  	/* Wait until we get a valid response */
  	rc = readx_poll_timeout(ioread32, dev->regbase + AMD_PMC_REGISTER_RESPONSE,
- 				val, val == AMD_PMC_RESULT_OK, PMC_MSG_DELAY_MIN_US,
-@@ -158,16 +258,40 @@ static int amd_pmc_send_cmd(struct amd_pmc_dev *dev, bool set)
- 		dev_err(dev->dev, "SMU response timed out\n");
- 		return rc;
- 	}
-+
-+	if (ret) {
-+		/* PMFW may take longer time to return back the data */
-+		usleep_range(DELAY_MIN_US, 10 * DELAY_MAX_US);
-+		*data = amd_pmc_reg_read(dev, AMD_PMC_REGISTER_ARGUMENT);
-+	}
-+
- 	amd_pmc_dump_registers(dev);
- 	return 0;
+ 				val, val != 0, PMC_MSG_DELAY_MIN_US,
+@@ -163,6 +262,11 @@ static int amd_pmc_send_cmd(struct amd_pmc_dev *dev, bool set)
+ 
+ 	switch (val) {
+ 	case AMD_PMC_RESULT_OK:
++		if (ret) {
++			/* PMFW may take longer time to return back the data */
++			usleep_range(DELAY_MIN_US, 10 * DELAY_MAX_US);
++			*data = amd_pmc_reg_read(dev, AMD_PMC_REGISTER_ARGUMENT);
++		}
+ 		break;
+ 	case AMD_PMC_RESULT_CMD_REJECT_BUSY:
+ 		dev_err(dev->dev, "SMU not ready. err: 0x%x\n", val);
+@@ -186,12 +290,29 @@ static int amd_pmc_send_cmd(struct amd_pmc_dev *dev, bool set)
+ 	return rc;
  }
  
 +static int amd_pmc_get_os_hint(struct amd_pmc_dev *dev)
@@ -736,33 +680,33 @@ index d32f0a0eeb9f..b5249fdeb95f 100644
  	struct amd_pmc_dev *pdev = dev_get_drvdata(dev);
  	int rc;
 +	u8 msg;
-+
+ 
+-	rc = amd_pmc_send_cmd(pdev, 1);
 +	/* Reset and Start SMU logging - to monitor the s0i3 stats */
 +	amd_pmc_send_cmd(pdev, 0, NULL, SMU_MSG_LOG_RESET, 0);
 +	amd_pmc_send_cmd(pdev, 0, NULL, SMU_MSG_LOG_START, 0);
- 
--	rc = amd_pmc_send_cmd(pdev, 1);
++
 +	msg = amd_pmc_get_os_hint(pdev);
 +	rc = amd_pmc_send_cmd(pdev, 1, NULL, msg, 0);
  	if (rc)
  		dev_err(pdev->dev, "suspend failed\n");
  
-@@ -178,8 +302,13 @@ static int __maybe_unused amd_pmc_resume(struct device *dev)
+@@ -202,8 +323,13 @@ static int __maybe_unused amd_pmc_resume(struct device *dev)
  {
  	struct amd_pmc_dev *pdev = dev_get_drvdata(dev);
  	int rc;
 +	u8 msg;
-+
-+	/* Let SMU know that we are looking for stats */
-+	amd_pmc_send_cmd(pdev, 0, NULL, SMU_MSG_LOG_DUMP_DATA, 0);
  
 -	rc = amd_pmc_send_cmd(pdev, 0);
++	/* Let SMU know that we are looking for stats */
++	amd_pmc_send_cmd(pdev, 0, NULL, SMU_MSG_LOG_DUMP_DATA, 0);
++
 +	msg = amd_pmc_get_os_hint(pdev);
 +	rc = amd_pmc_send_cmd(pdev, 0, NULL, msg, 0);
  	if (rc)
  		dev_err(pdev->dev, "resume failed\n");
  
-@@ -202,8 +331,7 @@ static int amd_pmc_probe(struct platform_device *pdev)
+@@ -226,8 +352,7 @@ static int amd_pmc_probe(struct platform_device *pdev)
  {
  	struct amd_pmc_dev *dev = &pmc;
  	struct pci_dev *rdev;
@@ -772,24 +716,26 @@ index d32f0a0eeb9f..b5249fdeb95f 100644
  	u64 base_addr;
  	int err;
  	u32 val;
-@@ -254,6 +382,10 @@ static int amd_pmc_probe(struct platform_device *pdev)
- 	if (!dev->regbase)
+@@ -279,6 +404,12 @@ static int amd_pmc_probe(struct platform_device *pdev)
  		return -ENOMEM;
  
+ 	mutex_init(&dev->lock);
++
 +	/* Use SMU to get the s0i3 debug stats */
 +	err = amd_pmc_setup_smu_logging(dev);
 +	if (err)
 +		dev_err(dev->dev, "SMU debugging info not supported on this platform\n");
++
  	platform_set_drvdata(pdev, dev);
  	amd_pmc_dbgfs_register(dev);
  	return 0;
 -- 
 2.32.0
 
-From 5fefd0eb9254e2162a2cc896d410c9bf3b7f6a8a Mon Sep 17 00:00:00 2001
+From 392e1a4e917612d31b844402838a5579ac69a53c Mon Sep 17 00:00:00 2001
 From: Shyam Sundar S K <Shyam-sundar.S-k@amd.com>
-Date: Thu, 17 Jun 2021 17:00:38 +0530
-Subject: [PATCH] platform/x86: amd-pmc: Add support for logging s0ix counters
+Date: Tue, 29 Jun 2021 14:18:01 +0530
+Subject: [PATCH] amd-pmc: Add support for logging s0ix counters
 
 Even the FCH SSC registers provides certain level of information
 about the s0ix entry and exit times which comes handy when the SMU
@@ -803,13 +749,14 @@ If s0ix entry time and exit time don't change during suspend to idle,
 the silicon has not entered the deepest state.
 
 Signed-off-by: Shyam Sundar S K <Shyam-sundar.S-k@amd.com>
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: amd-s0ix
 ---
- drivers/platform/x86/amd-pmc.c | 46 ++++++++++++++++++++++++++++++++--
- 1 file changed, 44 insertions(+), 2 deletions(-)
+ drivers/platform/x86/amd-pmc.c | 45 +++++++++++++++++++++++++++++++++-
+ 1 file changed, 44 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/platform/x86/amd-pmc.c b/drivers/platform/x86/amd-pmc.c
-index b5249fdeb95f..b6ad290c9a86 100644
+index cfa5c44bb170..d1db12e28b32 100644
 --- a/drivers/platform/x86/amd-pmc.c
 +++ b/drivers/platform/x86/amd-pmc.c
 @@ -46,6 +46,15 @@
@@ -836,15 +783,7 @@ index b5249fdeb95f..b6ad290c9a86 100644
  	u32 base_addr;
  	u32 cpu_id;
  	u32 active_ips;
-@@ -140,7 +150,6 @@ static int smu_fw_info_show(struct seq_file *s, void *unused)
- {
- 	struct amd_pmc_dev *dev = s->private;
- 	struct smu_metrics table;
--	u32 value;
- 	int idx;
- 
- 	if (dev->cpu_id == AMD_CPU_ID_PCO)
-@@ -166,6 +175,29 @@ static int smu_fw_info_show(struct seq_file *s, void *unused)
+@@ -166,6 +176,29 @@ static int smu_fw_info_show(struct seq_file *s, void *unused)
  }
  DEFINE_SHOW_ATTRIBUTE(smu_fw_info);
  
@@ -859,8 +798,8 @@ index b5249fdeb95f..b6ad290c9a86 100644
 +	exit_time = ioread32(dev->fch_virt_addr + FCH_S0I3_EXIT_TIME_H_OFFSET);
 +	exit_time = exit_time << 32 | ioread32(dev->fch_virt_addr + FCH_S0I3_EXIT_TIME_L_OFFSET);
 +
-+	/* It's in 48MHz. We need to convert it to unit of 100ns */
-+	residency = (exit_time - entry_time) * 10 / 48;
++	/* It's in 48MHz. We need to convert it */
++	residency = (exit_time - entry_time) / 48;
 +
 +	seq_puts(s, "=== S0ix statistics ===\n");
 +	seq_printf(s, "S0ix Entry Time: %lld\n", entry_time);
@@ -874,7 +813,7 @@ index b5249fdeb95f..b6ad290c9a86 100644
  static void amd_pmc_dbgfs_unregister(struct amd_pmc_dev *dev)
  {
  	debugfs_remove_recursive(dev->dbgfs_dir);
-@@ -176,6 +208,8 @@ static void amd_pmc_dbgfs_register(struct amd_pmc_dev *dev)
+@@ -176,6 +209,8 @@ static void amd_pmc_dbgfs_register(struct amd_pmc_dev *dev)
  	dev->dbgfs_dir = debugfs_create_dir("amd_pmc", NULL);
  	debugfs_create_file("smu_fw_info", 0644, dev->dbgfs_dir, dev,
  			    &smu_fw_info_fops);
@@ -883,7 +822,7 @@ index b5249fdeb95f..b6ad290c9a86 100644
  }
  #else
  static inline void amd_pmc_dbgfs_register(struct amd_pmc_dev *dev)
-@@ -332,7 +366,7 @@ static int amd_pmc_probe(struct platform_device *pdev)
+@@ -353,7 +388,7 @@ static int amd_pmc_probe(struct platform_device *pdev)
  	struct amd_pmc_dev *dev = &pmc;
  	struct pci_dev *rdev;
  	u32 base_addr_lo, base_addr_hi;
@@ -892,9 +831,9 @@ index b5249fdeb95f..b6ad290c9a86 100644
  	int err;
  	u32 val;
  
-@@ -382,6 +416,14 @@ static int amd_pmc_probe(struct platform_device *pdev)
- 	if (!dev->regbase)
- 		return -ENOMEM;
+@@ -405,6 +440,14 @@ static int amd_pmc_probe(struct platform_device *pdev)
+ 
+ 	mutex_init(&dev->lock);
  
 +	/* Use FCH registers to get the S0ix stats */
 +	base_addr_lo = FCH_BASE_PHY_ADDR_LOW;
@@ -910,25 +849,26 @@ index b5249fdeb95f..b6ad290c9a86 100644
 -- 
 2.32.0
 
-From c2a925c50d1b8c2fbb69f00eb876e77861f4b088 Mon Sep 17 00:00:00 2001
+From d49720e8fb987ec9acd4c761e6840f3e4e6708cc Mon Sep 17 00:00:00 2001
 From: Shyam Sundar S K <Shyam-sundar.S-k@amd.com>
-Date: Thu, 17 Jun 2021 17:00:39 +0530
+Date: Tue, 29 Jun 2021 14:18:02 +0530
 Subject: [PATCH] platform/x86: amd-pmc: Add support for ACPI ID AMDI0006
 
 Some newer BIOSes have added another ACPI ID for the uPEP device.
 SMU statistics behave identically on this device.
 
 Signed-off-by: Shyam Sundar S K <Shyam-sundar.S-k@amd.com>
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: amd-s0ix
 ---
  drivers/platform/x86/amd-pmc.c | 1 +
  1 file changed, 1 insertion(+)
 
 diff --git a/drivers/platform/x86/amd-pmc.c b/drivers/platform/x86/amd-pmc.c
-index b6ad290c9a86..2a73fe0deaf3 100644
+index d1db12e28b32..b8740daecd7b 100644
 --- a/drivers/platform/x86/amd-pmc.c
 +++ b/drivers/platform/x86/amd-pmc.c
-@@ -443,6 +443,7 @@ static int amd_pmc_remove(struct platform_device *pdev)
+@@ -469,6 +469,7 @@ static int amd_pmc_remove(struct platform_device *pdev)
  
  static const struct acpi_device_id amd_pmc_acpi_ids[] = {
  	{"AMDI0005", 0},
@@ -939,9 +879,9 @@ index b6ad290c9a86..2a73fe0deaf3 100644
 -- 
 2.32.0
 
-From 81bf3ec4b78e7a521db63da29bd824fc57e6768f Mon Sep 17 00:00:00 2001
+From 99a19092cfd53f582701d10b32ec98747581be23 Mon Sep 17 00:00:00 2001
 From: Shyam Sundar S K <Shyam-sundar.S-k@amd.com>
-Date: Thu, 17 Jun 2021 17:00:40 +0530
+Date: Tue, 29 Jun 2021 14:18:03 +0530
 Subject: [PATCH] platform/x86: amd-pmc: Add new acpi id for future PMC
  controllers
 
@@ -949,13 +889,14 @@ The upcoming PMC controller would have a newer acpi id, add that to
 the supported acpid device list.
 
 Signed-off-by: Shyam Sundar S K <Shyam-sundar.S-k@amd.com>
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: amd-s0ix
 ---
  drivers/platform/x86/amd-pmc.c | 4 ++++
  1 file changed, 4 insertions(+)
 
 diff --git a/drivers/platform/x86/amd-pmc.c b/drivers/platform/x86/amd-pmc.c
-index 2a73fe0deaf3..5a2be598fc2e 100644
+index b8740daecd7b..267173b142c1 100644
 --- a/drivers/platform/x86/amd-pmc.c
 +++ b/drivers/platform/x86/amd-pmc.c
 @@ -68,6 +68,7 @@
@@ -966,7 +907,7 @@ index 2a73fe0deaf3..5a2be598fc2e 100644
  
  #define PMC_MSG_DELAY_MIN_US		100
  #define RESPONSE_REGISTER_LOOP_MAX	200
-@@ -309,6 +310,7 @@ static int amd_pmc_get_os_hint(struct amd_pmc_dev *dev)
+@@ -331,6 +332,7 @@ static int amd_pmc_get_os_hint(struct amd_pmc_dev *dev)
  	case AMD_CPU_ID_PCO:
  		return MSG_OS_HINT_PCO;
  	case AMD_CPU_ID_RN:
@@ -974,7 +915,7 @@ index 2a73fe0deaf3..5a2be598fc2e 100644
  		return MSG_OS_HINT_RN;
  	}
  	return -EINVAL;
-@@ -354,6 +356,7 @@ static const struct dev_pm_ops amd_pmc_pm_ops = {
+@@ -376,6 +378,7 @@ static const struct dev_pm_ops amd_pmc_pm_ops = {
  };
  
  static const struct pci_device_id pmc_pci_ids[] = {
@@ -982,7 +923,7 @@ index 2a73fe0deaf3..5a2be598fc2e 100644
  	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, AMD_CPU_ID_CZN) },
  	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, AMD_CPU_ID_RN) },
  	{ PCI_DEVICE(PCI_VENDOR_ID_AMD, AMD_CPU_ID_PCO) },
-@@ -444,6 +447,7 @@ static int amd_pmc_remove(struct platform_device *pdev)
+@@ -470,6 +473,7 @@ static int amd_pmc_remove(struct platform_device *pdev)
  static const struct acpi_device_id amd_pmc_acpi_ids[] = {
  	{"AMDI0005", 0},
  	{"AMDI0006", 0},
@@ -990,36 +931,6 @@ index 2a73fe0deaf3..5a2be598fc2e 100644
  	{"AMD0004", 0},
  	{"AMD0005", 0},
  	{ }
--- 
-2.32.0
-
-From 55daf6e146af2139e411d98474cfec9945374bbc Mon Sep 17 00:00:00 2001
-From: Pratik Vishwakarma <Pratik.Vishwakarma@amd.com>
-Date: Thu, 17 Jun 2021 11:42:08 -0500
-Subject: [PATCH] ACPI: PM: s2idle: Use correct revision id
-
-AMD spec mentions only revision 0. With this change,
-device constraint list is populated properly.
-
-Signed-off-by: Pratik Vishwakarma <Pratik.Vishwakarma@amd.com>
-Patchset: amd-s0ix
----
- drivers/acpi/x86/s2idle.c | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
-
-diff --git a/drivers/acpi/x86/s2idle.c b/drivers/acpi/x86/s2idle.c
-index 482e6b23b21a..4339e6da0dd6 100644
---- a/drivers/acpi/x86/s2idle.c
-+++ b/drivers/acpi/x86/s2idle.c
-@@ -96,7 +96,7 @@ static void lpi_device_get_constraints_amd(void)
- 	int i, j, k;
- 
- 	out_obj = acpi_evaluate_dsm_typed(lps0_device_handle, &lps0_dsm_guid,
--					  1, ACPI_LPS0_GET_DEVICE_CONSTRAINTS,
-+					  rev_id, ACPI_LPS0_GET_DEVICE_CONSTRAINTS,
- 					  NULL, ACPI_TYPE_PACKAGE);
- 
- 	if (!out_obj)
 -- 
 2.32.0
 
