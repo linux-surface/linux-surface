@@ -1,0 +1,38 @@
+# Use `udevadm monitor` to find out what's going on (e.g. unplugged)
+# For example:
+# monitor will print the received events for:
+# UDEV - the event which udev sends out after rule processing
+# KERNEL - the kernel uevent
+# 
+# KERNEL[3565.169206] change   /devices/LNXSYSTM:00/ACPI0003:00/power_supply/ADP1 (power_supply)
+# UDEV  [3565.178952] change   /devices/LNXSYSTM:00/ACPI0003:00/power_supply/ADP1 (power_supply)
+# KERNEL[3565.179618] change   /devices/LNXSYSTM:00/LNXSYBUS:00/PNP0C0A:00/power_supply/BAT1 (power_supply)
+# UDEV  [3565.195004] change   /devices/LNXSYSTM:00/LNXSYBUS:00/PNP0C0A:00/power_supply/BAT1 (power_supply)
+# KERNEL[3587.183562] change   /devices/LNXSYSTM:00/ACPI0003:00/power_supply/ADP1 (power_supply)
+# UDEV  [3587.190598] change   /devices/LNXSYSTM:00/ACPI0003:00/power_supply/ADP1 (power_supply)
+# KERNEL[3587.207545] change   /devices/LNXSYSTM:00/LNXSYBUS:00/PNP0C0A:00/power_supply/BAT1 (power_supply)
+# UDEV  [3587.216793] change   /devices/LNXSYSTM:00/LNXSYBUS:00/PNP0C0A:00/power_supply/BAT1 (power_supply)
+#
+# Then, use `udevadm info --path /devices/LNXSYSTM:00/ACPI0003:00/power_supply/ADP1 to find out 
+# the events we can use:
+# P: /devices/LNXSYSTM:00/ACPI0003:00/power_supply/ADP1
+# L: 0
+# E: DEVPATH=/devices/LNXSYSTM:00/ACPI0003:00/power_supply/ADP1
+# E: POWER_SUPPLY_NAME=ADP1
+# E: POWER_SUPPLY_TYPE=Mains
+# E: POWER_SUPPLY_ONLINE=0
+# E: SUBSYSTEM=power_supply
+
+
+
+# Plugged
+SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="1", RUN+="/usr/bin/logger -t surface power supply online"
+SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="1", RUN+="/usr/bin/surface profile set performance"
+SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="1", RUN+="/usr/bin/ln -sf /etc/thermald/thermal-conf.xml.auto.performance /etc/thermald/thermal-conf.xml.auto"
+SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="1", RUN+="/usr/bin/systemctl restart thermald"
+
+# Unplugged
+SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="0", RUN+="/usr/bin/logger -t surface power supply offline"
+SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="0", RUN+="/usr/bin/surface profile set low-power"
+SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="0", RUN+="/usr/bin/ln -sf /etc/thermald/thermal-conf.xml.auto.mobile /etc/thermald/thermal-conf.xml.auto"
+SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="0", RUN+="/usr/bin/systemctl restart thermald"
