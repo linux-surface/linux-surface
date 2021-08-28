@@ -23,14 +23,18 @@
 # E: POWER_SUPPLY_ONLINE=0
 # E: SUBSYSTEM=power_supply
 
+
+
 # Plugged
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="1", RUN+="/usr/bin/logger -t surface power supply online"
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="1", RUN+="/usr/bin/surface profile set performance"
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="1", RUN+="/usr/bin/ln -sf /etc/thermald/thermal-conf.xml.auto.performance /etc/thermald/thermal-conf.xml.auto"
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="1", RUN+="/usr/bin/systemctl try-restart thermald"
+ACTION=="change", SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_NAME}=="ADP1", ENV{POWER_SUPPLY_ONLINE}=="1" \
+, RUN+="/usr/bin/logger -t surface power supply online" \
+, RUN+="/usr/bin/surface profile set performance" \
+, RUN+="/usr/bin/ln -sf /etc/thermald/thermal-conf.xml.auto.performance /etc/thermald/thermal-conf.xml.auto" \
+, RUN+="/usr/bin/systemctl try-restart thermald"
 
 # Unplugged
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="0", RUN+="/usr/bin/logger -t surface power supply offline"
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="0", RUN+="/usr/bin/surface profile set low-power"
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="0", RUN+="/usr/bin/ln -sf /etc/thermald/thermal-conf.xml.auto.mobile /etc/thermald/thermal-conf.xml.auto"
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="0", RUN+="/usr/bin/systemctl try-restart thermald"
+ACTION=="change", SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_NAME}=="ADP1", ENV{POWER_SUPPLY_ONLINE}=="0" \
+, RUN+="/usr/bin/logger -t surface power supply offline" \
+, RUN+="/usr/bin/surface profile set low-power" \
+, RUN+="/usr/bin/ln -sf /etc/thermald/thermal-conf.xml.auto.mobile /etc/thermald/thermal-conf.xml.auto" \
+, RUN+="/usr/bin/systemctl try-restart thermald"
