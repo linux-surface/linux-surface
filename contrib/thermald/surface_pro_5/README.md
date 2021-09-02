@@ -38,6 +38,7 @@ and cooling devices.
 - Install `thermal-cpu-cdev-order.xml` to `/etc/thermald/`
 - Install `thermald.service` to `/lib/systemd/system/` and overwrite the old one.
     - Maybe install to `/usr/lib/systemd/system/` too.
+- Install `50-surface.conf` to `/etc/sysctl.d/`
 - `systemctl daemon-reload`
 - `systemctl restart udev`
 - `systemctl restart thermald`
