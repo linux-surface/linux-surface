@@ -22,6 +22,15 @@ thermal targets.
 See 40-surface-power.rules for more details on how to obtain info about sensors
 and cooling devices.
 
+## Bonus
+
+40-surface-power.rules also contains power-related tweaks for:
+- `surface profile`: currently low-power vs. performance
+- Various PCIe powersaving strategies
+- Intel p-state control for turbo-boost
+
+50-surface.conf contains sysctl tweaks advised by `powertop`.
+
 ## Installation
 
 - Make sure to install `surface-control`
@@ -31,12 +40,8 @@ and cooling devices.
 - Install `thermal-cpu-cdev-order.xml` to `/etc/thermald/`
 - Install `thermald.service` to `/lib/systemd/system/` and overwrite the old one.
     - Maybe install to `/usr/lib/systemd/system/` too.
+- Install `50-surface.conf` to `/etc/sysctl.d/`
 - `systemctl daemon-reload`
 - `systemctl restart udev`
 - `systemctl restart thermald`
 
-## TODO
-
-- I tried to update cpufreq governor and turbo in udev event triggers but it
-  didn't work.
-- You can install `cpufreqctl` for that.

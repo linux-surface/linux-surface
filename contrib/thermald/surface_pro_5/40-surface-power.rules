@@ -1,4 +1,4 @@
-# Use `udevadm monitor` to find out what's going on (e.g. unplugged)
+# Use `udevadm monitor -ap` to find out what's going on (e.g. unplugged)
 # For example:
 # monitor will print the received events for:
 # UDEV - the event which udev sends out after rule processing
@@ -23,14 +23,42 @@
 # E: POWER_SUPPLY_ONLINE=0
 # E: SUBSYSTEM=power_supply
 
+
+
 # Plugged
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="1", RUN+="/usr/bin/logger -t surface power supply online"
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="1", RUN+="/usr/bin/surface profile set performance"
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="1", RUN+="/usr/bin/ln -sf /etc/thermald/thermal-conf.xml.auto.performance /etc/thermald/thermal-conf.xml.auto"
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="1", RUN+="/usr/bin/systemctl try-restart thermald"
+ACTION=="change", SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_NAME}=="ADP1", ENV{POWER_SUPPLY_ONLINE}=="1" \
+, RUN+="/usr/bin/logger -t surface power supply online" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo on > /sys/bus/pci/devices/0000:00:00.0/power/control'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo on > /sys/bus/pci/devices/0000:00:02.0/power/control'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo on > /sys/bus/pci/devices/0000:00:1c.0/power/control'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo on > /sys/bus/pci/devices/0000:00:1c.4/power/control'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo on > /sys/bus/pci/devices/0000:00:1d.0/power/control'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo on > /sys/bus/pci/devices/0000:00:1f.0/power/control'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo on > /sys/bus/pci/devices/0000:01:00.0/power/control'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo powersave > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo powersave > /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo powersave > /sys/devices/system/cpu/cpu2/cpufreq/scaling_governor'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo powersave > /sys/devices/system/cpu/cpu3/cpufreq/scaling_governor'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo 0 > /sys/devices/system/cpu/intel_pstate/no_turbo'" \
+, RUN+="/usr/bin/surface profile set performance" \
+, RUN+="/usr/bin/ln -sf /etc/thermald/thermal-conf.xml.auto.performance /etc/thermald/thermal-conf.xml.auto" \
+, RUN+="/usr/bin/systemctl try-restart thermald"
 
 # Unplugged
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="0", RUN+="/usr/bin/logger -t surface power supply offline"
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="0", RUN+="/usr/bin/surface profile set low-power"
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="0", RUN+="/usr/bin/ln -sf /etc/thermald/thermal-conf.xml.auto.mobile /etc/thermald/thermal-conf.xml.auto"
-SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_ONLINE}=="0", RUN+="/usr/bin/systemctl try-restart thermald"
+ACTION=="change", SUBSYSTEM=="power_supply", ENV{POWER_SUPPLY_NAME}=="ADP1", ENV{POWER_SUPPLY_ONLINE}=="0" \
+, RUN+="/usr/bin/logger -t surface power supply offline" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo auto > /sys/bus/pci/devices/0000:00:00.0/power/control'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo auto > /sys/bus/pci/devices/0000:00:02.0/power/control'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo auto > /sys/bus/pci/devices/0000:00:1c.0/power/control'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo auto > /sys/bus/pci/devices/0000:00:1c.4/power/control'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo auto > /sys/bus/pci/devices/0000:00:1d.0/power/control'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo auto > /sys/bus/pci/devices/0000:00:1f.0/power/control'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo auto > /sys/bus/pci/devices/0000:01:00.0/power/control'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo powersave > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo powersave > /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo powersave > /sys/devices/system/cpu/cpu2/cpufreq/scaling_governor'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo powersave > /sys/devices/system/cpu/cpu3/cpufreq/scaling_governor'" \
+, RUN+="/usr/bin/sh -c '/usr/bin/echo 1 > /sys/devices/system/cpu/intel_pstate/no_turbo'" \
+, RUN+="/usr/bin/surface profile set low-power" \
+, RUN+="/usr/bin/ln -sf /etc/thermald/thermal-conf.xml.auto.mobile /etc/thermald/thermal-conf.xml.auto" \
+, RUN+="/usr/bin/systemctl try-restart thermald"
