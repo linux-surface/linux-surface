@@ -29,6 +29,8 @@ and cooling devices.
 - Various PCIe powersaving strategies
 - Intel p-state control for turbo-boost
 
+50-surface.conf contains sysctl tweaks advised by `powertop`.
+
 ## Installation
 
 - Make sure to install `surface-control`
