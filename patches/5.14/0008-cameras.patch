@@ -1,0 +1,3288 @@
+From ffcd7613df69ed5fcddb5c5879e45ff02fc0e5d6 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Mon, 5 Apr 2021 23:56:53 +0100
+Subject: [PATCH] media: ipu3-cio2: Toggle sensor streaming in pm runtime ops
+
+The .suspend() and .resume() runtime_pm operations for the ipu3-cio2
+driver currently do not handle the sensor's stream. Setting .s_stream() on
+or off for the sensor subdev means that sensors will pause and resume the
+stream at the appropriate time even if their drivers don't implement those
+operations.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu3/ipu3-cio2-main.c | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c b/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
+index 47db0ee0fcbf..7bb86e246ebe 100644
+--- a/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
++++ b/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
+@@ -1973,12 +1973,19 @@ static int __maybe_unused cio2_suspend(struct device *dev)
+ 	struct pci_dev *pci_dev = to_pci_dev(dev);
+ 	struct cio2_device *cio2 = pci_get_drvdata(pci_dev);
+ 	struct cio2_queue *q = cio2->cur_queue;
++	int r;
+ 
+ 	dev_dbg(dev, "cio2 suspend\n");
+ 	if (!cio2->streaming)
+ 		return 0;
+ 
+ 	/* Stop stream */
++	r = v4l2_subdev_call(q->sensor, video, s_stream, 0);
++	if (r) {
++		dev_err(dev, "failed to stop sensor streaming\n");
++		return r;
++	}
++
+ 	cio2_hw_exit(cio2, q);
+ 	synchronize_irq(pci_dev->irq);
+ 
+@@ -2013,8 +2020,14 @@ static int __maybe_unused cio2_resume(struct device *dev)
+ 	}
+ 
+ 	r = cio2_hw_init(cio2, q);
+-	if (r)
++	if (r) {
+ 		dev_err(dev, "fail to init cio2 hw\n");
++		return r;
++	}
++
++	r = v4l2_subdev_call(q->sensor, video, s_stream, 1);
++	if (r)
++		dev_err(dev, "fail to start sensor streaming\n");
+ 
+ 	return r;
+ }
+-- 
+2.33.0
+
+From 8939a9c77027607e523f4e910a44b68077581763 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Mon, 5 Apr 2021 23:56:54 +0100
+Subject: [PATCH] media: i2c: Add support for ov5693 sensor
+
+The OV5693 is a 5 Mpx CMOS image sensor, connected via MIPI CSI-2. The
+chip is capable of a single lane configuration, but currently only two
+lanes are supported.
+
+Most of the sensor's features are supported, with the main exception
+being the lens correction algorithm.
+
+The driver provides all mandatory, optional and recommended V4L2 controls
+for maximum compatibility with libcamera.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ MAINTAINERS                |    7 +
+ drivers/media/i2c/Kconfig  |   11 +
+ drivers/media/i2c/Makefile |    1 +
+ drivers/media/i2c/ov5693.c | 1557 ++++++++++++++++++++++++++++++++++++
+ 4 files changed, 1576 insertions(+)
+ create mode 100644 drivers/media/i2c/ov5693.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index d7b4f32875a9..db66227a14f8 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -13751,6 +13751,13 @@ S:	Maintained
+ T:	git git://linuxtv.org/media_tree.git
+ F:	drivers/media/i2c/ov5675.c
+ 
++OMNIVISION OV5693 SENSOR DRIVER
++M:	Daniel Scally <djrscally@gmail.com>
++L:	linux-media@vger.kernel.org
++S:	Maintained
++T:	git git://linuxtv.org/media_tree.git
++F:	drivers/media/i2c/ov5693.c
++
+ OMNIVISION OV5695 SENSOR DRIVER
+ M:	Shunqian Zheng <zhengsq@rock-chips.com>
+ L:	linux-media@vger.kernel.org
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index 588f8eb95984..dee06f535f2c 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -1014,6 +1014,17 @@ config VIDEO_OV5675
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called ov5675.
+ 
++config VIDEO_OV5693
++	tristate "OmniVision OV5693 sensor support"
++	depends on I2C && VIDEO_V4L2
++	select V4L2_FWNODE
++	help
++	  This is a Video4Linux2 sensor driver for the OmniVision
++	  OV5693 camera.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called ov5693.
++
+ config VIDEO_OV5695
+ 	tristate "OmniVision OV5695 sensor support"
+ 	depends on I2C && VIDEO_V4L2
+diff --git a/drivers/media/i2c/Makefile b/drivers/media/i2c/Makefile
+index 1168fa6b84ed..011e90c1a288 100644
+--- a/drivers/media/i2c/Makefile
++++ b/drivers/media/i2c/Makefile
+@@ -75,6 +75,7 @@ obj-$(CONFIG_VIDEO_OV5647) += ov5647.o
+ obj-$(CONFIG_VIDEO_OV5648) += ov5648.o
+ obj-$(CONFIG_VIDEO_OV5670) += ov5670.o
+ obj-$(CONFIG_VIDEO_OV5675) += ov5675.o
++obj-$(CONFIG_VIDEO_OV5693) += ov5693.o
+ obj-$(CONFIG_VIDEO_OV5695) += ov5695.o
+ obj-$(CONFIG_VIDEO_OV6650) += ov6650.o
+ obj-$(CONFIG_VIDEO_OV7251) += ov7251.o
+diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
+new file mode 100644
+index 000000000000..9499ee10f56c
+--- /dev/null
++++ b/drivers/media/i2c/ov5693.c
+@@ -0,0 +1,1557 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (c) 2013 Intel Corporation. All Rights Reserved.
++ *
++ * Adapted from the atomisp-ov5693 driver, with contributions from:
++ *
++ * Daniel Scally
++ * Jean-Michel Hautbois
++ * Fabian Wuthrich
++ * Tsuchiya Yuto
++ * Jordan Hand
++ * Jake Day
++ */
++
++#include <asm/unaligned.h>
++#include <linux/acpi.h>
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/device.h>
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/pm_runtime.h>
++#include <linux/regulator/consumer.h>
++#include <linux/slab.h>
++#include <linux/types.h>
++#include <media/v4l2-ctrls.h>
++#include <media/v4l2-device.h>
++#include <media/v4l2-fwnode.h>
++
++/* System Control */
++#define OV5693_SW_RESET_REG			0x0103
++#define OV5693_SW_STREAM_REG			0x0100
++#define OV5693_START_STREAMING			0x01
++#define OV5693_STOP_STREAMING			0x00
++#define OV5693_SW_RESET				0x01
++
++#define OV5693_REG_CHIP_ID_H			0x300a
++#define OV5693_REG_CHIP_ID_L			0x300b
++/* Yes, this is right. The datasheet for the OV5693 gives its ID as 0x5690 */
++#define OV5693_CHIP_ID				0x5690
++
++/* Exposure */
++#define OV5693_EXPOSURE_L_CTRL_HH_REG		0x3500
++#define OV5693_EXPOSURE_L_CTRL_H_REG		0x3501
++#define OV5693_EXPOSURE_L_CTRL_L_REG		0x3502
++#define OV5693_EXPOSURE_CTRL_HH(v)		(((v) & GENMASK(14, 12)) >> 12)
++#define OV5693_EXPOSURE_CTRL_H(v)		(((v) & GENMASK(11, 4)) >> 4)
++#define OV5693_EXPOSURE_CTRL_L(v)		(((v) & GENMASK(3, 0)) << 4)
++#define OV5693_INTEGRATION_TIME_MARGIN		8
++#define OV5693_EXPOSURE_MIN			1
++#define OV5693_EXPOSURE_STEP			1
++
++/* Analogue Gain */
++#define OV5693_GAIN_CTRL_H_REG			0x350a
++#define OV5693_GAIN_CTRL_H(v)			(((v) >> 4) & GENMASK(2, 0))
++#define OV5693_GAIN_CTRL_L_REG			0x350b
++#define OV5693_GAIN_CTRL_L(v)			(((v) << 4) & GENMASK(7, 4))
++#define OV5693_GAIN_MIN				1
++#define OV5693_GAIN_MAX				127
++#define OV5693_GAIN_DEF				8
++#define OV5693_GAIN_STEP			1
++
++/* Digital Gain */
++#define OV5693_MWB_RED_GAIN_H_REG		0x3400
++#define OV5693_MWB_RED_GAIN_L_REG		0x3401
++#define OV5693_MWB_GREEN_GAIN_H_REG		0x3402
++#define OV5693_MWB_GREEN_GAIN_L_REG		0x3403
++#define OV5693_MWB_BLUE_GAIN_H_REG		0x3404
++#define OV5693_MWB_BLUE_GAIN_L_REG		0x3405
++#define OV5693_MWB_GAIN_H_CTRL(v)		(((v) >> 8) & GENMASK(3, 0))
++#define OV5693_MWB_GAIN_L_CTRL(v)		((v) & GENMASK(7, 0))
++#define OV5693_MWB_GAIN_MAX			0x0fff
++#define OV5693_DIGITAL_GAIN_MIN			1
++#define OV5693_DIGITAL_GAIN_MAX			4095
++#define OV5693_DIGITAL_GAIN_DEF			1024
++#define OV5693_DIGITAL_GAIN_STEP		1
++
++/* Timing and Format */
++#define OV5693_CROP_START_X_H_REG		0x3800
++#define OV5693_CROP_START_X_H(v)		(((v) & GENMASK(12, 8)) >> 8)
++#define OV5693_CROP_START_X_L_REG		0x3801
++#define OV5693_CROP_START_X_L(v)		((v) & GENMASK(7, 0))
++
++#define OV5693_CROP_START_Y_H_REG		0x3802
++#define OV5693_CROP_START_Y_H(v)		(((v) & GENMASK(11, 8)) >> 8)
++#define OV5693_CROP_START_Y_L_REG		0x3803
++#define OV5693_CROP_START_Y_L(v)		((v) & GENMASK(7, 0))
++
++#define OV5693_CROP_END_X_H_REG			0x3804
++#define OV5693_CROP_END_X_H(v)			(((v) & GENMASK(12, 8)) >> 8)
++#define OV5693_CROP_END_X_L_REG			0x3805
++#define OV5693_CROP_END_X_L(v)			((v) & GENMASK(7, 0))
++
++#define OV5693_CROP_END_Y_H_REG			0x3806
++#define OV5693_CROP_END_Y_H(v)			(((v) & GENMASK(11, 8)) >> 8)
++#define OV5693_CROP_END_Y_L_REG			0x3807
++#define OV5693_CROP_END_Y_L(v)			((v) & GENMASK(7, 0))
++
++#define OV5693_OUTPUT_SIZE_X_H_REG		0x3808
++#define OV5693_OUTPUT_SIZE_X_H(v)		(((v) & GENMASK(15, 8)) >> 8)
++#define OV5693_OUTPUT_SIZE_X_L_REG		0x3809
++#define OV5693_OUTPUT_SIZE_X_L(v)		((v) & GENMASK(7, 0))
++
++#define OV5693_OUTPUT_SIZE_Y_H_REG		0x380a
++#define OV5693_OUTPUT_SIZE_Y_H(v)		(((v) & GENMASK(15, 8)) >> 8)
++#define OV5693_OUTPUT_SIZE_Y_L_REG		0x380b
++#define OV5693_OUTPUT_SIZE_Y_L(v)		((v) & GENMASK(7, 0))
++
++#define OV5693_TIMING_HTS_H_REG			0x380c
++#define OV5693_TIMING_HTS_H(v)			(((v) & GENMASK(15, 8)) >> 8)
++#define OV5693_TIMING_HTS_L_REG			0x380d
++#define OV5693_TIMING_HTS_L(v)			((v) & GENMASK(7, 0))
++#define OV5693_FIXED_PPL			2688U
++
++#define OV5693_TIMING_VTS_H_REG			0x380e
++#define OV5693_TIMING_VTS_H(v)			(((v) & GENMASK(15, 8)) >> 8)
++#define OV5693_TIMING_VTS_L_REG			0x380f
++#define OV5693_TIMING_VTS_L(v)			((v) & GENMASK(7, 0))
++#define OV5693_TIMING_MAX_VTS			0xffff
++#define OV5693_TIMING_MIN_VTS			0x04
++
++#define OV5693_OFFSET_START_X_H_REG		0x3810
++#define OV5693_OFFSET_START_X_H(v)		(((v) & GENMASK(15, 8)) >> 8)
++#define OV5693_OFFSET_START_X_L_REG		0x3811
++#define OV5693_OFFSET_START_X_L(v)		((v) & GENMASK(7, 0))
++
++#define OV5693_OFFSET_START_Y_H_REG		0x3812
++#define OV5693_OFFSET_START_Y_H(v)		(((v) & GENMASK(15, 8)) >> 8)
++#define OV5693_OFFSET_START_Y_L_REG		0x3813
++#define OV5693_OFFSET_START_Y_L(v)		((v) & GENMASK(7, 0))
++
++#define OV5693_SUB_INC_X_REG			0x3814
++#define OV5693_SUB_INC_Y_REG			0x3815
++
++#define OV5693_FORMAT1_REG			0x3820
++#define OV5693_FORMAT1_FLIP_VERT_ISP_EN		BIT(2)
++#define OV5693_FORMAT1_FLIP_VERT_SENSOR_EN	BIT(1)
++#define OV5693_FORMAT1_VBIN_EN			BIT(0)
++#define OV5693_FORMAT2_REG			0x3821
++#define OV5693_FORMAT2_HDR_EN			BIT(7)
++#define OV5693_FORMAT2_FLIP_HORZ_ISP_EN		BIT(2)
++#define OV5693_FORMAT2_FLIP_HORZ_SENSOR_EN	BIT(1)
++#define OV5693_FORMAT2_HBIN_EN			BIT(0)
++
++#define OV5693_ISP_CTRL2_REG			0x5002
++#define OV5693_ISP_SCALE_ENABLE			BIT(7)
++
++/* Pixel Array */
++#define OV5693_NATIVE_WIDTH			2624
++#define OV5693_NATIVE_HEIGHT			1956
++#define OV5693_NATIVE_START_LEFT		0
++#define OV5693_NATIVE_START_TOP			0
++#define OV5693_ACTIVE_WIDTH			2592
++#define OV5693_ACTIVE_HEIGHT			1944
++#define OV5693_ACTIVE_START_LEFT		16
++#define OV5693_ACTIVE_START_TOP			6
++#define OV5693_MIN_CROP_WIDTH			2
++#define OV5693_MIN_CROP_HEIGHT			2
++
++/* Test Pattern */
++#define OV5693_TEST_PATTERN_REG			0x5e00
++#define OV5693_TEST_PATTERN_ENABLE		BIT(7)
++#define OV5693_TEST_PATTERN_ROLLING		BIT(6)
++#define OV5693_TEST_PATTERN_RANDOM		0x01
++#define OV5693_TEST_PATTERN_BARS		0x00
++
++/* System Frequencies */
++#define OV5693_XVCLK_FREQ			19200000
++#define OV5693_LINK_FREQ_400MHZ			400000000
++#define OV5693_PIXEL_RATE			160000000
++
++/* Miscellaneous */
++#define OV5693_NUM_SUPPLIES			2
++
++#define to_ov5693_sensor(x) container_of(x, struct ov5693_device, sd)
++
++struct ov5693_reg {
++	u16 reg;
++	u8 val;
++};
++
++struct ov5693_reg_list {
++	u32 num_regs;
++	const struct ov5693_reg *regs;
++};
++
++struct ov5693_device {
++	struct i2c_client *client;
++	struct device *dev;
++
++	/* Protect against concurrent changes to controls */
++	struct mutex lock;
++
++	struct gpio_desc *reset;
++	struct gpio_desc *powerdown;
++	struct regulator_bulk_data supplies[OV5693_NUM_SUPPLIES];
++	struct clk *clk;
++
++	struct ov5693_mode {
++		struct v4l2_rect crop;
++		struct v4l2_mbus_framefmt format;
++		bool binning_x;
++		bool binning_y;
++		unsigned int inc_x_odd;
++		unsigned int inc_y_odd;
++		unsigned int vts;
++	} mode;
++	bool streaming;
++
++	struct v4l2_subdev sd;
++	struct media_pad pad;
++
++	struct ov5693_v4l2_ctrls {
++		struct v4l2_ctrl_handler handler;
++		struct v4l2_ctrl *link_freq;
++		struct v4l2_ctrl *pixel_rate;
++		struct v4l2_ctrl *exposure;
++		struct v4l2_ctrl *analogue_gain;
++		struct v4l2_ctrl *digital_gain;
++		struct v4l2_ctrl *hflip;
++		struct v4l2_ctrl *vflip;
++		struct v4l2_ctrl *hblank;
++		struct v4l2_ctrl *vblank;
++		struct v4l2_ctrl *test_pattern;
++	} ctrls;
++};
++
++static const struct ov5693_reg ov5693_global_regs[] = {
++	{0x3016, 0xf0},
++	{0x3017, 0xf0},
++	{0x3018, 0xf0},
++	{0x3022, 0x01},
++	{0x3028, 0x44},
++	{0x3098, 0x02},
++	{0x3099, 0x19},
++	{0x309a, 0x02},
++	{0x309b, 0x01},
++	{0x309c, 0x00},
++	{0x30a0, 0xd2},
++	{0x30a2, 0x01},
++	{0x30b2, 0x00},
++	{0x30b3, 0x7d},
++	{0x30b4, 0x03},
++	{0x30b5, 0x04},
++	{0x30b6, 0x01},
++	{0x3104, 0x21},
++	{0x3106, 0x00},
++	{0x3406, 0x01},
++	{0x3503, 0x07},
++	{0x350b, 0x40},
++	{0x3601, 0x0a},
++	{0x3602, 0x38},
++	{0x3612, 0x80},
++	{0x3620, 0x54},
++	{0x3621, 0xc7},
++	{0x3622, 0x0f},
++	{0x3625, 0x10},
++	{0x3630, 0x55},
++	{0x3631, 0xf4},
++	{0x3632, 0x00},
++	{0x3633, 0x34},
++	{0x3634, 0x02},
++	{0x364d, 0x0d},
++	{0x364f, 0xdd},
++	{0x3660, 0x04},
++	{0x3662, 0x10},
++	{0x3663, 0xf1},
++	{0x3665, 0x00},
++	{0x3666, 0x20},
++	{0x3667, 0x00},
++	{0x366a, 0x80},
++	{0x3680, 0xe0},
++	{0x3681, 0x00},
++	{0x3700, 0x42},
++	{0x3701, 0x14},
++	{0x3702, 0xa0},
++	{0x3703, 0xd8},
++	{0x3704, 0x78},
++	{0x3705, 0x02},
++	{0x370a, 0x00},
++	{0x370b, 0x20},
++	{0x370c, 0x0c},
++	{0x370d, 0x11},
++	{0x370e, 0x00},
++	{0x370f, 0x40},
++	{0x3710, 0x00},
++	{0x371a, 0x1c},
++	{0x371b, 0x05},
++	{0x371c, 0x01},
++	{0x371e, 0xa1},
++	{0x371f, 0x0c},
++	{0x3721, 0x00},
++	{0x3724, 0x10},
++	{0x3726, 0x00},
++	{0x372a, 0x01},
++	{0x3730, 0x10},
++	{0x3738, 0x22},
++	{0x3739, 0xe5},
++	{0x373a, 0x50},
++	{0x373b, 0x02},
++	{0x373c, 0x41},
++	{0x373f, 0x02},
++	{0x3740, 0x42},
++	{0x3741, 0x02},
++	{0x3742, 0x18},
++	{0x3743, 0x01},
++	{0x3744, 0x02},
++	{0x3747, 0x10},
++	{0x374c, 0x04},
++	{0x3751, 0xf0},
++	{0x3752, 0x00},
++	{0x3753, 0x00},
++	{0x3754, 0xc0},
++	{0x3755, 0x00},
++	{0x3756, 0x1a},
++	{0x3758, 0x00},
++	{0x3759, 0x0f},
++	{0x376b, 0x44},
++	{0x375c, 0x04},
++	{0x3774, 0x10},
++	{0x3776, 0x00},
++	{0x377f, 0x08},
++	{0x3780, 0x22},
++	{0x3781, 0x0c},
++	{0x3784, 0x2c},
++	{0x3785, 0x1e},
++	{0x378f, 0xf5},
++	{0x3791, 0xb0},
++	{0x3795, 0x00},
++	{0x3796, 0x64},
++	{0x3797, 0x11},
++	{0x3798, 0x30},
++	{0x3799, 0x41},
++	{0x379a, 0x07},
++	{0x379b, 0xb0},
++	{0x379c, 0x0c},
++	{0x3a04, 0x06},
++	{0x3a05, 0x14},
++	{0x3e07, 0x20},
++	{0x4000, 0x08},
++	{0x4001, 0x04},
++	{0x4004, 0x08},
++	{0x4006, 0x20},
++	{0x4008, 0x24},
++	{0x4009, 0x10},
++	{0x4058, 0x00},
++	{0x4101, 0xb2},
++	{0x4307, 0x31},
++	{0x4511, 0x05},
++	{0x4512, 0x01},
++	{0x481f, 0x30},
++	{0x4826, 0x2c},
++	{0x4d02, 0xfd},
++	{0x4d03, 0xf5},
++	{0x4d04, 0x0c},
++	{0x4d05, 0xcc},
++	{0x4837, 0x0a},
++	{0x5003, 0x20},
++	{0x5013, 0x00},
++	{0x5842, 0x01},
++	{0x5843, 0x2b},
++	{0x5844, 0x01},
++	{0x5845, 0x92},
++	{0x5846, 0x01},
++	{0x5847, 0x8f},
++	{0x5848, 0x01},
++	{0x5849, 0x0c},
++	{0x5e10, 0x0c},
++	{0x3820, 0x00},
++	{0x3821, 0x1e},
++	{0x5041, 0x14}
++};
++
++static const struct ov5693_reg_list ov5693_global_setting = {
++	.num_regs = ARRAY_SIZE(ov5693_global_regs),
++	.regs = ov5693_global_regs,
++};
++
++static const struct v4l2_rect ov5693_default_crop = {
++	.left = OV5693_ACTIVE_START_LEFT,
++	.top = OV5693_ACTIVE_START_TOP,
++	.width = OV5693_ACTIVE_WIDTH,
++	.height = OV5693_ACTIVE_HEIGHT,
++};
++
++static const struct v4l2_mbus_framefmt ov5693_default_fmt = {
++	.width = OV5693_ACTIVE_WIDTH,
++	.height = OV5693_ACTIVE_HEIGHT,
++	.code = MEDIA_BUS_FMT_SBGGR10_1X10,
++};
++
++static const s64 link_freq_menu_items[] = {
++	OV5693_LINK_FREQ_400MHZ
++};
++
++static const char * const ov5693_supply_names[] = {
++	"avdd",
++	"dovdd",
++};
++
++static const char * const ov5693_test_pattern_menu[] = {
++	"Disabled",
++	"Random Data",
++	"Colour Bars",
++	"Colour Bars with Rolling Bar"
++};
++
++static const u8 ov5693_test_pattern_bits[] = {
++	0,
++	OV5693_TEST_PATTERN_ENABLE | OV5693_TEST_PATTERN_RANDOM,
++	OV5693_TEST_PATTERN_ENABLE | OV5693_TEST_PATTERN_BARS,
++	OV5693_TEST_PATTERN_ENABLE | OV5693_TEST_PATTERN_BARS |
++	OV5693_TEST_PATTERN_ROLLING,
++};
++
++/* I2C I/O Operations */
++
++static int ov5693_read_reg(struct ov5693_device *ov5693, u16 addr, u8 *value)
++{
++	struct i2c_client *client = ov5693->client;
++	struct i2c_msg msgs[2];
++	u8 addr_buf[2];
++	u8 data_buf;
++	int ret;
++
++	put_unaligned_be16(addr, addr_buf);
++
++	/* Write register address */
++	msgs[0].addr = client->addr;
++	msgs[0].flags = 0;
++	msgs[0].len = ARRAY_SIZE(addr_buf);
++	msgs[0].buf = addr_buf;
++
++	/* Read register value */
++	msgs[1].addr = client->addr;
++	msgs[1].flags = I2C_M_RD;
++	msgs[1].len = 1;
++	msgs[1].buf = &data_buf;
++
++	ret = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
++	if (ret != ARRAY_SIZE(msgs))
++		return -EIO;
++
++	*value = data_buf;
++
++	return 0;
++}
++
++static void ov5693_write_reg(struct ov5693_device *ov5693, u16 addr, u8 value,
++			     int *error)
++{
++	unsigned char data[3] = { addr >> 8, addr & 0xff, value };
++	int ret;
++
++	if (*error < 0)
++		return;
++
++	ret = i2c_master_send(ov5693->client, data, sizeof(data));
++	if (ret < 0) {
++		dev_dbg(ov5693->dev, "i2c send error at address 0x%04x: %d\n",
++			addr, ret);
++		*error = ret;
++	}
++}
++
++static int ov5693_write_reg_array(struct ov5693_device *ov5693,
++				  const struct ov5693_reg_list *reglist)
++{
++	unsigned int i;
++	int ret = 0;
++
++	for (i = 0; i < reglist->num_regs; i++)
++		ov5693_write_reg(ov5693, reglist->regs[i].reg,
++				 reglist->regs[i].val, &ret);
++
++	return ret;
++}
++
++static int ov5693_update_bits(struct ov5693_device *ov5693, u16 address,
++			      u16 mask, u16 bits)
++{
++	u8 value = 0;
++	int ret;
++
++	ret = ov5693_read_reg(ov5693, address, &value);
++	if (ret)
++		return ret;
++
++	value &= ~mask;
++	value |= bits;
++
++	ov5693_write_reg(ov5693, address, value, &ret);
++
++	return ret;
++}
++
++/* V4L2 Controls Functions */
++
++static int ov5693_flip_vert_configure(struct ov5693_device *ov5693, bool enable)
++{
++	u8 bits = OV5693_FORMAT1_FLIP_VERT_ISP_EN |
++		  OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
++	int ret;
++
++	ret = ov5693_update_bits(ov5693, OV5693_FORMAT1_REG, bits,
++				 enable ? bits : 0);
++	if (ret)
++		return ret;
++
++	return 0;
++}
++
++static int ov5693_flip_horz_configure(struct ov5693_device *ov5693, bool enable)
++{
++	u8 bits = OV5693_FORMAT2_FLIP_HORZ_ISP_EN |
++		  OV5693_FORMAT2_FLIP_HORZ_SENSOR_EN;
++	int ret;
++
++	ret = ov5693_update_bits(ov5693, OV5693_FORMAT2_REG, bits,
++				 enable ? bits : 0);
++	if (ret)
++		return ret;
++
++	return 0;
++}
++
++static int ov5693_get_exposure(struct ov5693_device *ov5693, s32 *value)
++{
++	u8 exposure_hh = 0, exposure_h = 0, exposure_l = 0;
++	int ret;
++
++	ret = ov5693_read_reg(ov5693, OV5693_EXPOSURE_L_CTRL_HH_REG, &exposure_hh);
++	if (ret)
++		return ret;
++
++	ret = ov5693_read_reg(ov5693, OV5693_EXPOSURE_L_CTRL_H_REG, &exposure_h);
++	if (ret)
++		return ret;
++
++	ret = ov5693_read_reg(ov5693, OV5693_EXPOSURE_L_CTRL_L_REG, &exposure_l);
++	if (ret)
++		return ret;
++
++	/* The lowest 4 bits are unsupported fractional bits */
++	*value = ((exposure_hh << 16) | (exposure_h << 8) | exposure_l) >> 4;
++
++	return 0;
++}
++
++static int ov5693_exposure_configure(struct ov5693_device *ov5693, u32 exposure)
++{
++	int ret = 0;
++
++	ov5693_write_reg(ov5693, OV5693_EXPOSURE_L_CTRL_HH_REG,
++			 OV5693_EXPOSURE_CTRL_HH(exposure), &ret);
++	ov5693_write_reg(ov5693, OV5693_EXPOSURE_L_CTRL_H_REG,
++			 OV5693_EXPOSURE_CTRL_H(exposure), &ret);
++	ov5693_write_reg(ov5693, OV5693_EXPOSURE_L_CTRL_L_REG,
++			 OV5693_EXPOSURE_CTRL_L(exposure), &ret);
++
++	return ret;
++}
++
++static int ov5693_get_gain(struct ov5693_device *ov5693, u32 *gain)
++{
++	u8 gain_l = 0, gain_h = 0;
++	int ret;
++
++	ret = ov5693_read_reg(ov5693, OV5693_GAIN_CTRL_H_REG, &gain_h);
++	if (ret)
++		return ret;
++
++	ret = ov5693_read_reg(ov5693, OV5693_GAIN_CTRL_L_REG, &gain_l);
++	if (ret)
++		return ret;
++
++	/* As with exposure, the lowest 4 bits are fractional bits. */
++	*gain = ((gain_h << 8) | gain_l) >> 4;
++
++	return ret;
++}
++
++static int ov5693_digital_gain_configure(struct ov5693_device *ov5693, u32 gain)
++{
++	int ret = 0;
++
++	ov5693_write_reg(ov5693, OV5693_MWB_RED_GAIN_H_REG,
++			 OV5693_MWB_GAIN_H_CTRL(gain), &ret);
++	ov5693_write_reg(ov5693, OV5693_MWB_RED_GAIN_L_REG,
++			 OV5693_MWB_GAIN_L_CTRL(gain), &ret);
++	ov5693_write_reg(ov5693, OV5693_MWB_GREEN_GAIN_H_REG,
++			 OV5693_MWB_GAIN_H_CTRL(gain), &ret);
++	ov5693_write_reg(ov5693, OV5693_MWB_GREEN_GAIN_L_REG,
++			 OV5693_MWB_GAIN_L_CTRL(gain), &ret);
++	ov5693_write_reg(ov5693, OV5693_MWB_BLUE_GAIN_H_REG,
++			 OV5693_MWB_GAIN_H_CTRL(gain), &ret);
++	ov5693_write_reg(ov5693, OV5693_MWB_BLUE_GAIN_L_REG,
++			 OV5693_MWB_GAIN_L_CTRL(gain), &ret);
++
++	return ret;
++}
++
++static int ov5693_analog_gain_configure(struct ov5693_device *ov5693, u32 gain)
++{
++	int ret = 0;
++
++	ov5693_write_reg(ov5693, OV5693_GAIN_CTRL_L_REG,
++			 OV5693_GAIN_CTRL_L(gain), &ret);
++	ov5693_write_reg(ov5693, OV5693_GAIN_CTRL_H_REG,
++			 OV5693_GAIN_CTRL_H(gain), &ret);
++
++	return ret;
++}
++
++static int ov5693_vts_configure(struct ov5693_device *ov5693, u32 vblank)
++{
++	u16 vts = ov5693->mode.format.height + vblank;
++	int ret = 0;
++
++	ov5693_write_reg(ov5693, OV5693_TIMING_VTS_H_REG,
++			 OV5693_TIMING_VTS_H(vts), &ret);
++	ov5693_write_reg(ov5693, OV5693_TIMING_VTS_L_REG,
++			 OV5693_TIMING_VTS_L(vts), &ret);
++
++	return ret;
++}
++
++static int ov5693_test_pattern_configure(struct ov5693_device *ov5693, u32 idx)
++{
++	int ret = 0;
++
++	ov5693_write_reg(ov5693, OV5693_TEST_PATTERN_REG,
++			 ov5693_test_pattern_bits[idx], &ret);
++
++	return ret;
++}
++
++static int ov5693_s_ctrl(struct v4l2_ctrl *ctrl)
++{
++	struct ov5693_device *ov5693 =
++	    container_of(ctrl->handler, struct ov5693_device, ctrls.handler);
++	int ret = 0;
++
++	/* If VBLANK is altered we need to update exposure to compensate */
++	if (ctrl->id == V4L2_CID_VBLANK) {
++		int exposure_max;
++
++		exposure_max = ov5693->mode.format.height + ctrl->val -
++			       OV5693_INTEGRATION_TIME_MARGIN;
++		__v4l2_ctrl_modify_range(ov5693->ctrls.exposure,
++					 ov5693->ctrls.exposure->minimum,
++					 exposure_max,
++					 ov5693->ctrls.exposure->step,
++					 min(ov5693->ctrls.exposure->val, exposure_max));
++	}
++
++	/* Only apply changes to the controls if the device is powered up */
++	if (!pm_runtime_get_if_in_use(ov5693->dev))
++		return 0;
++
++	switch (ctrl->id) {
++	case V4L2_CID_EXPOSURE:
++		ret = ov5693_exposure_configure(ov5693, ctrl->val);
++		break;
++	case V4L2_CID_ANALOGUE_GAIN:
++		ret = ov5693_analog_gain_configure(ov5693, ctrl->val);
++		break;
++	case V4L2_CID_DIGITAL_GAIN:
++		ret = ov5693_digital_gain_configure(ov5693, ctrl->val);
++		break;
++	case V4L2_CID_HFLIP:
++		ret = ov5693_flip_horz_configure(ov5693, !!ctrl->val);
++		break;
++	case V4L2_CID_VFLIP:
++		ret = ov5693_flip_vert_configure(ov5693, !!ctrl->val);
++		break;
++	case V4L2_CID_VBLANK:
++		ret = ov5693_vts_configure(ov5693, ctrl->val);
++		break;
++	case V4L2_CID_TEST_PATTERN:
++		ret = ov5693_test_pattern_configure(ov5693, ctrl->val);
++		break;
++	default:
++		ret = -EINVAL;
++	}
++
++	pm_runtime_put(ov5693->dev);
++
++	return ret;
++}
++
++static int ov5693_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
++{
++	struct ov5693_device *ov5693 =
++	    container_of(ctrl->handler, struct ov5693_device, ctrls.handler);
++
++	switch (ctrl->id) {
++	case V4L2_CID_EXPOSURE_ABSOLUTE:
++		return ov5693_get_exposure(ov5693, &ctrl->val);
++	case V4L2_CID_AUTOGAIN:
++		return ov5693_get_gain(ov5693, &ctrl->val);
++	default:
++		return -EINVAL;
++	}
++}
++
++static const struct v4l2_ctrl_ops ov5693_ctrl_ops = {
++	.s_ctrl = ov5693_s_ctrl,
++	.g_volatile_ctrl = ov5693_g_volatile_ctrl
++};
++
++/* System Control Functions */
++
++static int ov5693_mode_configure(struct ov5693_device *ov5693)
++{
++	const struct ov5693_mode *mode = &ov5693->mode;
++	int ret = 0;
++
++	/* Crop Start X */
++	ov5693_write_reg(ov5693, OV5693_CROP_START_X_H_REG,
++			 OV5693_CROP_START_X_H(mode->crop.left), &ret);
++	ov5693_write_reg(ov5693, OV5693_CROP_START_X_L_REG,
++			 OV5693_CROP_START_X_L(mode->crop.left), &ret);
++
++	/* Offset X */
++	ov5693_write_reg(ov5693, OV5693_OFFSET_START_X_H_REG,
++			 OV5693_OFFSET_START_X_H(0), &ret);
++	ov5693_write_reg(ov5693, OV5693_OFFSET_START_X_L_REG,
++			 OV5693_OFFSET_START_X_L(0), &ret);
++
++	/* Output Size X */
++	ov5693_write_reg(ov5693, OV5693_OUTPUT_SIZE_X_H_REG,
++			 OV5693_OUTPUT_SIZE_X_H(mode->format.width), &ret);
++	ov5693_write_reg(ov5693, OV5693_OUTPUT_SIZE_X_L_REG,
++			 OV5693_OUTPUT_SIZE_X_L(mode->format.width), &ret);
++
++	/* Crop End X */
++	ov5693_write_reg(ov5693, OV5693_CROP_END_X_H_REG,
++			 OV5693_CROP_END_X_H(mode->crop.left + mode->crop.width),
++			 &ret);
++	ov5693_write_reg(ov5693, OV5693_CROP_END_X_L_REG,
++			 OV5693_CROP_END_X_L(mode->crop.left + mode->crop.width),
++			 &ret);
++
++	/* Horizontal Total Size */
++	ov5693_write_reg(ov5693, OV5693_TIMING_HTS_H_REG,
++			 OV5693_TIMING_HTS_H(OV5693_FIXED_PPL), &ret);
++	ov5693_write_reg(ov5693, OV5693_TIMING_HTS_L_REG,
++			 OV5693_TIMING_HTS_L(OV5693_FIXED_PPL), &ret);
++
++	/* Crop Start Y */
++	ov5693_write_reg(ov5693, OV5693_CROP_START_Y_H_REG,
++			 OV5693_CROP_START_Y_H(mode->crop.top), &ret);
++	ov5693_write_reg(ov5693, OV5693_CROP_START_Y_L_REG,
++			 OV5693_CROP_START_Y_L(mode->crop.top), &ret);
++
++	/* Offset Y */
++	ov5693_write_reg(ov5693, OV5693_OFFSET_START_Y_H_REG,
++			 OV5693_OFFSET_START_Y_H(0), &ret);
++	ov5693_write_reg(ov5693, OV5693_OFFSET_START_Y_L_REG,
++			 OV5693_OFFSET_START_Y_L(0), &ret);
++
++	/* Output Size Y */
++	ov5693_write_reg(ov5693, OV5693_OUTPUT_SIZE_Y_H_REG,
++			 OV5693_OUTPUT_SIZE_Y_H(mode->format.height), &ret);
++	ov5693_write_reg(ov5693, OV5693_OUTPUT_SIZE_Y_L_REG,
++			 OV5693_OUTPUT_SIZE_Y_L(mode->format.height), &ret);
++
++	/* Crop End Y */
++	ov5693_write_reg(ov5693, OV5693_CROP_END_Y_H_REG,
++			 OV5693_CROP_END_Y_H(mode->crop.top + mode->crop.height),
++			 &ret);
++	ov5693_write_reg(ov5693, OV5693_CROP_END_Y_L_REG,
++			 OV5693_CROP_END_Y_L(mode->crop.top + mode->crop.height),
++			 &ret);
++
++	/* Vertical Total Size */
++	ov5693_write_reg(ov5693, OV5693_TIMING_VTS_H_REG,
++			 OV5693_TIMING_VTS_H(mode->vts), &ret);
++	ov5693_write_reg(ov5693, OV5693_TIMING_VTS_L_REG,
++			 OV5693_TIMING_VTS_L(mode->vts), &ret);
++
++	/* Subsample X increase */
++	ov5693_write_reg(ov5693, OV5693_SUB_INC_X_REG,
++			 ((mode->inc_x_odd << 4) & 0xf0) | 0x01, &ret);
++	/* Subsample Y increase */
++	ov5693_write_reg(ov5693, OV5693_SUB_INC_Y_REG,
++			 ((mode->inc_y_odd << 4) & 0xf0) | 0x01, &ret);
++
++	/* Binning */
++	ret = ov5693_update_bits(ov5693, OV5693_FORMAT1_REG,
++				 OV5693_FORMAT1_VBIN_EN,
++				 mode->binning_y ? OV5693_FORMAT1_VBIN_EN : 0);
++	if (ret)
++		return ret;
++
++	ret = ov5693_update_bits(ov5693, OV5693_FORMAT2_REG,
++				 OV5693_FORMAT2_HBIN_EN,
++				 mode->binning_x ? OV5693_FORMAT2_HBIN_EN : 0);
++
++	return ret;
++}
++
++static int ov5693_sw_standby(struct ov5693_device *ov5693, bool standby)
++{
++	int ret = 0;
++
++	ov5693_write_reg(ov5693, OV5693_SW_STREAM_REG,
++			 standby ? OV5693_STOP_STREAMING : OV5693_START_STREAMING,
++			 &ret);
++
++	return ret;
++}
++
++static int ov5693_sw_reset(struct ov5693_device *ov5693)
++{
++	int ret = 0;
++
++	ov5693_write_reg(ov5693, OV5693_SW_RESET_REG, OV5693_SW_RESET, &ret);
++
++	return ret;
++}
++
++static int ov5693_sensor_init(struct ov5693_device *ov5693)
++{
++	int ret = 0;
++
++	ret = ov5693_sw_reset(ov5693);
++	if (ret) {
++		dev_err(ov5693->dev, "%s software reset error\n", __func__);
++		return ret;
++	}
++
++	ret = ov5693_write_reg_array(ov5693, &ov5693_global_setting);
++	if (ret) {
++		dev_err(ov5693->dev, "%s global settings error\n", __func__);
++		return ret;
++	}
++
++	ret = ov5693_mode_configure(ov5693);
++	if (ret) {
++		dev_err(ov5693->dev, "%s mode configure error\n", __func__);
++		return ret;
++	}
++
++	ret = ov5693_sw_standby(ov5693, true);
++	if (ret)
++		dev_err(ov5693->dev, "%s software standby error\n", __func__);
++
++	return ret;
++}
++
++static void ov5693_sensor_powerdown(struct ov5693_device *ov5693)
++{
++	gpiod_set_value_cansleep(ov5693->reset, 1);
++	gpiod_set_value_cansleep(ov5693->powerdown, 1);
++
++	regulator_bulk_disable(OV5693_NUM_SUPPLIES, ov5693->supplies);
++
++	clk_disable_unprepare(ov5693->clk);
++}
++
++static int ov5693_sensor_powerup(struct ov5693_device *ov5693)
++{
++	int ret;
++
++	gpiod_set_value_cansleep(ov5693->reset, 1);
++	gpiod_set_value_cansleep(ov5693->powerdown, 1);
++
++	ret = clk_prepare_enable(ov5693->clk);
++	if (ret) {
++		dev_err(ov5693->dev, "Failed to enable clk\n");
++		goto fail_power;
++	}
++
++	ret = regulator_bulk_enable(OV5693_NUM_SUPPLIES, ov5693->supplies);
++	if (ret) {
++		dev_err(ov5693->dev, "Failed to enable regulators\n");
++		goto fail_power;
++	}
++
++	gpiod_set_value_cansleep(ov5693->powerdown, 0);
++	gpiod_set_value_cansleep(ov5693->reset, 0);
++
++	usleep_range(5000, 7500);
++
++	return 0;
++
++fail_power:
++	ov5693_sensor_powerdown(ov5693);
++	return ret;
++}
++
++static int __maybe_unused ov5693_sensor_suspend(struct device *dev)
++{
++	struct v4l2_subdev *sd = dev_get_drvdata(dev);
++	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
++
++	ov5693_sensor_powerdown(ov5693);
++
++	return 0;
++}
++
++static int __maybe_unused ov5693_sensor_resume(struct device *dev)
++{
++	struct v4l2_subdev *sd = dev_get_drvdata(dev);
++	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
++	int ret;
++
++	mutex_lock(&ov5693->lock);
++
++	ret = ov5693_sensor_powerup(ov5693);
++	if (ret)
++		goto out_unlock;
++
++	ret = ov5693_sensor_init(ov5693);
++	if (ret) {
++		dev_err(dev, "ov5693 sensor init failure\n");
++		goto err_power;
++	}
++
++	goto out_unlock;
++
++err_power:
++	ov5693_sensor_powerdown(ov5693);
++out_unlock:
++	mutex_unlock(&ov5693->lock);
++	return ret;
++}
++
++static int ov5693_detect(struct ov5693_device *ov5693)
++{
++	u8 id_l = 0, id_h = 0;
++	u16 id = 0;
++	int ret;
++
++	ret = ov5693_read_reg(ov5693, OV5693_REG_CHIP_ID_H, &id_h);
++	if (ret)
++		return ret;
++
++	ret = ov5693_read_reg(ov5693, OV5693_REG_CHIP_ID_L, &id_l);
++	if (ret)
++		return ret;
++
++	id = (id_h << 8) | id_l;
++
++	if (id != OV5693_CHIP_ID) {
++		dev_err(ov5693->dev, "sensor ID mismatch. Found 0x%04x\n", id);
++		return -ENODEV;
++	}
++
++	return 0;
++}
++
++/* V4L2 Framework callbacks */
++
++static unsigned int __ov5693_calc_vts(u32 height)
++{
++	/*
++	 * We need to set a sensible default VTS for whatever format height we
++	 * happen to be given from set_fmt(). This function just targets
++	 * an even multiple of 30fps.
++	 */
++
++	unsigned int tgt_fps;
++
++	tgt_fps = rounddown(OV5693_PIXEL_RATE / OV5693_FIXED_PPL / height, 30);
++
++	return ALIGN_DOWN(OV5693_PIXEL_RATE / OV5693_FIXED_PPL / tgt_fps, 2);
++}
++
++static struct v4l2_mbus_framefmt *
++__ov5693_get_pad_format(struct ov5693_device *ov5693,
++			struct v4l2_subdev_state *state,
++			unsigned int pad, enum v4l2_subdev_format_whence which)
++{
++	switch (which) {
++	case V4L2_SUBDEV_FORMAT_TRY:
++		return v4l2_subdev_get_try_format(&ov5693->sd, state, pad);
++	case V4L2_SUBDEV_FORMAT_ACTIVE:
++		return &ov5693->mode.format;
++	default:
++		return NULL;
++	}
++}
++
++static struct v4l2_rect *
++__ov5693_get_pad_crop(struct ov5693_device *ov5693,
++		      struct v4l2_subdev_state *state,
++		      unsigned int pad, enum v4l2_subdev_format_whence which)
++{
++	switch (which) {
++	case V4L2_SUBDEV_FORMAT_TRY:
++		return v4l2_subdev_get_try_crop(&ov5693->sd, state, pad);
++	case V4L2_SUBDEV_FORMAT_ACTIVE:
++		return &ov5693->mode.crop;
++	}
++
++	return NULL;
++}
++
++static int ov5693_get_fmt(struct v4l2_subdev *sd,
++			  struct v4l2_subdev_state *state,
++			  struct v4l2_subdev_format *format)
++{
++	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
++
++	format->format = ov5693->mode.format;
++
++	return 0;
++}
++
++static int ov5693_set_fmt(struct v4l2_subdev *sd,
++			  struct v4l2_subdev_state *state,
++			  struct v4l2_subdev_format *format)
++{
++	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
++	const struct v4l2_rect *crop;
++	struct v4l2_mbus_framefmt *fmt;
++	unsigned int hratio, vratio;
++	unsigned int width, height;
++	unsigned int hblank;
++	int exposure_max;
++	int ret = 0;
++
++	crop = __ov5693_get_pad_crop(ov5693, state, format->pad, format->which);
++
++	/*
++	 * Align to two to simplify the binning calculations below, and clamp
++	 * the requested format at the crop rectangle
++	 */
++	width = clamp_t(unsigned int, ALIGN(format->format.width, 2),
++			OV5693_MIN_CROP_WIDTH, crop->width);
++	height = clamp_t(unsigned int, ALIGN(format->format.height, 2),
++			 OV5693_MIN_CROP_HEIGHT, crop->height);
++
++	/*
++	 * We can only support setting either the dimensions of the crop rect
++	 * or those dimensions binned (separately) by a factor of two.
++	 */
++	hratio = clamp_t(unsigned int, DIV_ROUND_CLOSEST(crop->width, width), 1, 2);
++	vratio = clamp_t(unsigned int, DIV_ROUND_CLOSEST(crop->height, height), 1, 2);
++
++	fmt = __ov5693_get_pad_format(ov5693, state, format->pad, format->which);
++
++	fmt->width = crop->width / hratio;
++	fmt->height = crop->height / vratio;
++	fmt->code = MEDIA_BUS_FMT_SBGGR10_1X10;
++
++	format->format = *fmt;
++
++	if (format->which == V4L2_SUBDEV_FORMAT_TRY)
++		return ret;
++
++	mutex_lock(&ov5693->lock);
++
++	ov5693->mode.binning_x = hratio > 1 ? true : false;
++	ov5693->mode.inc_x_odd = hratio > 1 ? 3 : 1;
++	ov5693->mode.binning_y = vratio > 1 ? true : false;
++	ov5693->mode.inc_y_odd = vratio > 1 ? 3 : 1;
++
++	ov5693->mode.vts = __ov5693_calc_vts(fmt->height);
++
++	__v4l2_ctrl_modify_range(ov5693->ctrls.vblank,
++				 OV5693_TIMING_MIN_VTS,
++				 OV5693_TIMING_MAX_VTS - fmt->height,
++				 1, ov5693->mode.vts - fmt->height);
++	__v4l2_ctrl_s_ctrl(ov5693->ctrls.vblank,
++			   ov5693->mode.vts - fmt->height);
++
++	hblank = OV5693_FIXED_PPL - fmt->width;
++	__v4l2_ctrl_modify_range(ov5693->ctrls.hblank, hblank, hblank, 1,
++				 hblank);
++
++	exposure_max = ov5693->mode.vts - OV5693_INTEGRATION_TIME_MARGIN;
++	__v4l2_ctrl_modify_range(ov5693->ctrls.exposure,
++				 ov5693->ctrls.exposure->minimum, exposure_max,
++				 ov5693->ctrls.exposure->step,
++				 min(ov5693->ctrls.exposure->val, exposure_max));
++
++	mutex_unlock(&ov5693->lock);
++	return ret;
++}
++
++static int ov5693_get_selection(struct v4l2_subdev *sd,
++				struct v4l2_subdev_state *state,
++				struct v4l2_subdev_selection *sel)
++{
++	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
++
++	switch (sel->target) {
++	case V4L2_SEL_TGT_CROP:
++		mutex_lock(&ov5693->lock);
++		sel->r = *__ov5693_get_pad_crop(ov5693, state, sel->pad,
++						sel->which);
++		mutex_unlock(&ov5693->lock);
++		break;
++	case V4L2_SEL_TGT_NATIVE_SIZE:
++		sel->r.top = 0;
++		sel->r.left = 0;
++		sel->r.width = OV5693_NATIVE_WIDTH;
++		sel->r.height = OV5693_NATIVE_HEIGHT;
++		break;
++	case V4L2_SEL_TGT_CROP_BOUNDS:
++	case V4L2_SEL_TGT_CROP_DEFAULT:
++		sel->r.top = OV5693_ACTIVE_START_TOP;
++		sel->r.left = OV5693_ACTIVE_START_LEFT;
++		sel->r.width = OV5693_ACTIVE_WIDTH;
++		sel->r.height = OV5693_ACTIVE_HEIGHT;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static int ov5693_set_selection(struct v4l2_subdev *sd,
++				struct v4l2_subdev_state *state,
++				struct v4l2_subdev_selection *sel)
++{
++	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
++	struct v4l2_mbus_framefmt *format;
++	struct v4l2_rect *__crop;
++	struct v4l2_rect rect;
++
++	if (sel->target != V4L2_SEL_TGT_CROP)
++		return -EINVAL;
++
++	/*
++	 * Clamp the boundaries of the crop rectangle to the size of the sensor
++	 * pixel array. Align to multiples of 2 to ensure Bayer pattern isn't
++	 * disrupted.
++	 */
++	rect.left = clamp(ALIGN(sel->r.left, 2), OV5693_NATIVE_START_LEFT,
++			  OV5693_NATIVE_WIDTH);
++	rect.top = clamp(ALIGN(sel->r.top, 2), OV5693_NATIVE_START_TOP,
++			 OV5693_NATIVE_HEIGHT);
++	rect.width = clamp_t(unsigned int, ALIGN(sel->r.width, 2),
++			     OV5693_MIN_CROP_WIDTH, OV5693_NATIVE_WIDTH);
++	rect.height = clamp_t(unsigned int, ALIGN(sel->r.height, 2),
++			      OV5693_MIN_CROP_HEIGHT, OV5693_NATIVE_HEIGHT);
++
++	/* Make sure the crop rectangle isn't outside the bounds of the array */
++	rect.width = min_t(unsigned int, rect.width,
++			   OV5693_NATIVE_WIDTH - rect.left);
++	rect.height = min_t(unsigned int, rect.height,
++			    OV5693_NATIVE_HEIGHT - rect.top);
++
++	__crop = __ov5693_get_pad_crop(ov5693, state, sel->pad, sel->which);
++
++	if (rect.width != __crop->width || rect.height != __crop->height) {
++		/*
++		 * Reset the output image size if the crop rectangle size has
++		 * been modified.
++		 */
++		format = __ov5693_get_pad_format(ov5693, state, sel->pad, sel->which);
++		format->width = rect.width;
++		format->height = rect.height;
++	}
++
++	*__crop = rect;
++	sel->r = rect;
++
++	return 0;
++}
++
++static int ov5693_s_stream(struct v4l2_subdev *sd, int enable)
++{
++	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
++	int ret;
++
++	if (enable) {
++		ret = pm_runtime_get_sync(ov5693->dev);
++		if (ret < 0)
++			goto err_power_down;
++
++		ret = __v4l2_ctrl_handler_setup(&ov5693->ctrls.handler);
++		if (ret)
++			goto err_power_down;
++	}
++
++	mutex_lock(&ov5693->lock);
++	ret = ov5693_sw_standby(ov5693, !enable);
++	mutex_unlock(&ov5693->lock);
++
++	if (ret)
++		goto err_power_down;
++	ov5693->streaming = !!enable;
++
++	if (!enable)
++		pm_runtime_put(ov5693->dev);
++
++	return 0;
++err_power_down:
++	pm_runtime_put_noidle(ov5693->dev);
++	return ret;
++}
++
++static int ov5693_g_frame_interval(struct v4l2_subdev *sd,
++				   struct v4l2_subdev_frame_interval *interval)
++{
++	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
++	unsigned int framesize = OV5693_FIXED_PPL * (ov5693->mode.format.height +
++				 ov5693->ctrls.vblank->val);
++	unsigned int fps = DIV_ROUND_CLOSEST(OV5693_PIXEL_RATE, framesize);
++
++	interval->interval.numerator = 1;
++	interval->interval.denominator = fps;
++
++	return 0;
++}
++
++static int ov5693_enum_mbus_code(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *state,
++				 struct v4l2_subdev_mbus_code_enum *code)
++{
++	/* Only a single mbus format is supported */
++	if (code->index > 0)
++		return -EINVAL;
++
++	code->code = MEDIA_BUS_FMT_SBGGR10_1X10;
++	return 0;
++}
++
++static int ov5693_enum_frame_size(struct v4l2_subdev *sd,
++				  struct v4l2_subdev_state *state,
++				  struct v4l2_subdev_frame_size_enum *fse)
++{
++	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
++	struct v4l2_rect *__crop;
++
++	if (fse->index > 1 || fse->code != MEDIA_BUS_FMT_SBGGR10_1X10)
++		return -EINVAL;
++
++	__crop = __ov5693_get_pad_crop(ov5693, state, fse->pad, fse->which);
++	if (!__crop)
++		return -EINVAL;
++
++	fse->min_width = __crop->width / (fse->index + 1);
++	fse->min_height = __crop->height / (fse->index + 1);
++	fse->max_width = fse->min_width;
++	fse->max_height = fse->min_height;
++
++	return 0;
++}
++
++static const struct v4l2_subdev_video_ops ov5693_video_ops = {
++	.s_stream = ov5693_s_stream,
++	.g_frame_interval = ov5693_g_frame_interval,
++};
++
++static const struct v4l2_subdev_pad_ops ov5693_pad_ops = {
++	.enum_mbus_code = ov5693_enum_mbus_code,
++	.enum_frame_size = ov5693_enum_frame_size,
++	.get_fmt = ov5693_get_fmt,
++	.set_fmt = ov5693_set_fmt,
++	.get_selection = ov5693_get_selection,
++	.set_selection = ov5693_set_selection,
++};
++
++static const struct v4l2_subdev_ops ov5693_ops = {
++	.video = &ov5693_video_ops,
++	.pad = &ov5693_pad_ops,
++};
++
++/* Sensor and Driver Configuration Functions */
++
++static int ov5693_init_controls(struct ov5693_device *ov5693)
++{
++	const struct v4l2_ctrl_ops *ops = &ov5693_ctrl_ops;
++	struct v4l2_fwnode_device_properties props;
++	int vblank_max, vblank_def;
++	int exposure_max;
++	int hblank;
++	int ret;
++
++	ret = v4l2_ctrl_handler_init(&ov5693->ctrls.handler, 12);
++	if (ret)
++		return ret;
++
++	/* link freq */
++	ov5693->ctrls.link_freq = v4l2_ctrl_new_int_menu(&ov5693->ctrls.handler,
++							 NULL, V4L2_CID_LINK_FREQ,
++							 0, 0, link_freq_menu_items);
++	if (ov5693->ctrls.link_freq)
++		ov5693->ctrls.link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	/* pixel rate */
++	ov5693->ctrls.pixel_rate = v4l2_ctrl_new_std(&ov5693->ctrls.handler, NULL,
++						     V4L2_CID_PIXEL_RATE, 0,
++						     OV5693_PIXEL_RATE, 1,
++						     OV5693_PIXEL_RATE);
++
++	/* Exposure */
++	exposure_max = ov5693->mode.vts - OV5693_INTEGRATION_TIME_MARGIN;
++	ov5693->ctrls.exposure = v4l2_ctrl_new_std(&ov5693->ctrls.handler, ops,
++						   V4L2_CID_EXPOSURE,
++						   OV5693_EXPOSURE_MIN,
++						   exposure_max,
++						   OV5693_EXPOSURE_STEP,
++						   exposure_max);
++
++	/* Gain */
++	ov5693->ctrls.analogue_gain = v4l2_ctrl_new_std(&ov5693->ctrls.handler,
++							ops, V4L2_CID_ANALOGUE_GAIN,
++							OV5693_GAIN_MIN,
++							OV5693_GAIN_MAX,
++							OV5693_GAIN_STEP,
++							OV5693_GAIN_DEF);
++
++	ov5693->ctrls.digital_gain = v4l2_ctrl_new_std(&ov5693->ctrls.handler, ops,
++						       V4L2_CID_DIGITAL_GAIN,
++						       OV5693_DIGITAL_GAIN_MIN,
++						       OV5693_DIGITAL_GAIN_MAX,
++						       OV5693_DIGITAL_GAIN_STEP,
++						       OV5693_DIGITAL_GAIN_DEF);
++
++	/* Flip */
++	ov5693->ctrls.hflip = v4l2_ctrl_new_std(&ov5693->ctrls.handler, ops,
++						V4L2_CID_HFLIP, 0, 1, 1, 0);
++
++	ov5693->ctrls.vflip = v4l2_ctrl_new_std(&ov5693->ctrls.handler, ops,
++						V4L2_CID_VFLIP, 0, 1, 1, 0);
++
++	hblank = OV5693_FIXED_PPL - ov5693->mode.format.width;
++	ov5693->ctrls.hblank = v4l2_ctrl_new_std(&ov5693->ctrls.handler, ops,
++						 V4L2_CID_HBLANK, hblank,
++						 hblank, 1, hblank);
++
++	if (ov5693->ctrls.hblank)
++		ov5693->ctrls.hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	vblank_max = OV5693_TIMING_MAX_VTS - ov5693->mode.format.height;
++	vblank_def = ov5693->mode.vts - ov5693->mode.format.height;
++	ov5693->ctrls.vblank = v4l2_ctrl_new_std(&ov5693->ctrls.handler, ops,
++						 V4L2_CID_VBLANK,
++						 OV5693_TIMING_MIN_VTS,
++						 vblank_max, 1, vblank_def);
++
++	ov5693->ctrls.test_pattern = v4l2_ctrl_new_std_menu_items(
++					&ov5693->ctrls.handler, ops,
++					V4L2_CID_TEST_PATTERN,
++					ARRAY_SIZE(ov5693_test_pattern_menu) - 1,
++					0, 0, ov5693_test_pattern_menu);
++
++	if (ov5693->ctrls.handler.error) {
++		dev_err(ov5693->dev, "Error initialising v4l2 ctrls\n");
++		ret = ov5693->ctrls.handler.error;
++		goto err_free_handler;
++	}
++
++	/* set properties from fwnode (e.g. rotation, orientation) */
++	ret = v4l2_fwnode_device_parse(ov5693->dev, &props);
++	if (ret)
++		goto err_free_handler;
++
++	ret = v4l2_ctrl_new_fwnode_properties(&ov5693->ctrls.handler, ops,
++					      &props);
++	if (ret)
++		goto err_free_handler;
++
++	/* Use same lock for controls as for everything else. */
++	ov5693->ctrls.handler.lock = &ov5693->lock;
++	ov5693->sd.ctrl_handler = &ov5693->ctrls.handler;
++
++	return 0;
++
++err_free_handler:
++	v4l2_ctrl_handler_free(&ov5693->ctrls.handler);
++	return ret;
++}
++
++static int ov5693_configure_gpios(struct ov5693_device *ov5693)
++{
++	ov5693->reset = devm_gpiod_get_optional(ov5693->dev, "reset",
++						GPIOD_OUT_HIGH);
++	if (IS_ERR(ov5693->reset)) {
++		dev_err(ov5693->dev, "Error fetching reset GPIO\n");
++		return PTR_ERR(ov5693->reset);
++	}
++
++	ov5693->powerdown = devm_gpiod_get_optional(ov5693->dev, "powerdown",
++						    GPIOD_OUT_HIGH);
++	if (IS_ERR(ov5693->powerdown)) {
++		dev_err(ov5693->dev, "Error fetching powerdown GPIO\n");
++		return PTR_ERR(ov5693->powerdown);
++	}
++
++	return 0;
++}
++
++static int ov5693_get_regulators(struct ov5693_device *ov5693)
++{
++	unsigned int i;
++
++	for (i = 0; i < OV5693_NUM_SUPPLIES; i++)
++		ov5693->supplies[i].supply = ov5693_supply_names[i];
++
++	return devm_regulator_bulk_get(ov5693->dev, OV5693_NUM_SUPPLIES,
++				       ov5693->supplies);
++}
++
++static int ov5693_probe(struct i2c_client *client)
++{
++	struct fwnode_handle *fwnode = dev_fwnode(&client->dev);
++	struct fwnode_handle *endpoint;
++	struct ov5693_device *ov5693;
++	u32 clk_rate;
++	int ret = 0;
++
++	endpoint = fwnode_graph_get_next_endpoint(fwnode, NULL);
++	if (!endpoint && !IS_ERR_OR_NULL(fwnode->secondary))
++		endpoint = fwnode_graph_get_next_endpoint(fwnode->secondary, NULL);
++	if (!endpoint)
++		return -EPROBE_DEFER;
++
++	ov5693 = devm_kzalloc(&client->dev, sizeof(*ov5693), GFP_KERNEL);
++	if (!ov5693)
++		return -ENOMEM;
++
++	ov5693->client = client;
++	ov5693->dev = &client->dev;
++
++	mutex_init(&ov5693->lock);
++
++	v4l2_i2c_subdev_init(&ov5693->sd, client, &ov5693_ops);
++
++	ov5693->clk = devm_clk_get(&client->dev, "xvclk");
++	if (IS_ERR(ov5693->clk)) {
++		dev_err(&client->dev, "Error getting clock\n");
++		return PTR_ERR(ov5693->clk);
++	}
++
++	clk_rate = clk_get_rate(ov5693->clk);
++	if (clk_rate != OV5693_XVCLK_FREQ) {
++		dev_err(&client->dev, "Unsupported clk freq %u, expected %u\n",
++			clk_rate, OV5693_XVCLK_FREQ);
++		return -EINVAL;
++	}
++
++	ret = ov5693_configure_gpios(ov5693);
++	if (ret)
++		return ret;
++
++	ret = ov5693_get_regulators(ov5693);
++	if (ret) {
++		dev_err(&client->dev, "Error fetching regulators\n");
++		return ret;
++	}
++
++	ov5693->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
++	ov5693->pad.flags = MEDIA_PAD_FL_SOURCE;
++	ov5693->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
++
++	ov5693->mode.crop = ov5693_default_crop;
++	ov5693->mode.format = ov5693_default_fmt;
++	ov5693->mode.vts = __ov5693_calc_vts(ov5693->mode.format.height);
++
++	ret = ov5693_init_controls(ov5693);
++	if (ret)
++		return ret;
++
++	ret = media_entity_pads_init(&ov5693->sd.entity, 1, &ov5693->pad);
++	if (ret)
++		goto err_ctrl_handler_free;
++
++	/*
++	 * We need the driver to work in the event that pm runtime is disable in
++	 * the kernel, so power up and verify the chip now. In the event that
++	 * runtime pm is disabled this will leave the chip on, so that streaming
++	 * will work.
++	 */
++
++	ret = ov5693_sensor_powerup(ov5693);
++	if (ret)
++		goto err_media_entity_cleanup;
++
++	ret = ov5693_detect(ov5693);
++	if (ret)
++		goto err_powerdown;
++
++	pm_runtime_set_active(&client->dev);
++	pm_runtime_get_noresume(&client->dev);
++	pm_runtime_enable(&client->dev);
++
++	ret = v4l2_async_register_subdev_sensor(&ov5693->sd);
++	if (ret) {
++		dev_err(&client->dev, "failed to register V4L2 subdev: %d",
++			ret);
++		goto err_pm_runtime;
++	}
++
++	pm_runtime_set_autosuspend_delay(&client->dev, 1000);
++	pm_runtime_use_autosuspend(&client->dev);
++	pm_runtime_put_autosuspend(&client->dev);
++
++	return ret;
++
++err_pm_runtime:
++	pm_runtime_disable(&client->dev);
++	pm_runtime_put_noidle(&client->dev);
++err_powerdown:
++	ov5693_sensor_powerdown(ov5693);
++err_media_entity_cleanup:
++	media_entity_cleanup(&ov5693->sd.entity);
++err_ctrl_handler_free:
++	v4l2_ctrl_handler_free(&ov5693->ctrls.handler);
++
++	return ret;
++}
++
++static int ov5693_remove(struct i2c_client *client)
++{
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct ov5693_device *ov5693 = to_ov5693_sensor(sd);
++
++	v4l2_async_unregister_subdev(sd);
++	media_entity_cleanup(&ov5693->sd.entity);
++	v4l2_ctrl_handler_free(&ov5693->ctrls.handler);
++	mutex_destroy(&ov5693->lock);
++
++	/*
++	 * Disable runtime PM. In case runtime PM is disabled in the kernel,
++	 * make sure to turn power off manually.
++	 */
++	pm_runtime_disable(&client->dev);
++	if (!pm_runtime_status_suspended(&client->dev))
++		ov5693_sensor_powerdown(ov5693);
++	pm_runtime_set_suspended(&client->dev);
++
++	return 0;
++}
++
++static const struct dev_pm_ops ov5693_pm_ops = {
++	SET_RUNTIME_PM_OPS(ov5693_sensor_suspend, ov5693_sensor_resume, NULL)
++};
++
++static const struct acpi_device_id ov5693_acpi_match[] = {
++	{"INT33BE"},
++	{},
++};
++MODULE_DEVICE_TABLE(acpi, ov5693_acpi_match);
++
++static struct i2c_driver ov5693_driver = {
++	.driver = {
++		.name = "ov5693",
++		.acpi_match_table = ov5693_acpi_match,
++		.pm = &ov5693_pm_ops,
++	},
++	.probe_new = ov5693_probe,
++	.remove = ov5693_remove,
++};
++module_i2c_driver(ov5693_driver);
++
++MODULE_DESCRIPTION("A low-level driver for OmniVision 5693 sensors");
++MODULE_LICENSE("GPL");
+-- 
+2.33.0
+
+From 611b28bc65ab9da3dc36014dd663440f5e33aaa9 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Fabian=20W=C3=BCthrich?= <me@fabwu.ch>
+Date: Fri, 22 Jan 2021 20:58:13 +0100
+Subject: [PATCH] cio2-bridge: Parse sensor orientation and rotation
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The sensor orientation is read from the _PLC ACPI buffer and converted
+to a v4l2 format.
+
+See https://uefi.org/sites/default/files/resources/ACPI_6_3_final_Jan30.pdf
+page 351 for a definition of the Panel property.
+
+The sensor rotation is read from the SSDB ACPI buffer and converted into
+degrees.
+
+Signed-off-by: Fabian Wüthrich <me@fabwu.ch>
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu3/cio2-bridge.c | 45 ++++++++++++++++++++--
+ drivers/media/pci/intel/ipu3/cio2-bridge.h |  3 ++
+ 2 files changed, 44 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/media/pci/intel/ipu3/cio2-bridge.c b/drivers/media/pci/intel/ipu3/cio2-bridge.c
+index 30d29b96a339..77c97bf6521e 100644
+--- a/drivers/media/pci/intel/ipu3/cio2-bridge.c
++++ b/drivers/media/pci/intel/ipu3/cio2-bridge.c
+@@ -29,6 +29,7 @@ static const struct cio2_sensor_config cio2_supported_sensors[] = {
+ static const struct cio2_property_names prop_names = {
+ 	.clock_frequency = "clock-frequency",
+ 	.rotation = "rotation",
++	.orientation = "orientation",
+ 	.bus_type = "bus-type",
+ 	.data_lanes = "data-lanes",
+ 	.remote_endpoint = "remote-endpoint",
+@@ -72,11 +73,36 @@ static int cio2_bridge_read_acpi_buffer(struct acpi_device *adev, char *id,
+ 	return ret;
+ }
+ 
++static u32 cio2_bridge_parse_rotation(u8 rotation)
++{
++	if (rotation == 1)
++		return 180;
++	return 0;
++}
++
++static enum v4l2_fwnode_orientation cio2_bridge_parse_orientation(u8 panel)
++{
++	switch (panel) {
++	case 4:
++		return V4L2_FWNODE_ORIENTATION_FRONT;
++	case 5:
++		return V4L2_FWNODE_ORIENTATION_BACK;
++	default:
++		return V4L2_FWNODE_ORIENTATION_EXTERNAL;
++	}
++}
++
+ static void cio2_bridge_create_fwnode_properties(
+ 	struct cio2_sensor *sensor,
+ 	struct cio2_bridge *bridge,
+ 	const struct cio2_sensor_config *cfg)
+ {
++	u32 rotation;
++	enum v4l2_fwnode_orientation orientation;
++
++	rotation = cio2_bridge_parse_rotation(sensor->ssdb.degree);
++	orientation = cio2_bridge_parse_orientation(sensor->pld->panel);
++
+ 	sensor->prop_names = prop_names;
+ 
+ 	sensor->local_ref[0] = SOFTWARE_NODE_REFERENCE(&sensor->swnodes[SWNODE_CIO2_ENDPOINT]);
+@@ -85,9 +111,12 @@ static void cio2_bridge_create_fwnode_properties(
+ 	sensor->dev_properties[0] = PROPERTY_ENTRY_U32(
+ 					sensor->prop_names.clock_frequency,
+ 					sensor->ssdb.mclkspeed);
+-	sensor->dev_properties[1] = PROPERTY_ENTRY_U8(
++	sensor->dev_properties[1] = PROPERTY_ENTRY_U32(
+ 					sensor->prop_names.rotation,
+-					sensor->ssdb.degree);
++					rotation);
++	sensor->dev_properties[2] = PROPERTY_ENTRY_U32(
++					sensor->prop_names.orientation,
++					orientation);
+ 
+ 	sensor->ep_properties[0] = PROPERTY_ENTRY_U32(
+ 					sensor->prop_names.bus_type,
+@@ -159,6 +188,7 @@ static void cio2_bridge_unregister_sensors(struct cio2_bridge *bridge)
+ 	for (i = 0; i < bridge->n_sensors; i++) {
+ 		sensor = &bridge->sensors[i];
+ 		software_node_unregister_nodes(sensor->swnodes);
++		ACPI_FREE(sensor->pld);
+ 		acpi_dev_put(sensor->adev);
+ 	}
+ }
+@@ -170,6 +200,7 @@ static int cio2_bridge_connect_sensor(const struct cio2_sensor_config *cfg,
+ 	struct fwnode_handle *fwnode;
+ 	struct cio2_sensor *sensor;
+ 	struct acpi_device *adev;
++	acpi_status status;
+ 	int ret;
+ 
+ 	for_each_acpi_dev_match(adev, cfg->hid, NULL, -1) {
+@@ -191,11 +222,15 @@ static int cio2_bridge_connect_sensor(const struct cio2_sensor_config *cfg,
+ 		if (ret)
+ 			goto err_put_adev;
+ 
++		status = acpi_get_physical_device_location(adev->handle, &sensor->pld);
++		if (ACPI_FAILURE(status))
++			goto err_put_adev;
++
+ 		if (sensor->ssdb.lanes > CIO2_MAX_LANES) {
+ 			dev_err(&adev->dev,
+ 				"Number of lanes in SSDB is invalid\n");
+ 			ret = -EINVAL;
+-			goto err_put_adev;
++			goto err_free_pld;
+ 		}
+ 
+ 		cio2_bridge_create_fwnode_properties(sensor, bridge, cfg);
+@@ -203,7 +238,7 @@ static int cio2_bridge_connect_sensor(const struct cio2_sensor_config *cfg,
+ 
+ 		ret = software_node_register_nodes(sensor->swnodes);
+ 		if (ret)
+-			goto err_put_adev;
++			goto err_free_pld;
+ 
+ 		fwnode = software_node_fwnode(&sensor->swnodes[
+ 						      SWNODE_SENSOR_HID]);
+@@ -225,6 +260,8 @@ static int cio2_bridge_connect_sensor(const struct cio2_sensor_config *cfg,
+ 
+ err_free_swnodes:
+ 	software_node_unregister_nodes(sensor->swnodes);
++err_free_pld:
++	ACPI_FREE(sensor->pld);
+ err_put_adev:
+ 	acpi_dev_put(adev);
+ 	return ret;
+diff --git a/drivers/media/pci/intel/ipu3/cio2-bridge.h b/drivers/media/pci/intel/ipu3/cio2-bridge.h
+index dd0ffcafa489..924d99d20328 100644
+--- a/drivers/media/pci/intel/ipu3/cio2-bridge.h
++++ b/drivers/media/pci/intel/ipu3/cio2-bridge.h
+@@ -80,6 +80,7 @@ struct cio2_sensor_ssdb {
+ struct cio2_property_names {
+ 	char clock_frequency[16];
+ 	char rotation[9];
++	char orientation[12];
+ 	char bus_type[9];
+ 	char data_lanes[11];
+ 	char remote_endpoint[16];
+@@ -106,6 +107,8 @@ struct cio2_sensor {
+ 	struct cio2_node_names node_names;
+ 
+ 	struct cio2_sensor_ssdb ssdb;
++	struct acpi_pld_info *pld;
++
+ 	struct cio2_property_names prop_names;
+ 	struct property_entry ep_properties[5];
+ 	struct property_entry dev_properties[3];
+-- 
+2.33.0
+
+From d4809f561f77701f534a268a85f87351b074a064 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Fabian=20W=C3=BCthrich?= <me@fabwu.ch>
+Date: Sun, 24 Jan 2021 11:07:42 +0100
+Subject: [PATCH] cio2-bridge: Use macros and add warnings
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Use macros for the _PLD panel as defined in the ACPI spec 6.3 and emit
+a warning if we see an unknown value.
+
+Signed-off-by: Fabian Wüthrich <me@fabwu.ch>
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu3/cio2-bridge.c | 33 ++++++++++++++++------
+ drivers/media/pci/intel/ipu3/cio2-bridge.h | 13 +++++++++
+ 2 files changed, 37 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/media/pci/intel/ipu3/cio2-bridge.c b/drivers/media/pci/intel/ipu3/cio2-bridge.c
+index 77c97bf6521e..7e582135dfb8 100644
+--- a/drivers/media/pci/intel/ipu3/cio2-bridge.c
++++ b/drivers/media/pci/intel/ipu3/cio2-bridge.c
+@@ -73,21 +73,36 @@ static int cio2_bridge_read_acpi_buffer(struct acpi_device *adev, char *id,
+ 	return ret;
+ }
+ 
+-static u32 cio2_bridge_parse_rotation(u8 rotation)
++static u32 cio2_bridge_parse_rotation(struct cio2_sensor *sensor)
+ {
+-	if (rotation == 1)
++	switch (sensor->ssdb.degree) {
++	case CIO2_SENSOR_ROTATION_NORMAL:
++		return 0;
++	case CIO2_SENSOR_ROTATION_INVERTED:
+ 		return 180;
+-	return 0;
++	default:
++		dev_warn(&sensor->adev->dev,
++			 "Unknown rotation %d. Assume 0 degree rotation\n",
++			 sensor->ssdb.degree);
++		return 0;
++	}
+ }
+ 
+-static enum v4l2_fwnode_orientation cio2_bridge_parse_orientation(u8 panel)
++static enum v4l2_fwnode_orientation cio2_bridge_parse_orientation(struct cio2_sensor *sensor)
+ {
+-	switch (panel) {
+-	case 4:
++	switch (sensor->pld->panel) {
++	case CIO2_PLD_PANEL_FRONT:
+ 		return V4L2_FWNODE_ORIENTATION_FRONT;
+-	case 5:
++	case CIO2_PLD_PANEL_BACK:
+ 		return V4L2_FWNODE_ORIENTATION_BACK;
++	case CIO2_PLD_PANEL_TOP:
++	case CIO2_PLD_PANEL_LEFT:
++	case CIO2_PLD_PANEL_RIGHT:
++	case CIO2_PLD_PANEL_UNKNOWN:
++		return V4L2_FWNODE_ORIENTATION_EXTERNAL;
+ 	default:
++		dev_warn(&sensor->adev->dev, "Unknown _PLD panel value %d\n",
++			 sensor->pld->panel);
+ 		return V4L2_FWNODE_ORIENTATION_EXTERNAL;
+ 	}
+ }
+@@ -100,8 +115,8 @@ static void cio2_bridge_create_fwnode_properties(
+ 	u32 rotation;
+ 	enum v4l2_fwnode_orientation orientation;
+ 
+-	rotation = cio2_bridge_parse_rotation(sensor->ssdb.degree);
+-	orientation = cio2_bridge_parse_orientation(sensor->pld->panel);
++	rotation = cio2_bridge_parse_rotation(sensor);
++	orientation = cio2_bridge_parse_orientation(sensor);
+ 
+ 	sensor->prop_names = prop_names;
+ 
+diff --git a/drivers/media/pci/intel/ipu3/cio2-bridge.h b/drivers/media/pci/intel/ipu3/cio2-bridge.h
+index 924d99d20328..e1e388cc9f45 100644
+--- a/drivers/media/pci/intel/ipu3/cio2-bridge.h
++++ b/drivers/media/pci/intel/ipu3/cio2-bridge.h
+@@ -12,6 +12,19 @@
+ #define CIO2_MAX_LANES				4
+ #define MAX_NUM_LINK_FREQS			3
+ 
++/* Values are estimated guesses as we don't have a spec */
++#define CIO2_SENSOR_ROTATION_NORMAL		0
++#define CIO2_SENSOR_ROTATION_INVERTED		1
++
++/* Panel position defined in _PLD section of ACPI Specification 6.3 */
++#define CIO2_PLD_PANEL_TOP			0
++#define CIO2_PLD_PANEL_BOTTOM			1
++#define CIO2_PLD_PANEL_LEFT			2
++#define CIO2_PLD_PANEL_RIGHT			3
++#define CIO2_PLD_PANEL_FRONT			4
++#define CIO2_PLD_PANEL_BACK			5
++#define CIO2_PLD_PANEL_UNKNOWN			6
++
+ #define CIO2_SENSOR_CONFIG(_HID, _NR, ...)	\
+ 	(const struct cio2_sensor_config) {	\
+ 		.hid = _HID,			\
+-- 
+2.33.0
+
+From 56010e1b61e8333279d9cc107d66fddf9a46dc46 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Fabian=20W=C3=BCthrich?= <me@fabwu.ch>
+Date: Thu, 6 May 2021 07:52:44 +0200
+Subject: [PATCH] cio2-bridge: Use correct dev_properties size
+
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu3/cio2-bridge.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/media/pci/intel/ipu3/cio2-bridge.h b/drivers/media/pci/intel/ipu3/cio2-bridge.h
+index e1e388cc9f45..deaf5804f70d 100644
+--- a/drivers/media/pci/intel/ipu3/cio2-bridge.h
++++ b/drivers/media/pci/intel/ipu3/cio2-bridge.h
+@@ -124,7 +124,7 @@ struct cio2_sensor {
+ 
+ 	struct cio2_property_names prop_names;
+ 	struct property_entry ep_properties[5];
+-	struct property_entry dev_properties[3];
++	struct property_entry dev_properties[4];
+ 	struct property_entry cio2_properties[3];
+ 	struct software_node_ref_args local_ref[1];
+ 	struct software_node_ref_args remote_ref[1];
+-- 
+2.33.0
+
+From cf2f637f36388d011bf7f1f5ee1fabcd757db8e8 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Thu, 20 May 2021 23:31:04 +0100
+Subject: [PATCH] media: i2c: Fix vertical flip in ov5693
+
+The pinkness experienced by users with rotated sensors in their laptops
+was due to an incorrect setting for the vertical flip function; the
+datasheet for the sensor gives the settings as bits 1&2 in one place and
+bits 1&6 in another.
+
+Switch to flipping bit 6 instead of bit 2 for 0x3820 in the vertical
+flip function to fix the pink hue.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov5693.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
+index 9499ee10f56c..c558f9b48c83 100644
+--- a/drivers/media/i2c/ov5693.c
++++ b/drivers/media/i2c/ov5693.c
+@@ -133,7 +133,7 @@
+ #define OV5693_SUB_INC_Y_REG			0x3815
+ 
+ #define OV5693_FORMAT1_REG			0x3820
+-#define OV5693_FORMAT1_FLIP_VERT_ISP_EN		BIT(2)
++#define OV5693_FORMAT1_FLIP_VERT_ISP_EN		BIT(6)
+ #define OV5693_FORMAT1_FLIP_VERT_SENSOR_EN	BIT(1)
+ #define OV5693_FORMAT1_VBIN_EN			BIT(0)
+ #define OV5693_FORMAT2_REG			0x3821
+-- 
+2.33.0
+
+From 70bbe83f031cbdeac4713db8ac89c60a42187c22 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Fri, 9 Jul 2021 16:39:18 +0100
+Subject: [PATCH] media: i2c: Add ACPI support to ov8865
+
+The ov8865 sensor is sometimes found on x86 platforms enumerated via ACPI.
+Add an ACPI match table to the driver so that it's probed on those
+platforms.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index ce50f3ea87b8..fe60cda3dea7 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -5,6 +5,7 @@
+  * Author: Paul Kocialkowski <paul.kocialkowski@bootlin.com>
+  */
+ 
++#include <linux/acpi.h>
+ #include <linux/clk.h>
+ #include <linux/delay.h>
+ #include <linux/device.h>
+@@ -2946,6 +2947,12 @@ static const struct dev_pm_ops ov8865_pm_ops = {
+ 	SET_RUNTIME_PM_OPS(ov8865_suspend, ov8865_resume, NULL)
+ };
+ 
++static const struct acpi_device_id ov8865_acpi_match[] = {
++	{"INT347A"},
++	{},
++};
++MODULE_DEVICE_TABLE(acpi, ov8865_acpi_match);
++
+ static const struct of_device_id ov8865_of_match[] = {
+ 	{ .compatible = "ovti,ov8865" },
+ 	{ }
+@@ -2956,6 +2963,7 @@ static struct i2c_driver ov8865_driver = {
+ 	.driver = {
+ 		.name = "ov8865",
+ 		.of_match_table = ov8865_of_match,
++		.acpi_match_table = ov8865_acpi_match,
+ 		.pm = &ov8865_pm_ops,
+ 	},
+ 	.probe_new = ov8865_probe,
+-- 
+2.33.0
+
+From 71895e642120d77f1c1c2133692c5b30afd5b70e Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sat, 10 Jul 2021 21:20:17 +0100
+Subject: [PATCH] media: i2c: Fix incorrect value in comment
+
+The PLL configuration defined here sets 72MHz (which is correct), not
+80MHz. Correct the comment.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index fe60cda3dea7..2ef146e7e7ef 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -713,7 +713,7 @@ static const struct ov8865_pll2_config ov8865_pll2_config_native = {
+ /*
+  * EXTCLK = 24 MHz
+  * DAC_CLK = 360 MHz
+- * SCLK = 80 MHz
++ * SCLK = 72 MHz
+  */
+ 
+ static const struct ov8865_pll2_config ov8865_pll2_config_binning = {
+-- 
+2.33.0
+
+From 7e7c5df41a9650af8291bb4ec46031af5106141e Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sat, 10 Jul 2021 22:21:52 +0100
+Subject: [PATCH] media: i2c: Check fwnode->secondary for endpoint
+
+The ov8865 driver is one of those that can be connected to a CIO2
+device by the cio2-bridge code. This means that the absence of an
+endpoint for this device is not necessarily fatal, as one might be
+built by the cio2-bridge when it probes. Check fwnode->secondary for
+an endpoint, and defer probing if one isn't found rather than fail.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index 2ef146e7e7ef..a3199721bbca 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -2779,6 +2779,7 @@ static int ov8865_resume(struct device *dev)
+ static int ov8865_probe(struct i2c_client *client)
+ {
+ 	struct device *dev = &client->dev;
++	struct fwnode_handle *fwnode = dev_fwnode(dev);
+ 	struct fwnode_handle *handle;
+ 	struct ov8865_sensor *sensor;
+ 	struct v4l2_subdev *subdev;
+@@ -2795,11 +2796,11 @@ static int ov8865_probe(struct i2c_client *client)
+ 
+ 	/* Graph Endpoint */
+ 
+-	handle = fwnode_graph_get_next_endpoint(dev_fwnode(dev), NULL);
+-	if (!handle) {
+-		dev_err(dev, "unable to find endpoint node\n");
+-		return -EINVAL;
+-	}
++	handle = fwnode_graph_get_next_endpoint(fwnode, NULL);
++	if (!handle && !IS_ERR_OR_NULL(fwnode->secondary))
++		handle = fwnode_graph_get_next_endpoint(fwnode->secondary, NULL);
++	if (!handle)
++		return -EPROBE_DEFER;
+ 
+ 	sensor->endpoint.bus_type = V4L2_MBUS_CSI2_DPHY;
+ 
+-- 
+2.33.0
+
+From d732561d66aaf96bda83718b520a787dc0bbd41d Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sat, 10 Jul 2021 22:00:25 +0100
+Subject: [PATCH] media: i2c: Support 19.2MHz input clock in ov8865
+
+The ov8865 driver as written expects a 24MHz input clock, but the sensor
+is sometimes found on x86 platforms with a 19.2MHz input clock supplied.
+Add a set of PLL configurations to the driver to support that rate too.
+As ACPI doesn't auto-configure the clock rate, check for a clock-frequency
+during probe and set that rate if one is found.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 157 +++++++++++++++++++++++++++----------
+ 1 file changed, 114 insertions(+), 43 deletions(-)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index a3199721bbca..53e6bcbe18d6 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -21,10 +21,6 @@
+ #include <media/v4l2-image-sizes.h>
+ #include <media/v4l2-mediabus.h>
+ 
+-/* Clock rate */
+-
+-#define OV8865_EXTCLK_RATE			24000000
+-
+ /* Register definitions */
+ 
+ /* System */
+@@ -665,6 +661,9 @@ struct ov8865_sensor {
+ 	struct regulator *avdd;
+ 	struct regulator *dvdd;
+ 	struct regulator *dovdd;
++
++	unsigned long extclk_rate;
++	unsigned int extclk_rate_idx;
+ 	struct clk *extclk;
+ 
+ 	struct v4l2_fwnode_endpoint endpoint;
+@@ -680,49 +679,83 @@ struct ov8865_sensor {
+ /* Static definitions */
+ 
+ /*
+- * EXTCLK = 24 MHz
+  * PHY_SCLK = 720 MHz
+  * MIPI_PCLK = 90 MHz
+  */
+-static const struct ov8865_pll1_config ov8865_pll1_config_native = {
+-	.pll_pre_div_half	= 1,
+-	.pll_pre_div		= 0,
+-	.pll_mul		= 30,
+-	.m_div			= 1,
+-	.mipi_div		= 3,
+-	.pclk_div		= 1,
+-	.sys_pre_div		= 1,
+-	.sys_div		= 2,
++
++static const struct ov8865_pll1_config ov8865_pll1_configs_native[] = {
++	{ /* 19.2 MHz input clock */
++		.pll_pre_div_half	= 1,
++		.pll_pre_div		= 2,
++		.pll_mul		= 75,
++		.m_div			= 1,
++		.mipi_div		= 3,
++		.pclk_div		= 1,
++		.sys_pre_div		= 1,
++		.sys_div		= 2,
++	},
++	{ /* 24MHz input clock */
++		.pll_pre_div_half	= 1,
++		.pll_pre_div		= 0,
++		.pll_mul		= 30,
++		.m_div			= 1,
++		.mipi_div		= 3,
++		.pclk_div		= 1,
++		.sys_pre_div		= 1,
++		.sys_div		= 2,
++	},
+ };
+ 
+ /*
+- * EXTCLK = 24 MHz
+  * DAC_CLK = 360 MHz
+  * SCLK = 144 MHz
+  */
+ 
+-static const struct ov8865_pll2_config ov8865_pll2_config_native = {
+-	.pll_pre_div_half	= 1,
+-	.pll_pre_div		= 0,
+-	.pll_mul		= 30,
+-	.dac_div		= 2,
+-	.sys_pre_div		= 5,
+-	.sys_div		= 0,
++static const struct ov8865_pll2_config ov8865_pll2_configs_native[] = {
++	/* 19.2MHz input clock */
++	{
++		.pll_pre_div_half	= 1,
++		.pll_pre_div		= 5,
++		.pll_mul		= 75,
++		.dac_div		= 1,
++		.sys_pre_div		= 1,
++		.sys_div		= 3,
++	},
++	/* 24MHz input clock */
++	{
++		.pll_pre_div_half	= 1,
++		.pll_pre_div		= 0,
++		.pll_mul		= 30,
++		.dac_div		= 2,
++		.sys_pre_div		= 5,
++		.sys_div		= 0,
++	}
+ };
+ 
+ /*
+- * EXTCLK = 24 MHz
+  * DAC_CLK = 360 MHz
+  * SCLK = 72 MHz
+  */
+ 
+-static const struct ov8865_pll2_config ov8865_pll2_config_binning = {
++static const struct ov8865_pll2_config ov8865_pll2_configs_binning[] = {
++	/* 19.2MHz input clock */
++	{
++	.pll_pre_div_half	= 1,
++	.pll_pre_div		= 2,
++	.pll_mul		= 75,
++	.dac_div		= 2,
++	.sys_pre_div		= 10,
++	.sys_div		= 0,
++	},
++	/* 24MHz input clock */
++	{
+ 	.pll_pre_div_half	= 1,
+ 	.pll_pre_div		= 0,
+ 	.pll_mul		= 30,
+ 	.dac_div		= 2,
+ 	.sys_pre_div		= 10,
+ 	.sys_div		= 0,
++	}
+ };
+ 
+ static const struct ov8865_sclk_config ov8865_sclk_config_native = {
+@@ -934,8 +967,8 @@ static const struct ov8865_mode ov8865_modes[] = {
+ 		.frame_interval			= { 1, 30 },
+ 
+ 		/* PLL */
+-		.pll1_config			= &ov8865_pll1_config_native,
+-		.pll2_config			= &ov8865_pll2_config_native,
++		.pll1_config			= ov8865_pll1_configs_native,
++		.pll2_config			= ov8865_pll2_configs_native,
+ 		.sclk_config			= &ov8865_sclk_config_native,
+ 
+ 		/* Registers */
+@@ -990,8 +1023,8 @@ static const struct ov8865_mode ov8865_modes[] = {
+ 		.frame_interval			= { 1, 30 },
+ 
+ 		/* PLL */
+-		.pll1_config			= &ov8865_pll1_config_native,
+-		.pll2_config			= &ov8865_pll2_config_native,
++		.pll1_config			= ov8865_pll1_configs_native,
++		.pll2_config			= ov8865_pll2_configs_native,
+ 		.sclk_config			= &ov8865_sclk_config_native,
+ 
+ 		/* Registers */
+@@ -1050,8 +1083,8 @@ static const struct ov8865_mode ov8865_modes[] = {
+ 		.frame_interval			= { 1, 30 },
+ 
+ 		/* PLL */
+-		.pll1_config			= &ov8865_pll1_config_native,
+-		.pll2_config			= &ov8865_pll2_config_binning,
++		.pll1_config			= ov8865_pll1_configs_native,
++		.pll2_config			= ov8865_pll2_configs_binning,
+ 		.sclk_config			= &ov8865_sclk_config_native,
+ 
+ 		/* Registers */
+@@ -1116,8 +1149,8 @@ static const struct ov8865_mode ov8865_modes[] = {
+ 		.frame_interval			= { 1, 90 },
+ 
+ 		/* PLL */
+-		.pll1_config			= &ov8865_pll1_config_native,
+-		.pll2_config			= &ov8865_pll2_config_binning,
++		.pll1_config			= ov8865_pll1_configs_native,
++		.pll2_config			= ov8865_pll2_configs_binning,
+ 		.sclk_config			= &ov8865_sclk_config_native,
+ 
+ 		/* Registers */
+@@ -1266,6 +1299,13 @@ static const struct ov8865_register_value ov8865_init_sequence[] = {
+ 	{ 0x4503, 0x10 },
+ };
+ 
++/* Clock rate */
++
++static const unsigned long supported_extclk_rates[] = {
++	19200000,
++	24000000,
++};
++
+ static const s64 ov8865_link_freq_menu[] = {
+ 	360000000,
+ };
+@@ -1513,12 +1553,11 @@ static int ov8865_isp_configure(struct ov8865_sensor *sensor)
+ static unsigned long ov8865_mode_pll1_rate(struct ov8865_sensor *sensor,
+ 					   const struct ov8865_mode *mode)
+ {
+-	const struct ov8865_pll1_config *config = mode->pll1_config;
+-	unsigned long extclk_rate;
++	const struct ov8865_pll1_config *config;
+ 	unsigned long pll1_rate;
+ 
+-	extclk_rate = clk_get_rate(sensor->extclk);
+-	pll1_rate = extclk_rate * config->pll_mul / config->pll_pre_div_half;
++	config = &mode->pll1_config[sensor->extclk_rate_idx];
++	pll1_rate = sensor->extclk_rate * config->pll_mul / config->pll_pre_div_half;
+ 
+ 	switch (config->pll_pre_div) {
+ 	case 0:
+@@ -1552,10 +1591,12 @@ static int ov8865_mode_pll1_configure(struct ov8865_sensor *sensor,
+ 				      const struct ov8865_mode *mode,
+ 				      u32 mbus_code)
+ {
+-	const struct ov8865_pll1_config *config = mode->pll1_config;
++	const struct ov8865_pll1_config *config;
+ 	u8 value;
+ 	int ret;
+ 
++	config = &mode->pll1_config[sensor->extclk_rate_idx];
++
+ 	switch (mbus_code) {
+ 	case MEDIA_BUS_FMT_SBGGR10_1X10:
+ 		value = OV8865_MIPI_BIT_SEL(10);
+@@ -1622,9 +1663,11 @@ static int ov8865_mode_pll1_configure(struct ov8865_sensor *sensor,
+ static int ov8865_mode_pll2_configure(struct ov8865_sensor *sensor,
+ 				      const struct ov8865_mode *mode)
+ {
+-	const struct ov8865_pll2_config *config = mode->pll2_config;
++	const struct ov8865_pll2_config *config;
+ 	int ret;
+ 
++	config = &mode->pll2_config[sensor->extclk_rate_idx];
++
+ 	ret = ov8865_write(sensor, OV8865_PLL_CTRL12_REG,
+ 			   OV8865_PLL_CTRL12_PRE_DIV_HALF(config->pll_pre_div_half) |
+ 			   OV8865_PLL_CTRL12_DAC_DIV(config->dac_div));
+@@ -2053,9 +2096,11 @@ static int ov8865_mode_configure(struct ov8865_sensor *sensor,
+ static unsigned long ov8865_mode_mipi_clk_rate(struct ov8865_sensor *sensor,
+ 					       const struct ov8865_mode *mode)
+ {
+-	const struct ov8865_pll1_config *config = mode->pll1_config;
++	const struct ov8865_pll1_config *config;
+ 	unsigned long pll1_rate;
+ 
++	config = &mode->pll1_config[sensor->extclk_rate_idx];
++
+ 	pll1_rate = ov8865_mode_pll1_rate(sensor, mode);
+ 
+ 	return pll1_rate / config->m_div / 2;
+@@ -2784,7 +2829,8 @@ static int ov8865_probe(struct i2c_client *client)
+ 	struct ov8865_sensor *sensor;
+ 	struct v4l2_subdev *subdev;
+ 	struct media_pad *pad;
+-	unsigned long rate;
++	unsigned int rate;
++	unsigned int i;
+ 	int ret;
+ 
+ 	sensor = devm_kzalloc(dev, sizeof(*sensor), GFP_KERNEL);
+@@ -2861,13 +2907,38 @@ static int ov8865_probe(struct i2c_client *client)
+ 		goto error_endpoint;
+ 	}
+ 
+-	rate = clk_get_rate(sensor->extclk);
+-	if (rate != OV8865_EXTCLK_RATE) {
+-		dev_err(dev, "clock rate %lu Hz is unsupported\n", rate);
++	/*
++	 * We could have either a 24MHz or 19.2MHz clock rate. Check for a
++	 * clock-frequency property and if found, set that rate. This should
++	 * cover ACPI case. If the system uses devicetree then the configured
++	 * rate should already be set, so we'll have to check it.
++	 */
++
++	ret = fwnode_property_read_u32(fwnode, "clock-frequency", &rate);
++	if (!ret) {
++		ret = clk_set_rate(sensor->extclk, rate);
++		if (ret) {
++			dev_err(dev, "failed to set clock rate\n");
++			return ret;
++		}
++	}
++
++	sensor->extclk_rate = clk_get_rate(sensor->extclk);
++
++	for (i = 0; i < ARRAY_SIZE(supported_extclk_rates); i++) {
++		if (sensor->extclk_rate == supported_extclk_rates[i])
++			break;
++	}
++
++	if (i == ARRAY_SIZE(supported_extclk_rates)) {
++		dev_err(dev, "clock rate %lu Hz is unsupported\n",
++			sensor->extclk_rate);
+ 		ret = -EINVAL;
+ 		goto error_endpoint;
+ 	}
+ 
++	sensor->extclk_rate_idx = i;
++
+ 	/* Subdev, entity and pad */
+ 
+ 	subdev = &sensor->subdev;
+-- 
+2.33.0
+
+From c20ba8696c4ca6b782f672bb8c121ebbea8a0a29 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sat, 10 Jul 2021 22:19:10 +0100
+Subject: [PATCH] media: i2c: Add .get_selection() support to ov8865
+
+The ov8865 drivers media pad ops currently does not include
+.get_selection() - add support for that callback.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 61 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 61 insertions(+)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index 53e6bcbe18d6..2f487c25ed56 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -450,6 +450,15 @@
+ #define OV8865_PRE_CTRL0_PATTERN_COLOR_SQUARES	2
+ #define OV8865_PRE_CTRL0_PATTERN_BLACK		3
+ 
++/* Pixel Array */
++
++#define OV8865_NATIVE_WIDTH			3296
++#define OV8865_NATIVE_HEIGHT			2528
++#define OV8865_ACTIVE_START_TOP			32
++#define OV8865_ACTIVE_START_LEFT		80
++#define OV8865_ACTIVE_WIDTH			3264
++#define OV8865_ACTIVE_HEIGHT			2448
++
+ /* Macros */
+ 
+ #define ov8865_subdev_sensor(s) \
+@@ -2743,12 +2752,64 @@ static int ov8865_enum_frame_interval(struct v4l2_subdev *subdev,
+ 	return 0;
+ }
+ 
++static void
++__ov8865_get_pad_crop(struct ov8865_sensor *sensor,
++		      struct v4l2_subdev_state *state, unsigned int pad,
++		      enum v4l2_subdev_format_whence which, struct v4l2_rect *r)
++{
++	switch (which) {
++	case V4L2_SUBDEV_FORMAT_TRY:
++		*r = *v4l2_subdev_get_try_crop(&sensor->subdev, state, pad);
++		break;
++	case V4L2_SUBDEV_FORMAT_ACTIVE:
++		r->height = sensor->state.mode->output_size_y;
++		r->width = sensor->state.mode->output_size_x;
++		r->top = (OV8865_NATIVE_HEIGHT - sensor->state.mode->output_size_y) / 2;
++		r->left = (OV8865_NATIVE_WIDTH - sensor->state.mode->output_size_x) / 2;
++		break;
++	}
++}
++
++static int ov8865_get_selection(struct v4l2_subdev *subdev,
++				struct v4l2_subdev_state *state,
++				struct v4l2_subdev_selection *sel)
++{
++	struct ov8865_sensor *sensor = ov8865_subdev_sensor(subdev);
++
++	switch (sel->target) {
++	case V4L2_SEL_TGT_CROP:
++		mutex_lock(&sensor->mutex);
++			__ov8865_get_pad_crop(sensor, state, sel->pad,
++					      sel->which, &sel->r);
++		mutex_unlock(&sensor->mutex);
++		break;
++	case V4L2_SEL_TGT_NATIVE_SIZE:
++		sel->r.top = 0;
++		sel->r.left = 0;
++		sel->r.width = OV8865_NATIVE_WIDTH;
++		sel->r.height = OV8865_NATIVE_HEIGHT;
++		break;
++	case V4L2_SEL_TGT_CROP_BOUNDS:
++	case V4L2_SEL_TGT_CROP_DEFAULT:
++		sel->r.top = OV8865_ACTIVE_START_TOP;
++		sel->r.left = OV8865_ACTIVE_START_LEFT;
++		sel->r.width = OV8865_ACTIVE_WIDTH;
++		sel->r.height = OV8865_ACTIVE_HEIGHT;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
+ static const struct v4l2_subdev_pad_ops ov8865_subdev_pad_ops = {
+ 	.enum_mbus_code		= ov8865_enum_mbus_code,
+ 	.get_fmt		= ov8865_get_fmt,
+ 	.set_fmt		= ov8865_set_fmt,
+ 	.enum_frame_size	= ov8865_enum_frame_size,
+ 	.enum_frame_interval	= ov8865_enum_frame_interval,
++	.get_selection		= ov8865_get_selection,
+ };
+ 
+ static const struct v4l2_subdev_ops ov8865_subdev_ops = {
+-- 
+2.33.0
+
+From 4b68f4ce141004f4e31f2f05e1b260cb7ac08638 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sat, 10 Jul 2021 22:34:43 +0100
+Subject: [PATCH] media: i2c: Switch control to V4L2_CID_ANALOGUE_GAIN
+
+The V4L2_CID_GAIN control for this driver configures registers that
+the datasheet specifies as analogue gain. Switch the control's ID
+to V4L2_CID_ANALOGUE_GAIN.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index 2f487c25ed56..b91c952b6ef9 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -2137,7 +2137,7 @@ static int ov8865_exposure_configure(struct ov8865_sensor *sensor, u32 exposure)
+ 
+ /* Gain */
+ 
+-static int ov8865_gain_configure(struct ov8865_sensor *sensor, u32 gain)
++static int ov8865_analog_gain_configure(struct ov8865_sensor *sensor, u32 gain)
+ {
+ 	int ret;
+ 
+@@ -2447,8 +2447,8 @@ static int ov8865_s_ctrl(struct v4l2_ctrl *ctrl)
+ 		if (ret)
+ 			return ret;
+ 		break;
+-	case V4L2_CID_GAIN:
+-		ret = ov8865_gain_configure(sensor, ctrl->val);
++	case V4L2_CID_ANALOGUE_GAIN:
++		ret = ov8865_analog_gain_configure(sensor, ctrl->val);
+ 		if (ret)
+ 			return ret;
+ 		break;
+@@ -2493,7 +2493,7 @@ static int ov8865_ctrls_init(struct ov8865_sensor *sensor)
+ 
+ 	/* Gain */
+ 
+-	v4l2_ctrl_new_std(handler, ops, V4L2_CID_GAIN, 128, 8191, 128, 128);
++	v4l2_ctrl_new_std(handler, ops, V4L2_CID_ANALOGUE_GAIN, 128, 8191, 128, 128);
+ 
+ 	/* White Balance */
+ 
+-- 
+2.33.0
+
+From 82e85f81bed79b8e57f006e0cc47c984731653bc Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Mon, 12 Jul 2021 22:54:56 +0100
+Subject: [PATCH] media: i2c: Add vblank control to ov8865
+
+Add a V4L2_CID_VBLANK control to the ov8865 driver.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 34 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index b91c952b6ef9..4430115607a4 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -183,6 +183,8 @@
+ #define OV8865_VTS_H(v)				(((v) & GENMASK(11, 8)) >> 8)
+ #define OV8865_VTS_L_REG			0x380f
+ #define OV8865_VTS_L(v)				((v) & GENMASK(7, 0))
++#define OV8865_TIMING_MAX_VTS			0xffff
++#define OV8865_TIMING_MIN_VTS			0x04
+ #define OV8865_OFFSET_X_H_REG			0x3810
+ #define OV8865_OFFSET_X_H(v)			(((v) & GENMASK(15, 8)) >> 8)
+ #define OV8865_OFFSET_X_L_REG			0x3811
+@@ -658,6 +660,7 @@ struct ov8865_state {
+ struct ov8865_ctrls {
+ 	struct v4l2_ctrl *link_freq;
+ 	struct v4l2_ctrl *pixel_rate;
++	struct v4l2_ctrl *vblank;
+ 
+ 	struct v4l2_ctrl_handler handler;
+ };
+@@ -2212,6 +2215,20 @@ static int ov8865_test_pattern_configure(struct ov8865_sensor *sensor,
+ 			    ov8865_test_pattern_bits[index]);
+ }
+ 
++/* Blanking */
++
++static int ov8865_vts_configure(struct ov8865_sensor *sensor, u32 vblank)
++{
++	u16 vts = sensor->state.mode->output_size_y + vblank;
++	int ret;
++
++	ret = ov8865_write(sensor, OV8865_VTS_H_REG, OV8865_VTS_H(vts));
++	if (ret)
++		return ret;
++
++	return ov8865_write(sensor, OV8865_VTS_L_REG, OV8865_VTS_L(vts));
++}
++
+ /* State */
+ 
+ static int ov8865_state_mipi_configure(struct ov8865_sensor *sensor,
+@@ -2463,6 +2480,8 @@ static int ov8865_s_ctrl(struct v4l2_ctrl *ctrl)
+ 	case V4L2_CID_TEST_PATTERN:
+ 		index = (unsigned int)ctrl->val;
+ 		return ov8865_test_pattern_configure(sensor, index);
++	case V4L2_CID_VBLANK:
++		return ov8865_vts_configure(sensor, ctrl->val);
+ 	default:
+ 		return -EINVAL;
+ 	}
+@@ -2479,6 +2498,8 @@ static int ov8865_ctrls_init(struct ov8865_sensor *sensor)
+ 	struct ov8865_ctrls *ctrls = &sensor->ctrls;
+ 	struct v4l2_ctrl_handler *handler = &ctrls->handler;
+ 	const struct v4l2_ctrl_ops *ops = &ov8865_ctrl_ops;
++	const struct ov8865_mode *mode = sensor->state.mode;
++	unsigned int vblank_max, vblank_def;
+ 	int ret;
+ 
+ 	v4l2_ctrl_handler_init(handler, 32);
+@@ -2514,6 +2535,13 @@ static int ov8865_ctrls_init(struct ov8865_sensor *sensor)
+ 				     ARRAY_SIZE(ov8865_test_pattern_menu) - 1,
+ 				     0, 0, ov8865_test_pattern_menu);
+ 
++	/* Blanking */
++	vblank_max = OV8865_TIMING_MAX_VTS - mode->output_size_y;
++	vblank_def = mode->vts - mode->output_size_y;
++	ctrls->vblank = v4l2_ctrl_new_std(handler, ops, V4L2_CID_VBLANK,
++					  OV8865_TIMING_MIN_VTS, vblank_max, 1,
++					  vblank_def);
++
+ 	/* MIPI CSI-2 */
+ 
+ 	ctrls->link_freq =
+@@ -2694,6 +2722,10 @@ static int ov8865_set_fmt(struct v4l2_subdev *subdev,
+ 		 sensor->state.mbus_code != mbus_code)
+ 		ret = ov8865_state_configure(sensor, mode, mbus_code);
+ 
++	__v4l2_ctrl_modify_range(sensor->ctrls.vblank, OV8865_TIMING_MIN_VTS,
++				 OV8865_TIMING_MAX_VTS - mode->output_size_y,
++				 1, mode->vts - mode->output_size_y);
++
+ complete:
+ 	mutex_unlock(&sensor->mutex);
+ 
+@@ -3021,6 +3053,8 @@ static int ov8865_probe(struct i2c_client *client)
+ 
+ 	/* Sensor */
+ 
++	sensor->state.mode =  &ov8865_modes[0];
++
+ 	ret = ov8865_ctrls_init(sensor);
+ 	if (ret)
+ 		goto error_mutex;
+-- 
+2.33.0
+
+From 3ba44b92b9777f31aaf5b52c7facac7e1715d306 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Tue, 13 Jul 2021 23:40:33 +0100
+Subject: [PATCH] media: i2c: Add hblank control to ov8865
+
+Add a V4L2_CID_HBLANK control to the ov8865 driver. This is read only
+with timing control intended to be done via vblanking alone.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index 4430115607a4..e9b5f4d8e79b 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -660,6 +660,7 @@ struct ov8865_state {
+ struct ov8865_ctrls {
+ 	struct v4l2_ctrl *link_freq;
+ 	struct v4l2_ctrl *pixel_rate;
++	struct v4l2_ctrl *hblank;
+ 	struct v4l2_ctrl *vblank;
+ 
+ 	struct v4l2_ctrl_handler handler;
+@@ -2500,6 +2501,7 @@ static int ov8865_ctrls_init(struct ov8865_sensor *sensor)
+ 	const struct v4l2_ctrl_ops *ops = &ov8865_ctrl_ops;
+ 	const struct ov8865_mode *mode = sensor->state.mode;
+ 	unsigned int vblank_max, vblank_def;
++	unsigned int hblank;
+ 	int ret;
+ 
+ 	v4l2_ctrl_handler_init(handler, 32);
+@@ -2536,6 +2538,13 @@ static int ov8865_ctrls_init(struct ov8865_sensor *sensor)
+ 				     0, 0, ov8865_test_pattern_menu);
+ 
+ 	/* Blanking */
++	hblank = mode->hts < mode->output_size_x ? 0 : mode->hts - mode->output_size_x;
++	ctrls->hblank = v4l2_ctrl_new_std(handler, ops, V4L2_CID_HBLANK, hblank,
++					  hblank, 1, hblank);
++
++	if (ctrls->hblank)
++		ctrls->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
+ 	vblank_max = OV8865_TIMING_MAX_VTS - mode->output_size_y;
+ 	vblank_def = mode->vts - mode->output_size_y;
+ 	ctrls->vblank = v4l2_ctrl_new_std(handler, ops, V4L2_CID_VBLANK,
+@@ -2682,6 +2691,7 @@ static int ov8865_set_fmt(struct v4l2_subdev *subdev,
+ 	struct v4l2_mbus_framefmt *mbus_format = &format->format;
+ 	const struct ov8865_mode *mode;
+ 	u32 mbus_code = 0;
++	unsigned int hblank;
+ 	unsigned int index;
+ 	int ret = 0;
+ 
+@@ -2726,6 +2736,10 @@ static int ov8865_set_fmt(struct v4l2_subdev *subdev,
+ 				 OV8865_TIMING_MAX_VTS - mode->output_size_y,
+ 				 1, mode->vts - mode->output_size_y);
+ 
++	hblank = mode->hts < mode->output_size_x ? 0 : mode->hts - mode->output_size_x;
++	__v4l2_ctrl_modify_range(sensor->ctrls.hblank, hblank, hblank, 1,
++				 hblank);
++
+ complete:
+ 	mutex_unlock(&sensor->mutex);
+ 
+-- 
+2.33.0
+
+From 778dce0a4483b0c593abd80c4277aedc2d386184 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Tue, 13 Jul 2021 23:43:17 +0100
+Subject: [PATCH] media: i2c: cap exposure at height + vblank in ov8865
+
+Exposure limits depend on the total height; when vblank is altered (and
+thus the total height is altered), change the exposure limits to reflect
+the new cap.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 24 ++++++++++++++++++++++--
+ 1 file changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index e9b5f4d8e79b..893cc58dc265 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -662,6 +662,7 @@ struct ov8865_ctrls {
+ 	struct v4l2_ctrl *pixel_rate;
+ 	struct v4l2_ctrl *hblank;
+ 	struct v4l2_ctrl *vblank;
++	struct v4l2_ctrl *exposure;
+ 
+ 	struct v4l2_ctrl_handler handler;
+ };
+@@ -2455,6 +2456,18 @@ static int ov8865_s_ctrl(struct v4l2_ctrl *ctrl)
+ 	unsigned int index;
+ 	int ret;
+ 
++	/* If VBLANK is altered we need to update exposure to compensate */
++	if (ctrl->id == V4L2_CID_VBLANK) {
++		int exposure_max;
++
++		exposure_max = sensor->state.mode->output_size_y + ctrl->val;
++		__v4l2_ctrl_modify_range(sensor->ctrls.exposure,
++					 sensor->ctrls.exposure->minimum,
++					 exposure_max,
++					 sensor->ctrls.exposure->step,
++					 min(sensor->ctrls.exposure->val, exposure_max));
++	}
++
+ 	/* Wait for the sensor to be on before setting controls. */
+ 	if (pm_runtime_suspended(sensor->dev))
+ 		return 0;
+@@ -2511,8 +2524,8 @@ static int ov8865_ctrls_init(struct ov8865_sensor *sensor)
+ 
+ 	/* Exposure */
+ 
+-	v4l2_ctrl_new_std(handler, ops, V4L2_CID_EXPOSURE, 16, 1048575, 16,
+-			  512);
++	ctrls->exposure = v4l2_ctrl_new_std(handler, ops, V4L2_CID_EXPOSURE, 16,
++					    1048575, 16, 512);
+ 
+ 	/* Gain */
+ 
+@@ -2693,6 +2706,7 @@ static int ov8865_set_fmt(struct v4l2_subdev *subdev,
+ 	u32 mbus_code = 0;
+ 	unsigned int hblank;
+ 	unsigned int index;
++	int exposure_max;
+ 	int ret = 0;
+ 
+ 	mutex_lock(&sensor->mutex);
+@@ -2740,6 +2754,12 @@ static int ov8865_set_fmt(struct v4l2_subdev *subdev,
+ 	__v4l2_ctrl_modify_range(sensor->ctrls.hblank, hblank, hblank, 1,
+ 				 hblank);
+ 
++	exposure_max = mode->vts;
++	__v4l2_ctrl_modify_range(sensor->ctrls.exposure,
++				 sensor->ctrls.exposure->minimum, exposure_max,
++				 sensor->ctrls.exposure->step,
++				 min(sensor->ctrls.exposure->val, exposure_max));
++
+ complete:
+ 	mutex_unlock(&sensor->mutex);
+ 
+-- 
+2.33.0
+
+From e079f254476a7223b2e07c0f8f37218102fdb7c3 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Wed, 14 Jul 2021 18:05:44 +0100
+Subject: [PATCH] media: i2c: Remove unused macros from ov8865
+
+There are a number of macros defined in this driver that aren't actually
+used within it. There's a lot of macros defined in total, so removing the
+unused ones helps make it a bit less busy.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 137 +------------------------------------
+ 1 file changed, 1 insertion(+), 136 deletions(-)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index 893cc58dc265..fb81b822987d 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -46,8 +46,6 @@
+ #define OV8865_PLL_CTRL6_REG			0x306
+ #define OV8865_PLL_CTRL6_SYS_DIV(v)		(((v) - 1) & BIT(0))
+ 
+-#define OV8865_PLL_CTRL8_REG			0x308
+-#define OV8865_PLL_CTRL9_REG			0x309
+ #define OV8865_PLL_CTRLA_REG			0x30a
+ #define OV8865_PLL_CTRLA_PRE_DIV_HALF(v)	(((v) - 1) & BIT(0))
+ #define OV8865_PLL_CTRLB_REG			0x30b
+@@ -60,41 +58,21 @@
+ #define OV8865_PLL_CTRLE_SYS_DIV(v)		((v) & GENMASK(2, 0))
+ #define OV8865_PLL_CTRLF_REG			0x30f
+ #define OV8865_PLL_CTRLF_SYS_PRE_DIV(v)		(((v) - 1) & GENMASK(3, 0))
+-#define OV8865_PLL_CTRL10_REG			0x310
+-#define OV8865_PLL_CTRL11_REG			0x311
+ #define OV8865_PLL_CTRL12_REG			0x312
+ #define OV8865_PLL_CTRL12_PRE_DIV_HALF(v)	((((v) - 1) << 4) & BIT(4))
+ #define OV8865_PLL_CTRL12_DAC_DIV(v)		(((v) - 1) & GENMASK(3, 0))
+ 
+-#define OV8865_PLL_CTRL1B_REG			0x31b
+-#define OV8865_PLL_CTRL1C_REG			0x31c
+-
+ #define OV8865_PLL_CTRL1E_REG			0x31e
+ #define OV8865_PLL_CTRL1E_PLL1_NO_LAT		BIT(3)
+ 
+-#define OV8865_PAD_OEN0_REG			0x3000
+-
+-#define OV8865_PAD_OEN2_REG			0x3002
+-
+-#define OV8865_CLK_RST5_REG			0x3005
+-
+ #define OV8865_CHIP_ID_HH_REG			0x300a
+ #define OV8865_CHIP_ID_HH_VALUE			0x00
+ #define OV8865_CHIP_ID_H_REG			0x300b
+ #define OV8865_CHIP_ID_H_VALUE			0x88
+ #define OV8865_CHIP_ID_L_REG			0x300c
+ #define OV8865_CHIP_ID_L_VALUE			0x65
+-#define OV8865_PAD_OUT2_REG			0x300d
+-
+-#define OV8865_PAD_SEL2_REG			0x3010
+-#define OV8865_PAD_PK_REG			0x3011
+-#define OV8865_PAD_PK_DRIVE_STRENGTH_1X		(0 << 5)
+-#define OV8865_PAD_PK_DRIVE_STRENGTH_2X		(1 << 5)
+-#define OV8865_PAD_PK_DRIVE_STRENGTH_3X		(2 << 5)
+-#define OV8865_PAD_PK_DRIVE_STRENGTH_4X		(3 << 5)
+ 
+ #define OV8865_PUMP_CLK_DIV_REG			0x3015
+-#define OV8865_PUMP_CLK_DIV_PUMP_N(v)		(((v) << 4) & GENMASK(6, 4))
+ #define OV8865_PUMP_CLK_DIV_PUMP_P(v)		((v) & GENMASK(2, 0))
+ 
+ #define OV8865_MIPI_SC_CTRL0_REG		0x3018
+@@ -102,21 +80,12 @@
+ 						 GENMASK(7, 5))
+ #define OV8865_MIPI_SC_CTRL0_MIPI_EN		BIT(4)
+ #define OV8865_MIPI_SC_CTRL0_UNKNOWN		BIT(1)
+-#define OV8865_MIPI_SC_CTRL0_LANES_PD_MIPI	BIT(0)
+-#define OV8865_MIPI_SC_CTRL1_REG		0x3019
+-#define OV8865_CLK_RST0_REG			0x301a
+-#define OV8865_CLK_RST1_REG			0x301b
+-#define OV8865_CLK_RST2_REG			0x301c
+-#define OV8865_CLK_RST3_REG			0x301d
+-#define OV8865_CLK_RST4_REG			0x301e
+ 
+ #define OV8865_PCLK_SEL_REG			0x3020
+ #define OV8865_PCLK_SEL_PCLK_DIV_MASK		BIT(3)
+ #define OV8865_PCLK_SEL_PCLK_DIV(v)		((((v) - 1) << 3) & BIT(3))
+ 
+-#define OV8865_MISC_CTRL_REG			0x3021
+ #define OV8865_MIPI_SC_CTRL2_REG		0x3022
+-#define OV8865_MIPI_SC_CTRL2_CLK_LANES_PD_MIPI	BIT(1)
+ #define OV8865_MIPI_SC_CTRL2_PD_MIPI_RST_SYNC	BIT(0)
+ 
+ #define OV8865_MIPI_BIT_SEL_REG			0x3031
+@@ -125,7 +94,6 @@
+ #define OV8865_CLK_SEL0_PLL1_SYS_SEL(v)		(((v) << 7) & BIT(7))
+ #define OV8865_CLK_SEL1_REG			0x3033
+ #define OV8865_CLK_SEL1_MIPI_EOF		BIT(5)
+-#define OV8865_CLK_SEL1_UNKNOWN			BIT(2)
+ #define OV8865_CLK_SEL1_PLL_SCLK_SEL_MASK	BIT(1)
+ #define OV8865_CLK_SEL1_PLL_SCLK_SEL(v)		(((v) << 1) & BIT(1))
+ 
+@@ -142,7 +110,6 @@
+ #define OV8865_EXPOSURE_CTRL_H(v)		(((v) & GENMASK(15, 8)) >> 8)
+ #define OV8865_EXPOSURE_CTRL_L_REG		0x3502
+ #define OV8865_EXPOSURE_CTRL_L(v)		((v) & GENMASK(7, 0))
+-#define OV8865_EXPOSURE_GAIN_MANUAL_REG		0x3503
+ 
+ #define OV8865_GAIN_CTRL_H_REG			0x3508
+ #define OV8865_GAIN_CTRL_H(v)			(((v) & GENMASK(12, 8)) >> 8)
+@@ -197,18 +164,6 @@
+ #define OV8865_INC_X_ODD(v)			((v) & GENMASK(4, 0))
+ #define OV8865_INC_X_EVEN_REG			0x3815
+ #define OV8865_INC_X_EVEN(v)			((v) & GENMASK(4, 0))
+-#define OV8865_VSYNC_START_H_REG		0x3816
+-#define OV8865_VSYNC_START_H(v)			(((v) & GENMASK(15, 8)) >> 8)
+-#define OV8865_VSYNC_START_L_REG		0x3817
+-#define OV8865_VSYNC_START_L(v)			((v) & GENMASK(7, 0))
+-#define OV8865_VSYNC_END_H_REG			0x3818
+-#define OV8865_VSYNC_END_H(v)			(((v) & GENMASK(15, 8)) >> 8)
+-#define OV8865_VSYNC_END_L_REG			0x3819
+-#define OV8865_VSYNC_END_L(v)			((v) & GENMASK(7, 0))
+-#define OV8865_HSYNC_FIRST_H_REG		0x381a
+-#define OV8865_HSYNC_FIRST_H(v)			(((v) & GENMASK(15, 8)) >> 8)
+-#define OV8865_HSYNC_FIRST_L_REG		0x381b
+-#define OV8865_HSYNC_FIRST_L(v)			((v) & GENMASK(7, 0))
+ 
+ #define OV8865_FORMAT1_REG			0x3820
+ #define OV8865_FORMAT1_FLIP_VERT_ISP_EN		BIT(2)
+@@ -240,10 +195,6 @@
+ #define OV8865_AUTO_SIZE_CTRL_CROP_END_X_REG	BIT(2)
+ #define OV8865_AUTO_SIZE_CTRL_CROP_START_Y_REG	BIT(1)
+ #define OV8865_AUTO_SIZE_CTRL_CROP_START_X_REG	BIT(0)
+-#define OV8865_AUTO_SIZE_X_OFFSET_H_REG		0x3842
+-#define OV8865_AUTO_SIZE_X_OFFSET_L_REG		0x3843
+-#define OV8865_AUTO_SIZE_Y_OFFSET_H_REG		0x3844
+-#define OV8865_AUTO_SIZE_Y_OFFSET_L_REG		0x3845
+ #define OV8865_AUTO_SIZE_BOUNDARIES_REG		0x3846
+ #define OV8865_AUTO_SIZE_BOUNDARIES_Y(v)	(((v) << 4) & GENMASK(7, 4))
+ #define OV8865_AUTO_SIZE_BOUNDARIES_X(v)	((v) & GENMASK(3, 0))
+@@ -259,30 +210,10 @@
+ #define OV8865_BLC_CTRL0_TRIG_FORMAT_EN		BIT(6)
+ #define OV8865_BLC_CTRL0_TRIG_GAIN_EN		BIT(5)
+ #define OV8865_BLC_CTRL0_TRIG_EXPOSURE_EN	BIT(4)
+-#define OV8865_BLC_CTRL0_TRIG_MANUAL_EN		BIT(3)
+-#define OV8865_BLC_CTRL0_FREEZE_EN		BIT(2)
+-#define OV8865_BLC_CTRL0_ALWAYS_EN		BIT(1)
+ #define OV8865_BLC_CTRL0_FILTER_EN		BIT(0)
+ #define OV8865_BLC_CTRL1_REG			0x4001
+-#define OV8865_BLC_CTRL1_DITHER_EN		BIT(7)
+-#define OV8865_BLC_CTRL1_ZERO_LINE_DIFF_EN	BIT(6)
+-#define OV8865_BLC_CTRL1_COL_SHIFT_256		(0 << 4)
+ #define OV8865_BLC_CTRL1_COL_SHIFT_128		(1 << 4)
+-#define OV8865_BLC_CTRL1_COL_SHIFT_64		(2 << 4)
+-#define OV8865_BLC_CTRL1_COL_SHIFT_32		(3 << 4)
+ #define OV8865_BLC_CTRL1_OFFSET_LIMIT_EN	BIT(2)
+-#define OV8865_BLC_CTRL1_COLUMN_CANCEL_EN	BIT(1)
+-#define OV8865_BLC_CTRL2_REG			0x4002
+-#define OV8865_BLC_CTRL3_REG			0x4003
+-#define OV8865_BLC_CTRL4_REG			0x4004
+-#define OV8865_BLC_CTRL5_REG			0x4005
+-#define OV8865_BLC_CTRL6_REG			0x4006
+-#define OV8865_BLC_CTRL7_REG			0x4007
+-#define OV8865_BLC_CTRL8_REG			0x4008
+-#define OV8865_BLC_CTRL9_REG			0x4009
+-#define OV8865_BLC_CTRLA_REG			0x400a
+-#define OV8865_BLC_CTRLB_REG			0x400b
+-#define OV8865_BLC_CTRLC_REG			0x400c
+ #define OV8865_BLC_CTRLD_REG			0x400d
+ #define OV8865_BLC_CTRLD_OFFSET_TRIGGER(v)	((v) & GENMASK(7, 0))
+ 
+@@ -337,66 +268,8 @@
+ 
+ /* MIPI */
+ 
+-#define OV8865_MIPI_CTRL0_REG			0x4800
+-#define OV8865_MIPI_CTRL1_REG			0x4801
+-#define OV8865_MIPI_CTRL2_REG			0x4802
+-#define OV8865_MIPI_CTRL3_REG			0x4803
+-#define OV8865_MIPI_CTRL4_REG			0x4804
+-#define OV8865_MIPI_CTRL5_REG			0x4805
+-#define OV8865_MIPI_CTRL6_REG			0x4806
+-#define OV8865_MIPI_CTRL7_REG			0x4807
+-#define OV8865_MIPI_CTRL8_REG			0x4808
+-
+-#define OV8865_MIPI_FCNT_MAX_H_REG		0x4810
+-#define OV8865_MIPI_FCNT_MAX_L_REG		0x4811
+-
+-#define OV8865_MIPI_CTRL13_REG			0x4813
+-#define OV8865_MIPI_CTRL14_REG			0x4814
+-#define OV8865_MIPI_CTRL15_REG			0x4815
+-#define OV8865_MIPI_EMBEDDED_DT_REG		0x4816
+-
+-#define OV8865_MIPI_HS_ZERO_MIN_H_REG		0x4818
+-#define OV8865_MIPI_HS_ZERO_MIN_L_REG		0x4819
+-#define OV8865_MIPI_HS_TRAIL_MIN_H_REG		0x481a
+-#define OV8865_MIPI_HS_TRAIL_MIN_L_REG		0x481b
+-#define OV8865_MIPI_CLK_ZERO_MIN_H_REG		0x481c
+-#define OV8865_MIPI_CLK_ZERO_MIN_L_REG		0x481d
+-#define OV8865_MIPI_CLK_PREPARE_MAX_REG		0x481e
+-#define OV8865_MIPI_CLK_PREPARE_MIN_REG		0x481f
+-#define OV8865_MIPI_CLK_POST_MIN_H_REG		0x4820
+-#define OV8865_MIPI_CLK_POST_MIN_L_REG		0x4821
+-#define OV8865_MIPI_CLK_TRAIL_MIN_H_REG		0x4822
+-#define OV8865_MIPI_CLK_TRAIL_MIN_L_REG		0x4823
+-#define OV8865_MIPI_LPX_P_MIN_H_REG		0x4824
+-#define OV8865_MIPI_LPX_P_MIN_L_REG		0x4825
+-#define OV8865_MIPI_HS_PREPARE_MIN_REG		0x4826
+-#define OV8865_MIPI_HS_PREPARE_MAX_REG		0x4827
+-#define OV8865_MIPI_HS_EXIT_MIN_H_REG		0x4828
+-#define OV8865_MIPI_HS_EXIT_MIN_L_REG		0x4829
+-#define OV8865_MIPI_UI_HS_ZERO_MIN_REG		0x482a
+-#define OV8865_MIPI_UI_HS_TRAIL_MIN_REG		0x482b
+-#define OV8865_MIPI_UI_CLK_ZERO_MIN_REG		0x482c
+-#define OV8865_MIPI_UI_CLK_PREPARE_REG		0x482d
+-#define OV8865_MIPI_UI_CLK_POST_MIN_REG		0x482e
+-#define OV8865_MIPI_UI_CLK_TRAIL_MIN_REG	0x482f
+-#define OV8865_MIPI_UI_LPX_P_MIN_REG		0x4830
+-#define OV8865_MIPI_UI_HS_PREPARE_REG		0x4831
+-#define OV8865_MIPI_UI_HS_EXIT_MIN_REG		0x4832
+-#define OV8865_MIPI_PKT_START_SIZE_REG		0x4833
+-
+ #define OV8865_MIPI_PCLK_PERIOD_REG		0x4837
+-#define OV8865_MIPI_LP_GPIO0_REG		0x4838
+-#define OV8865_MIPI_LP_GPIO1_REG		0x4839
+-
+-#define OV8865_MIPI_CTRL3C_REG			0x483c
+-#define OV8865_MIPI_LP_GPIO4_REG		0x483d
+-
+-#define OV8865_MIPI_CTRL4A_REG			0x484a
+-#define OV8865_MIPI_CTRL4B_REG			0x484b
+-#define OV8865_MIPI_CTRL4C_REG			0x484c
+-#define OV8865_MIPI_LANE_TEST_PATTERN_REG	0x484d
+-#define OV8865_MIPI_FRAME_END_DELAY_REG		0x484e
+-#define OV8865_MIPI_CLOCK_TEST_PATTERN_REG	0x484f
++
+ #define OV8865_MIPI_LANE_SEL01_REG		0x4850
+ #define OV8865_MIPI_LANE_SEL01_LANE0(v)		(((v) << 0) & GENMASK(2, 0))
+ #define OV8865_MIPI_LANE_SEL01_LANE1(v)		(((v) << 4) & GENMASK(6, 4))
+@@ -407,7 +280,6 @@
+ /* ISP */
+ 
+ #define OV8865_ISP_CTRL0_REG			0x5000
+-#define OV8865_ISP_CTRL0_LENC_EN		BIT(7)
+ #define OV8865_ISP_CTRL0_WHITE_BALANCE_EN	BIT(4)
+ #define OV8865_ISP_CTRL0_DPC_BLACK_EN		BIT(2)
+ #define OV8865_ISP_CTRL0_DPC_WHITE_EN		BIT(1)
+@@ -416,17 +288,11 @@
+ #define OV8865_ISP_CTRL2_REG			0x5002
+ #define OV8865_ISP_CTRL2_DEBUG			BIT(3)
+ #define OV8865_ISP_CTRL2_VARIOPIXEL_EN		BIT(2)
+-#define OV8865_ISP_CTRL2_VSYNC_LATCH_EN		BIT(0)
+-#define OV8865_ISP_CTRL3_REG			0x5003
+ 
+ #define OV8865_ISP_GAIN_RED_H_REG		0x5018
+ #define OV8865_ISP_GAIN_RED_H(v)		(((v) & GENMASK(13, 6)) >> 6)
+ #define OV8865_ISP_GAIN_RED_L_REG		0x5019
+ #define OV8865_ISP_GAIN_RED_L(v)		((v) & GENMASK(5, 0))
+-#define OV8865_ISP_GAIN_GREEN_H_REG		0x501a
+-#define OV8865_ISP_GAIN_GREEN_H(v)		(((v) & GENMASK(13, 6)) >> 6)
+-#define OV8865_ISP_GAIN_GREEN_L_REG		0x501b
+-#define OV8865_ISP_GAIN_GREEN_L(v)		((v) & GENMASK(5, 0))
+ #define OV8865_ISP_GAIN_BLUE_H_REG		0x501c
+ #define OV8865_ISP_GAIN_BLUE_H(v)		(((v) & GENMASK(13, 6)) >> 6)
+ #define OV8865_ISP_GAIN_BLUE_L_REG		0x501d
+@@ -434,7 +300,6 @@
+ 
+ /* VarioPixel */
+ 
+-#define OV8865_VAP_CTRL0_REG			0x5900
+ #define OV8865_VAP_CTRL1_REG			0x5901
+ #define OV8865_VAP_CTRL1_HSUB_COEF(v)		((((v) - 1) << 2) & \
+ 						 GENMASK(3, 2))
+-- 
+2.33.0
+
+From 9d1155ccf592adbdfb3f1b90be5fc3b7faec9831 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Fri, 16 Jul 2021 00:00:54 +0100
+Subject: [PATCH] media: i2c: Switch exposure control unit to lines
+
+The ov8865 driver currently has the unit of the V4L2_CID_EXPOSURE control
+as 1/16th of a line. This is what the sensor expects, but isn't very
+intuitive. Switch the control to be in units of a line and simply do the
+16x multiplication before passing the value to the sensor.
+
+The datasheet for this sensor gives minimum exposure as 2 lines, so take
+the opportunity to correct the lower bounds of the control.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index fb81b822987d..27520c731e47 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -1991,6 +1991,9 @@ static int ov8865_exposure_configure(struct ov8865_sensor *sensor, u32 exposure)
+ {
+ 	int ret;
+ 
++	/* The sensor stores exposure in units of 1/16th of a line */
++	exposure *= 16;
++
+ 	ret = ov8865_write(sensor, OV8865_EXPOSURE_CTRL_HH_REG,
+ 			   OV8865_EXPOSURE_CTRL_HH(exposure));
+ 	if (ret)
+@@ -2389,8 +2392,8 @@ static int ov8865_ctrls_init(struct ov8865_sensor *sensor)
+ 
+ 	/* Exposure */
+ 
+-	ctrls->exposure = v4l2_ctrl_new_std(handler, ops, V4L2_CID_EXPOSURE, 16,
+-					    1048575, 16, 512);
++	ctrls->exposure = v4l2_ctrl_new_std(handler, ops, V4L2_CID_EXPOSURE, 2,
++					    65535, 1, 32);
+ 
+ 	/* Gain */
+ 
+-- 
+2.33.0
+
+From 54967f8d933a63945c75fb67eb9beb9a4a73fb02 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Fri, 16 Jul 2021 22:56:15 +0100
+Subject: [PATCH] media: i2c: Add controls from fwnode to ov8865
+
+Add V4L2_CID_ORIENTATION and V4L2_CID_ROTATION controls to the ov8865
+driver by attempting to parse them from firmware.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index 27520c731e47..f746917719ae 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -2381,6 +2381,7 @@ static int ov8865_ctrls_init(struct ov8865_sensor *sensor)
+ 	struct v4l2_ctrl_handler *handler = &ctrls->handler;
+ 	const struct v4l2_ctrl_ops *ops = &ov8865_ctrl_ops;
+ 	const struct ov8865_mode *mode = sensor->state.mode;
++	struct v4l2_fwnode_device_properties props;
+ 	unsigned int vblank_max, vblank_def;
+ 	unsigned int hblank;
+ 	int ret;
+@@ -2443,6 +2444,15 @@ static int ov8865_ctrls_init(struct ov8865_sensor *sensor)
+ 		v4l2_ctrl_new_std(handler, NULL, V4L2_CID_PIXEL_RATE, 1,
+ 				  INT_MAX, 1, 1);
+ 
++	/* set properties from fwnode (e.g. rotation, orientation) */
++	ret = v4l2_fwnode_device_parse(sensor->dev, &props);
++	if (ret)
++		goto error_ctrls;
++
++	ret = v4l2_ctrl_new_fwnode_properties(handler, ops, &props);
++	if (ret)
++		goto error_ctrls;
++
+ 	if (handler->error) {
+ 		ret = handler->error;
+ 		goto error_ctrls;
+-- 
+2.33.0
+
+From b460f04ba976f91774f3dd797c426d6cf9ca4399 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Wed, 14 Jul 2021 00:05:04 +0100
+Subject: [PATCH] media: ipu3-cio2: Add INT347A to cio2-bridge
+
+ACPI _HID INT347A represents the OV8865 sensor, the driver for which can
+support the platforms that the cio2-bridge serves. Add it to the array
+of supported sensors so the bridge will connect the sensor to the CIO2
+device.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu3/cio2-bridge.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/media/pci/intel/ipu3/cio2-bridge.c b/drivers/media/pci/intel/ipu3/cio2-bridge.c
+index 7e582135dfb8..045b15498aca 100644
+--- a/drivers/media/pci/intel/ipu3/cio2-bridge.c
++++ b/drivers/media/pci/intel/ipu3/cio2-bridge.c
+@@ -24,6 +24,8 @@ static const struct cio2_sensor_config cio2_supported_sensors[] = {
+ 	CIO2_SENSOR_CONFIG("INT33BE", 0),
+ 	/* Omnivision OV2680 */
+ 	CIO2_SENSOR_CONFIG("OVTI2680", 0),
++	/* Omnivision OV8865 */
++	CIO2_SENSOR_CONFIG("INT347A", 1, 360000000),
+ };
+ 
+ static const struct cio2_property_names prop_names = {
+-- 
+2.33.0
+
