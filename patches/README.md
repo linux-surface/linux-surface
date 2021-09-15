@@ -9,7 +9,7 @@ Please direct any pull-requests for new patches and kernel functionality to this
 ## Maintained Versions
 
 The currently maintained versions are
-- [`5.11`](https://github.com/linux-surface/kernel/tree/v5.11-surface) (latest)
+- [`5.14`](https://github.com/linux-surface/kernel/tree/v5.14-surface) (latest)
 - [`5.10`](https://github.com/linux-surface/kernel/tree/v5.10-surface) (latest LTS), and
 - [`4.19`](https://github.com/linux-surface/kernel/tree/v4.19-surface) (Surface LTS)
 
