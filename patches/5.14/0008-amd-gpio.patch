@@ -1,0 +1,222 @@
+From aae05917ba1a73ce7c107c37263d2476113fd5e4 Mon Sep 17 00:00:00 2001
+From: Sachi King <nakato@nakato.io>
+Date: Sat, 29 May 2021 17:47:38 +1000
+Subject: [PATCH] ACPI: Add quirk for Surface Laptop 4 AMD missing irq 7
+ override
+
+This patch is the work of Thomas Gleixner <tglx@linutronix.de> and is
+copied from:
+https://lore.kernel.org/lkml/87lf8ddjqx.ffs@nanos.tec.linutronix.de/
+
+This patch adds a quirk to the ACPI setup to patch in the the irq 7 pin
+setup that is missing in the laptops ACPI table.
+
+This patch was used for validation of the issue, and is not a proper
+fix, but is probably a better temporary hack than continuing to probe
+the Legacy PIC and run with the PIC in an unknown state.
+
+Patchset: amd-gpio
+---
+ arch/x86/kernel/acpi/boot.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/arch/x86/kernel/acpi/boot.c b/arch/x86/kernel/acpi/boot.c
+index e55e0c1fad8c..46dfad41b401 100644
+--- a/arch/x86/kernel/acpi/boot.c
++++ b/arch/x86/kernel/acpi/boot.c
+@@ -22,6 +22,7 @@
+ #include <linux/efi-bgrt.h>
+ #include <linux/serial_core.h>
+ #include <linux/pgtable.h>
++#include <linux/dmi.h>
+ 
+ #include <asm/e820/api.h>
+ #include <asm/irqdomain.h>
+@@ -1143,6 +1144,17 @@ static void __init mp_config_acpi_legacy_irqs(void)
+ 	}
+ }
+ 
++static const struct dmi_system_id surface_quirk[] __initconst = {
++	{
++		.ident = "Microsoft Surface Laptop 4 (AMD)",
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_4_1952:1953")
++		},
++	},
++	{}
++};
++
+ /*
+  * Parse IOAPIC related entries in MADT
+  * returns 0 on success, < 0 on error
+@@ -1198,6 +1210,11 @@ static int __init acpi_parse_madt_ioapic_entries(void)
+ 		acpi_sci_ioapic_setup(acpi_gbl_FADT.sci_interrupt, 0, 0,
+ 				      acpi_gbl_FADT.sci_interrupt);
+ 
++	if (dmi_check_system(surface_quirk)) {
++		pr_warn("Surface hack: Override irq 7\n");
++		mp_override_legacy_irq(7, 3, 3, 7);
++	}
++
+ 	/* Fill in identity legacy mappings where no override */
+ 	mp_config_acpi_legacy_irqs();
+ 
+-- 
+2.33.0
+
+From 187697e508db9ba6070581a3aade6234eb15bbcc Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Thu, 3 Jun 2021 14:04:26 +0200
+Subject: [PATCH] ACPI: Add AMD 13" Surface Laptop 4 model to irq 7 override
+ quirk
+
+The 13" version of the Surface Laptop 4 has the same problem as the 15"
+version, but uses a different SKU. Add that SKU to the quirk as well.
+
+Patchset: amd-gpio
+---
+ arch/x86/kernel/acpi/boot.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/kernel/acpi/boot.c b/arch/x86/kernel/acpi/boot.c
+index 46dfad41b401..78bf6a097dc5 100644
+--- a/arch/x86/kernel/acpi/boot.c
++++ b/arch/x86/kernel/acpi/boot.c
+@@ -1146,12 +1146,19 @@ static void __init mp_config_acpi_legacy_irqs(void)
+ 
+ static const struct dmi_system_id surface_quirk[] __initconst = {
+ 	{
+-		.ident = "Microsoft Surface Laptop 4 (AMD)",
++		.ident = "Microsoft Surface Laptop 4 (AMD 15\")",
+ 		.matches = {
+ 			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_4_1952:1953")
+ 		},
+ 	},
++	{
++		.ident = "Microsoft Surface Laptop 4 (AMD 13\")",
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_4_1958:1959")
++		},
++	},
+ 	{}
+ };
+ 
+-- 
+2.33.0
+
+From c4e6f0fb7e31ca186fccfb95e7fca839fadf1dad Mon Sep 17 00:00:00 2001
+From: Basavaraj Natikar <Basavaraj.Natikar@amd.com>
+Date: Tue, 31 Aug 2021 17:36:12 +0530
+Subject: [PATCH] pinctrl: amd: Add irq field data
+
+pinctrl_amd use gpiochip_get_data() to get their local state containers
+back from the gpiochip passed as amd_gpio chip data.
+
+Hence added irq field data to get directly using amd_gpio chip data.
+
+Signed-off-by: Basavaraj Natikar <Basavaraj.Natikar@amd.com>
+Patchset: amd-gpio
+---
+ drivers/pinctrl/pinctrl-amd.c | 9 ++++-----
+ drivers/pinctrl/pinctrl-amd.h | 1 +
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/pinctrl/pinctrl-amd.c b/drivers/pinctrl/pinctrl-amd.c
+index 5b764740b829..79b8b7f91996 100644
+--- a/drivers/pinctrl/pinctrl-amd.c
++++ b/drivers/pinctrl/pinctrl-amd.c
+@@ -904,7 +904,6 @@ static struct pinctrl_desc amd_pinctrl_desc = {
+ static int amd_gpio_probe(struct platform_device *pdev)
+ {
+ 	int ret = 0;
+-	int irq_base;
+ 	struct resource *res;
+ 	struct amd_gpio *gpio_dev;
+ 	struct gpio_irq_chip *girq;
+@@ -927,9 +926,9 @@ static int amd_gpio_probe(struct platform_device *pdev)
+ 	if (!gpio_dev->base)
+ 		return -ENOMEM;
+ 
+-	irq_base = platform_get_irq(pdev, 0);
+-	if (irq_base < 0)
+-		return irq_base;
++	gpio_dev->irq = platform_get_irq(pdev, 0);
++	if (gpio_dev->irq < 0)
++		return gpio_dev->irq;
+ 
+ #ifdef CONFIG_PM_SLEEP
+ 	gpio_dev->saved_regs = devm_kcalloc(&pdev->dev, amd_pinctrl_desc.npins,
+@@ -989,7 +988,7 @@ static int amd_gpio_probe(struct platform_device *pdev)
+ 		goto out2;
+ 	}
+ 
+-	ret = devm_request_irq(&pdev->dev, irq_base, amd_gpio_irq_handler,
++	ret = devm_request_irq(&pdev->dev, gpio_dev->irq, amd_gpio_irq_handler,
+ 			       IRQF_SHARED, KBUILD_MODNAME, gpio_dev);
+ 	if (ret)
+ 		goto out2;
+diff --git a/drivers/pinctrl/pinctrl-amd.h b/drivers/pinctrl/pinctrl-amd.h
+index 95e763424042..1d4317073654 100644
+--- a/drivers/pinctrl/pinctrl-amd.h
++++ b/drivers/pinctrl/pinctrl-amd.h
+@@ -98,6 +98,7 @@ struct amd_gpio {
+ 	struct resource         *res;
+ 	struct platform_device  *pdev;
+ 	u32			*saved_regs;
++	int			irq;
+ };
+ 
+ /*  KERNCZ configuration*/
+-- 
+2.33.0
+
+From de45a91ab9c2e7a0142d8520054bcafc2e291f41 Mon Sep 17 00:00:00 2001
+From: Basavaraj Natikar <Basavaraj.Natikar@amd.com>
+Date: Tue, 31 Aug 2021 17:36:13 +0530
+Subject: [PATCH] pinctrl: amd: Handle wake-up interrupt
+
+Enable/disable power management wakeup mode, which is disabled by
+default. enable_irq_wake enables wakes the system from sleep.
+
+Hence added enable/disable irq_wake to handle wake-up interrupt.
+
+Signed-off-by: Basavaraj Natikar <Basavaraj.Natikar@amd.com>
+Patchset: amd-gpio
+---
+ drivers/pinctrl/pinctrl-amd.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/drivers/pinctrl/pinctrl-amd.c b/drivers/pinctrl/pinctrl-amd.c
+index 79b8b7f91996..d19974aceb2e 100644
+--- a/drivers/pinctrl/pinctrl-amd.c
++++ b/drivers/pinctrl/pinctrl-amd.c
+@@ -445,6 +445,7 @@ static int amd_gpio_irq_set_wake(struct irq_data *d, unsigned int on)
+ 	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+ 	struct amd_gpio *gpio_dev = gpiochip_get_data(gc);
+ 	u32 wake_mask = BIT(WAKE_CNTRL_OFF_S0I3) | BIT(WAKE_CNTRL_OFF_S3);
++	int err;
+ 
+ 	raw_spin_lock_irqsave(&gpio_dev->lock, flags);
+ 	pin_reg = readl(gpio_dev->base + (d->hwirq)*4);
+@@ -457,6 +458,15 @@ static int amd_gpio_irq_set_wake(struct irq_data *d, unsigned int on)
+ 	writel(pin_reg, gpio_dev->base + (d->hwirq)*4);
+ 	raw_spin_unlock_irqrestore(&gpio_dev->lock, flags);
+ 
++	if (on)
++		err = enable_irq_wake(gpio_dev->irq);
++	else
++		err = disable_irq_wake(gpio_dev->irq);
++
++	if (err)
++		dev_err(&gpio_dev->pdev->dev, "failed to %s wake-up interrupt\n",
++			on ? "enable" : "disable");
++
+ 	return 0;
+ }
+ 
+-- 
+2.33.0
+
