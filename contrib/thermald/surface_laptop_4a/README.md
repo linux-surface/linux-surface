@@ -13,9 +13,11 @@ The trip point is set to 65° C, and can be freely adjusted to maintain a desire
 /sys/class/thermal/
 ```
 
-The second cooling device is set to turn off CPU Turbo Boost when the trip point is reached.
+The second cooling device is set to turn off CPU Turbo Boost when the trip point is reached.The status of boost can be queried with the following command:
+```
+cat /sys/devices/system/cpu/cpufreq/boost
+```
 
-An in-depth paragraph about your project and overview of use.
 
 ## Installation
 
