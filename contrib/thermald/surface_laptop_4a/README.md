@@ -1,4 +1,4 @@
- Example thermal-conf.xml File
+# Example thermal-conf.xml File
 
 A thermald configuration file tested on a Surface Laptop 4 (AMD) device. This file is adapted from the surface_laptop_1 configuration file in order to include control over CPU Turbo Boost.
 
