@@ -2,8 +2,8 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc34 kernel-5.13.13-200.fc34
-%global kernel_tag_fc33 kernel-5.13.13-100.fc33
+%global kernel_tag_fc34 kernel-5.14.7-200.fc34
+%global kernel_tag_fc33 kernel-5.14.7-100.fc33
 
 %global kernel_release_fc34 1
 %global kernel_release_fc33 1
@@ -14,7 +14,7 @@
 %global fedora_title_fc34 34 (Thirty Four)
 %global fedora_title_fc33 33 (Thirty Three)
 
-%global ls_patches_commit f69eefacf7304857f8c0ce7ac0ebf4971121da72
+%global ls_patches_commit be7c1399cca2d3706492c397ad3c6d8d51d44e6e
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -99,12 +99,10 @@ Patch1:     %{surface_source}/%{kernel_patches}/0002-mwifiex.patch
 Patch2:     %{surface_source}/%{kernel_patches}/0003-ath10k.patch
 Patch3:     %{surface_source}/%{kernel_patches}/0004-ipts.patch
 Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam-over-hid.patch
-Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam.patch
-Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-hotplug.patch
-Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-typecover.patch
-Patch8:     %{surface_source}/%{kernel_patches}/0009-cameras.patch
-Patch9:     %{surface_source}/%{kernel_patches}/0010-amd-gpio.patch
-#Patch10:    %{surface_source}/%{kernel_patches}/0011-amd-s0ix.patch
+Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-typecover.patch
+Patch6:     %{surface_source}/%{kernel_patches}/0007-cameras.patch
+Patch7:     %{surface_source}/%{kernel_patches}/0008-amd-gpio.patch
+Patch8:     %{surface_source}/%{kernel_patches}/0009-amd-s0ix.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
