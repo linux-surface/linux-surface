@@ -272,14 +272,15 @@ cp -a include %{kernel_modpath}/build/include
 
 # files for 'make prepare' to succeed with kernel-devel
 cp -a --parents arch/x86/entry/syscalls/syscall_32.tbl %{kernel_modpath}/build/
-cp -a --parents arch/x86/entry/syscalls/syscalltbl.sh %{kernel_modpath}/build/
-cp -a --parents arch/x86/entry/syscalls/syscallhdr.sh %{kernel_modpath}/build/
 cp -a --parents arch/x86/entry/syscalls/syscall_64.tbl %{kernel_modpath}/build/
 cp -a --parents arch/x86/tools/relocs_32.c %{kernel_modpath}/build/
 cp -a --parents arch/x86/tools/relocs_64.c %{kernel_modpath}/build/
 cp -a --parents arch/x86/tools/relocs.c %{kernel_modpath}/build/
 cp -a --parents arch/x86/tools/relocs_common.c %{kernel_modpath}/build/
 cp -a --parents arch/x86/tools/relocs.h %{kernel_modpath}/build/
+
+cp -a --parents scripts/syscalltbl.sh %{kernel_modpath}/build/
+cp -a --parents scripts/syscallhdr.sh %{kernel_modpath}/build/
 
 # Yes this is more includes than we probably need. Feel free to sort out
 # dependencies if you so choose.
