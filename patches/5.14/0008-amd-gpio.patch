@@ -1,4 +1,4 @@
-From 1eb00cbd654db2dfa32bd97f61f5ec20718b5d5d Mon Sep 17 00:00:00 2001
+From 57184abadb8c183e3cf86b56d9b1fae3969c4661 Mon Sep 17 00:00:00 2001
 From: Sachi King <nakato@nakato.io>
 Date: Sat, 29 May 2021 17:47:38 +1000
 Subject: [PATCH] ACPI: Add quirk for Surface Laptop 4 AMD missing irq 7
@@ -65,7 +65,7 @@ index e55e0c1fad8c..46dfad41b401 100644
 -- 
 2.33.0
 
-From 692c7588c50fb38ff532b3557da12092c5b5f7f9 Mon Sep 17 00:00:00 2001
+From b2bc2d36592a6b5f9a051f52fa189e0833eca777 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 3 Jun 2021 14:04:26 +0200
 Subject: [PATCH] ACPI: Add AMD 13" Surface Laptop 4 model to irq 7 override
@@ -107,7 +107,7 @@ index 46dfad41b401..78bf6a097dc5 100644
 -- 
 2.33.0
 
-From f35d9cac3e81808c29511254daffb79543b2f7ad Mon Sep 17 00:00:00 2001
+From 42e27b58b4be96c7847a2a77d2b861628897592a Mon Sep 17 00:00:00 2001
 From: Basavaraj Natikar <Basavaraj.Natikar@amd.com>
 Date: Tue, 31 Aug 2021 17:36:12 +0530
 Subject: [PATCH] pinctrl: amd: Add irq field data
@@ -173,7 +173,7 @@ index 95e763424042..1d4317073654 100644
 -- 
 2.33.0
 
-From 71f888b23a827058c6e1eae6ad956dbf9341f84c Mon Sep 17 00:00:00 2001
+From 29db8148654e076dfc4dfa41867599655d15a2c7 Mon Sep 17 00:00:00 2001
 From: Basavaraj Natikar <Basavaraj.Natikar@amd.com>
 Date: Tue, 31 Aug 2021 17:36:13 +0530
 Subject: [PATCH] pinctrl: amd: Handle wake-up interrupt
@@ -217,6 +217,76 @@ index 79b8b7f91996..d19974aceb2e 100644
  	return 0;
  }
  
+-- 
+2.33.0
+
+From 74b555e7c9dfd726ff7c8ad8eaf7300a950def5e Mon Sep 17 00:00:00 2001
+From: Sachi King <nakato@nakato.io>
+Date: Fri, 1 Oct 2021 21:19:09 +1000
+Subject: [PATCH] pinctrl: amd: disable and mask interrupts on probe
+
+Some systems such as the Microsoft Surface Laptop 4 leave interrupts
+enabled and configured for use in sleep states on boot, which cause
+unexpected behaviour such as spurious wakes and failed resumes in
+s2idle states.
+
+As interrupts should not be enabled until they are claimed and
+explicitly enabled, disabling any interrupts mistakenly left enabled by
+firmware should be safe.
+
+Signed-off-by: Sachi King <nakato@nakato.io>
+Patchset: amd-gpio
+---
+ drivers/pinctrl/pinctrl-amd.c | 29 +++++++++++++++++++++++++++++
+ 1 file changed, 29 insertions(+)
+
+diff --git a/drivers/pinctrl/pinctrl-amd.c b/drivers/pinctrl/pinctrl-amd.c
+index d19974aceb2e..d32daf1c862f 100644
+--- a/drivers/pinctrl/pinctrl-amd.c
++++ b/drivers/pinctrl/pinctrl-amd.c
+@@ -842,6 +842,32 @@ static const struct pinconf_ops amd_pinconf_ops = {
+ 	.pin_config_group_set = amd_pinconf_group_set,
+ };
+ 
++static void amd_gpio_irq_init(struct amd_gpio *gpio_dev) {
++	struct pinctrl_desc *desc = gpio_dev->pctrl->desc;
++	unsigned long flags;
++	u32 pin_reg, mask;
++	int i;
++
++	mask = BIT(WAKE_CNTRL_OFF_S0I3) | BIT(WAKE_CNTRL_OFF_S3)
++		| BIT(INTERRUPT_MASK_OFF) | BIT(INTERRUPT_ENABLE_OFF)
++	        | BIT(INTERRUPT_MASK_OFF) | BIT(WAKE_CNTRL_OFF_S4);
++
++	for (i = 0; i < desc->npins; i++) {
++		int pin = desc->pins[i].number;
++		const struct pin_desc *pd = pin_desc_get(gpio_dev->pctrl, pin);
++		if (!pd)
++			continue;
++
++		raw_spin_lock_irqsave(&gpio_dev->lock, flags);
++
++		pin_reg = readl(gpio_dev->base + i * 4);
++		pin_reg &= ~mask;
++		writel(pin_reg, gpio_dev->base + i * 4);
++
++		raw_spin_unlock_irqrestore(&gpio_dev->lock, flags);
++	}
++}
++
+ #ifdef CONFIG_PM_SLEEP
+ static bool amd_gpio_should_save(struct amd_gpio *gpio_dev, unsigned int pin)
+ {
+@@ -978,6 +1004,9 @@ static int amd_gpio_probe(struct platform_device *pdev)
+ 		return PTR_ERR(gpio_dev->pctrl);
+ 	}
+ 
++	/* Disable and mask interrupts */
++	amd_gpio_irq_init(gpio_dev);
++
+ 	girq = &gpio_dev->gc.irq;
+ 	girq->chip = &amd_gpio_irqchip;
+ 	/* This will let us handle the parent IRQ in the driver */
 -- 
 2.33.0
 

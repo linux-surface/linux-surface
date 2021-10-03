@@ -1,4 +1,4 @@
-From e6bec5fbbfca969ea6c2178489478e695855a48c Mon Sep 17 00:00:00 2001
+From bdfdaf81e8471268fb90b4fa0c1f7cea0852bbb4 Mon Sep 17 00:00:00 2001
 From: Sachi King <nakato@nakato.io>
 Date: Sat, 29 May 2021 22:27:25 +1000
 Subject: [PATCH] platform/x86: amd-pmc: Add device HID for AMD PMC
@@ -17,7 +17,7 @@ Patchset: amd-s0ix
  1 file changed, 1 insertion(+)
 
 diff --git a/drivers/platform/x86/amd-pmc.c b/drivers/platform/x86/amd-pmc.c
-index 3481479a2942..1f4a1cd1f58d 100644
+index d6a7c896ac86..fc95620101e8 100644
 --- a/drivers/platform/x86/amd-pmc.c
 +++ b/drivers/platform/x86/amd-pmc.c
 @@ -476,6 +476,7 @@ static const struct acpi_device_id amd_pmc_acpi_ids[] = {
@@ -28,6 +28,46 @@ index 3481479a2942..1f4a1cd1f58d 100644
  	{ }
  };
  MODULE_DEVICE_TABLE(acpi, amd_pmc_acpi_ids);
+-- 
+2.33.0
+
+From ae634492d0cfcd766e85d0ce5ee76149d916ef9a Mon Sep 17 00:00:00 2001
+From: Sachi King <nakato@nakato.io>
+Date: Sat, 2 Oct 2021 13:39:36 +1000
+Subject: [PATCH] ACPI: PM: Include alternate AMDI0005 id in special behaviour
+
+The Surface Laptop 4 AMD has used the AMD0005 to identify this
+controller instead of using the appropriate ACPI ID AMDI0005.  The
+AMD0005 needs the same special casing as AMDI0005.
+
+Cc: <stable@vger.kernel.org> # 5.14+
+Signed-off-by: Sachi King <nakato@nakato.io>
+Patchset: amd-s0ix
+---
+ drivers/acpi/x86/s2idle.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/acpi/x86/s2idle.c b/drivers/acpi/x86/s2idle.c
+index bd92b549fd5a..1c48358b43ba 100644
+--- a/drivers/acpi/x86/s2idle.c
++++ b/drivers/acpi/x86/s2idle.c
+@@ -371,7 +371,7 @@ static int lps0_device_attach(struct acpi_device *adev,
+ 		return 0;
+ 
+ 	if (acpi_s2idle_vendor_amd()) {
+-		/* AMD0004, AMDI0005:
++		/* AMD0004, AMD0005, AMDI0005:
+ 		 * - Should use rev_id 0x0
+ 		 * - function mask > 0x3: Should use AMD method, but has off by one bug
+ 		 * - function mask = 0x3: Should use Microsoft method
+@@ -390,6 +390,7 @@ static int lps0_device_attach(struct acpi_device *adev,
+ 					ACPI_LPS0_DSM_UUID_MICROSOFT, 0,
+ 					&lps0_dsm_guid_microsoft);
+ 		if (lps0_dsm_func_mask > 0x3 && (!strcmp(hid, "AMD0004") ||
++						 !strcmp(hid, "AMD0005") ||
+ 						 !strcmp(hid, "AMDI0005"))) {
+ 			lps0_dsm_func_mask = (lps0_dsm_func_mask << 1) | 0x1;
+ 			acpi_handle_debug(adev->handle, "_DSM UUID %s: Adjusted function mask: 0x%x\n",
 -- 
 2.33.0
 
