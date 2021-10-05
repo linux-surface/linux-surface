@@ -10,6 +10,7 @@ all_components=(
     "platform"
     "serial"
     "sam"
+    "kconfig"
 )
 
 
@@ -189,6 +190,32 @@ if [[ " ${components[*]} " =~ " sam " ]]; then
     else
         cat "/sys/bus/acpi/devices/MSHW0084:00/physical_node/sam/firmware_version" > "${out}"
     fi
+fi
+
+# collect kernel config
+if [[ " ${components[*]} " =~ " kconfig " ]]; then
+    echo "   - kernel configuration"
+
+    # attempt to load module for accessing current kernel config 
+    if modinfo configs > /dev/null 2>&1; then
+        sudo modprobe configs
+    fi
+
+    # try to get current config from /proc, if available
+    if [[ -f "/proc/config.gz" ]]; then
+        zcat "/proc/config.gz" > "${tmpdir}/kernel-$(uname -r).conf"
+    fi
+
+    # try to get current config from /boot, if available
+    if [[ -f "/boot/config" ]]; then
+        cp "/boot/config" "${tmpdir}/kernel-$(uname -r).conf"
+    fi
+
+    # try to get any config from /boot
+    find "/boot" -name 'config-*' -print0 | while IFS= read -r -d '' file; do 
+        name="$(basename "${file}")"
+        cp "${file}" "${tmpdir}/kernel-${name#"config-"}.conf"
+    done;
 fi
 
 
