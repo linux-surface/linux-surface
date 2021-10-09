@@ -11,6 +11,7 @@ all_components=(
     "serial"
     "sam"
     "kconfig"
+    "lspci"
 )
 
 
@@ -216,6 +217,14 @@ if [[ " ${components[*]} " =~ " kconfig " ]]; then
         name="$(basename "${file}")"
         cp "${file}" "${tmpdir}/kernel-${name#"config-"}.conf"
     done;
+fi
+
+# collect lspci
+if [[ " ${components[*]} " =~ " lspci " ]]; then
+    echo "   - kernel configuration"
+
+    sudo lspci -nn -vvv > "${tmpdir}/lspci.txt"
+    sudo lspci -nn -v -t > "${tmpdir}/lspci-tree.txt"
 fi
 
 
