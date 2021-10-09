@@ -1,0 +1,104 @@
+From c1b8274dee39c791322ef35b56d667257e69bdd1 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 10 Oct 2021 01:27:17 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for
+ Surface Laptop Studio
+
+Add support for the Surface Laptop Studio.
+
+In contrast to previous Surface Laptop models, this one has its HID
+devices attached to target ID 1 (instead of 2). It also has a couple
+more of them, including a new notifier for when the pen is stashed /
+taken out of its place, a "Sys Control" device, and two other
+unidentified HID devices with unknown usages.
+
+Battery and performance profile interfaces remain the same.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c     | 54 +++++++++++++++++++
+ 1 file changed, 54 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 4428c4330229..1679811eff50 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -77,6 +77,42 @@ static const struct software_node ssam_node_bas_dtx = {
+ 	.parent = &ssam_node_root,
+ };
+ 
++/* HID keyboard (TID1). */
++static const struct software_node ssam_node_hid_tid1_keyboard = {
++	.name = "ssam:01:15:01:01:00",
++	.parent = &ssam_node_root,
++};
++
++/* HID pen stash (TID1; pen taken / stashed away evens). */
++static const struct software_node ssam_node_hid_tid1_penstash = {
++	.name = "ssam:01:15:01:02:00",
++	.parent = &ssam_node_root,
++};
++
++/* HID touchpad (TID1). */
++static const struct software_node ssam_node_hid_tid1_touchpad = {
++	.name = "ssam:01:15:01:03:00",
++	.parent = &ssam_node_root,
++};
++
++/* HID device instance 6 (TID1, unknown HID device). */
++static const struct software_node ssam_node_hid_tid1_iid6 = {
++	.name = "ssam:01:15:01:06:00",
++	.parent = &ssam_node_root,
++};
++
++/* HID device instance 7 (TID1, unknown HID device). */
++static const struct software_node ssam_node_hid_tid1_iid7 = {
++	.name = "ssam:01:15:01:07:00",
++	.parent = &ssam_node_root,
++};
++
++/* HID system controls (TID1). */
++static const struct software_node ssam_node_hid_tid1_sysctrl = {
++	.name = "ssam:01:15:01:08:00",
++	.parent = &ssam_node_root,
++};
++
+ /* HID keyboard. */
+ static const struct software_node ssam_node_hid_main_keyboard = {
+ 	.name = "ssam:01:15:02:01:00",
+@@ -159,6 +195,21 @@ static const struct software_node *ssam_node_group_sl3[] = {
+ 	NULL,
+ };
+ 
++/* Devices for Surface Laptop Studio. */
++static const struct software_node *ssam_node_group_sls[] = {
++	&ssam_node_root,
++	&ssam_node_bat_ac,
++	&ssam_node_bat_main,
++	&ssam_node_tmp_pprof,
++	&ssam_node_hid_tid1_keyboard,
++	&ssam_node_hid_tid1_penstash,
++	&ssam_node_hid_tid1_touchpad,
++	&ssam_node_hid_tid1_iid6,
++	&ssam_node_hid_tid1_iid7,
++	&ssam_node_hid_tid1_sysctrl,
++	NULL,
++};
++
+ /* Devices for Surface Laptop Go. */
+ static const struct software_node *ssam_node_group_slg1[] = {
+ 	&ssam_node_root,
+@@ -507,6 +558,9 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
+ 	/* Surface Laptop Go 1 */
+ 	{ "MSHW0118", (unsigned long)ssam_node_group_slg1 },
+ 
++	/* Surface Laptop Studio */
++	{ "MSHW0123", (unsigned long)ssam_node_group_sls },
++
+ 	{ },
+ };
+ MODULE_DEVICE_TABLE(acpi, ssam_platform_hub_match);
+-- 
+2.33.0
+
