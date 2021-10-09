@@ -98,11 +98,14 @@ Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-oemb.patch
 Patch1:     %{surface_source}/%{kernel_patches}/0002-mwifiex.patch
 Patch2:     %{surface_source}/%{kernel_patches}/0003-ath10k.patch
 Patch3:     %{surface_source}/%{kernel_patches}/0004-ipts.patch
-Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam-over-hid.patch
-Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-typecover.patch
-Patch6:     %{surface_source}/%{kernel_patches}/0007-cameras.patch
-Patch7:     %{surface_source}/%{kernel_patches}/0008-amd-gpio.patch
-Patch8:     %{surface_source}/%{kernel_patches}/0009-amd-s0ix.patch
+Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam.patch
+Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam-over-hid.patch
+Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-gpe.patch
+Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-button.patch
+Patch8:     %{surface_source}/%{kernel_patches}/0009-surface-typecover.patch
+Patch9:     %{surface_source}/%{kernel_patches}/0010-cameras.patch
+Patch10:    %{surface_source}/%{kernel_patches}/0011-amd-gpio.patch
+Patch11:    %{surface_source}/%{kernel_patches}/0012-amd-s0ix.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
