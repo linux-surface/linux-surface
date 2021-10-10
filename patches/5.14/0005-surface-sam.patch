@@ -1,4 +1,4 @@
-From c1b8274dee39c791322ef35b56d667257e69bdd1 Mon Sep 17 00:00:00 2001
+From 7075cd222eea9ec651ec36a05e41061f4fc5757b Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 10 Oct 2021 01:27:17 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add support for
@@ -99,6 +99,69 @@ index 4428c4330229..1679811eff50 100644
  	{ },
  };
  MODULE_DEVICE_TABLE(acpi, ssam_platform_hub_match);
+-- 
+2.33.0
+
+From 1fe65e6afab3f5dc3f21a4be6edb1d747cf8d71e Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 10 Oct 2021 15:07:42 +0200
+Subject: [PATCH] HID: surface-hid: Use correct event registry for managing HID
+ events
+
+Fix a timeout error caused by using the wrong registry for some devices,
+preventing the driver to probe and manage events correctly.
+
+Until now, we have only ever seen the REG-category registry being used
+on devices addressed with target ID 2. In fact, we have only ever seen
+Surface Aggregator Module (SAM) HID devices with target ID 2. For those
+devices, the registry also has to be addressed with target ID 2.
+
+Some devices, like the new Surface Laptop Studio, however, address their
+HID devices on target ID 1. As a result of this, any target ID 2
+commands time out. This includes event management commands addressed to
+the target ID 2 REG-category registry. For these devices, the registry
+has to be addressed via target ID 1 instead.
+
+We therefore assume that the target ID of the registry to be used
+depends on the target ID of the respective device. Implement this
+accordingly.
+
+Fixes: b05ff1002a5c1 ("HID: Add support for Surface Aggregator Module HID transport")
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/hid/surface-hid/surface_hid.c         | 2 +-
+ include/linux/surface_aggregator/controller.h | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/hid/surface-hid/surface_hid.c b/drivers/hid/surface-hid/surface_hid.c
+index a3a70e4f3f6c..daa452367c0b 100644
+--- a/drivers/hid/surface-hid/surface_hid.c
++++ b/drivers/hid/surface-hid/surface_hid.c
+@@ -209,7 +209,7 @@ static int surface_hid_probe(struct ssam_device *sdev)
+ 
+ 	shid->notif.base.priority = 1;
+ 	shid->notif.base.fn = ssam_hid_event_fn;
+-	shid->notif.event.reg = SSAM_EVENT_REGISTRY_REG;
++	shid->notif.event.reg = SSAM_EVENT_REGISTRY_REG(sdev->uid.target);
+ 	shid->notif.event.id.target_category = sdev->uid.category;
+ 	shid->notif.event.id.instance = sdev->uid.instance;
+ 	shid->notif.event.mask = SSAM_EVENT_MASK_STRICT;
+diff --git a/include/linux/surface_aggregator/controller.h b/include/linux/surface_aggregator/controller.h
+index 068e1982ad37..74bfdffaf7b0 100644
+--- a/include/linux/surface_aggregator/controller.h
++++ b/include/linux/surface_aggregator/controller.h
+@@ -792,8 +792,8 @@ enum ssam_event_mask {
+ #define SSAM_EVENT_REGISTRY_KIP	\
+ 	SSAM_EVENT_REGISTRY(SSAM_SSH_TC_KIP, 0x02, 0x27, 0x28)
+ 
+-#define SSAM_EVENT_REGISTRY_REG \
+-	SSAM_EVENT_REGISTRY(SSAM_SSH_TC_REG, 0x02, 0x01, 0x02)
++#define SSAM_EVENT_REGISTRY_REG(tid)\
++	SSAM_EVENT_REGISTRY(SSAM_SSH_TC_REG, tid, 0x01, 0x02)
+ 
+ /**
+  * enum ssam_event_notifier_flags - Flags for event notifiers.
 -- 
 2.33.0
 
