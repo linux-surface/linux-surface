@@ -221,7 +221,7 @@ fi
 
 # collect lspci
 if [[ " ${components[*]} " =~ " lspci " ]]; then
-    echo "   - kernel configuration"
+    echo "   - lspci"
 
     sudo lspci -nn -vvv > "${tmpdir}/lspci.txt"
     sudo lspci -nn -v -t > "${tmpdir}/lspci-tree.txt"
