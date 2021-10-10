@@ -2,11 +2,11 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc34 kernel-5.14.11-200.fc34
-%global kernel_tag_fc33 kernel-5.14.11-100.fc33
+%global kernel_tag_fc34 kernel-5.14.10-200.fc34
+%global kernel_tag_fc33 kernel-5.14.10-100.fc33
 
-%global kernel_release_fc34 1
-%global kernel_release_fc33 1
+%global kernel_release_fc34 4
+%global kernel_release_fc33 4
 
 # This is what is printed in the GRUB menu. These cannot be fetched from the
 # buildhost, because in a container this will also say container. To get the
