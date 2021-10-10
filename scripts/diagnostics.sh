@@ -12,6 +12,7 @@ all_components=(
     "sam"
     "kconfig"
     "lspci"
+    "lsusb"
 )
 
 
@@ -225,6 +226,14 @@ if [[ " ${components[*]} " =~ " lspci " ]]; then
 
     sudo lspci -nn -vvv > "${tmpdir}/lspci.txt"
     sudo lspci -nn -v -t > "${tmpdir}/lspci-tree.txt"
+fi
+
+# collect lsusb
+if [[ " ${components[*]} " =~ " lsusb " ]]; then
+    echo "   - lsusb"
+
+    sudo lsusb -v > "${tmpdir}/lsusb.txt"
+    sudo lsusb -v -t > "${tmpdir}/lsusb-tree.txt"
 fi
 
 
