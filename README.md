@@ -7,20 +7,24 @@ Follow the instructions below to install the latest kernel.
 
 * Surface Book
 * Surface Book 2
+* Surface Book 3
 * Surface 3
 * Surface Go
 * Surface Go 2
+* Surface Go 3
 * Surface Laptop
 * Surface Laptop 2
 * Surface Laptop 3
 * Surface Laptop 4
 * Surface Laptop Go
+* Surface Laptop Studio
 * Surface Pro 3
 * Surface Pro 4
 * Surface Pro 2017
 * Surface Pro 6
 * Surface Pro 7
 * Surface Pro 7+
+* Surface Pro 8
 * Surface Studio
 
 ### Features / What's Working
