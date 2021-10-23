@@ -14,7 +14,7 @@
 %global fedora_title_fc34 34 (Thirty Four)
 %global fedora_title_fc33 33 (Thirty Three)
 
-%global ls_patches_commit dc24ffb26df14f3b2d33d880a2e1ac77e43b4060
+%global ls_patches_commit 233acb68357241646556fb8c5145432ef5fe5f2d
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -105,7 +105,6 @@ Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-button.patch
 Patch8:     %{surface_source}/%{kernel_patches}/0009-surface-typecover.patch
 Patch9:     %{surface_source}/%{kernel_patches}/0010-cameras.patch
 Patch10:    %{surface_source}/%{kernel_patches}/0011-amd-gpio.patch
-Patch11:    %{surface_source}/%{kernel_patches}/0012-amd-s0ix.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
