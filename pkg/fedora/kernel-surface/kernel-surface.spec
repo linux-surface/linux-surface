@@ -2,8 +2,8 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc34 kernel-5.14.13-200.fc34
-%global kernel_tag_fc33 kernel-5.14.13-100.fc33
+%global kernel_tag_fc34 kernel-5.14.14-200.fc34
+%global kernel_tag_fc33 kernel-5.14.14-100.fc33
 
 %global kernel_release_fc34 1
 %global kernel_release_fc33 1
@@ -14,7 +14,7 @@
 %global fedora_title_fc34 34 (Thirty Four)
 %global fedora_title_fc33 33 (Thirty Three)
 
-%global ls_patches_commit 6096d8bbe2869545d1f9e033a476a70eaa5ff744
+%global ls_patches_commit dc24ffb26df14f3b2d33d880a2e1ac77e43b4060
 
 %global sb_crt surface.crt
 %global sb_key surface.key
