@@ -43,13 +43,13 @@ jobs:
 
         # get ubuntu mainline source
         # see https://kernel.ubuntu.com/~kernel-ppa/mainline
-        git clone "$MAINLINE_REPO" --branch "$MAINLINE_BRANCH/v$KERNEL_VERSION" --single-branch linux
+        git clone "$MAINLINE_REPO" --branch "$MAINLINE_BRANCH/v$KERNEL_VERSION" --depth 1 linux
 
         cd linux
 
         # apply surface build/packaging patches
         for PATCH in ../*.patch; do
-          git am -3 ${PATCH}
+          git apply --index --reject ${PATCH}
         done
 
         git add .
@@ -57,7 +57,7 @@ jobs:
 
         # apply surface patches
         for PATCH in ../../../../patches/${KERNEL_VERSION%.*}/*.patch; do
-          git am -3 ${PATCH}
+          git apply --index --reject ${PATCH}
         done
 
         git add .
