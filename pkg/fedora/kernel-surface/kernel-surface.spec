@@ -5,8 +5,8 @@
 %global kernel_tag_fc34 kernel-5.14.14-200.fc34
 %global kernel_tag_fc33 kernel-5.14.14-100.fc33
 
-%global kernel_release_fc34 2
-%global kernel_release_fc33 2
+%global kernel_release_fc34 3
+%global kernel_release_fc33 3
 
 # This is what is printed in the GRUB menu. These cannot be fetched from the
 # buildhost, because in a container this will also say container. To get the
@@ -14,7 +14,7 @@
 %global fedora_title_fc34 34 (Thirty Four)
 %global fedora_title_fc33 33 (Thirty Three)
 
-%global ls_patches_commit fb1a1688bcd90da5ac06a24c095e75a441b4b7ff
+%global ls_patches_commit 1027645b8a52ecbb1eb7517c8e3610b3e9bac45f
 
 %global sb_crt surface.crt
 %global sb_key surface.key
