@@ -77,13 +77,17 @@ prepare() {
   echo "-$pkgrel" > localversion.10-pkgrel
   echo "${pkgbase#linux}" > localversion.20-pkgname
 
+  # setup git
+  git config --global user.email "surfacebot@users.noreply.github.com"
+  git config --global user.name "surfacebot"
+
   local src
   for src in "${source[@]}"; do
     src="${src%%::*}"
     src="${src##*/}"
     [[ $src = *.patch ]] || continue
     echo "Applying patch $src..."
-    patch -Np1 < "../$src"
+    git am -3 "../$src"
   done
 
   echo "Setting config..."
