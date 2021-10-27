@@ -128,7 +128,7 @@ This package provides kernel headers and makefiles sufficient to build modules
 against the kernel-surface package.
 
 %prep
-%autosetup -p1 -n linux-fedora-%{kernel_tag}
+%autosetup -S git -n linux-fedora-%{kernel_tag}
 
 scripts/kconfig/merge_config.sh         \
 	fedora/configs/%{kernel_config} \
