@@ -1,4 +1,4 @@
-From 93c1103857ae9557a867a378268c76d8d52dba09 Mon Sep 17 00:00:00 2001
+From dd8529f3d89fd96e800812ab9a0e24419536b559 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 10 Oct 2021 01:27:17 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add support for
@@ -102,7 +102,7 @@ index 4428c4330229..1679811eff50 100644
 -- 
 2.33.1
 
-From 8cf31537f7ad6798f881b0cb65e32a6bb5dc787c Mon Sep 17 00:00:00 2001
+From 9186614dfdc63331b761af7ae6bff110207f125c Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 10 Oct 2021 15:07:42 +0200
 Subject: [PATCH] HID: surface-hid: Use correct event registry for managing HID
@@ -165,7 +165,7 @@ index 068e1982ad37..74bfdffaf7b0 100644
 -- 
 2.33.1
 
-From e37ee323ec827c2ef5ad30f7105203715afc76f4 Mon Sep 17 00:00:00 2001
+From 6414b7dc4b773f96785ed08005b491c71d9ebb4a Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 10 Oct 2021 19:48:10 +0200
 Subject: [PATCH] HID: surface-hid: Allow driver matching for target ID 1
@@ -198,7 +198,67 @@ index daa452367c0b..d4aa8c81903a 100644
 -- 
 2.33.1
 
-From 00dbcbeeae4d15358e9af0e9a4cee711f09e896d Mon Sep 17 00:00:00 2001
+From a67db7ca93a6460f040946d58ef47dfecda960ab Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Thu, 28 Oct 2021 03:28:45 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add initial support
+ for Surface Pro 8
+
+Add preliminary support for the Surface Pro 8 to the Surface Aggregator
+registry. This includes battery/charger status and platform profile
+support.
+
+In contrast to earlier Surface Pro generations, the keyboard cover is
+now also connected via the Surface Aggregator Module (whereas it was
+previously connected via USB or HID-over-I2C). To properly support the
+HID devices of that cover, however, more changes regarding hot-removal
+of Surface Aggregator client devices as well as a new device hub driver
+are required. We will address those things in a follow-up series, so do
+not add any HID device IDs just yet.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Link: https://lore.kernel.org/r/20211028012845.1887219-1-luzmaximilian@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: surface-sam
+---
+ .../platform/surface/surface_aggregator_registry.c   | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 1679811eff50..e70f4c63554e 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -228,6 +228,15 @@ static const struct software_node *ssam_node_group_sp7[] = {
+ 	NULL,
+ };
+ 
++static const struct software_node *ssam_node_group_sp8[] = {
++	&ssam_node_root,
++	&ssam_node_bat_ac,
++	&ssam_node_bat_main,
++	&ssam_node_tmp_pprof,
++	/* TODO: Add support for keyboard cover. */
++	NULL,
++};
++
+ 
+ /* -- Device registry helper functions. ------------------------------------- */
+ 
+@@ -534,6 +543,9 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
+ 	/* Surface Pro 7+ */
+ 	{ "MSHW0119", (unsigned long)ssam_node_group_sp7 },
+ 
++	/* Surface Pro 8 */
++	{ "MSHW0263", (unsigned long)ssam_node_group_sp8 },
++
+ 	/* Surface Book 2 */
+ 	{ "MSHW0107", (unsigned long)ssam_node_group_gen5 },
+ 
+-- 
+2.33.1
+
+From b82755eb5d767d05ae4c05aa0d5c40d3232145c7 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 2 Jun 2021 03:34:06 +0200
 Subject: [PATCH] platform/surface: aggregator: Make client device removal more
@@ -323,7 +383,7 @@ index f636c5310321..cc257097eb05 100644
 -- 
 2.33.1
 
-From f0aaf21cefd42ce8f828d54a11207d72fea9e579 Mon Sep 17 00:00:00 2001
+From ebd74b2d1ff13074fa1ee538886888fcae3c1dbf Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 27 Oct 2021 02:06:38 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Use generic client
@@ -339,10 +399,10 @@ Patchset: surface-sam
  1 file changed, 5 insertions(+), 19 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 1679811eff50..d63f975bfd4c 100644
+index e70f4c63554e..f6c639342b9d 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
-@@ -249,20 +249,6 @@ static int ssam_uid_from_string(const char *str, struct ssam_device_uid *uid)
+@@ -258,20 +258,6 @@ static int ssam_uid_from_string(const char *str, struct ssam_device_uid *uid)
  	return 0;
  }
  
@@ -363,7 +423,7 @@ index 1679811eff50..d63f975bfd4c 100644
  static int ssam_hub_add_device(struct device *parent, struct ssam_controller *ctrl,
  			       struct fwnode_handle *node)
  {
-@@ -308,7 +294,7 @@ static int ssam_hub_add_devices(struct device *parent, struct ssam_controller *c
+@@ -317,7 +303,7 @@ static int ssam_hub_add_devices(struct device *parent, struct ssam_controller *c
  
  	return 0;
  err:
@@ -372,7 +432,7 @@ index 1679811eff50..d63f975bfd4c 100644
  	return status;
  }
  
-@@ -405,7 +391,7 @@ static void ssam_base_hub_update_workfn(struct work_struct *work)
+@@ -414,7 +400,7 @@ static void ssam_base_hub_update_workfn(struct work_struct *work)
  	if (hub->state == SSAM_BASE_HUB_CONNECTED)
  		status = ssam_hub_add_devices(&hub->sdev->dev, hub->sdev->ctrl, node);
  	else
@@ -381,7 +441,7 @@ index 1679811eff50..d63f975bfd4c 100644
  
  	if (status)
  		dev_err(&hub->sdev->dev, "failed to update base-hub devices: %d\n", status);
-@@ -487,7 +473,7 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
+@@ -496,7 +482,7 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
  err:
  	ssam_notifier_unregister(sdev->ctrl, &hub->notif);
  	cancel_delayed_work_sync(&hub->update_work);
@@ -390,7 +450,7 @@ index 1679811eff50..d63f975bfd4c 100644
  	return status;
  }
  
-@@ -499,7 +485,7 @@ static void ssam_base_hub_remove(struct ssam_device *sdev)
+@@ -508,7 +494,7 @@ static void ssam_base_hub_remove(struct ssam_device *sdev)
  
  	ssam_notifier_unregister(sdev->ctrl, &hub->notif);
  	cancel_delayed_work_sync(&hub->update_work);
@@ -399,7 +459,7 @@ index 1679811eff50..d63f975bfd4c 100644
  }
  
  static const struct ssam_device_id ssam_base_hub_match[] = {
-@@ -613,7 +599,7 @@ static int ssam_platform_hub_remove(struct platform_device *pdev)
+@@ -625,7 +611,7 @@ static int ssam_platform_hub_remove(struct platform_device *pdev)
  {
  	const struct software_node **nodes = platform_get_drvdata(pdev);
  
@@ -411,7 +471,7 @@ index 1679811eff50..d63f975bfd4c 100644
 -- 
 2.33.1
 
-From e86647069fa14e01aff6a31583743f271d666d95 Mon Sep 17 00:00:00 2001
+From 08e1e9275e9f104a9f2c84ef02d98b8c327be26e Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 27 Oct 2021 02:07:33 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Rename device
@@ -427,10 +487,10 @@ Patchset: surface-sam
  1 file changed, 4 insertions(+), 4 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index d63f975bfd4c..2e0d3a808d47 100644
+index f6c639342b9d..ce2bd88feeaa 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
-@@ -274,8 +274,8 @@ static int ssam_hub_add_device(struct device *parent, struct ssam_controller *ct
+@@ -283,8 +283,8 @@ static int ssam_hub_add_device(struct device *parent, struct ssam_controller *ct
  	return status;
  }
  
@@ -441,7 +501,7 @@ index d63f975bfd4c..2e0d3a808d47 100644
  {
  	struct fwnode_handle *child;
  	int status;
-@@ -389,7 +389,7 @@ static void ssam_base_hub_update_workfn(struct work_struct *work)
+@@ -398,7 +398,7 @@ static void ssam_base_hub_update_workfn(struct work_struct *work)
  	hub->state = state;
  
  	if (hub->state == SSAM_BASE_HUB_CONNECTED)
@@ -450,7 +510,7 @@ index d63f975bfd4c..2e0d3a808d47 100644
  	else
  		ssam_remove_clients(&hub->sdev->dev);
  
-@@ -585,7 +585,7 @@ static int ssam_platform_hub_probe(struct platform_device *pdev)
+@@ -597,7 +597,7 @@ static int ssam_platform_hub_probe(struct platform_device *pdev)
  
  	set_secondary_fwnode(&pdev->dev, root);
  
@@ -462,27 +522,28 @@ index d63f975bfd4c..2e0d3a808d47 100644
 -- 
 2.33.1
 
-From 88d3d04fcfc74c04cb2b406f6b68cd589cfc5d63 Mon Sep 17 00:00:00 2001
+From 139b613c82971c45c1887f0f36b1e4e8f211fe8c Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 00:24:47 +0200
 Subject: [PATCH] platform/surface: aggregator: Allow devices to be marked as
  hot-removed
 
-Some SSAM devices, notably keyboard and touchpad on the Surface Book 3
-and Surface Pro 8, can be hot-removed. When this occurs, communication
-with the device may fail and time out. This timeout may unnecessarily
+Some SSAM devices, notably the keyboard cover (keyboard and touchpad) on
+the Surface Pro 8, can be hot-removed. When this occurs, communication
+with the device may fail and time out. This timeout can unnecessarily
 block and slow down device removal and even cause issues when the
 devices are detached and re-attached quickly. Thus, communication should
 generally be avoided once hot-removal is detected.
 
-While we already remove a device as soon as we detect its hot-removal,
+While we already remove a device as soon as we detect its (hot-)removal,
 the corresponding device driver may still attempt to communicate with
 the device during teardown. This is especially critical as communication
-failure may also extend to event disablement.
+failure may also extend to disabling of events, which is typically done
+at that stage.
 
 Add a flag to allow marking devices as hot-removed. This can then be
 used during client driver teardown to check if any communication
-attemtps should be avoided.
+attempts should be avoided.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-sam
@@ -623,7 +684,7 @@ index cc257097eb05..b474a9baab42 100644
 -- 
 2.33.1
 
-From d74f2c3b78911fb6cb98c23f345c03d01f84f148 Mon Sep 17 00:00:00 2001
+From 702fae57de9a9737c58c1413f894002e8f2ffc71 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 00:48:22 +0200
 Subject: [PATCH] platform/surface: aggregator: Allow notifiers to avoid
@@ -678,7 +739,7 @@ index e519d374c378..27f95abdbe99 100644
  Event notifiers are registered by providing (at minimum) a callback to call
  in case an event has been received, the registry specifying how the event
 diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
-index b8c377b3f932..dc0f22be2630 100644
+index b8c377b3f932..6de834b52b63 100644
 --- a/drivers/platform/surface/aggregator/controller.c
 +++ b/drivers/platform/surface/aggregator/controller.c
 @@ -2199,16 +2199,26 @@ static int ssam_nf_refcount_enable(struct ssam_controller *ctrl,
@@ -698,7 +759,7 @@ index b8c377b3f932..dc0f22be2630 100644
 - * any client, the event will be disabled and the corresponding reference count
 - * entry freed. The reference count entry must not be used any more after a
 - * call to this function.
-+ * If ``ec`` equals ``true`` and the reference count equals zero (i.e.  the
++ * If ``ec`` equals ``true`` and the reference count equals zero (i.e. the
 + * event is no longer requested by any client), the specified event will be
 + * disabled on the EC via the corresponding request.
 + *
@@ -910,14 +971,14 @@ index b474a9baab42..76e6300b07d5 100644
 -- 
 2.33.1
 
-From c737f87cc26eaa28a6d44637478cf0835d395a94 Mon Sep 17 00:00:00 2001
+From bacfef7b5c1402eb359f6b3b306472fc9ecb160a Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 01:20:49 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Use client device
  wrappers for notifier registration
 
 Use newly introduced client device wrapper functions for notifier
-registration and deregistration.
+registration and unregistration.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-sam
@@ -926,10 +987,10 @@ Patchset: surface-sam
  1 file changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 2e0d3a808d47..64c83b846907 100644
+index ce2bd88feeaa..9f630e890ff7 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
-@@ -459,7 +459,7 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
+@@ -468,7 +468,7 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
  
  	ssam_device_set_drvdata(sdev, hub);
  
@@ -938,7 +999,7 @@ index 2e0d3a808d47..64c83b846907 100644
  	if (status)
  		return status;
  
-@@ -471,7 +471,7 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
+@@ -480,7 +480,7 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
  	return 0;
  
  err:
@@ -947,7 +1008,7 @@ index 2e0d3a808d47..64c83b846907 100644
  	cancel_delayed_work_sync(&hub->update_work);
  	ssam_remove_clients(&sdev->dev);
  	return status;
-@@ -483,7 +483,7 @@ static void ssam_base_hub_remove(struct ssam_device *sdev)
+@@ -492,7 +492,7 @@ static void ssam_base_hub_remove(struct ssam_device *sdev)
  
  	sysfs_remove_group(&sdev->dev.kobj, &ssam_base_hub_group);
  
@@ -959,62 +1020,26 @@ index 2e0d3a808d47..64c83b846907 100644
 -- 
 2.33.1
 
-From 8f2340e6b616e25cdf4e9f8a75ec95287172f918 Mon Sep 17 00:00:00 2001
+From 73819d3f596735d225d562e6334133de761d92ec Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Tue, 8 Jun 2021 01:08:29 +0200
-Subject: [PATCH] power/supply: surface_charger: Add support for hot-removal
+Date: Thu, 28 Oct 2021 03:37:06 +0200
+Subject: [PATCH] power/supply: surface_charger: Use client device wrappers for
+ notifier registration
 
-In cases of hot-removal, further communication with the device should be
-avoided as it may fail and time out.
-
-Use the client device wrapper functions to register and unregister the
-notifiers as those check during unregistration if the device has been
-marked as hot-removed and handle this case appropriately.
+Use newly introduced client device wrapper functions for notifier
+registration and unregistration.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-sam
 ---
- drivers/power/supply/surface_charger.c | 16 +++++++++++-----
- 1 file changed, 11 insertions(+), 5 deletions(-)
+ drivers/power/supply/surface_charger.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/power/supply/surface_charger.c b/drivers/power/supply/surface_charger.c
-index a060c36c7766..9a3525c32aca 100644
+index a060c36c7766..59182d55742d 100644
 --- a/drivers/power/supply/surface_charger.c
 +++ b/drivers/power/supply/surface_charger.c
-@@ -69,6 +69,9 @@ static int spwr_ac_update_unlocked(struct spwr_ac_device *ac)
- 	__le32 old = ac->state;
- 	int status;
- 
-+	if (ssam_device_is_hot_removed(ac->sdev))
-+		return -ENODEV;
-+
- 	lockdep_assert_held(&ac->lock);
- 
- 	status = ssam_retry(ssam_bat_get_psrc, ac->sdev, &ac->state);
-@@ -103,7 +106,6 @@ static int spwr_ac_recheck(struct spwr_ac_device *ac)
- static u32 spwr_notify_ac(struct ssam_event_notifier *nf, const struct ssam_event *event)
- {
- 	struct spwr_ac_device *ac;
--	int status;
- 
- 	ac = container_of(nf, struct spwr_ac_device, notif);
- 
-@@ -121,8 +123,12 @@ static u32 spwr_notify_ac(struct ssam_event_notifier *nf, const struct ssam_even
- 
- 	switch (event->command_id) {
- 	case SAM_EVENT_CID_BAT_ADP:
--		status = spwr_ac_recheck(ac);
--		return ssam_notifier_from_errno(status) | SSAM_NOTIF_HANDLED;
-+		/*
-+		 * Any errors here should not be critical and logged in the
-+		 * corresponding functions, so ignore them.
-+		 */
-+		spwr_ac_recheck(ac);
-+		return SSAM_NOTIF_HANDLED;
- 
- 	default:
- 		return 0;
-@@ -216,7 +222,7 @@ static int spwr_ac_register(struct spwr_ac_device *ac)
+@@ -216,7 +216,7 @@ static int spwr_ac_register(struct spwr_ac_device *ac)
  	if (IS_ERR(ac->psy))
  		return PTR_ERR(ac->psy);
  
@@ -1023,7 +1048,7 @@ index a060c36c7766..9a3525c32aca 100644
  }
  
  
-@@ -251,7 +257,7 @@ static void surface_ac_remove(struct ssam_device *sdev)
+@@ -251,7 +251,7 @@ static void surface_ac_remove(struct ssam_device *sdev)
  {
  	struct spwr_ac_device *ac = ssam_device_get_drvdata(sdev);
  
@@ -1035,49 +1060,26 @@ index a060c36c7766..9a3525c32aca 100644
 -- 
 2.33.1
 
-From c7ee552c8c906928968838f8d5798d495bddea35 Mon Sep 17 00:00:00 2001
+From 21a1e4bc2e14a8d023d411b0ad4122e160a96b78 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Tue, 8 Jun 2021 01:15:34 +0200
-Subject: [PATCH] power/supply: surface_battery: Add support for hot-removal
+Date: Thu, 28 Oct 2021 03:38:09 +0200
+Subject: [PATCH] power/supply: surface_battery: Use client device wrappers for
+ notifier registration
 
-In cases of hot-removal, further communication with the device should be
-avoided as it may fail and time out.
-
-Use the client device wrapper functions to register and unregister the
-notifiers as those check during unregistration if the device has been
-marked as hot-removed and handle this case appropriately.
+Use newly introduced client device wrapper functions for notifier
+registration and unregistration.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-sam
 ---
- drivers/power/supply/surface_battery.c | 10 ++++++++--
- 1 file changed, 8 insertions(+), 2 deletions(-)
+ drivers/power/supply/surface_battery.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/power/supply/surface_battery.c b/drivers/power/supply/surface_battery.c
-index 5ec2e6bb2465..ebf1f96e9a89 100644
+index 5ec2e6bb2465..540707882bb0 100644
 --- a/drivers/power/supply/surface_battery.c
 +++ b/drivers/power/supply/surface_battery.c
-@@ -156,6 +156,9 @@ static bool spwr_battery_present(struct spwr_battery_device *bat)
- {
- 	lockdep_assert_held(&bat->lock);
- 
-+	if (ssam_device_is_hot_removed(bat->sdev))
-+		return false;
-+
- 	return le32_to_cpu(bat->sta) & SAM_BATTERY_STA_PRESENT;
- }
- 
-@@ -245,6 +248,9 @@ static int spwr_battery_update_bix_unlocked(struct spwr_battery_device *bat)
- 
- 	lockdep_assert_held(&bat->lock);
- 
-+	if (ssam_device_is_hot_removed(bat->sdev))
-+		return 0;
-+
- 	status = spwr_battery_load_sta(bat);
- 	if (status)
- 		return status;
-@@ -802,7 +808,7 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
+@@ -802,7 +802,7 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
  	if (IS_ERR(bat->psy))
  		return PTR_ERR(bat->psy);
  
@@ -1086,7 +1088,7 @@ index 5ec2e6bb2465..ebf1f96e9a89 100644
  }
  
  
-@@ -837,7 +843,7 @@ static void surface_battery_remove(struct ssam_device *sdev)
+@@ -837,7 +837,7 @@ static void surface_battery_remove(struct ssam_device *sdev)
  {
  	struct spwr_battery_device *bat = ssam_device_get_drvdata(sdev);
  
@@ -1098,7 +1100,7 @@ index 5ec2e6bb2465..ebf1f96e9a89 100644
 -- 
 2.33.1
 
-From 585bb3af623931c535785688993097083e273865 Mon Sep 17 00:00:00 2001
+From 106cb5106b1aa0100cca496b18d2baf48594b5d9 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 01:33:02 +0200
 Subject: [PATCH] HID: surface-hid: Add support for hot-removal
@@ -1122,7 +1124,7 @@ Patchset: surface-sam
  1 file changed, 37 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/hid/surface-hid/surface_hid_core.c b/drivers/hid/surface-hid/surface_hid_core.c
-index 5571e74abe91..63a7963ed345 100644
+index 5571e74abe91..d2e695e942b6 100644
 --- a/drivers/hid/surface-hid/surface_hid_core.c
 +++ b/drivers/hid/surface-hid/surface_hid_core.c
 @@ -19,12 +19,30 @@
@@ -1174,7 +1176,7 @@ index 5571e74abe91..63a7963ed345 100644
 +
 +	/*
 +	 * Communication may fail for devices that have been hot-removed. This
-+	 * also includes registration of HID events, so we need to check this
++	 * also includes unregistration of HID events, so we need to check this
 +	 * here. Only if the device has not been marked as hot-removed, we can
 +	 * safely disable events.
 +	 */
@@ -1209,23 +1211,85 @@ index 5571e74abe91..63a7963ed345 100644
 -- 
 2.33.1
 
-From 06fee01ca55ec43027b5bc5fcd3c3f26a63d0c72 Mon Sep 17 00:00:00 2001
+From 572da964e194dd13f387477c55bff23668ff01b8 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Sun, 10 Oct 2021 23:56:23 +0200
-Subject: [PATCH] wip! platform/surface: aggregator_registry: Add KIP device
- hub
+Date: Sun, 31 Oct 2021 12:34:08 +0100
+Subject: [PATCH] platform/surface: aggregator: Add comment for KIP subsystem
+ category
+
+The KIP subsystem (full name unknown, abbreviation has been obtained
+through reverse engineering) handles detachable peripherals such as the
+keyboard cover on the Surface Pro X and Surface Pro 8.
+
+It is currently not entirely clear what this subsystem entails, but at
+the very least it provides event notifications for when the keyboard
+cover on the Surface Pro X and Surface Pro 8 have been detached or
+re-attached, as well as the state that the keyboard cover is currently
+in (e.g. folded-back, folded laptop-like, closed, etc.).
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-sam
 ---
- .../surface/surface_aggregator_registry.c     | 210 +++++++++++++++++-
- 1 file changed, 208 insertions(+), 2 deletions(-)
+ include/linux/surface_aggregator/serial_hub.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/include/linux/surface_aggregator/serial_hub.h b/include/linux/surface_aggregator/serial_hub.h
+index c3de43edcffa..d1efac85caf1 100644
+--- a/include/linux/surface_aggregator/serial_hub.h
++++ b/include/linux/surface_aggregator/serial_hub.h
+@@ -306,7 +306,7 @@ enum ssam_ssh_tc {
+ 	SSAM_SSH_TC_LPC = 0x0b,
+ 	SSAM_SSH_TC_TCL = 0x0c,
+ 	SSAM_SSH_TC_SFL = 0x0d,
+-	SSAM_SSH_TC_KIP = 0x0e,
++	SSAM_SSH_TC_KIP = 0x0e, /* Manages detachable peripherals (Pro X/8 keyboard cover) */
+ 	SSAM_SSH_TC_EXT = 0x0f,
+ 	SSAM_SSH_TC_BLD = 0x10,
+ 	SSAM_SSH_TC_BAS = 0x11,	/* Detachment system (Surface Book 2/3). */
+-- 
+2.33.1
+
+From 7a78b92326ddd1addab03605a5b57417101d2169 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 10 Oct 2021 23:56:23 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add KIP device hub
+
+Add a Surface System Aggregator Module (SSAM) client device hub for
+hot-removable devices managed via the KIP subsystem.
+
+The KIP subsystem (full name unknown, abbreviation has been obtained
+through reverse engineering) is a subsystem that manages hot-removable
+SSAM client devices. Specifically, it manages HID input devices
+contained in the detachable keyboard cover of the Surface Pro 8 and
+Surface Pro X.
+
+To properly handle detachable devices, we need to remove their kernel
+representation when the physical device has been detached and (re-)add
+and (re-)initialize said representation when the physical device has
+been (re-)attached. Note that we need to hot-remove those devices, as
+communication (especially during event notifier unregistration) may time
+out when the physical device is no longer present, which would lead to
+an unnecessary delay. This delay might become problematic when devices
+are detached and re-attached quickly.
+
+The KIP subsystem handles a single group of devices (e.g. all devices
+contained in the keyboard cover) and cannot handle devices individually.
+Thus we model it as a client device hub, which removes all devices
+contained under it once removal of the hub (e.g. keyboard cover) has
+been detected and (re-)adds all devices once the physical hub device has
+been (re-)attached.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c     | 233 +++++++++++++++++-
+ 1 file changed, 231 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 64c83b846907..e02fe833fde8 100644
+index 9f630e890ff7..5b39047985dd 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
-@@ -505,6 +505,200 @@ static struct ssam_device_driver ssam_base_hub_driver = {
+@@ -514,6 +514,223 @@ static struct ssam_device_driver ssam_base_hub_driver = {
  };
  
  
@@ -1279,9 +1343,33 @@ index 64c83b846907..e02fe833fde8 100644
 +static ssize_t ssam_kip_hub_state_show(struct device *dev, struct device_attribute *attr, char *buf)
 +{
 +	struct ssam_kip_hub *hub = dev_get_drvdata(dev);
-+	bool connected = hub->state == SSAM_KIP_HUB_CONNECTED;
++	const char *state;
 +
-+	return sysfs_emit(buf, "%d\n", connected);
++	switch (hub->state) {
++	case SSAM_KIP_HUB_UNINITIALIZED:
++		state = "uninitialized";
++		break;
++
++	case SSAM_KIP_HUB_CONNECTED:
++		state = "connected";
++		break;
++
++	case SSAM_KIP_HUB_DISCONNECTED:
++		state = "disconnected";
++		break;
++
++	default:
++		/*
++		 * Any value not handled in the above cases is invalid and
++		 * should never have been set. Thus this case should be
++		 * impossible to reach.
++		 */
++		WARN(1, "invalid KIP hub state: %d\n", hub->state);
++		state = "<invalid>";
++		break;
++	}
++
++	return sysfs_emit(buf, "%s\n", state);
 +}
 +
 +static struct device_attribute ssam_kip_hub_attr_state =
@@ -1314,7 +1402,7 @@ index 64c83b846907..e02fe833fde8 100644
 +	if (hub->state == SSAM_KIP_HUB_CONNECTED)
 +		status = ssam_hub_register_clients(&hub->sdev->dev, hub->sdev->ctrl, node);
 +	else
-+		ssam_remove_clients(&hub->sdev->dev);
++		ssam_hot_remove_clients(&hub->sdev->dev);
 +
 +	if (status)
 +		dev_err(&hub->sdev->dev, "failed to update KIP-hub devices: %d\n", status);
@@ -1338,7 +1426,6 @@ index 64c83b846907..e02fe833fde8 100644
 +	 * some time to set up.
 +	 */
 +	delay = event->data[0] ? SSAM_KIP_UPDATE_CONNECT_DELAY : 0;
-+
 +	schedule_delayed_work(&hub->update_work, delay);
 +
 +	return SSAM_NOTIF_HANDLED;
@@ -1426,7 +1513,7 @@ index 64c83b846907..e02fe833fde8 100644
  /* -- SSAM platform/meta-hub driver. ---------------------------------------- */
  
  static const struct acpi_device_id ssam_platform_hub_match[] = {
-@@ -624,18 +818,30 @@ static int __init ssam_device_hub_init(void)
+@@ -636,18 +853,30 @@ static int __init ssam_device_hub_init(void)
  
  	status = platform_driver_register(&ssam_platform_hub_driver);
  	if (status)
@@ -1462,25 +1549,155 @@ index 64c83b846907..e02fe833fde8 100644
 -- 
 2.33.1
 
-From 275eff5a992506073188eddb09bfa2c0cfa838e5 Mon Sep 17 00:00:00 2001
+From 5333212c5dabdfc1118fad93985421245a9141b3 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Tue, 8 Jun 2021 03:19:20 +0200
-Subject: [PATCH] wip! platform/surface: Add KIP tablet-mode switch
+Date: Wed, 27 Oct 2021 22:33:03 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for
+ keyboard cover on Surface Pro 8
+
+Add support for the detachable keyboard cover on the Surface Pro 8.
+
+The keyboard cover on the Surface Pro 8 is, unlike the keyboard covers
+of earlier Surface Pro generations, handled via the Surface System
+Aggregator Module (SSAM). The keyboard and touchpad (as well as other
+HID input devices) of this cover are standard SSAM HID client devices
+(just like keyboard and touchpad on e.g. the Surface Laptop 3 and 4),
+however, some care needs to be taken as they can be physically detached
+(similarly to the Surface Book 3). Specifically, the respective SSAM
+client devices need to be removed when the keyboard cover has been
+detached and (re-)initialized when the keyboard cover has been
+(re-)attached.
+
+On the Surface Pro 8, detachment of the keyboard cover (and by extension
+its devices) is managed via the KIP subsystem. Therefore, said devices
+need to be registered under the KIP device hub, which in turn will
+remove and re-create/re-initialize those devices as needed.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-sam
 ---
- drivers/platform/surface/Kconfig              |   8 +
+ .../surface/surface_aggregator_registry.c     | 37 ++++++++++++++++++-
+ 1 file changed, 36 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 5b39047985dd..e5eae4dde71a 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -47,6 +47,12 @@ static const struct software_node ssam_node_hub_base = {
+ 	.parent = &ssam_node_root,
+ };
+ 
++/* KIP device hub (connects keyboard cover devices on Surface Pro 8). */
++static const struct software_node ssam_node_hub_kip = {
++	.name = "ssam:01:0e:01:00:00",
++	.parent = &ssam_node_root,
++};
++
+ /* AC adapter. */
+ static const struct software_node ssam_node_bat_ac = {
+ 	.name = "ssam:01:02:01:01:01",
+@@ -155,6 +161,30 @@ static const struct software_node ssam_node_hid_base_iid6 = {
+ 	.parent = &ssam_node_hub_base,
+ };
+ 
++/* HID keyboard (KIP hub). */
++static const struct software_node ssam_node_hid_kip_keyboard = {
++	.name = "ssam:01:15:02:01:00",
++	.parent = &ssam_node_hub_kip,
++};
++
++/* HID pen stash (KIP hub; pen taken / stashed away evens). */
++static const struct software_node ssam_node_hid_kip_penstash = {
++	.name = "ssam:01:15:02:02:00",
++	.parent = &ssam_node_hub_kip,
++};
++
++/* HID touchpad (KIP hub). */
++static const struct software_node ssam_node_hid_kip_touchpad = {
++	.name = "ssam:01:15:02:03:00",
++	.parent = &ssam_node_hub_kip,
++};
++
++/* HID device instance 5 (KIP hub, unknown HID device). */
++static const struct software_node ssam_node_hid_kip_iid5 = {
++	.name = "ssam:01:15:02:05:00",
++	.parent = &ssam_node_hub_kip,
++};
++
+ /*
+  * Devices for 5th- and 6th-generations models:
+  * - Surface Book 2,
+@@ -230,10 +260,15 @@ static const struct software_node *ssam_node_group_sp7[] = {
+ 
+ static const struct software_node *ssam_node_group_sp8[] = {
+ 	&ssam_node_root,
++	&ssam_node_hub_kip,
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+ 	&ssam_node_tmp_pprof,
+-	/* TODO: Add support for keyboard cover. */
++	&ssam_node_hid_kip_keyboard,
++	&ssam_node_hid_kip_penstash,
++	&ssam_node_hid_kip_touchpad,
++	&ssam_node_hid_kip_iid5,
++	/* TODO: Add support for tablet mode switch. */
+ 	NULL,
+ };
+ 
+-- 
+2.33.1
+
+From 9119a57196d19c2e81b31e5e8eb0af24e50f41b7 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Tue, 8 Jun 2021 03:19:20 +0200
+Subject: [PATCH] platform/surface: Add KIP tablet-mode switch
+
+Add a driver providing a tablet-mode switch input device for Surface
+models using the KIP subsystem to manage detachable peripherals.
+
+The Surface Pro 8 has a detachable keyboard cover. Unlike the keyboard
+covers of previous generation Surface Pro models, this cover is fully
+handled by the Surface System Aggregator Module (SSAM). The SSAM KIP
+subsystem (full name unknown, abbreviation found through reverse
+engineering) provides notifications for mode changes of the cover.
+Specifically, it allows us to know when the cover has been folded back,
+detached, or whether it is in laptop mode.
+
+The driver introduced with this change captures these events and
+translates them to standard SW_TABLET_MODE input events.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ MAINTAINERS                                   |   6 +
+ drivers/platform/surface/Kconfig              |  22 ++
  drivers/platform/surface/Makefile             |   1 +
- .../surface/surface_kip_tablet_switch.c       | 242 ++++++++++++++++++
- 3 files changed, 251 insertions(+)
+ .../surface/surface_kip_tablet_switch.c       | 245 ++++++++++++++++++
+ 4 files changed, 274 insertions(+)
  create mode 100644 drivers/platform/surface/surface_kip_tablet_switch.c
 
+diff --git a/MAINTAINERS b/MAINTAINERS
+index d7b4f32875a9..5713585d060d 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -12357,6 +12357,12 @@ L:	platform-driver-x86@vger.kernel.org
+ S:	Maintained
+ F:	drivers/platform/surface/surface_hotplug.c
+ 
++MICROSOFT SURFACE KIP TABLET-MODE SWITCH
++M:	Maximilian Luz <luzmaximilian@gmail.com>
++L:	platform-driver-x86@vger.kernel.org
++S:	Maintained
++F:	drivers/platform/surface/surface_kip_tablet_switch.c
++
+ MICROSOFT SURFACE PLATFORM PROFILE DRIVER
+ M:	Maximilian Luz <luzmaximilian@gmail.com>
+ L:	platform-driver-x86@vger.kernel.org
 diff --git a/drivers/platform/surface/Kconfig b/drivers/platform/surface/Kconfig
-index 3105f651614f..133ebb84bd2d 100644
+index 3105f651614f..3c0ee0cdaef5 100644
 --- a/drivers/platform/surface/Kconfig
 +++ b/drivers/platform/surface/Kconfig
-@@ -152,6 +152,14 @@ config SURFACE_HOTPLUG
+@@ -152,6 +152,28 @@ config SURFACE_HOTPLUG
  	  Select M or Y here, if you want to (fully) support hot-plugging of
  	  dGPU devices on the Surface Book 2 and/or 3 during D3cold.
  
@@ -1490,7 +1707,21 @@ index 3105f651614f..133ebb84bd2d 100644
 +	depends on SURFACE_AGGREGATOR_BUS
 +	depends on INPUT
 +	help
-+	  TODO
++	  Provides a tablet-mode switch input device on Microsoft Surface models
++	  using the KIP subsystem for detachable keyboards (e.g. keyboard
++	  covers).
++
++	  The KIP subsystem is used on newer Surface generations to handle
++	  detachable input peripherals, specifically the keyboard cover
++	  (containing keyboard and touchpad) on the Surface Pro 8. This module
++	  provides a driver to let user-space know when the device should be
++	  considered in tablet-mode due to the keyboard cover being detached or
++	  folded back (essentially signaling when the keyboard is not available
++	  for input). It does so by creating a tablet-mode switch input device,
++	  sending the standard SW_TABLET_MODE event on mode change.
++
++	  Select M or Y here, if you want to provide tablet-mode switch input
++	  events on the Surface Pro 8.
 +
  config SURFACE_PLATFORM_PROFILE
  	tristate "Surface Platform Profile Driver"
@@ -1508,10 +1739,10 @@ index 32889482de55..6d9291c993c4 100644
  obj-$(CONFIG_SURFACE_PRO3_BUTTON)	+= surfacepro3_button.o
 diff --git a/drivers/platform/surface/surface_kip_tablet_switch.c b/drivers/platform/surface/surface_kip_tablet_switch.c
 new file mode 100644
-index 000000000000..87055f13bf9c
+index 000000000000..458470067579
 --- /dev/null
 +++ b/drivers/platform/surface/surface_kip_tablet_switch.c
-@@ -0,0 +1,242 @@
+@@ -0,0 +1,245 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Surface System Aggregator Module (SSAM) tablet mode switch via KIP
@@ -1572,34 +1803,39 @@ index 000000000000..87055f13bf9c
 +	return 0;
 +}
 +
-+static const char* ssam_kip_lid_state_str(enum ssam_kip_lid_state state)
-+{
-+	switch (state) {
-+	case SSAM_KIP_LID_STATE_DISCONNECTED:
-+		return "disconnected";
-+
-+	case SSAM_KIP_LID_STATE_CLOSED:
-+		return "closed";
-+
-+	case SSAM_KIP_LID_STATE_LAPTOP:
-+		return "laptop";
-+
-+	case SSAM_KIP_LID_STATE_FOLDED_CANVAS:
-+		return "folded-canvas";
-+
-+	case SSAM_KIP_LID_STATE_FOLDED_BACK:
-+		return "folded-back";
-+
-+	default:
-+		return "<unknown>";
-+	}
-+}
-+
 +static ssize_t state_show(struct device *dev, struct device_attribute *attr, char *buf)
 +{
 +	struct ssam_kip_sw *sw = dev_get_drvdata(dev);
++	const char *state;
 +
-+	return sysfs_emit(buf, "%s\n", ssam_kip_lid_state_str(sw->state));
++	switch (sw->state) {
++	case SSAM_KIP_LID_STATE_DISCONNECTED:
++		state = "disconnected";
++		break;
++
++	case SSAM_KIP_LID_STATE_CLOSED:
++		state = "closed";
++		break;
++
++	case SSAM_KIP_LID_STATE_LAPTOP:
++		state = "laptop";
++		break;
++
++	case SSAM_KIP_LID_STATE_FOLDED_CANVAS:
++		state = "folded-canvas";
++		break;
++
++	case SSAM_KIP_LID_STATE_FOLDED_BACK:
++		state = "folded-back";
++		break;
++
++	default:
++		state = "<unknown>";
++		dev_warn(dev, "unknown KIP lid state: %d\n", sw->state);
++		break;
++	}
++
++	return sysfs_emit(buf, "%s\n", state);
 +}
 +static DEVICE_ATTR_RO(state);
 +
@@ -1624,7 +1860,6 @@ index 000000000000..87055f13bf9c
 +
 +	if (sw->state == state)
 +		return;
-+
 +	sw->state = state;
 +
 +	/* Send SW_TABLET_MODE event. */
@@ -1646,7 +1881,6 @@ index 000000000000..87055f13bf9c
 +	}
 +
 +	schedule_work(&sw->update_work);
-+
 +	return SSAM_NOTIF_HANDLED;
 +}
 +
@@ -1757,39 +1991,32 @@ index 000000000000..87055f13bf9c
 -- 
 2.33.1
 
-From b321e78a0435113151c7647986c30b4a2c076ed7 Mon Sep 17 00:00:00 2001
+From 19218e07218cc69c74db671941e8d09430bb03d2 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 27 Oct 2021 22:33:03 +0200
-Subject: [PATCH] platform/surface: Add support for the Surface Pro 8
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for tablet
+ mode switch on Surface Pro 8
+
+Add a KIP subsystem tablet-mode switch device for the Surface Pro 8.
+The respective driver for this device provides SW_TABLET_MODE input
+events for user-space based on the state of the keyboard cover (e.g.
+detached, folded-back, normal/laptop mode).
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-sam
 ---
- .../surface/surface_aggregator_registry.c     | 53 +++++++++++++++++++
- 1 file changed, 53 insertions(+)
+ drivers/platform/surface/surface_aggregator_registry.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index e02fe833fde8..c7baa3771420 100644
+index e5eae4dde71a..4a397c5bb45f 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
-@@ -47,6 +47,12 @@ static const struct software_node ssam_node_hub_base = {
+@@ -77,6 +77,12 @@ static const struct software_node ssam_node_tmp_pprof = {
  	.parent = &ssam_node_root,
  };
  
-+/* KIP device hub (keyboard cover on Surface Pro 8). */
-+static const struct software_node ssam_node_hub_kip = {
-+	.name = "ssam:01:0e:01:00:00",
-+	.parent = &ssam_node_root,
-+};
-+
- /* AC adapter. */
- static const struct software_node ssam_node_bat_ac = {
- 	.name = "ssam:01:02:01:01:01",
-@@ -71,6 +77,12 @@ static const struct software_node ssam_node_tmp_pprof = {
- 	.parent = &ssam_node_root,
- };
- 
-+/* Tablet mode switch via KIP subsystem. */
++/* Tablet-mode switch via KIP subsystem. */
 +static const struct software_node ssam_node_kip_tablet_switch = {
 +	.name = "ssam:01:0e:01:00:01",
 +	.parent = &ssam_node_root,
@@ -1798,68 +2025,468 @@ index e02fe833fde8..c7baa3771420 100644
  /* DTX / detachment-system device (Surface Book 3). */
  static const struct software_node ssam_node_bas_dtx = {
  	.name = "ssam:01:11:01:00:00",
-@@ -155,6 +167,30 @@ static const struct software_node ssam_node_hid_base_iid6 = {
- 	.parent = &ssam_node_hub_base,
+@@ -264,11 +270,11 @@ static const struct software_node *ssam_node_group_sp8[] = {
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+ 	&ssam_node_tmp_pprof,
++	&ssam_node_kip_tablet_switch,
+ 	&ssam_node_hid_kip_keyboard,
+ 	&ssam_node_hid_kip_penstash,
+ 	&ssam_node_hid_kip_touchpad,
+ 	&ssam_node_hid_kip_iid5,
+-	/* TODO: Add support for tablet mode switch. */
+ 	NULL,
  };
  
-+/* HID keyboard (KIP hub). */
-+static const struct software_node ssam_node_hid_kip_keyboard = {
-+	.name = "ssam:01:15:02:01:00",
-+	.parent = &ssam_node_hub_kip,
-+};
+-- 
+2.33.1
+
+From 6aa5e35044b60765f1576e7104585f259977db66 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Thu, 28 Oct 2021 03:40:22 +0200
+Subject: [PATCH] power/supply: surface_battery: Add support for hot-removal
+
+In cases of hot-removal, further communication with the device should be
+avoided whenever possible, as it may fail and time out.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/power/supply/surface_battery.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/power/supply/surface_battery.c b/drivers/power/supply/surface_battery.c
+index 540707882bb0..ebf1f96e9a89 100644
+--- a/drivers/power/supply/surface_battery.c
++++ b/drivers/power/supply/surface_battery.c
+@@ -156,6 +156,9 @@ static bool spwr_battery_present(struct spwr_battery_device *bat)
+ {
+ 	lockdep_assert_held(&bat->lock);
+ 
++	if (ssam_device_is_hot_removed(bat->sdev))
++		return false;
 +
-+/* HID pen stash (KIP hub; pen taken / stashed away evens). */
-+static const struct software_node ssam_node_hid_kip_penstash = {
-+	.name = "ssam:01:15:02:02:00",
-+	.parent = &ssam_node_hub_kip,
-+};
+ 	return le32_to_cpu(bat->sta) & SAM_BATTERY_STA_PRESENT;
+ }
+ 
+@@ -245,6 +248,9 @@ static int spwr_battery_update_bix_unlocked(struct spwr_battery_device *bat)
+ 
+ 	lockdep_assert_held(&bat->lock);
+ 
++	if (ssam_device_is_hot_removed(bat->sdev))
++		return 0;
 +
-+/* HID touchpad (KIP hub). */
-+static const struct software_node ssam_node_hid_kip_touchpad = {
-+	.name = "ssam:01:15:02:03:00",
+ 	status = spwr_battery_load_sta(bat);
+ 	if (status)
+ 		return status;
+-- 
+2.33.1
+
+From 1d22474ea64b64552f1541330f07d619d8a09e90 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 31 Oct 2021 18:07:39 +0100
+Subject: [PATCH] platform/surface: aggregator_registry: Use KIP hub for
+ Surface Book 3 base devices
+
+It turns out that the Surface Book 3 manages the devices contained in
+its detachable base via the KIP hub as well, similarly to the Surface
+Pro 8 and Surface Pro X. So move them over to the KIP hub.
+
+Right now, we (mis-)use the detachment subsystem (DTX), which is
+designed for handling detachment requests and physical locking of the
+base, to properly remove and re-attach Surface System Aggregator Module
+(SSAM) client devices contained in the base. This system does not seem
+to be intended for managing the (sub-)devices contained in the base,
+which may need some time to be set up properly.
+
+The KIP subsystem seems to be the intended subsystem for managing those
+devices, thus let's use that one instead.
+
+Note that this also changes the way in which devices on the Surface Book
+3 are removed when they have been detached, specifically from normal
+removal to hot-removal (avoiding further communication with the embedded
+controller). It seems that the "communication timeout after device
+removal" issue does also occur on the Surface Book 3, but has so far
+been missed as it does not happen reliably every time. Switching to
+hot-removal fixes this issue and should not have any noticable
+drawbacks.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c     | 56 ++++++-------------
+ 1 file changed, 16 insertions(+), 40 deletions(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 4a397c5bb45f..391bfb35aaa9 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -41,13 +41,7 @@ static const struct software_node ssam_node_root = {
+ 	.name = "ssam_platform_hub",
+ };
+ 
+-/* Base device hub (devices attached to Surface Book 3 base). */
+-static const struct software_node ssam_node_hub_base = {
+-	.name = "ssam:00:00:02:00:00",
+-	.parent = &ssam_node_root,
+-};
+-
+-/* KIP device hub (connects keyboard cover devices on Surface Pro 8). */
++/* KIP device hub (connects detachable keyboard/touchpad on Surface Pro 8 and Book 3). */
+ static const struct software_node ssam_node_hub_kip = {
+ 	.name = "ssam:01:0e:01:00:00",
+ 	.parent = &ssam_node_root,
+@@ -65,10 +59,10 @@ static const struct software_node ssam_node_bat_main = {
+ 	.parent = &ssam_node_root,
+ };
+ 
+-/* Secondary battery (Surface Book 3). */
+-static const struct software_node ssam_node_bat_sb3base = {
++/* Secondary battery (Surface Book 3, managed via KIP hub). */
++static const struct software_node ssam_node_bat_kip = {
+ 	.name = "ssam:01:02:02:01:00",
+-	.parent = &ssam_node_hub_base,
 +	.parent = &ssam_node_hub_kip,
-+};
-+
-+/* HID device instance 5 (KIP hub, unknown HID device). */
-+static const struct software_node ssam_node_hid_kip_iid5 = {
-+	.name = "ssam:01:15:02:05:00",
+ };
+ 
+ /* Platform profile / performance-mode device. */
+@@ -143,30 +137,6 @@ static const struct software_node ssam_node_hid_main_iid5 = {
+ 	.parent = &ssam_node_root,
+ };
+ 
+-/* HID keyboard (base hub). */
+-static const struct software_node ssam_node_hid_base_keyboard = {
+-	.name = "ssam:01:15:02:01:00",
+-	.parent = &ssam_node_hub_base,
+-};
+-
+-/* HID touchpad (base hub). */
+-static const struct software_node ssam_node_hid_base_touchpad = {
+-	.name = "ssam:01:15:02:03:00",
+-	.parent = &ssam_node_hub_base,
+-};
+-
+-/* HID device instance 5 (unknown HID device, base hub). */
+-static const struct software_node ssam_node_hid_base_iid5 = {
+-	.name = "ssam:01:15:02:05:00",
+-	.parent = &ssam_node_hub_base,
+-};
+-
+-/* HID device instance 6 (unknown HID device, base hub). */
+-static const struct software_node ssam_node_hid_base_iid6 = {
+-	.name = "ssam:01:15:02:06:00",
+-	.parent = &ssam_node_hub_base,
+-};
+-
+ /* HID keyboard (KIP hub). */
+ static const struct software_node ssam_node_hid_kip_keyboard = {
+ 	.name = "ssam:01:15:02:01:00",
+@@ -191,6 +161,12 @@ static const struct software_node ssam_node_hid_kip_iid5 = {
+ 	.parent = &ssam_node_hub_kip,
+ };
+ 
++/* HID device instance 6 (KIP hub, unknown HID device). */
++static const struct software_node ssam_node_hid_kip_iid6 = {
++	.name = "ssam:01:15:02:06:00",
 +	.parent = &ssam_node_hub_kip,
 +};
 +
  /*
   * Devices for 5th- and 6th-generations models:
   * - Surface Book 2,
-@@ -228,6 +264,20 @@ static const struct software_node *ssam_node_group_sp7[] = {
+@@ -206,16 +182,16 @@ static const struct software_node *ssam_node_group_gen5[] = {
+ /* Devices for Surface Book 3. */
+ static const struct software_node *ssam_node_group_sb3[] = {
+ 	&ssam_node_root,
+-	&ssam_node_hub_base,
++	&ssam_node_hub_kip,
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+-	&ssam_node_bat_sb3base,
++	&ssam_node_bat_kip,
+ 	&ssam_node_tmp_pprof,
+ 	&ssam_node_bas_dtx,
+-	&ssam_node_hid_base_keyboard,
+-	&ssam_node_hid_base_touchpad,
+-	&ssam_node_hid_base_iid5,
+-	&ssam_node_hid_base_iid6,
++	&ssam_node_hid_kip_keyboard,
++	&ssam_node_hid_kip_touchpad,
++	&ssam_node_hid_kip_iid5,
++	&ssam_node_hid_kip_iid6,
  	NULL,
  };
  
-+static const struct software_node *ssam_node_group_sp8[] = {
-+	&ssam_node_root,
-+	&ssam_node_hub_kip,
-+	&ssam_node_bat_ac,
-+	&ssam_node_bat_main,
-+	&ssam_node_tmp_pprof,
-+	&ssam_node_kip_tablet_switch,
-+	&ssam_node_hid_kip_keyboard,
-+	&ssam_node_hid_kip_penstash,
-+	&ssam_node_hid_kip_touchpad,
-+	&ssam_node_hid_kip_iid5,
-+	NULL,
-+};
-+
+-- 
+2.33.1
+
+From 913396e32498177d31c25ec61a361ba377e361ce Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 31 Oct 2021 18:09:53 +0100
+Subject: [PATCH] platform/surface: aggregator_registry: Remove base hub driver
+
+The base hub was a virtual device hub for Surface System Aggregator
+Module (SSAM) client devices contained in the detachable Surface Book 3
+base. Remove it as it is no longer needed.
+
+In the previous change, we have moved all devices from the base hub to
+the KIP hub. That change has also removed the only base-hub-device that
+ever existed, as it was essentially replaced by the KIP-hub-device and
+thus was no longer needed. This means that there is no remaining
+hub-device against which the base hub driver can load, i.e. it is now
+essentially dead code. So remove the driver as well.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c     | 213 ------------------
+ 1 file changed, 213 deletions(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 391bfb35aaa9..57927483a9ed 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -325,212 +325,6 @@ static int ssam_hub_register_clients(struct device *parent, struct ssam_controll
+ }
  
- /* -- Device registry helper functions. ------------------------------------- */
  
-@@ -714,6 +764,9 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
- 	/* Surface Pro 7+ */
- 	{ "MSHW0119", (unsigned long)ssam_node_group_sp7 },
+-/* -- SSAM base-hub driver. ------------------------------------------------- */
+-
+-/*
+- * Some devices (especially battery) may need a bit of time to be fully usable
+- * after being (re-)connected. This delay has been determined via
+- * experimentation.
+- */
+-#define SSAM_BASE_UPDATE_CONNECT_DELAY		msecs_to_jiffies(2500)
+-
+-enum ssam_base_hub_state {
+-	SSAM_BASE_HUB_UNINITIALIZED,
+-	SSAM_BASE_HUB_CONNECTED,
+-	SSAM_BASE_HUB_DISCONNECTED,
+-};
+-
+-struct ssam_base_hub {
+-	struct ssam_device *sdev;
+-
+-	enum ssam_base_hub_state state;
+-	struct delayed_work update_work;
+-
+-	struct ssam_event_notifier notif;
+-};
+-
+-SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_query_opmode, u8, {
+-	.target_category = SSAM_SSH_TC_BAS,
+-	.target_id       = 0x01,
+-	.command_id      = 0x0d,
+-	.instance_id     = 0x00,
+-});
+-
+-#define SSAM_BAS_OPMODE_TABLET		0x00
+-#define SSAM_EVENT_BAS_CID_CONNECTION	0x0c
+-
+-static int ssam_base_hub_query_state(struct ssam_base_hub *hub, enum ssam_base_hub_state *state)
+-{
+-	u8 opmode;
+-	int status;
+-
+-	status = ssam_retry(ssam_bas_query_opmode, hub->sdev->ctrl, &opmode);
+-	if (status < 0) {
+-		dev_err(&hub->sdev->dev, "failed to query base state: %d\n", status);
+-		return status;
+-	}
+-
+-	if (opmode != SSAM_BAS_OPMODE_TABLET)
+-		*state = SSAM_BASE_HUB_CONNECTED;
+-	else
+-		*state = SSAM_BASE_HUB_DISCONNECTED;
+-
+-	return 0;
+-}
+-
+-static ssize_t ssam_base_hub_state_show(struct device *dev, struct device_attribute *attr,
+-					char *buf)
+-{
+-	struct ssam_base_hub *hub = dev_get_drvdata(dev);
+-	bool connected = hub->state == SSAM_BASE_HUB_CONNECTED;
+-
+-	return sysfs_emit(buf, "%d\n", connected);
+-}
+-
+-static struct device_attribute ssam_base_hub_attr_state =
+-	__ATTR(state, 0444, ssam_base_hub_state_show, NULL);
+-
+-static struct attribute *ssam_base_hub_attrs[] = {
+-	&ssam_base_hub_attr_state.attr,
+-	NULL,
+-};
+-
+-static const struct attribute_group ssam_base_hub_group = {
+-	.attrs = ssam_base_hub_attrs,
+-};
+-
+-static void ssam_base_hub_update_workfn(struct work_struct *work)
+-{
+-	struct ssam_base_hub *hub = container_of(work, struct ssam_base_hub, update_work.work);
+-	struct fwnode_handle *node = dev_fwnode(&hub->sdev->dev);
+-	enum ssam_base_hub_state state;
+-	int status = 0;
+-
+-	status = ssam_base_hub_query_state(hub, &state);
+-	if (status)
+-		return;
+-
+-	if (hub->state == state)
+-		return;
+-	hub->state = state;
+-
+-	if (hub->state == SSAM_BASE_HUB_CONNECTED)
+-		status = ssam_hub_register_clients(&hub->sdev->dev, hub->sdev->ctrl, node);
+-	else
+-		ssam_remove_clients(&hub->sdev->dev);
+-
+-	if (status)
+-		dev_err(&hub->sdev->dev, "failed to update base-hub devices: %d\n", status);
+-}
+-
+-static u32 ssam_base_hub_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
+-{
+-	struct ssam_base_hub *hub = container_of(nf, struct ssam_base_hub, notif);
+-	unsigned long delay;
+-
+-	if (event->command_id != SSAM_EVENT_BAS_CID_CONNECTION)
+-		return 0;
+-
+-	if (event->length < 1) {
+-		dev_err(&hub->sdev->dev, "unexpected payload size: %u\n", event->length);
+-		return 0;
+-	}
+-
+-	/*
+-	 * Delay update when the base is being connected to give devices/EC
+-	 * some time to set up.
+-	 */
+-	delay = event->data[0] ? SSAM_BASE_UPDATE_CONNECT_DELAY : 0;
+-
+-	schedule_delayed_work(&hub->update_work, delay);
+-
+-	/*
+-	 * Do not return SSAM_NOTIF_HANDLED: The event should be picked up and
+-	 * consumed by the detachment system driver. We're just a (more or less)
+-	 * silent observer.
+-	 */
+-	return 0;
+-}
+-
+-static int __maybe_unused ssam_base_hub_resume(struct device *dev)
+-{
+-	struct ssam_base_hub *hub = dev_get_drvdata(dev);
+-
+-	schedule_delayed_work(&hub->update_work, 0);
+-	return 0;
+-}
+-static SIMPLE_DEV_PM_OPS(ssam_base_hub_pm_ops, NULL, ssam_base_hub_resume);
+-
+-static int ssam_base_hub_probe(struct ssam_device *sdev)
+-{
+-	struct ssam_base_hub *hub;
+-	int status;
+-
+-	hub = devm_kzalloc(&sdev->dev, sizeof(*hub), GFP_KERNEL);
+-	if (!hub)
+-		return -ENOMEM;
+-
+-	hub->sdev = sdev;
+-	hub->state = SSAM_BASE_HUB_UNINITIALIZED;
+-
+-	hub->notif.base.priority = INT_MAX;  /* This notifier should run first. */
+-	hub->notif.base.fn = ssam_base_hub_notif;
+-	hub->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
+-	hub->notif.event.id.target_category = SSAM_SSH_TC_BAS,
+-	hub->notif.event.id.instance = 0,
+-	hub->notif.event.mask = SSAM_EVENT_MASK_NONE;
+-	hub->notif.event.flags = SSAM_EVENT_SEQUENCED;
+-
+-	INIT_DELAYED_WORK(&hub->update_work, ssam_base_hub_update_workfn);
+-
+-	ssam_device_set_drvdata(sdev, hub);
+-
+-	status = ssam_device_notifier_register(sdev, &hub->notif);
+-	if (status)
+-		return status;
+-
+-	status = sysfs_create_group(&sdev->dev.kobj, &ssam_base_hub_group);
+-	if (status)
+-		goto err;
+-
+-	schedule_delayed_work(&hub->update_work, 0);
+-	return 0;
+-
+-err:
+-	ssam_device_notifier_unregister(sdev, &hub->notif);
+-	cancel_delayed_work_sync(&hub->update_work);
+-	ssam_remove_clients(&sdev->dev);
+-	return status;
+-}
+-
+-static void ssam_base_hub_remove(struct ssam_device *sdev)
+-{
+-	struct ssam_base_hub *hub = ssam_device_get_drvdata(sdev);
+-
+-	sysfs_remove_group(&sdev->dev.kobj, &ssam_base_hub_group);
+-
+-	ssam_device_notifier_unregister(sdev, &hub->notif);
+-	cancel_delayed_work_sync(&hub->update_work);
+-	ssam_remove_clients(&sdev->dev);
+-}
+-
+-static const struct ssam_device_id ssam_base_hub_match[] = {
+-	{ SSAM_VDEV(HUB, 0x02, SSAM_ANY_IID, 0x00) },
+-	{ },
+-};
+-
+-static struct ssam_device_driver ssam_base_hub_driver = {
+-	.probe = ssam_base_hub_probe,
+-	.remove = ssam_base_hub_remove,
+-	.match_table = ssam_base_hub_match,
+-	.driver = {
+-		.name = "surface_aggregator_base_hub",
+-		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
+-		.pm = &ssam_base_hub_pm_ops,
+-	},
+-};
+-
+-
+ /* -- SSAM KIP-subsystem hub driver. ---------------------------------------- */
  
-+	/* Surface Pro 8 */
-+	{ "MSHW0263", (unsigned long)ssam_node_group_sp8 },
-+
- 	/* Surface Book 2 */
- 	{ "MSHW0107", (unsigned long)ssam_node_group_gen5 },
+ /*
+@@ -872,10 +666,6 @@ static int __init ssam_device_hub_init(void)
+ 	if (status)
+ 		goto err_platform;
  
+-	status = ssam_device_driver_register(&ssam_base_hub_driver);
+-	if (status)
+-		goto err_base;
+-
+ 	status = ssam_device_driver_register(&ssam_kip_hub_driver);
+ 	if (status)
+ 		goto err_kip;
+@@ -883,8 +673,6 @@ static int __init ssam_device_hub_init(void)
+ 	return 0;
+ 
+ err_kip:
+-	ssam_device_driver_unregister(&ssam_base_hub_driver);
+-err_base:
+ 	platform_driver_unregister(&ssam_platform_hub_driver);
+ err_platform:
+ 	return status;
+@@ -894,7 +682,6 @@ module_init(ssam_device_hub_init);
+ static void __exit ssam_device_hub_exit(void)
+ {
+ 	ssam_device_driver_unregister(&ssam_kip_hub_driver);
+-	ssam_device_driver_unregister(&ssam_base_hub_driver);
+ 	platform_driver_unregister(&ssam_platform_hub_driver);
+ }
+ module_exit(ssam_device_hub_exit);
 -- 
 2.33.1
 
