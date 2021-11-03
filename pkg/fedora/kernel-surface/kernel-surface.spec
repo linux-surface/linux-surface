@@ -2,15 +2,18 @@
 # Definitions to configure the kernel we want to build
 #
 
+%global kernel_tag_fc34 kernel-5.14.15-300.fc35
 %global kernel_tag_fc34 kernel-5.14.15-200.fc34
 %global kernel_tag_fc33 kernel-5.14.15-100.fc33
 
+%global kernel_release_fc35 1
 %global kernel_release_fc34 1
 %global kernel_release_fc33 1
 
 # This is what is printed in the GRUB menu. These cannot be fetched from the
 # buildhost, because in a container this will also say container. To get the
 # same text as the default kernels, just hardcode it. Hey, this is important!
+%global fedora_title_fc34 35 (Thirty Five)
 %global fedora_title_fc34 34 (Thirty Four)
 %global fedora_title_fc33 33 (Thirty Three)
 
