@@ -1,4 +1,4 @@
-From e291fe440d5f7447c3f81ee223c9923423b45aac Mon Sep 17 00:00:00 2001
+From fcb1c8922dfaa1c33cc8d67a2d5cfed2b5890d12 Mon Sep 17 00:00:00 2001
 From: Sachi King <nakato@nakato.io>
 Date: Sat, 29 May 2021 17:47:38 +1000
 Subject: [PATCH] ACPI: Add quirk for Surface Laptop 4 AMD missing irq 7
@@ -65,7 +65,7 @@ index e55e0c1fad8c..46dfad41b401 100644
 -- 
 2.33.1
 
-From 8d5024b44c7cd6819b7deca883ee4b0f79917b30 Mon Sep 17 00:00:00 2001
+From f4905ebd551d592c93ba1459b36053ff75b90a59 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 3 Jun 2021 14:04:26 +0200
 Subject: [PATCH] ACPI: Add AMD 13" Surface Laptop 4 model to irq 7 override
@@ -107,7 +107,7 @@ index 46dfad41b401..78bf6a097dc5 100644
 -- 
 2.33.1
 
-From 9695d8c770fbff8b00f3a6fea1f612bbb095cd6a Mon Sep 17 00:00:00 2001
+From 7a56ff456c6e33d688ada47459fde5a2439ee3a3 Mon Sep 17 00:00:00 2001
 From: Basavaraj Natikar <Basavaraj.Natikar@amd.com>
 Date: Tue, 31 Aug 2021 17:36:12 +0530
 Subject: [PATCH] pinctrl: amd: Add irq field data
@@ -125,10 +125,10 @@ Patchset: amd-gpio
  2 files changed, 5 insertions(+), 5 deletions(-)
 
 diff --git a/drivers/pinctrl/pinctrl-amd.c b/drivers/pinctrl/pinctrl-amd.c
-index 5b764740b829..79b8b7f91996 100644
+index c5fd75bbf5d9..613f3175acda 100644
 --- a/drivers/pinctrl/pinctrl-amd.c
 +++ b/drivers/pinctrl/pinctrl-amd.c
-@@ -904,7 +904,6 @@ static struct pinctrl_desc amd_pinctrl_desc = {
+@@ -932,7 +932,6 @@ static struct pinctrl_desc amd_pinctrl_desc = {
  static int amd_gpio_probe(struct platform_device *pdev)
  {
  	int ret = 0;
@@ -136,7 +136,7 @@ index 5b764740b829..79b8b7f91996 100644
  	struct resource *res;
  	struct amd_gpio *gpio_dev;
  	struct gpio_irq_chip *girq;
-@@ -927,9 +926,9 @@ static int amd_gpio_probe(struct platform_device *pdev)
+@@ -955,9 +954,9 @@ static int amd_gpio_probe(struct platform_device *pdev)
  	if (!gpio_dev->base)
  		return -ENOMEM;
  
@@ -149,7 +149,7 @@ index 5b764740b829..79b8b7f91996 100644
  
  #ifdef CONFIG_PM_SLEEP
  	gpio_dev->saved_regs = devm_kcalloc(&pdev->dev, amd_pinctrl_desc.npins,
-@@ -989,7 +988,7 @@ static int amd_gpio_probe(struct platform_device *pdev)
+@@ -1020,7 +1019,7 @@ static int amd_gpio_probe(struct platform_device *pdev)
  		goto out2;
  	}
  
@@ -173,7 +173,7 @@ index 95e763424042..1d4317073654 100644
 -- 
 2.33.1
 
-From 3e0af5b7739aecbe646104171bdcefb925c4cc6d Mon Sep 17 00:00:00 2001
+From 21c7c4af5bfb8426569eabc3a7bff221e0cd48cb Mon Sep 17 00:00:00 2001
 From: Basavaraj Natikar <Basavaraj.Natikar@amd.com>
 Date: Tue, 31 Aug 2021 17:36:13 +0530
 Subject: [PATCH] pinctrl: amd: Handle wake-up interrupt
@@ -190,7 +190,7 @@ Patchset: amd-gpio
  1 file changed, 10 insertions(+)
 
 diff --git a/drivers/pinctrl/pinctrl-amd.c b/drivers/pinctrl/pinctrl-amd.c
-index 79b8b7f91996..d19974aceb2e 100644
+index 613f3175acda..80b67cd7c008 100644
 --- a/drivers/pinctrl/pinctrl-amd.c
 +++ b/drivers/pinctrl/pinctrl-amd.c
 @@ -445,6 +445,7 @@ static int amd_gpio_irq_set_wake(struct irq_data *d, unsigned int on)
@@ -217,76 +217,6 @@ index 79b8b7f91996..d19974aceb2e 100644
  	return 0;
  }
  
--- 
-2.33.1
-
-From 6567cde21a9e1cbf952eedfd293ef72f6cfe55b6 Mon Sep 17 00:00:00 2001
-From: Sachi King <nakato@nakato.io>
-Date: Fri, 1 Oct 2021 21:19:09 +1000
-Subject: [PATCH] pinctrl: amd: disable and mask interrupts on probe
-
-Some systems such as the Microsoft Surface Laptop 4 leave interrupts
-enabled and configured for use in sleep states on boot, which cause
-unexpected behaviour such as spurious wakes and failed resumes in
-s2idle states.
-
-As interrupts should not be enabled until they are claimed and
-explicitly enabled, disabling any interrupts mistakenly left enabled by
-firmware should be safe.
-
-Signed-off-by: Sachi King <nakato@nakato.io>
-Patchset: amd-gpio
----
- drivers/pinctrl/pinctrl-amd.c | 29 +++++++++++++++++++++++++++++
- 1 file changed, 29 insertions(+)
-
-diff --git a/drivers/pinctrl/pinctrl-amd.c b/drivers/pinctrl/pinctrl-amd.c
-index d19974aceb2e..d32daf1c862f 100644
---- a/drivers/pinctrl/pinctrl-amd.c
-+++ b/drivers/pinctrl/pinctrl-amd.c
-@@ -842,6 +842,32 @@ static const struct pinconf_ops amd_pinconf_ops = {
- 	.pin_config_group_set = amd_pinconf_group_set,
- };
- 
-+static void amd_gpio_irq_init(struct amd_gpio *gpio_dev) {
-+	struct pinctrl_desc *desc = gpio_dev->pctrl->desc;
-+	unsigned long flags;
-+	u32 pin_reg, mask;
-+	int i;
-+
-+	mask = BIT(WAKE_CNTRL_OFF_S0I3) | BIT(WAKE_CNTRL_OFF_S3)
-+		| BIT(INTERRUPT_MASK_OFF) | BIT(INTERRUPT_ENABLE_OFF)
-+	        | BIT(INTERRUPT_MASK_OFF) | BIT(WAKE_CNTRL_OFF_S4);
-+
-+	for (i = 0; i < desc->npins; i++) {
-+		int pin = desc->pins[i].number;
-+		const struct pin_desc *pd = pin_desc_get(gpio_dev->pctrl, pin);
-+		if (!pd)
-+			continue;
-+
-+		raw_spin_lock_irqsave(&gpio_dev->lock, flags);
-+
-+		pin_reg = readl(gpio_dev->base + i * 4);
-+		pin_reg &= ~mask;
-+		writel(pin_reg, gpio_dev->base + i * 4);
-+
-+		raw_spin_unlock_irqrestore(&gpio_dev->lock, flags);
-+	}
-+}
-+
- #ifdef CONFIG_PM_SLEEP
- static bool amd_gpio_should_save(struct amd_gpio *gpio_dev, unsigned int pin)
- {
-@@ -978,6 +1004,9 @@ static int amd_gpio_probe(struct platform_device *pdev)
- 		return PTR_ERR(gpio_dev->pctrl);
- 	}
- 
-+	/* Disable and mask interrupts */
-+	amd_gpio_irq_init(gpio_dev);
-+
- 	girq = &gpio_dev->gc.irq;
- 	girq->chip = &amd_gpio_irqchip;
- 	/* This will let us handle the parent IRQ in the driver */
 -- 
 2.33.1
 
