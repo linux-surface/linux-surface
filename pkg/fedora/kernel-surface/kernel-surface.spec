@@ -6,9 +6,9 @@
 %global kernel_tag_fc34 kernel-5.14.16-201.fc34
 %global kernel_tag_fc33 kernel-5.14.16-101.fc33
 
-%global kernel_release_fc35 1
-%global kernel_release_fc34 1
-%global kernel_release_fc33 1
+%global kernel_release_fc35 2
+%global kernel_release_fc34 2
+%global kernel_release_fc33 2
 
 # This is what is printed in the GRUB menu. These cannot be fetched from the
 # buildhost, because in a container this will also say container. To get the
@@ -17,7 +17,7 @@
 %global fedora_title_fc34 34 (Thirty Four)
 %global fedora_title_fc33 33 (Thirty Three)
 
-%global ls_patches_commit dabef1cbadc9a3b3868a0551c669654d257ee44b
+%global ls_patches_commit df73af5ccc3f77f4c613eb3fc680cee8b6b35669
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -108,6 +108,7 @@ Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-button.patch
 Patch8:     %{surface_source}/%{kernel_patches}/0009-surface-typecover.patch
 Patch9:     %{surface_source}/%{kernel_patches}/0010-cameras.patch
 Patch10:    %{surface_source}/%{kernel_patches}/0011-amd-gpio.patch
+Patch11:    %{surface_source}/%{kernel_patches}/0012-misc-fixes.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
