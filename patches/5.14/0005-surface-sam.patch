@@ -1,204 +1,4 @@
-From cf255208929a10009fe06419ad91fe5f182e8831 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Sun, 10 Oct 2021 01:27:17 +0200
-Subject: [PATCH] platform/surface: aggregator_registry: Add support for
- Surface Laptop Studio
-
-Add support for the Surface Laptop Studio.
-
-In contrast to previous Surface Laptop models, this one has its HID
-devices attached to target ID 1 (instead of 2). It also has a couple
-more of them, including a new notifier for when the pen is stashed /
-taken out of its place, a "Sys Control" device, and two other
-unidentified HID devices with unknown usages.
-
-Battery and performance profile interfaces remain the same.
-
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
-Patchset: surface-sam
----
- .../surface/surface_aggregator_registry.c     | 54 +++++++++++++++++++
- 1 file changed, 54 insertions(+)
-
-diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 4428c4330229..1679811eff50 100644
---- a/drivers/platform/surface/surface_aggregator_registry.c
-+++ b/drivers/platform/surface/surface_aggregator_registry.c
-@@ -77,6 +77,42 @@ static const struct software_node ssam_node_bas_dtx = {
- 	.parent = &ssam_node_root,
- };
- 
-+/* HID keyboard (TID1). */
-+static const struct software_node ssam_node_hid_tid1_keyboard = {
-+	.name = "ssam:01:15:01:01:00",
-+	.parent = &ssam_node_root,
-+};
-+
-+/* HID pen stash (TID1; pen taken / stashed away evens). */
-+static const struct software_node ssam_node_hid_tid1_penstash = {
-+	.name = "ssam:01:15:01:02:00",
-+	.parent = &ssam_node_root,
-+};
-+
-+/* HID touchpad (TID1). */
-+static const struct software_node ssam_node_hid_tid1_touchpad = {
-+	.name = "ssam:01:15:01:03:00",
-+	.parent = &ssam_node_root,
-+};
-+
-+/* HID device instance 6 (TID1, unknown HID device). */
-+static const struct software_node ssam_node_hid_tid1_iid6 = {
-+	.name = "ssam:01:15:01:06:00",
-+	.parent = &ssam_node_root,
-+};
-+
-+/* HID device instance 7 (TID1, unknown HID device). */
-+static const struct software_node ssam_node_hid_tid1_iid7 = {
-+	.name = "ssam:01:15:01:07:00",
-+	.parent = &ssam_node_root,
-+};
-+
-+/* HID system controls (TID1). */
-+static const struct software_node ssam_node_hid_tid1_sysctrl = {
-+	.name = "ssam:01:15:01:08:00",
-+	.parent = &ssam_node_root,
-+};
-+
- /* HID keyboard. */
- static const struct software_node ssam_node_hid_main_keyboard = {
- 	.name = "ssam:01:15:02:01:00",
-@@ -159,6 +195,21 @@ static const struct software_node *ssam_node_group_sl3[] = {
- 	NULL,
- };
- 
-+/* Devices for Surface Laptop Studio. */
-+static const struct software_node *ssam_node_group_sls[] = {
-+	&ssam_node_root,
-+	&ssam_node_bat_ac,
-+	&ssam_node_bat_main,
-+	&ssam_node_tmp_pprof,
-+	&ssam_node_hid_tid1_keyboard,
-+	&ssam_node_hid_tid1_penstash,
-+	&ssam_node_hid_tid1_touchpad,
-+	&ssam_node_hid_tid1_iid6,
-+	&ssam_node_hid_tid1_iid7,
-+	&ssam_node_hid_tid1_sysctrl,
-+	NULL,
-+};
-+
- /* Devices for Surface Laptop Go. */
- static const struct software_node *ssam_node_group_slg1[] = {
- 	&ssam_node_root,
-@@ -507,6 +558,9 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
- 	/* Surface Laptop Go 1 */
- 	{ "MSHW0118", (unsigned long)ssam_node_group_slg1 },
- 
-+	/* Surface Laptop Studio */
-+	{ "MSHW0123", (unsigned long)ssam_node_group_sls },
-+
- 	{ },
- };
- MODULE_DEVICE_TABLE(acpi, ssam_platform_hub_match);
--- 
-2.33.1
-
-From f4ccdfc9d908b0ee9964c4ae93dbcf1ec20e0250 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Sun, 10 Oct 2021 15:07:42 +0200
-Subject: [PATCH] HID: surface-hid: Use correct event registry for managing HID
- events
-
-Fix a timeout error caused by using the wrong registry for some devices,
-preventing the driver to probe and manage events correctly.
-
-Until now, we have only ever seen the REG-category registry being used
-on devices addressed with target ID 2. In fact, we have only ever seen
-Surface Aggregator Module (SAM) HID devices with target ID 2. For those
-devices, the registry also has to be addressed with target ID 2.
-
-Some devices, like the new Surface Laptop Studio, however, address their
-HID devices on target ID 1. As a result of this, any target ID 2
-commands time out. This includes event management commands addressed to
-the target ID 2 REG-category registry. For these devices, the registry
-has to be addressed via target ID 1 instead.
-
-We therefore assume that the target ID of the registry to be used
-depends on the target ID of the respective device. Implement this
-accordingly.
-
-Fixes: b05ff1002a5c1 ("HID: Add support for Surface Aggregator Module HID transport")
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
-Patchset: surface-sam
----
- drivers/hid/surface-hid/surface_hid.c         | 2 +-
- include/linux/surface_aggregator/controller.h | 4 ++--
- 2 files changed, 3 insertions(+), 3 deletions(-)
-
-diff --git a/drivers/hid/surface-hid/surface_hid.c b/drivers/hid/surface-hid/surface_hid.c
-index a3a70e4f3f6c..daa452367c0b 100644
---- a/drivers/hid/surface-hid/surface_hid.c
-+++ b/drivers/hid/surface-hid/surface_hid.c
-@@ -209,7 +209,7 @@ static int surface_hid_probe(struct ssam_device *sdev)
- 
- 	shid->notif.base.priority = 1;
- 	shid->notif.base.fn = ssam_hid_event_fn;
--	shid->notif.event.reg = SSAM_EVENT_REGISTRY_REG;
-+	shid->notif.event.reg = SSAM_EVENT_REGISTRY_REG(sdev->uid.target);
- 	shid->notif.event.id.target_category = sdev->uid.category;
- 	shid->notif.event.id.instance = sdev->uid.instance;
- 	shid->notif.event.mask = SSAM_EVENT_MASK_STRICT;
-diff --git a/include/linux/surface_aggregator/controller.h b/include/linux/surface_aggregator/controller.h
-index 068e1982ad37..74bfdffaf7b0 100644
---- a/include/linux/surface_aggregator/controller.h
-+++ b/include/linux/surface_aggregator/controller.h
-@@ -792,8 +792,8 @@ enum ssam_event_mask {
- #define SSAM_EVENT_REGISTRY_KIP	\
- 	SSAM_EVENT_REGISTRY(SSAM_SSH_TC_KIP, 0x02, 0x27, 0x28)
- 
--#define SSAM_EVENT_REGISTRY_REG \
--	SSAM_EVENT_REGISTRY(SSAM_SSH_TC_REG, 0x02, 0x01, 0x02)
-+#define SSAM_EVENT_REGISTRY_REG(tid)\
-+	SSAM_EVENT_REGISTRY(SSAM_SSH_TC_REG, tid, 0x01, 0x02)
- 
- /**
-  * enum ssam_event_notifier_flags - Flags for event notifiers.
--- 
-2.33.1
-
-From 3b9a4fc7befbb7a711183fc6e7af8f6e8f23124f Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Sun, 10 Oct 2021 19:48:10 +0200
-Subject: [PATCH] HID: surface-hid: Allow driver matching for target ID 1
- devices
-
-Until now we have only ever seen HID devices with target ID 2. The new
-Surface Laptop Studio however uses HID devices with target ID 1. Allow
-matching this driver to those as well.
-
-Fixes: b05ff1002a5c1 ("HID: Add support for Surface Aggregator Module HID transport")
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
-Patchset: surface-sam
----
- drivers/hid/surface-hid/surface_hid.c | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
-
-diff --git a/drivers/hid/surface-hid/surface_hid.c b/drivers/hid/surface-hid/surface_hid.c
-index daa452367c0b..d4aa8c81903a 100644
---- a/drivers/hid/surface-hid/surface_hid.c
-+++ b/drivers/hid/surface-hid/surface_hid.c
-@@ -230,7 +230,7 @@ static void surface_hid_remove(struct ssam_device *sdev)
- }
- 
- static const struct ssam_device_id surface_hid_match[] = {
--	{ SSAM_SDEV(HID, 0x02, SSAM_ANY_IID, 0x00) },
-+	{ SSAM_SDEV(HID, SSAM_ANY_TID, SSAM_ANY_IID, 0x00) },
- 	{ },
- };
- MODULE_DEVICE_TABLE(ssam, surface_hid_match);
--- 
-2.33.1
-
-From 7fc0013a248d32ab3e913da0198b93ad9d45db3a Mon Sep 17 00:00:00 2001
+From f6611d8d35d47d43b7aae454a36d69232c430958 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 28 Oct 2021 03:28:45 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add initial support
@@ -256,9 +56,9 @@ index 1679811eff50..e70f4c63554e 100644
  	{ "MSHW0107", (unsigned long)ssam_node_group_gen5 },
  
 -- 
-2.33.1
+2.34.0
 
-From 73b5b5bc6f383caba88b7d9ff5f9606f913b0e82 Mon Sep 17 00:00:00 2001
+From 11a1289287c02cfec4efbdd63f85dea6d68284f2 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 2 Jun 2021 03:34:06 +0200
 Subject: [PATCH] platform/surface: aggregator: Make client device removal more
@@ -381,9 +181,9 @@ index f636c5310321..cc257097eb05 100644
  
  /**
 -- 
-2.33.1
+2.34.0
 
-From e9bf80fbd9c74eb63b04c89341a66f3d47983bf8 Mon Sep 17 00:00:00 2001
+From 4a84f3d00f6fa73d2d423f737b31e574b5a5f30a Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 27 Oct 2021 02:06:38 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Use generic client
@@ -469,9 +269,9 @@ index e70f4c63554e..f6c639342b9d 100644
  	software_node_unregister_node_group(nodes);
  	return 0;
 -- 
-2.33.1
+2.34.0
 
-From 6f583d9399de37829661bfd7bcfc4991f4969f1f Mon Sep 17 00:00:00 2001
+From a801735c964f387be196a2d63d22b030667d592e Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 27 Oct 2021 02:07:33 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Rename device
@@ -520,9 +320,9 @@ index f6c639342b9d..ce2bd88feeaa 100644
  		set_secondary_fwnode(&pdev->dev, NULL);
  		software_node_unregister_node_group(nodes);
 -- 
-2.33.1
+2.34.0
 
-From 6330e21dbf21bf6ba91f6bbfce533ea8b974b6e4 Mon Sep 17 00:00:00 2001
+From b18657a4239bad3b786edb87311b130403a5a1fd Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 00:24:47 +0200
 Subject: [PATCH] platform/surface: aggregator: Allow devices to be marked as
@@ -548,48 +348,18 @@ attempts should be avoided.
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-sam
 ---
- drivers/platform/surface/aggregator/bus.c | 33 +++++++++++++++
- include/linux/surface_aggregator/device.h | 50 +++++++++++++++++++++--
- 2 files changed, 80 insertions(+), 3 deletions(-)
+ drivers/platform/surface/aggregator/bus.c |  3 ++
+ include/linux/surface_aggregator/device.h | 48 +++++++++++++++++++++--
+ 2 files changed, 48 insertions(+), 3 deletions(-)
 
 diff --git a/drivers/platform/surface/aggregator/bus.c b/drivers/platform/surface/aggregator/bus.c
-index eaa8626baead..9cb6337f2b35 100644
+index eaa8626baead..736cc43c9104 100644
 --- a/drivers/platform/surface/aggregator/bus.c
 +++ b/drivers/platform/surface/aggregator/bus.c
-@@ -390,6 +390,39 @@ void ssam_remove_clients(struct device *dev)
+@@ -390,6 +390,9 @@ void ssam_remove_clients(struct device *dev)
  }
  EXPORT_SYMBOL_GPL(ssam_remove_clients);
  
-+static int ssam_mark_device_hot_removed(struct device *dev, void *_data)
-+{
-+	struct ssam_device *sdev = to_ssam_device(dev);
-+
-+	if (is_ssam_device(dev))
-+		ssam_device_mark_hot_removed(sdev);
-+
-+	return 0;
-+}
-+
-+/**
-+ * ssam_hot_remove_clients() - Remove SSAM client devices registered as direct
-+ * children under the given parent device and mark them as hot-removed.
-+ * @dev: The (parent) device to remove all direct clients for.
-+ *
-+ * Remove all SSAM client devices registered as direct children under the given
-+ * device.
-+ *
-+ * Note that this only accounts for direct children of the device. Refer to
-+ * ssam_device_add()/ssam_device_remove() for more details.
-+ */
-+void ssam_hot_remove_clients(struct device *dev)
-+{
-+	/* Mark devices as hot-removed before we remove any */
-+	device_for_each_child_reverse(dev, NULL, ssam_mark_device_hot_removed);
-+
-+	ssam_remove_clients(dev);
-+}
-+EXPORT_SYMBOL_GPL(ssam_hot_remove_clients);
-+
 +
 +/* -- Bus registration. ----------------------------------------------------- */
 +
@@ -597,7 +367,7 @@ index eaa8626baead..9cb6337f2b35 100644
   * ssam_bus_register() - Register and set-up the SSAM client device bus.
   */
 diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
-index cc257097eb05..b474a9baab42 100644
+index cc257097eb05..491aa7e9f4bc 100644
 --- a/include/linux/surface_aggregator/device.h
 +++ b/include/linux/surface_aggregator/device.h
 @@ -148,17 +148,30 @@ struct ssam_device_uid {
@@ -670,21 +440,10 @@ index cc257097eb05..b474a9baab42 100644
  /**
   * ssam_device_get() - Increment reference count of SSAM client device.
   * @sdev: The device to increment the reference count of.
-@@ -323,8 +365,10 @@ void ssam_device_driver_unregister(struct ssam_device_driver *d);
- 
- #ifdef CONFIG_SURFACE_AGGREGATOR_BUS
- void ssam_remove_clients(struct device *dev);
-+void ssam_hot_remove_clients(struct device *dev);
- #else /* CONFIG_SURFACE_AGGREGATOR_BUS */
- static inline void ssam_remove_clients(struct device *dev) {}
-+static inline void ssam_hot_remove_clients(struct device *dev) {}
- #endif /* CONFIG_SURFACE_AGGREGATOR_BUS */
- 
- 
 -- 
-2.33.1
+2.34.0
 
-From 309a345d3ac9de7aa4e1cff5962a9bbc7ef11d63 Mon Sep 17 00:00:00 2001
+From f95d6ac5874db1bb881ffa482abc35f94bb13f5e Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 00:48:22 +0200
 Subject: [PATCH] platform/surface: aggregator: Allow notifiers to avoid
@@ -900,10 +659,10 @@ index 74bfdffaf7b0..50a2b4926c06 100644
  int ssam_controller_event_enable(struct ssam_controller *ctrl,
  				 struct ssam_event_registry reg,
 diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
-index b474a9baab42..76e6300b07d5 100644
+index 491aa7e9f4bc..16816c34da3e 100644
 --- a/include/linux/surface_aggregator/device.h
 +++ b/include/linux/surface_aggregator/device.h
-@@ -474,4 +474,64 @@ static inline void ssam_hot_remove_clients(struct device *dev) {}
+@@ -472,4 +472,64 @@ static inline void ssam_remove_clients(struct device *dev) {}
  				    sdev->uid.instance, ret);		\
  	}
  
@@ -969,9 +728,9 @@ index b474a9baab42..76e6300b07d5 100644
 +
  #endif /* _LINUX_SURFACE_AGGREGATOR_DEVICE_H */
 -- 
-2.33.1
+2.34.0
 
-From e0920d9db80af76d6565d0586c579bb92a434109 Mon Sep 17 00:00:00 2001
+From fe2e44cf86dee61dc84b56f76d432e8b87c2710a Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 01:20:49 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Use client device
@@ -1018,9 +777,9 @@ index ce2bd88feeaa..9f630e890ff7 100644
  	ssam_remove_clients(&sdev->dev);
  }
 -- 
-2.33.1
+2.34.0
 
-From dbc85b40fd9fbf9666d579a0005714bedaed9984 Mon Sep 17 00:00:00 2001
+From 05ded3f8005f37297e5c47821d43c24dc243250c Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 28 Oct 2021 03:37:06 +0200
 Subject: [PATCH] power/supply: surface_charger: Use client device wrappers for
@@ -1058,9 +817,9 @@ index a060c36c7766..59182d55742d 100644
  
  static const struct spwr_psy_properties spwr_psy_props_adp1 = {
 -- 
-2.33.1
+2.34.0
 
-From 30b9a249d902af97b84ff5724dfab2fcfc3bbb1f Mon Sep 17 00:00:00 2001
+From 18b5e32f9cf968307c604677143eea7dec7a8533 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 28 Oct 2021 03:38:09 +0200
 Subject: [PATCH] power/supply: surface_battery: Use client device wrappers for
@@ -1098,9 +857,9 @@ index 5ec2e6bb2465..540707882bb0 100644
  }
  
 -- 
-2.33.1
+2.34.0
 
-From 2b149705154463781c20609b8e8ca3fbaba6746d Mon Sep 17 00:00:00 2001
+From 43c9f03affd1b3e0ecf04a370efe3ffa463a26c9 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 01:33:02 +0200
 Subject: [PATCH] HID: surface-hid: Add support for hot-removal
@@ -1209,9 +968,9 @@ index 5571e74abe91..d2e695e942b6 100644
  		return shid->ops.output_report(shid, reportnum, buf, len);
  
 -- 
-2.33.1
+2.34.0
 
-From 3da92dff35f34cacc8c570365049ba90c35765cc Mon Sep 17 00:00:00 2001
+From 4b49b3f485689ddf1e9fbb4280c7ab4a8eb405ff Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 31 Oct 2021 12:34:08 +0100
 Subject: [PATCH] platform/surface: aggregator: Add comment for KIP subsystem
@@ -1247,9 +1006,9 @@ index c3de43edcffa..d1efac85caf1 100644
  	SSAM_SSH_TC_BLD = 0x10,
  	SSAM_SSH_TC_BAS = 0x11,	/* Detachment system (Surface Book 2/3). */
 -- 
-2.33.1
+2.34.0
 
-From 020865d1eb65d24de1364de0a36552ba90a9f012 Mon Sep 17 00:00:00 2001
+From e0933caec88e7140b057a8ce85a21b9797fd567c Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 10 Oct 2021 23:56:23 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add KIP device hub
@@ -1282,14 +1041,14 @@ been (re-)attached.
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-sam
 ---
- .../surface/surface_aggregator_registry.c     | 233 +++++++++++++++++-
- 1 file changed, 231 insertions(+), 2 deletions(-)
+ .../surface/surface_aggregator_registry.c     | 247 +++++++++++++++++-
+ 1 file changed, 245 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 9f630e890ff7..5b39047985dd 100644
+index 9f630e890ff7..4838ce6519a6 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
-@@ -514,6 +514,223 @@ static struct ssam_device_driver ssam_base_hub_driver = {
+@@ -514,6 +514,237 @@ static struct ssam_device_driver ssam_base_hub_driver = {
  };
  
  
@@ -1384,6 +1143,16 @@ index 9f630e890ff7..5b39047985dd 100644
 +	.attrs = ssam_kip_hub_attrs,
 +};
 +
++static int ssam_kip_hub_mark_hot_removed(struct device *dev, void *_data)
++{
++	struct ssam_device *sdev = to_ssam_device(dev);
++
++	if (is_ssam_device(dev))
++		ssam_device_mark_hot_removed(sdev);
++
++	return 0;
++}
++
 +static void ssam_kip_hub_update_workfn(struct work_struct *work)
 +{
 +	struct ssam_kip_hub *hub = container_of(work, struct ssam_kip_hub, update_work.work);
@@ -1402,7 +1171,7 @@ index 9f630e890ff7..5b39047985dd 100644
 +	if (hub->state == SSAM_KIP_HUB_CONNECTED)
 +		status = ssam_hub_register_clients(&hub->sdev->dev, hub->sdev->ctrl, node);
 +	else
-+		ssam_hot_remove_clients(&hub->sdev->dev);
++		ssam_remove_clients(&hub->sdev->dev);
 +
 +	if (status)
 +		dev_err(&hub->sdev->dev, "failed to update KIP-hub devices: %d\n", status);
@@ -1421,13 +1190,17 @@ index 9f630e890ff7..5b39047985dd 100644
 +		return 0;
 +	}
 +
++	/* Mark devices as hot-removed before we remove any */
++	if (!event->data[0])
++		device_for_each_child_reverse(&hub->sdev->dev, NULL, ssam_kip_hub_mark_hot_removed);
++
 +	/*
 +	 * Delay update when KIP devices are being connected to give devices/EC
 +	 * some time to set up.
 +	 */
 +	delay = event->data[0] ? SSAM_KIP_UPDATE_CONNECT_DELAY : 0;
-+	schedule_delayed_work(&hub->update_work, delay);
 +
++	schedule_delayed_work(&hub->update_work, delay);
 +	return SSAM_NOTIF_HANDLED;
 +}
 +
@@ -1513,7 +1286,7 @@ index 9f630e890ff7..5b39047985dd 100644
  /* -- SSAM platform/meta-hub driver. ---------------------------------------- */
  
  static const struct acpi_device_id ssam_platform_hub_match[] = {
-@@ -636,18 +853,30 @@ static int __init ssam_device_hub_init(void)
+@@ -636,18 +867,30 @@ static int __init ssam_device_hub_init(void)
  
  	status = platform_driver_register(&ssam_platform_hub_driver);
  	if (status)
@@ -1547,9 +1320,9 @@ index 9f630e890ff7..5b39047985dd 100644
  	platform_driver_unregister(&ssam_platform_hub_driver);
  }
 -- 
-2.33.1
+2.34.0
 
-From fb14fe967e41801e0050965f7be63657dacffc62 Mon Sep 17 00:00:00 2001
+From 0fc4fd278cac0d5f3274656187d706f75ef48008 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 27 Oct 2021 22:33:03 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add support for
@@ -1580,7 +1353,7 @@ Patchset: surface-sam
  1 file changed, 36 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 5b39047985dd..e5eae4dde71a 100644
+index 4838ce6519a6..c0e29c0514df 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -47,6 +47,12 @@ static const struct software_node ssam_node_hub_base = {
@@ -1645,9 +1418,9 @@ index 5b39047985dd..e5eae4dde71a 100644
  };
  
 -- 
-2.33.1
+2.34.0
 
-From 997fe771e91b60b11e1ff5cc99bfc80e609d5e5f Mon Sep 17 00:00:00 2001
+From 50b107f14ef9e33f8510d726630138f69f2cf480 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 03:19:20 +0200
 Subject: [PATCH] platform/surface: Add KIP tablet-mode switch
@@ -1989,9 +1762,9 @@ index 000000000000..458470067579
 +MODULE_DESCRIPTION("Tablet mode switch driver for Surface devices using KIP subsystem");
 +MODULE_LICENSE("GPL");
 -- 
-2.33.1
+2.34.0
 
-From 5b2dee5fdc3a9e844fc7cc0e4733127430ea1b72 Mon Sep 17 00:00:00 2001
+From 2b1685c0a906769031590c7bfc0793bcc6fb9e98 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 27 Oct 2021 22:33:03 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add support for tablet
@@ -2009,7 +1782,7 @@ Patchset: surface-sam
  1 file changed, 7 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index e5eae4dde71a..4a397c5bb45f 100644
+index c0e29c0514df..eaf0054627a5 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -77,6 +77,12 @@ static const struct software_node ssam_node_tmp_pprof = {
@@ -2039,9 +1812,9 @@ index e5eae4dde71a..4a397c5bb45f 100644
  };
  
 -- 
-2.33.1
+2.34.0
 
-From 5d405c2219ac9f06c3d3955ba4e2e1bb158e308c Mon Sep 17 00:00:00 2001
+From fea397d2b114521a7e4cbc13998e451ebd9796ad Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 28 Oct 2021 03:40:22 +0200
 Subject: [PATCH] power/supply: surface_battery: Add support for hot-removal
@@ -2080,9 +1853,9 @@ index 540707882bb0..ebf1f96e9a89 100644
  	if (status)
  		return status;
 -- 
-2.33.1
+2.34.0
 
-From ba4f7ee6a0887349b50e6e4a81508ad57321bab2 Mon Sep 17 00:00:00 2001
+From 1610b9bfd7295dfdde50ffc777a7d88c6a7e9531 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 31 Oct 2021 18:07:39 +0100
 Subject: [PATCH] platform/surface: aggregator_registry: Use KIP hub for
@@ -2118,7 +1891,7 @@ Patchset: surface-sam
  1 file changed, 16 insertions(+), 40 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 4a397c5bb45f..391bfb35aaa9 100644
+index eaf0054627a5..d17f656b2dad 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -41,13 +41,7 @@ static const struct software_node ssam_node_root = {
@@ -2218,9 +1991,9 @@ index 4a397c5bb45f..391bfb35aaa9 100644
  };
  
 -- 
-2.33.1
+2.34.0
 
-From f615952c5b582b5a297088d75332a22e5c16f42e Mon Sep 17 00:00:00 2001
+From 236abbbef8f8a528621e839383e357f50591cb7c Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 31 Oct 2021 18:09:53 +0100
 Subject: [PATCH] platform/surface: aggregator_registry: Remove base hub driver
@@ -2243,7 +2016,7 @@ Patchset: surface-sam
  1 file changed, 213 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 391bfb35aaa9..57927483a9ed 100644
+index d17f656b2dad..590473220e9d 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -325,212 +325,6 @@ static int ssam_hub_register_clients(struct device *parent, struct ssam_controll
@@ -2459,7 +2232,7 @@ index 391bfb35aaa9..57927483a9ed 100644
  /* -- SSAM KIP-subsystem hub driver. ---------------------------------------- */
  
  /*
-@@ -872,10 +666,6 @@ static int __init ssam_device_hub_init(void)
+@@ -886,10 +680,6 @@ static int __init ssam_device_hub_init(void)
  	if (status)
  		goto err_platform;
  
@@ -2470,7 +2243,7 @@ index 391bfb35aaa9..57927483a9ed 100644
  	status = ssam_device_driver_register(&ssam_kip_hub_driver);
  	if (status)
  		goto err_kip;
-@@ -883,8 +673,6 @@ static int __init ssam_device_hub_init(void)
+@@ -897,8 +687,6 @@ static int __init ssam_device_hub_init(void)
  	return 0;
  
  err_kip:
@@ -2479,7 +2252,7 @@ index 391bfb35aaa9..57927483a9ed 100644
  	platform_driver_unregister(&ssam_platform_hub_driver);
  err_platform:
  	return status;
-@@ -894,7 +682,6 @@ module_init(ssam_device_hub_init);
+@@ -908,7 +696,6 @@ module_init(ssam_device_hub_init);
  static void __exit ssam_device_hub_exit(void)
  {
  	ssam_device_driver_unregister(&ssam_kip_hub_driver);
@@ -2488,5 +2261,5 @@ index 391bfb35aaa9..57927483a9ed 100644
  }
  module_exit(ssam_device_hub_exit);
 -- 
-2.33.1
+2.34.0
 
