@@ -2,12 +2,12 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc35 kernel-5.14.16-301.fc35
-%global kernel_tag_fc34 kernel-5.14.16-201.fc34
+%global kernel_tag_fc35 kernel-5.14.20-300.fc35
+%global kernel_tag_fc34 kernel-5.14.20-200.fc34
 %global kernel_tag_fc33 kernel-5.14.16-101.fc33
 
-%global kernel_release_fc35 2
-%global kernel_release_fc34 2
+%global kernel_release_fc35 1
+%global kernel_release_fc34 1
 %global kernel_release_fc33 2
 
 # This is what is printed in the GRUB menu. These cannot be fetched from the
@@ -17,7 +17,7 @@
 %global fedora_title_fc34 34 (Thirty Four)
 %global fedora_title_fc33 33 (Thirty Three)
 
-%global ls_patches_commit df73af5ccc3f77f4c613eb3fc680cee8b6b35669
+%global ls_patches_commit cf4d17dd814fefa2ce3a2c787d55b66567aed0dd
 
 %global sb_crt surface.crt
 %global sb_key surface.key
