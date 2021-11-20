@@ -1,4 +1,4 @@
-From 45a9ef422741bb90ef8c996cde2a5e960a71c6af Mon Sep 17 00:00:00 2001
+From e8fac903fbd3a1253ac1b4d7442eb64a7ce9b2bd Mon Sep 17 00:00:00 2001
 From: Ben Hutchings <ben@decadent.org.uk>
 Date: Mon, 7 Sep 2020 02:51:53 +0100
 Subject: [PATCH 1/2] Export symbols needed by Android drivers
@@ -20,22 +20,22 @@ Export the currently un-exported symbols they depend on.
  7 files changed, 10 insertions(+)
 
 diff --git a/fs/file.c b/fs/file.c
-index 86dc9956af32..3cc1867f289f 100644
+index 8627dacfc424..1c9e622746f3 100644
 --- a/fs/file.c
 +++ b/fs/file.c
-@@ -771,6 +771,7 @@ int __close_fd_get_file(unsigned int fd, struct file **res)
- 	*res = NULL;
- 	return -ENOENT;
- }
-+EXPORT_SYMBOL(close_fd_get_file);
+@@ -804,6 +804,7 @@ int close_fd_get_file(unsigned int fd, struct file **res)
  
- /*
-  * variant of close_fd that gets a ref on the file for later fput.
+ 	return ret;
+ }
++EXPORT_SYMBOL_GPL(close_fd_get_file);
+ 
+ void do_close_on_exec(struct files_struct *files)
+ {
 diff --git a/kernel/fork.c b/kernel/fork.c
-index 567fee340500..3d6ec900d9e4 100644
+index 10885c649ca4..0fb1d884af77 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
-@@ -1134,6 +1134,7 @@ void mmput_async(struct mm_struct *mm)
+@@ -1153,6 +1153,7 @@ void mmput_async(struct mm_struct *mm)
  		schedule_work(&mm->async_put_work);
  	}
  }
@@ -44,10 +44,10 @@ index 567fee340500..3d6ec900d9e4 100644
  
  /**
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index e5858999b54d..081aec8cf334 100644
+index aea60eae21a7..9269b0796e67 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -5774,6 +5774,7 @@ int can_nice(const struct task_struct *p, const int nice)
+@@ -6932,6 +6932,7 @@ int can_nice(const struct task_struct *p, const int nice)
  	return (nice_rlim <= task_rlimit(p, RLIMIT_NICE) ||
  		capable(CAP_SYS_NICE));
  }
@@ -56,22 +56,22 @@ index e5858999b54d..081aec8cf334 100644
  #ifdef __ARCH_WANT_SYS_NICE
  
 diff --git a/kernel/task_work.c b/kernel/task_work.c
-index 1698fbe6f0e1..90000404af2b 100644
+index 1698fbe6f0e1..2a1644189182 100644
 --- a/kernel/task_work.c
 +++ b/kernel/task_work.c
 @@ -60,6 +60,7 @@ int task_work_add(struct task_struct *task, struct callback_head *work,
  
  	return 0;
  }
-+EXPORT_SYMBOL(task_work_add);
++EXPORT_SYMBOL_GPL(task_work_add);
  
  /**
   * task_work_cancel_match - cancel a pending work added by task_work_add()
 diff --git a/mm/memory.c b/mm/memory.c
-index b15367c285bd..f2ae359139dd 100644
+index c52be6d6b605..43012ba7ede7 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
-@@ -1559,6 +1559,7 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long start,
+@@ -1655,6 +1655,7 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long start,
  	mmu_notifier_invalidate_range_end(&range);
  	tlb_finish_mmu(&tlb);
  }
@@ -80,10 +80,10 @@ index b15367c285bd..f2ae359139dd 100644
  /**
   * zap_page_range_single - remove user pages in a given range
 diff --git a/mm/shmem.c b/mm/shmem.c
-index 5fa21d66af20..72e256e65877 100644
+index b5860f4a2738..c1f352f4717d 100644
 --- a/mm/shmem.c
 +++ b/mm/shmem.c
-@@ -4243,6 +4243,7 @@ int shmem_zero_setup(struct vm_area_struct *vma)
+@@ -4162,6 +4162,7 @@ int shmem_zero_setup(struct vm_area_struct *vma)
  
  	return 0;
  }
@@ -92,31 +92,31 @@ index 5fa21d66af20..72e256e65877 100644
  /**
   * shmem_read_mapping_page_gfp - read into page cache, using specified page allocation flags.
 diff --git a/security/security.c b/security/security.c
-index b38155b2de83..38fb6a2ce080 100644
+index 67264cb08fb3..3df62aa37ac0 100644
 --- a/security/security.c
 +++ b/security/security.c
-@@ -750,24 +750,28 @@ int security_binder_set_context_mgr(struct task_struct *mgr)
+@@ -751,24 +751,28 @@ int security_binder_set_context_mgr(const struct cred *mgr)
  {
  	return call_int_hook(binder_set_context_mgr, 0, mgr);
  }
 +EXPORT_SYMBOL_GPL(security_binder_set_context_mgr);
  
- int security_binder_transaction(struct task_struct *from,
- 				struct task_struct *to)
+ int security_binder_transaction(const struct cred *from,
+ 				const struct cred *to)
  {
  	return call_int_hook(binder_transaction, 0, from, to);
  }
 +EXPORT_SYMBOL_GPL(security_binder_transaction);
  
- int security_binder_transfer_binder(struct task_struct *from,
- 				    struct task_struct *to)
+ int security_binder_transfer_binder(const struct cred *from,
+ 				    const struct cred *to)
  {
  	return call_int_hook(binder_transfer_binder, 0, from, to);
  }
 +EXPORT_SYMBOL_GPL(security_binder_transfer_binder);
  
- int security_binder_transfer_file(struct task_struct *from,
- 				  struct task_struct *to, struct file *file)
+ int security_binder_transfer_file(const struct cred *from,
+ 				  const struct cred *to, struct file *file)
  {
  	return call_int_hook(binder_transfer_file, 0, from, to, file);
  }
@@ -125,5 +125,5 @@ index b38155b2de83..38fb6a2ce080 100644
  int security_ptrace_access_check(struct task_struct *child, unsigned int mode)
  {
 -- 
-2.32.0
+2.34.0
 
