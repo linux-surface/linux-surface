@@ -1,4 +1,4 @@
-From 201f8f1e60b5ea52ace9bc817b490e546b91f945 Mon Sep 17 00:00:00 2001
+From 7920f530029819442106d5bbdf3662c235f25333 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 5 Nov 2020 13:09:45 +0100
 Subject: [PATCH] hid/multitouch: Turn off Type Cover keyboard backlight when
@@ -34,7 +34,7 @@ Patchset: surface-typecover
  1 file changed, 98 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 3ea7cb1cda84..92fb053e0dd2 100644
+index e1afddb7b33d..c15600b04b28 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -34,7 +34,10 @@
@@ -81,7 +81,7 @@ index 3ea7cb1cda84..92fb053e0dd2 100644
  };
  
  static void mt_post_parse_default_settings(struct mt_device *td,
-@@ -210,6 +219,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
+@@ -211,6 +220,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
  #define MT_CLS_GOOGLE				0x0111
  #define MT_CLS_RAZER_BLADE_STEALTH		0x0112
  #define MT_CLS_SMART_TECH			0x0113
@@ -89,7 +89,7 @@ index 3ea7cb1cda84..92fb053e0dd2 100644
  
  #define MT_DEFAULT_MAXCONTACT	10
  #define MT_MAX_MAXCONTACT	250
-@@ -378,6 +388,16 @@ static const struct mt_class mt_classes[] = {
+@@ -386,6 +396,16 @@ static const struct mt_class mt_classes[] = {
  			MT_QUIRK_CONTACT_CNT_ACCURATE |
  			MT_QUIRK_SEPARATE_APP_REPORT,
  	},
@@ -106,7 +106,7 @@ index 3ea7cb1cda84..92fb053e0dd2 100644
  	{ }
  };
  
-@@ -1690,6 +1710,69 @@ static void mt_expired_timeout(struct timer_list *t)
+@@ -1698,6 +1718,69 @@ static void mt_expired_timeout(struct timer_list *t)
  	clear_bit(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
  }
  
@@ -176,7 +176,7 @@ index 3ea7cb1cda84..92fb053e0dd2 100644
  static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  {
  	int ret, i;
-@@ -1713,6 +1796,9 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+@@ -1721,6 +1804,9 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  	td->inputmode_value = MT_INPUTMODE_TOUCHSCREEN;
  	hid_set_drvdata(hdev, td);
  
@@ -186,7 +186,7 @@ index 3ea7cb1cda84..92fb053e0dd2 100644
  	INIT_LIST_HEAD(&td->applications);
  	INIT_LIST_HEAD(&td->reports);
  
-@@ -1742,15 +1828,19 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+@@ -1750,15 +1836,19 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  	timer_setup(&td->release_timer, mt_expired_timeout, 0);
  
  	ret = hid_parse(hdev);
@@ -208,7 +208,7 @@ index 3ea7cb1cda84..92fb053e0dd2 100644
  
  	ret = sysfs_create_group(&hdev->dev.kobj, &mt_attribute_group);
  	if (ret)
-@@ -1802,6 +1892,7 @@ static void mt_remove(struct hid_device *hdev)
+@@ -1810,6 +1900,7 @@ static void mt_remove(struct hid_device *hdev)
  {
  	struct mt_device *td = hid_get_drvdata(hdev);
  
@@ -216,7 +216,7 @@ index 3ea7cb1cda84..92fb053e0dd2 100644
  	del_timer_sync(&td->release_timer);
  
  	sysfs_remove_group(&hdev->dev.kobj, &mt_attribute_group);
-@@ -2159,6 +2250,11 @@ static const struct hid_device_id mt_devices[] = {
+@@ -2172,6 +2263,11 @@ static const struct hid_device_id mt_devices[] = {
  		MT_USB_DEVICE(USB_VENDOR_ID_XIROKU,
  			USB_DEVICE_ID_XIROKU_CSR2) },
  
@@ -229,5 +229,5 @@ index 3ea7cb1cda84..92fb053e0dd2 100644
  	{ .driver_data = MT_CLS_GOOGLE,
  		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY, USB_VENDOR_ID_GOOGLE,
 -- 
-2.34.0
+2.34.1
 
