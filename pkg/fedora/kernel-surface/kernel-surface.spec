@@ -168,6 +168,9 @@ pathfix.py -i "%{__python3} %{py3_shbang_opts}" -p -n \
 
 %build
 
+# Fix missing Makefile.rhelver
+touch Makefile.rhelver
+
 # This ensures build-ids are unique to allow parallel debuginfo
 perl -p -i -e "s/^CONFIG_BUILD_SALT.*/CONFIG_BUILD_SALT=\"%{kernel_name}\"/" .config
 
