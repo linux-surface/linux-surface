@@ -1,4 +1,4 @@
-From e8fac903fbd3a1253ac1b4d7442eb64a7ce9b2bd Mon Sep 17 00:00:00 2001
+From d769fb32cc1fde10896380418e74f6b1511f83dd Mon Sep 17 00:00:00 2001
 From: Ben Hutchings <ben@decadent.org.uk>
 Date: Mon, 7 Sep 2020 02:51:53 +0100
 Subject: [PATCH 1/2] Export symbols needed by Android drivers
@@ -13,14 +13,15 @@ Export the currently un-exported symbols they depend on.
  fs/file.c           | 1 +
  kernel/fork.c       | 1 +
  kernel/sched/core.c | 1 +
+ kernel/sched/wait.c | 1 +
  kernel/task_work.c  | 1 +
  mm/memory.c         | 1 +
  mm/shmem.c          | 1 +
  security/security.c | 4 ++++
- 7 files changed, 10 insertions(+)
+ 8 files changed, 11 insertions(+)
 
 diff --git a/fs/file.c b/fs/file.c
-index 8627dacfc424..1c9e622746f3 100644
+index ad4a8bf3cf10..4d75dd415d58 100644
 --- a/fs/file.c
 +++ b/fs/file.c
 @@ -804,6 +804,7 @@ int close_fd_get_file(unsigned int fd, struct file **res)
@@ -44,10 +45,10 @@ index 10885c649ca4..0fb1d884af77 100644
  
  /**
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index aea60eae21a7..9269b0796e67 100644
+index 0d12ec7be301..57046ac84be2 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -6932,6 +6932,7 @@ int can_nice(const struct task_struct *p, const int nice)
+@@ -6935,6 +6935,7 @@ int can_nice(const struct task_struct *p, const int nice)
  	return (nice_rlim <= task_rlimit(p, RLIMIT_NICE) ||
  		capable(CAP_SYS_NICE));
  }
@@ -55,6 +56,18 @@ index aea60eae21a7..9269b0796e67 100644
  
  #ifdef __ARCH_WANT_SYS_NICE
  
+diff --git a/kernel/sched/wait.c b/kernel/sched/wait.c
+index eca38107b32f..2e645b076916 100644
+--- a/kernel/sched/wait.c
++++ b/kernel/sched/wait.c
+@@ -244,6 +244,7 @@ void __wake_up_pollfree(struct wait_queue_head *wq_head)
+ 	/* POLLFREE must have cleared the queue. */
+ 	WARN_ON_ONCE(waitqueue_active(wq_head));
+ }
++EXPORT_SYMBOL_GPL(__wake_up_pollfree);
+ 
+ /*
+  * Note: we use "set_current_state()" _after_ the wait-queue add,
 diff --git a/kernel/task_work.c b/kernel/task_work.c
 index 1698fbe6f0e1..2a1644189182 100644
 --- a/kernel/task_work.c
@@ -125,5 +138,5 @@ index 67264cb08fb3..3df62aa37ac0 100644
  int security_ptrace_access_check(struct task_struct *child, unsigned int mode)
  {
 -- 
-2.34.0
+2.34.1
 
