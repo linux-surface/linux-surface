@@ -9,9 +9,8 @@ Please direct any pull-requests for new patches and kernel functionality to this
 ## Maintained Versions
 
 The currently maintained versions are
-- [`5.14`](https://github.com/linux-surface/kernel/tree/v5.14-surface) (latest)
-- [`5.10`](https://github.com/linux-surface/kernel/tree/v5.10-surface) (latest LTS), and
-- [`4.19`](https://github.com/linux-surface/kernel/tree/v4.19-surface) (Surface LTS)
+- [`5.16`](https://github.com/linux-surface/kernel/tree/v5.16-surface) (latest Arch Linux)
+- [`5.15`](https://github.com/linux-surface/kernel/tree/v5.15-surface) (latest Ubuntu/Fedora)
 
 Any other versions are only included for historical purposes.
 Unmaintained versions will likely (if necessary with a bit of re-basing) still work, but will not have the latest changes (so please don't report bugs for those).
