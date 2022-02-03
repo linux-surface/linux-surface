@@ -1,4 +1,4 @@
-From 5737bb77fc194faa58ed104991baebe2f664635a Mon Sep 17 00:00:00 2001
+From de28c3f38ae3ac2f21d239a3fe3a63ce2f6c72df Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Tue, 29 Sep 2020 17:32:22 +0900
 Subject: [PATCH] mwifiex: pcie: add reset_wsid quirk for Surface 3
@@ -181,9 +181,9 @@ index 8ec4176d698f..25370c5a4f59 100644
  int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
 +int mwifiex_pcie_reset_wsid_quirk(struct pci_dev *pdev);
 -- 
-2.34.1
+2.35.1
 
-From 21894fcf806536a32a55f28bb6a92ccc17baf09e Mon Sep 17 00:00:00 2001
+From 4387db1a49a5d01fde30eac2e31093dea1907343 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Wed, 30 Sep 2020 18:08:24 +0900
 Subject: [PATCH] mwifiex: pcie: (OEMB) add quirk for Surface 3 with broken DMI
@@ -243,9 +243,9 @@ index 563dd0d5ac79..32e2f000e57b 100644
  };
  
 -- 
-2.34.1
+2.35.1
 
-From bc69d4ea4a67ff0daa3e28c5831b6457a13f8772 Mon Sep 17 00:00:00 2001
+From 34404bbe9fded98783f45e1242517f576f8f9592 Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Sun, 4 Oct 2020 00:11:49 +0900
 Subject: [PATCH] mwifiex: pcie: disable bridge_d3 for Surface gen4+
@@ -398,9 +398,9 @@ index 25370c5a4f59..a1de111ad1db 100644
  void mwifiex_initialize_quirks(struct pcie_service_card *card);
  int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
 -- 
-2.34.1
+2.35.1
 
-From 7482f937fa88afb9582341d1f35d37ff126e1bcf Mon Sep 17 00:00:00 2001
+From d7422bd87474bae2fe3b42b11c8873cfe6ed09e3 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Tue, 3 Nov 2020 13:28:04 +0100
 Subject: [PATCH] mwifiex: Add quirk resetting the PCI bridge on MS Surface
@@ -565,9 +565,9 @@ index a1de111ad1db..0e429779bb04 100644
  void mwifiex_initialize_quirks(struct pcie_service_card *card);
  int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
 -- 
-2.34.1
+2.35.1
 
-From af7fccf6c49213ae7ce343f7b2c574918fcb0f1a Mon Sep 17 00:00:00 2001
+From 076580c216b98bcc9cd7b02e0c86ee1076541e77 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 25 Mar 2021 11:33:02 +0100
 Subject: [PATCH] Bluetooth: btusb: Lower passive lescan interval on Marvell
@@ -603,18 +603,18 @@ Patchset: mwifiex
  1 file changed, 15 insertions(+)
 
 diff --git a/drivers/bluetooth/btusb.c b/drivers/bluetooth/btusb.c
-index 75c83768c257..bb863c3b51f6 100644
+index ea72afb7abea..dc0d1d8e0daa 100644
 --- a/drivers/bluetooth/btusb.c
 +++ b/drivers/bluetooth/btusb.c
-@@ -60,6 +60,7 @@ static struct usb_driver btusb_driver;
- #define BTUSB_VALID_LE_STATES   0x800000
+@@ -61,6 +61,7 @@ static struct usb_driver btusb_driver;
  #define BTUSB_QCA_WCN6855	0x1000000
+ #define BTUSB_INTEL_BROKEN_SHUTDOWN_LED	0x2000000
  #define BTUSB_INTEL_BROKEN_INITIAL_NCMD 0x4000000
 +#define BTUSB_LOWER_LESCAN_INTERVAL	0x8000000
  
  static const struct usb_device_id btusb_table[] = {
  	/* Generic Bluetooth USB device */
-@@ -356,6 +357,7 @@ static const struct usb_device_id blacklist_table[] = {
+@@ -375,6 +376,7 @@ static const struct usb_device_id blacklist_table[] = {
  	{ USB_DEVICE(0x1286, 0x2044), .driver_info = BTUSB_MARVELL },
  	{ USB_DEVICE(0x1286, 0x2046), .driver_info = BTUSB_MARVELL },
  	{ USB_DEVICE(0x1286, 0x204e), .driver_info = BTUSB_MARVELL },
@@ -622,7 +622,7 @@ index 75c83768c257..bb863c3b51f6 100644
  
  	/* Intel Bluetooth devices */
  	{ USB_DEVICE(0x8087, 0x0025), .driver_info = BTUSB_INTEL_COMBINED },
-@@ -3862,6 +3864,19 @@ static int btusb_probe(struct usb_interface *intf,
+@@ -3908,6 +3910,19 @@ static int btusb_probe(struct usb_interface *intf,
  	if (id->driver_info & BTUSB_MARVELL)
  		hdev->set_bdaddr = btusb_set_bdaddr_marvell;
  
@@ -643,9 +643,9 @@ index 75c83768c257..bb863c3b51f6 100644
  	    (id->driver_info & BTUSB_MEDIATEK)) {
  		hdev->setup = btusb_mtk_setup;
 -- 
-2.34.1
+2.35.1
 
-From bb6c2ece94a6eab366f7962bf2acad77f25db002 Mon Sep 17 00:00:00 2001
+From 95ad8001965918ed711cd63e9ed15859073c7634 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Tue, 10 Nov 2020 12:49:56 +0100
 Subject: [PATCH] mwifiex: Use non-posted PCI register writes
@@ -700,9 +700,9 @@ index 586c79dc0a98..f87bc9bdfba7 100644
  }
  
 -- 
-2.34.1
+2.35.1
 
-From b2ccceed632550f18c346b77bee5312aebdd54f0 Mon Sep 17 00:00:00 2001
+From 2747c0e1b2bbdca151fa76a35d69290eccefae80 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Tue, 13 Apr 2021 14:23:05 +0200
 Subject: [PATCH] mwifiex: Add quirk to disable deep sleep with certain
@@ -803,9 +803,9 @@ index 6b5d35d9e69f..8e49ebca1847 100644
  		version_ext->version_str_sel = ver_ext->version_str_sel;
  		memcpy(version_ext->version_str, ver_ext->version_str,
 -- 
-2.34.1
+2.35.1
 
-From f33cf6817c7b0b130a47e664f560cd8ae8f5dcdb Mon Sep 17 00:00:00 2001
+From 24b206a7c9234d884ad40087e5abcbbc9591d5d7 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Tue, 13 Apr 2021 12:57:41 +0200
 Subject: [PATCH] mwifiex: Ignore BTCOEX events from the firmware
@@ -826,10 +826,10 @@ Patchset: mwifiex
  1 file changed, 1 insertion(+), 3 deletions(-)
 
 diff --git a/drivers/net/wireless/marvell/mwifiex/sta_event.c b/drivers/net/wireless/marvell/mwifiex/sta_event.c
-index 68c63268e2e6..933111a3511c 100644
+index 2b2e6e0166e1..e9e2d4b86acb 100644
 --- a/drivers/net/wireless/marvell/mwifiex/sta_event.c
 +++ b/drivers/net/wireless/marvell/mwifiex/sta_event.c
-@@ -1057,9 +1057,7 @@ int mwifiex_process_sta_event(struct mwifiex_private *priv)
+@@ -1061,9 +1061,7 @@ int mwifiex_process_sta_event(struct mwifiex_private *priv)
  							adapter->event_skb);
  		break;
  	case EVENT_BT_COEX_WLAN_PARA_CHANGE:
@@ -841,5 +841,5 @@ index 68c63268e2e6..933111a3511c 100644
  	case EVENT_RXBA_SYNC:
  		dev_dbg(adapter->dev, "EVENT: RXBA_SYNC\n");
 -- 
-2.34.1
+2.35.1
 
