@@ -2,8 +2,8 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc35 kernel-5.16.7-200.fc35
-%global kernel_tag_fc34 kernel-5.16.7-100.fc34
+%global kernel_tag_fc35 kernel-5.16.8-200.fc35
+%global kernel_tag_fc34 kernel-5.16.8-100.fc34
 
 %global kernel_release_fc35 1
 %global kernel_release_fc34 1
