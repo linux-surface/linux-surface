@@ -1,4 +1,4 @@
-From def220c28225dd2c98d96a3634257aac7172ce10 Mon Sep 17 00:00:00 2001
+From b1dd33eeee04cde179bdf779912504cf8f645877 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 8 Dec 2021 16:22:50 +0100
 Subject: [PATCH] acpi/battery: Add device HID and quirk for Microsoft Surface
@@ -51,7 +51,7 @@ index ead0114f27c9..56db7b4da514 100644
 -- 
 2.35.1
 
-From 0e3b557fd61138c67f4da728e633c7cbcdf5065c Mon Sep 17 00:00:00 2001
+From a20b4e65fde16e0b3f397a8e294a3855bfff0cad Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Feb 2022 01:29:48 +0100
 Subject: [PATCH] ACPI: battery: Add "Not Charging" quirk for Microsoft Surface
@@ -106,6 +106,65 @@ index 56db7b4da514..8edaa3020af3 100644
  	{
  		/* Microsoft Surface Go 3 */
  		.callback = battery_notification_delay_quirk,
+-- 
+2.35.1
+
+From 63858e3816f00b90bd2fcd27c589e03a3298a1f6 Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Thu, 24 Feb 2022 11:18:48 +0100
+Subject: [PATCH] surface: surface3_power: Fix battery readings on batteries
+ without a serial number
+
+The battery on the 2nd hand Surface 3 which I recently bought appears to
+not have a serial number programmed in. This results in any I2C reads from
+the registers containing the serial number failing with an I2C NACK.
+
+This was causing mshw0011_bix() to fail causing the battery readings to
+not work at all.
+
+Ignore EREMOTEIO (I2C NACK) errors when retrieving the serial number and
+continue with an empty serial number to fix this.
+
+Fixes: b1f81b496b0d ("platform/x86: surface3_power: MSHW0011 rev-eng implementation")
+BugLink: https://github.com/linux-surface/linux-surface/issues/608
+Reviewed-by: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Reviewed-by: Maximilian Luz <luzmaximilian@gmail.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Link: https://lore.kernel.org/r/20220224101848.7219-1-hdegoede@redhat.com
+Patchset: misc-fixes
+---
+ drivers/platform/surface/surface3_power.c | 13 ++++++++++---
+ 1 file changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/platform/surface/surface3_power.c b/drivers/platform/surface/surface3_power.c
+index abac3eec565e..444ec81ba02d 100644
+--- a/drivers/platform/surface/surface3_power.c
++++ b/drivers/platform/surface/surface3_power.c
+@@ -232,14 +232,21 @@ static int mshw0011_bix(struct mshw0011_data *cdata, struct bix *bix)
+ 	}
+ 	bix->last_full_charg_capacity = ret;
+ 
+-	/* get serial number */
++	/*
++	 * Get serial number, on some devices (with unofficial replacement
++	 * battery?) reading any of the serial number range addresses gets
++	 * nacked in this case just leave the serial number empty.
++	 */
+ 	ret = i2c_smbus_read_i2c_block_data(client, MSHW0011_BAT0_REG_SERIAL_NO,
+ 					    sizeof(buf), buf);
+-	if (ret != sizeof(buf)) {
++	if (ret == -EREMOTEIO) {
++		/* no serial number available */
++	} else if (ret != sizeof(buf)) {
+ 		dev_err(&client->dev, "Error reading serial no: %d\n", ret);
+ 		return ret;
++	} else {
++		snprintf(bix->serial, ARRAY_SIZE(bix->serial), "%3pE%6pE", buf + 7, buf);
+ 	}
+-	snprintf(bix->serial, ARRAY_SIZE(bix->serial), "%3pE%6pE", buf + 7, buf);
+ 
+ 	/* get cycle count */
+ 	ret = i2c_smbus_read_word_data(client, MSHW0011_BAT0_REG_CYCLE_CNT);
 -- 
 2.35.1
 
