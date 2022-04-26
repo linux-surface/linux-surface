@@ -1,0 +1,58 @@
+From 48eab1c5e0d9fe67384d6c2e91efdf0ec3ff54b5 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Tue, 8 Feb 2022 01:29:48 +0100
+Subject: [PATCH] ACPI: battery: Add "Not Charging" quirk for Microsoft Surface
+ devices
+
+Microsoft Surface devices have a limiter that sets a fixed maximum
+charge capacity for the battery. When that maximum capacity has been
+reached, charging stops. In that case, _BST returns a battery state
+field with both "charging" and "discharging" bits cleared. The battery
+driver, however, returns "unknown" as status.
+
+This seems to be the same behavior as observed on the ThinkPads, so
+let's use the same quirk to handle that as well.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-battery
+
+---
+For what it's worth, I don't think the ACPI spec explicitly states that
+any of the status bits need to be set, or that there are only the
+"charging" and "discharging" states. As far as I can tell, ACPI only
+states:
+
+    Notice that the Charging bit and the Discharging bit are mutually
+    exclusive and must not both be set at the same time. Even in
+    critical state, hardware should report the corresponding
+    charging/discharging state.
+
+But that does not exclude the case that no bit is set. So, strictly
+going by spec, I don't think it's necessary to put all of this behind a
+quirk.
+---
+ drivers/acpi/battery.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/acpi/battery.c b/drivers/acpi/battery.c
+index dc208f5f5a1f..db2aa56c746a 100644
+--- a/drivers/acpi/battery.c
++++ b/drivers/acpi/battery.c
+@@ -1152,6 +1152,14 @@ static const struct dmi_system_id bat_dmi_table[] __initconst = {
+ 			DMI_MATCH(DMI_PRODUCT_VERSION, "ThinkPad"),
+ 		},
+ 	},
++	{
++		.callback = battery_quirk_not_charging,
++		.ident = "Microsoft Surface",
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface"),
++		},
++	},
+ 	{
+ 		/* Microsoft Surface Go 3 */
+ 		.callback = battery_notification_delay_quirk,
+-- 
+2.36.0
+

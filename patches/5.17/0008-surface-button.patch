@@ -1,0 +1,558 @@
+From 8944aec8973646c474c14bd6763adee38f0430a3 Mon Sep 17 00:00:00 2001
+From: Sachi King <nakato@nakato.io>
+Date: Tue, 5 Oct 2021 00:05:09 +1100
+Subject: [PATCH] Input: soc_button_array - support AMD variant Surface devices
+
+The power button on the AMD variant of the Surface Laptop uses the
+same MSHW0040 device ID as the 5th and later generation of Surface
+devices, however they report 0 for their OEM platform revision.  As the
+_DSM does not exist on the devices requiring special casing, check for
+the existance of the _DSM to determine if soc_button_array should be
+loaded.
+
+Fixes: c394159310d0 ("Input: soc_button_array - add support for newer surface devices")
+Co-developed-by: Maximilian Luz <luzmaximilian@gmail.com>
+
+Signed-off-by: Sachi King <nakato@nakato.io>
+Patchset: surface-button
+---
+ drivers/input/misc/soc_button_array.c | 33 +++++++--------------------
+ 1 file changed, 8 insertions(+), 25 deletions(-)
+
+diff --git a/drivers/input/misc/soc_button_array.c b/drivers/input/misc/soc_button_array.c
+index cb6ec59a045d..4e8944f59def 100644
+--- a/drivers/input/misc/soc_button_array.c
++++ b/drivers/input/misc/soc_button_array.c
+@@ -474,8 +474,8 @@ static const struct soc_device_data soc_device_INT33D3 = {
+  * Both, the Surface Pro 4 (surfacepro3_button.c) and the above mentioned
+  * devices use MSHW0040 for power and volume buttons, however the way they
+  * have to be addressed differs. Make sure that we only load this drivers
+- * for the correct devices by checking the OEM Platform Revision provided by
+- * the _DSM method.
++ * for the correct devices by checking if the OEM Platform Revision DSM call
++ * exists.
+  */
+ #define MSHW0040_DSM_REVISION		0x01
+ #define MSHW0040_DSM_GET_OMPR		0x02	// get OEM Platform Revision
+@@ -486,31 +486,14 @@ static const guid_t MSHW0040_DSM_UUID =
+ static int soc_device_check_MSHW0040(struct device *dev)
+ {
+ 	acpi_handle handle = ACPI_HANDLE(dev);
+-	union acpi_object *result;
+-	u64 oem_platform_rev = 0;	// valid revisions are nonzero
+-
+-	// get OEM platform revision
+-	result = acpi_evaluate_dsm_typed(handle, &MSHW0040_DSM_UUID,
+-					 MSHW0040_DSM_REVISION,
+-					 MSHW0040_DSM_GET_OMPR, NULL,
+-					 ACPI_TYPE_INTEGER);
+-
+-	if (result) {
+-		oem_platform_rev = result->integer.value;
+-		ACPI_FREE(result);
+-	}
+-
+-	/*
+-	 * If the revision is zero here, the _DSM evaluation has failed. This
+-	 * indicates that we have a Pro 4 or Book 1 and this driver should not
+-	 * be used.
+-	 */
+-	if (oem_platform_rev == 0)
+-		return -ENODEV;
++	bool exists;
+ 
+-	dev_dbg(dev, "OEM Platform Revision %llu\n", oem_platform_rev);
++	// check if OEM platform revision DSM call exists
++	exists = acpi_check_dsm(handle, &MSHW0040_DSM_UUID,
++				MSHW0040_DSM_REVISION,
++				BIT(MSHW0040_DSM_GET_OMPR));
+ 
+-	return 0;
++	return exists ? 0 : -ENODEV;
+ }
+ 
+ /*
+-- 
+2.36.0
+
+From 421af81b0297af32e058cd79dcf3073eb3cf51fa Mon Sep 17 00:00:00 2001
+From: Sachi King <nakato@nakato.io>
+Date: Tue, 5 Oct 2021 00:22:57 +1100
+Subject: [PATCH] platform/surface: surfacepro3_button: don't load on amd
+ variant
+
+The AMD variant of the Surface Laptop report 0 for their OEM platform
+revision.  The Surface devices that require the surfacepro3_button
+driver do not have the _DSM that gets the OEM platform revision.  If the
+method does not exist, load surfacepro3_button.
+
+Fixes: 64dd243d7356 ("platform/x86: surfacepro3_button: Fix device check")
+Co-developed-by: Maximilian Luz <luzmaximilian@gmail.com>
+
+Signed-off-by: Sachi King <nakato@nakato.io>
+Patchset: surface-button
+---
+ drivers/platform/surface/surfacepro3_button.c | 30 ++++---------------
+ 1 file changed, 6 insertions(+), 24 deletions(-)
+
+diff --git a/drivers/platform/surface/surfacepro3_button.c b/drivers/platform/surface/surfacepro3_button.c
+index 242fb690dcaf..30eea54dbb47 100644
+--- a/drivers/platform/surface/surfacepro3_button.c
++++ b/drivers/platform/surface/surfacepro3_button.c
+@@ -149,7 +149,8 @@ static int surface_button_resume(struct device *dev)
+ /*
+  * Surface Pro 4 and Surface Book 2 / Surface Pro 2017 use the same device
+  * ID (MSHW0040) for the power/volume buttons. Make sure this is the right
+- * device by checking for the _DSM method and OEM Platform Revision.
++ * device by checking for the _DSM method and OEM Platform Revision DSM
++ * function.
+  *
+  * Returns true if the driver should bind to this device, i.e. the device is
+  * either MSWH0028 (Pro 3) or MSHW0040 on a Pro 4 or Book 1.
+@@ -157,30 +158,11 @@ static int surface_button_resume(struct device *dev)
+ static bool surface_button_check_MSHW0040(struct acpi_device *dev)
+ {
+ 	acpi_handle handle = dev->handle;
+-	union acpi_object *result;
+-	u64 oem_platform_rev = 0;	// valid revisions are nonzero
+-
+-	// get OEM platform revision
+-	result = acpi_evaluate_dsm_typed(handle, &MSHW0040_DSM_UUID,
+-					 MSHW0040_DSM_REVISION,
+-					 MSHW0040_DSM_GET_OMPR,
+-					 NULL, ACPI_TYPE_INTEGER);
+-
+-	/*
+-	 * If evaluating the _DSM fails, the method is not present. This means
+-	 * that we have either MSHW0028 or MSHW0040 on Pro 4 or Book 1, so we
+-	 * should use this driver. We use revision 0 indicating it is
+-	 * unavailable.
+-	 */
+-
+-	if (result) {
+-		oem_platform_rev = result->integer.value;
+-		ACPI_FREE(result);
+-	}
+-
+-	dev_dbg(&dev->dev, "OEM Platform Revision %llu\n", oem_platform_rev);
+ 
+-	return oem_platform_rev == 0;
++	// make sure that OEM platform revision DSM call does not exist
++	return !acpi_check_dsm(handle, &MSHW0040_DSM_UUID,
++			       MSHW0040_DSM_REVISION,
++			       BIT(MSHW0040_DSM_GET_OMPR));
+ }
+ 
+ 
+-- 
+2.36.0
+
+From 734da7d8f5beb9be996ba99a80f7e603b72130ab Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Thu, 24 Feb 2022 12:02:40 +0100
+Subject: [PATCH] Input: soc_button_array - add support for Microsoft Surface 3
+ (MSHW0028) buttons
+
+The drivers/platform/surface/surface3_button.c code is alsmost a 1:1 copy
+of the soc_button_array code.
+
+The only big difference is that it binds to an i2c_client rather then to
+a platform_device. The cause of this is the ACPI resources for the MSHW0028
+device containing a bogus I2cSerialBusV2 resource which causes the kernel
+to instantiate an i2c_client for it instead of a platform_device.
+
+Add "MSHW0028" to the ignore_serial_bus_ids[] list in drivers/apci/scan.c,
+so that a platform_device will be instantiated and add support for
+the MSHW0028 HID to soc_button_array.
+
+This fully replaces surface3_button, which will be removed in a separate
+commit (since it binds to the now no longer created i2c_client it no
+longer does anyyhing after this commit).
+
+Note the MSHW0028 id is used by Microsoft to describe the tablet buttons on
+both the Surface 3 and the Surface 3 Pro and the actual API/implementation
+for the Surface 3 Pro is quite different. The changes in this commit should
+not impact the separate surfacepro3_button driver:
+
+1. Because of the bogus I2cSerialBusV2 resource problem that driver binds
+   to the acpi_device itself, so instantiating a platform_device instead of
+   an i2c_client does not matter.
+
+2. The soc_button_array driver will not bind to the MSHW0028 device on
+   the Surface 3 Pro, because it has no GPIO resources.
+
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Reviewed-by: Maximilian Luz <luzmaximilian@gmail.com
+Patchset: surface-button
+---
+ drivers/acpi/scan.c                   |  5 +++++
+ drivers/input/misc/soc_button_array.c | 24 +++++++++++++++++++++++-
+ 2 files changed, 28 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/acpi/scan.c b/drivers/acpi/scan.c
+index 8b2e5ef15559..c82b1bfa1c3d 100644
+--- a/drivers/acpi/scan.c
++++ b/drivers/acpi/scan.c
+@@ -1753,6 +1753,11 @@ static bool acpi_device_enumeration_by_parent(struct acpi_device *device)
+ 	 */
+ 		{"BCM4752", },
+ 		{"LNV4752", },
++	/*
++	 * Some ACPI devs contain SerialBus resources even though they are not
++	 * attached to a serial bus at all.
++	 */
++		{"MSHW0028", },
+ 		{}
+ 	};
+ 
+diff --git a/drivers/input/misc/soc_button_array.c b/drivers/input/misc/soc_button_array.c
+index 4e8944f59def..f044c731c6a9 100644
+--- a/drivers/input/misc/soc_button_array.c
++++ b/drivers/input/misc/soc_button_array.c
+@@ -469,6 +469,27 @@ static const struct soc_device_data soc_device_INT33D3 = {
+ 	.button_info = soc_button_INT33D3,
+ };
+ 
++/*
++ * Button info for Microsoft Surface 3 (non pro), this is indentical to
++ * the PNP0C40 info except that the home button is active-high.
++ *
++ * The Surface 3 Pro also has a MSHW0028 ACPI device, but that uses a custom
++ * version of the drivers/platform/x86/intel/hid.c 5 button array ACPI API
++ * instead. A check() callback is not necessary though as the Surface 3 Pro
++ * MSHW0028 ACPI device's resource table does not contain any GPIOs.
++ */
++static const struct soc_button_info soc_button_MSHW0028[] = {
++	{ "power", 0, EV_KEY, KEY_POWER, false, true, true },
++	{ "home", 1, EV_KEY, KEY_LEFTMETA, false, true, false },
++	{ "volume_up", 2, EV_KEY, KEY_VOLUMEUP, true, false, true },
++	{ "volume_down", 3, EV_KEY, KEY_VOLUMEDOWN, true, false, true },
++	{ }
++};
++
++static const struct soc_device_data soc_device_MSHW0028 = {
++	.button_info = soc_button_MSHW0028,
++};
++
+ /*
+  * Special device check for Surface Book 2 and Surface Pro (2017).
+  * Both, the Surface Pro 4 (surfacepro3_button.c) and the above mentioned
+@@ -518,7 +539,8 @@ static const struct acpi_device_id soc_button_acpi_match[] = {
+ 	{ "ID9001", (unsigned long)&soc_device_INT33D3 },
+ 	{ "ACPI0011", 0 },
+ 
+-	/* Microsoft Surface Devices (5th and 6th generation) */
++	/* Microsoft Surface Devices (3th, 5th and 6th generation) */
++	{ "MSHW0028", (unsigned long)&soc_device_MSHW0028 },
+ 	{ "MSHW0040", (unsigned long)&soc_device_MSHW0040 },
+ 
+ 	{ }
+-- 
+2.36.0
+
+From 33b3e3c489a43b4c71d5886e10af33473a939ca9 Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Thu, 24 Feb 2022 12:02:41 +0100
+Subject: [PATCH] platform/surface: Remove Surface 3 Button driver
+
+The Surface 3 buttons are now handled by the generic soc_button_array
+driver. As part of adding support to soc_button_array the ACPI code
+now instantiates a platform_device rather then an i2c_client so there
+no longer is an i2c_client for this driver to bind to.
+
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Reviewed-by: Maximilian Luz <luzmaximilian@gmail.com
+Patchset: surface-button
+---
+ drivers/platform/surface/Kconfig           |   7 -
+ drivers/platform/surface/Makefile          |   1 -
+ drivers/platform/surface/surface3_button.c | 247 ---------------------
+ 3 files changed, 255 deletions(-)
+ delete mode 100644 drivers/platform/surface/surface3_button.c
+
+diff --git a/drivers/platform/surface/Kconfig b/drivers/platform/surface/Kconfig
+index c6c3c9bd3b57..df387ac34a79 100644
+--- a/drivers/platform/surface/Kconfig
++++ b/drivers/platform/surface/Kconfig
+@@ -28,13 +28,6 @@ config SURFACE3_WMI
+ 	  To compile this driver as a module, choose M here: the module will
+ 	  be called surface3-wmi.
+ 
+-config SURFACE_3_BUTTON
+-	tristate "Power/home/volume buttons driver for Microsoft Surface 3 tablet"
+-	depends on ACPI
+-	depends on KEYBOARD_GPIO && I2C
+-	help
+-	  This driver handles the power/home/volume buttons on the Microsoft Surface 3 tablet.
+-
+ config SURFACE_3_POWER_OPREGION
+ 	tristate "Surface 3 battery platform operation region support"
+ 	depends on ACPI
+diff --git a/drivers/platform/surface/Makefile b/drivers/platform/surface/Makefile
+index 9eb3a7e6382c..e4791b47f561 100644
+--- a/drivers/platform/surface/Makefile
++++ b/drivers/platform/surface/Makefile
+@@ -5,7 +5,6 @@
+ #
+ 
+ obj-$(CONFIG_SURFACE3_WMI)		+= surface3-wmi.o
+-obj-$(CONFIG_SURFACE_3_BUTTON)		+= surface3_button.o
+ obj-$(CONFIG_SURFACE_3_POWER_OPREGION)	+= surface3_power.o
+ obj-$(CONFIG_SURFACE_ACPI_NOTIFY)	+= surface_acpi_notify.o
+ obj-$(CONFIG_SURFACE_AGGREGATOR)	+= aggregator/
+diff --git a/drivers/platform/surface/surface3_button.c b/drivers/platform/surface/surface3_button.c
+deleted file mode 100644
+index 48d77e7aae76..000000000000
+--- a/drivers/platform/surface/surface3_button.c
++++ /dev/null
+@@ -1,247 +0,0 @@
+-// SPDX-License-Identifier: GPL-2.0-only
+-/*
+- * Supports for the button array on the Surface tablets.
+- *
+- * (C) Copyright 2016 Red Hat, Inc
+- *
+- * Based on soc_button_array.c:
+- *
+- * {C} Copyright 2014 Intel Corporation
+- */
+-
+-#include <linux/module.h>
+-#include <linux/input.h>
+-#include <linux/init.h>
+-#include <linux/kernel.h>
+-#include <linux/i2c.h>
+-#include <linux/slab.h>
+-#include <linux/acpi.h>
+-#include <linux/gpio/consumer.h>
+-#include <linux/gpio_keys.h>
+-#include <linux/gpio.h>
+-#include <linux/platform_device.h>
+-
+-
+-#define SURFACE_BUTTON_OBJ_NAME		"TEV2"
+-#define MAX_NBUTTONS			4
+-
+-/*
+- * Some of the buttons like volume up/down are auto repeat, while others
+- * are not. To support both, we register two platform devices, and put
+- * buttons into them based on whether the key should be auto repeat.
+- */
+-#define BUTTON_TYPES			2
+-
+-/*
+- * Power button, Home button, Volume buttons support is supposed to
+- * be covered by drivers/input/misc/soc_button_array.c, which is implemented
+- * according to "Windows ACPI Design Guide for SoC Platforms".
+- * However surface 3 seems not to obey the specs, instead it uses
+- * device TEV2(MSHW0028) for declaring the GPIOs. The gpios are also slightly
+- * different in which the Home button is active high.
+- * Compared to surfacepro3_button.c which also handles MSHW0028, the Surface 3
+- * is a reduce platform and thus uses GPIOs, not ACPI events.
+- * We choose an I2C driver here because we need to access the resources
+- * declared under the device node, while surfacepro3_button.c only needs
+- * the ACPI companion node.
+- */
+-static const struct acpi_device_id surface3_acpi_match[] = {
+-	{ "MSHW0028", 0 },
+-	{ }
+-};
+-MODULE_DEVICE_TABLE(acpi, surface3_acpi_match);
+-
+-struct surface3_button_info {
+-	const char *name;
+-	int acpi_index;
+-	unsigned int event_type;
+-	unsigned int event_code;
+-	bool autorepeat;
+-	bool wakeup;
+-	bool active_low;
+-};
+-
+-struct surface3_button_data {
+-	struct platform_device *children[BUTTON_TYPES];
+-};
+-
+-/*
+- * Get the Nth GPIO number from the ACPI object.
+- */
+-static int surface3_button_lookup_gpio(struct device *dev, int acpi_index)
+-{
+-	struct gpio_desc *desc;
+-	int gpio;
+-
+-	desc = gpiod_get_index(dev, NULL, acpi_index, GPIOD_ASIS);
+-	if (IS_ERR(desc))
+-		return PTR_ERR(desc);
+-
+-	gpio = desc_to_gpio(desc);
+-
+-	gpiod_put(desc);
+-
+-	return gpio;
+-}
+-
+-static struct platform_device *
+-surface3_button_device_create(struct i2c_client *client,
+-			      const struct surface3_button_info *button_info,
+-			      bool autorepeat)
+-{
+-	const struct surface3_button_info *info;
+-	struct platform_device *pd;
+-	struct gpio_keys_button *gpio_keys;
+-	struct gpio_keys_platform_data *gpio_keys_pdata;
+-	int n_buttons = 0;
+-	int gpio;
+-	int error;
+-
+-	gpio_keys_pdata = devm_kzalloc(&client->dev,
+-				       sizeof(*gpio_keys_pdata) +
+-				       sizeof(*gpio_keys) * MAX_NBUTTONS,
+-				       GFP_KERNEL);
+-	if (!gpio_keys_pdata)
+-		return ERR_PTR(-ENOMEM);
+-
+-	gpio_keys = (void *)(gpio_keys_pdata + 1);
+-
+-	for (info = button_info; info->name; info++) {
+-		if (info->autorepeat != autorepeat)
+-			continue;
+-
+-		gpio = surface3_button_lookup_gpio(&client->dev,
+-						   info->acpi_index);
+-		if (!gpio_is_valid(gpio))
+-			continue;
+-
+-		gpio_keys[n_buttons].type = info->event_type;
+-		gpio_keys[n_buttons].code = info->event_code;
+-		gpio_keys[n_buttons].gpio = gpio;
+-		gpio_keys[n_buttons].active_low = info->active_low;
+-		gpio_keys[n_buttons].desc = info->name;
+-		gpio_keys[n_buttons].wakeup = info->wakeup;
+-		n_buttons++;
+-	}
+-
+-	if (n_buttons == 0) {
+-		error = -ENODEV;
+-		goto err_free_mem;
+-	}
+-
+-	gpio_keys_pdata->buttons = gpio_keys;
+-	gpio_keys_pdata->nbuttons = n_buttons;
+-	gpio_keys_pdata->rep = autorepeat;
+-
+-	pd = platform_device_alloc("gpio-keys", PLATFORM_DEVID_AUTO);
+-	if (!pd) {
+-		error = -ENOMEM;
+-		goto err_free_mem;
+-	}
+-
+-	error = platform_device_add_data(pd, gpio_keys_pdata,
+-					 sizeof(*gpio_keys_pdata));
+-	if (error)
+-		goto err_free_pdev;
+-
+-	error = platform_device_add(pd);
+-	if (error)
+-		goto err_free_pdev;
+-
+-	return pd;
+-
+-err_free_pdev:
+-	platform_device_put(pd);
+-err_free_mem:
+-	devm_kfree(&client->dev, gpio_keys_pdata);
+-	return ERR_PTR(error);
+-}
+-
+-static int surface3_button_remove(struct i2c_client *client)
+-{
+-	struct surface3_button_data *priv = i2c_get_clientdata(client);
+-
+-	int i;
+-
+-	for (i = 0; i < BUTTON_TYPES; i++)
+-		if (priv->children[i])
+-			platform_device_unregister(priv->children[i]);
+-
+-	return 0;
+-}
+-
+-static struct surface3_button_info surface3_button_surface3[] = {
+-	{ "power", 0, EV_KEY, KEY_POWER, false, true, true },
+-	{ "home", 1, EV_KEY, KEY_LEFTMETA, false, true, false },
+-	{ "volume_up", 2, EV_KEY, KEY_VOLUMEUP, true, false, true },
+-	{ "volume_down", 3, EV_KEY, KEY_VOLUMEDOWN, true, false, true },
+-	{ }
+-};
+-
+-static int surface3_button_probe(struct i2c_client *client,
+-				 const struct i2c_device_id *id)
+-{
+-	struct device *dev = &client->dev;
+-	struct surface3_button_data *priv;
+-	struct platform_device *pd;
+-	int i;
+-	int error;
+-
+-	if (strncmp(acpi_device_bid(ACPI_COMPANION(&client->dev)),
+-		    SURFACE_BUTTON_OBJ_NAME,
+-		    strlen(SURFACE_BUTTON_OBJ_NAME)))
+-		return -ENODEV;
+-
+-	error = gpiod_count(dev, NULL);
+-	if (error < 0) {
+-		dev_dbg(dev, "no GPIO attached, ignoring...\n");
+-		return error;
+-	}
+-
+-	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
+-	if (!priv)
+-		return -ENOMEM;
+-
+-	i2c_set_clientdata(client, priv);
+-
+-	for (i = 0; i < BUTTON_TYPES; i++) {
+-		pd = surface3_button_device_create(client,
+-						   surface3_button_surface3,
+-						   i == 0);
+-		if (IS_ERR(pd)) {
+-			error = PTR_ERR(pd);
+-			if (error != -ENODEV) {
+-				surface3_button_remove(client);
+-				return error;
+-			}
+-			continue;
+-		}
+-
+-		priv->children[i] = pd;
+-	}
+-
+-	if (!priv->children[0] && !priv->children[1])
+-		return -ENODEV;
+-
+-	return 0;
+-}
+-
+-static const struct i2c_device_id surface3_id[] = {
+-	{ }
+-};
+-MODULE_DEVICE_TABLE(i2c, surface3_id);
+-
+-static struct i2c_driver surface3_driver = {
+-	.probe = surface3_button_probe,
+-	.remove = surface3_button_remove,
+-	.id_table = surface3_id,
+-	.driver = {
+-		.name = "surface3",
+-		.acpi_match_table = ACPI_PTR(surface3_acpi_match),
+-	},
+-};
+-module_i2c_driver(surface3_driver);
+-
+-MODULE_AUTHOR("Benjamin Tissoires <benjamin.tissoires@gmail.com>");
+-MODULE_DESCRIPTION("surface3 button array driver");
+-MODULE_LICENSE("GPL v2");
+-- 
+2.36.0
+
