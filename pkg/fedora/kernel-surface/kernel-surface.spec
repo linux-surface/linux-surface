@@ -2,8 +2,8 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc35 kernel-5.16.17-200.fc35
-%global kernel_tag_fc34 kernel-5.16.17-100.fc34
+%global kernel_tag_fc35 kernel-5.17.4-200.fc35
+%global kernel_tag_fc34 kernel-5.17.4-100.fc34
 
 %global kernel_release_fc35 1
 %global kernel_release_fc34 1
@@ -14,7 +14,7 @@
 %global fedora_title_fc35 35 (Thirty Five)
 %global fedora_title_fc34 34 (Thirty Four)
 
-%global ls_patches_commit 673f01788034cdc46e84e3d662ed65bd5d8e7aa5
+%global ls_patches_commit d6980ce55c1ffd513a33a1e21949792db7d06865
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -103,9 +103,9 @@ Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam-over-hid.patch
 Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-gpe.patch
 Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-button.patch
 Patch8:     %{surface_source}/%{kernel_patches}/0009-surface-typecover.patch
-Patch9:     %{surface_source}/%{kernel_patches}/0010-cameras.patch
-Patch10:    %{surface_source}/%{kernel_patches}/0011-amd-gpio.patch
-Patch11:    %{surface_source}/%{kernel_patches}/0012-misc-fixes.patch
+Patch9:     %{surface_source}/%{kernel_patches}/0010-surface-battery.patch
+Patch10:    %{surface_source}/%{kernel_patches}/0011-cameras.patch
+Patch11:    %{surface_source}/%{kernel_patches}/0012-amd-gpio.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
