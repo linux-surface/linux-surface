@@ -7,8 +7,8 @@
 %global kernel_tag_fc34 kernel-5.17.4-100.fc34
 
 %global kernel_release_fc36 1
-%global kernel_release_fc35 1
-%global kernel_release_fc34 1
+%global kernel_release_fc35 2
+%global kernel_release_fc34 2
 
 # This is what is printed in the GRUB menu. These cannot be fetched from the
 # buildhost, because in a container this will also say container. To get the
