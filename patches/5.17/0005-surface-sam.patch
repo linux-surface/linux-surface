@@ -1,4 +1,4 @@
-From bf1eb62319be3db94fbf1551573c77528c246bff Mon Sep 17 00:00:00 2001
+From 00d3f4cffd80269b24fa25939d8bbac2e0536524 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 00:24:47 +0200
 Subject: [PATCH] platform/surface: aggregator: Allow devices to be marked as
@@ -119,7 +119,7 @@ index cc257097eb05..491aa7e9f4bc 100644
 -- 
 2.36.0
 
-From 199fd2d3b2df873f050b823804808003de75d930 Mon Sep 17 00:00:00 2001
+From 495bbba942257acc0892bb6c4ce5d09aa086c314 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 00:48:22 +0200
 Subject: [PATCH] platform/surface: aggregator: Allow notifiers to avoid
@@ -406,7 +406,7 @@ index 491aa7e9f4bc..16816c34da3e 100644
 -- 
 2.36.0
 
-From 09733bcaf64f287574617a7fd785555490fc069c Mon Sep 17 00:00:00 2001
+From e1d5f7e9cbc68f580ca6ecdbabd08ba930811cee Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 01:20:49 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Use client device
@@ -455,7 +455,7 @@ index ce2bd88feeaa..9f630e890ff7 100644
 -- 
 2.36.0
 
-From 7e093dcab6d846b0dd8bde20ac3cbbf33464385b Mon Sep 17 00:00:00 2001
+From 74eb9b767fd8be1ef6982918137e5d89b28eb61f Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 28 Oct 2021 03:37:06 +0200
 Subject: [PATCH] power/supply: surface_charger: Use client device wrappers for
@@ -495,7 +495,7 @@ index a060c36c7766..59182d55742d 100644
 -- 
 2.36.0
 
-From 0596f79e4fc188631bdddb9d2e7b91c1203187e2 Mon Sep 17 00:00:00 2001
+From f01bfa451a11c294f1ceb55e99556d528a3e1b93 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 28 Oct 2021 03:38:09 +0200
 Subject: [PATCH] power/supply: surface_battery: Use client device wrappers for
@@ -535,7 +535,7 @@ index 5ec2e6bb2465..540707882bb0 100644
 -- 
 2.36.0
 
-From 7ac8a5db2df06cfdc4af31266c7f57c0972eb096 Mon Sep 17 00:00:00 2001
+From 14f1357286128b7e6be3d8405e6ffee9ab5a8d64 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 01:33:02 +0200
 Subject: [PATCH] HID: surface-hid: Add support for hot-removal
@@ -646,7 +646,7 @@ index e46330b2e561..87637f813de2 100644
 -- 
 2.36.0
 
-From fe21a8dfcc86dbfe0f5fc9bdf0fa7dee09d45862 Mon Sep 17 00:00:00 2001
+From 995ea86ebc23247bb4c70744add70654b1db7832 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 31 Oct 2021 12:34:08 +0100
 Subject: [PATCH] platform/surface: aggregator: Add comment for KIP subsystem
@@ -684,9 +684,362 @@ index c3de43edcffa..d1efac85caf1 100644
 -- 
 2.36.0
 
-From 489d63cb6d02eecc0a986dac9f056fb488318dfa Mon Sep 17 00:00:00 2001
+From 37fe46bc50ae8bc110375ae3e70111b0975780e5 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Sun, 10 Oct 2021 23:56:23 +0200
+Date: Fri, 29 Apr 2022 22:42:32 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Generify subsystem hub
+ functionality
+
+The Surface System Aggregator Module (SSAM) has multiple subsystems that
+can manage detachable devices. At the moment, we only support the "base"
+(BAS/0x11) subsystem, which is used on the Surface Book 3 to manage
+devices (including keyboard, touchpad, and secondary battery) connected
+to the base of the device.
+
+The Surface Pro 8 has a new type-cover with keyboard and touchpad, which
+is managed via the KIP/0x0e subsystem. The general procedure is the
+same, but with slightly different events and setup. To make
+implementation of the KIP hub easier and prevent duplication, generify
+the parts of the base hub that we can use for the KIP hub (or any
+potential future subsystem hubs).
+
+This also switches over to use the newly introduced "hot-remove"
+functionality, which should prevent communication issues when devices
+have been detached.
+
+Lastly, also drop the undocumented and unused sysfs "state" attribute of
+the base hub. It's at best useful for debugging.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c     | 236 +++++++++---------
+ 1 file changed, 119 insertions(+), 117 deletions(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 9f630e890ff7..fadfaf4eb6e9 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -308,30 +308,124 @@ static int ssam_hub_register_clients(struct device *parent, struct ssam_controll
+ }
+ 
+ 
+-/* -- SSAM base-hub driver. ------------------------------------------------- */
+-
+-/*
+- * Some devices (especially battery) may need a bit of time to be fully usable
+- * after being (re-)connected. This delay has been determined via
+- * experimentation.
+- */
+-#define SSAM_BASE_UPDATE_CONNECT_DELAY		msecs_to_jiffies(2500)
++/* -- SSAM generic subsystem hub driver framework. -------------------------- */
+ 
+-enum ssam_base_hub_state {
+-	SSAM_BASE_HUB_UNINITIALIZED,
+-	SSAM_BASE_HUB_CONNECTED,
+-	SSAM_BASE_HUB_DISCONNECTED,
++enum ssam_hub_state {
++	SSAM_HUB_UNINITIALIZED,
++	SSAM_HUB_CONNECTED,
++	SSAM_HUB_DISCONNECTED,
+ };
+ 
+-struct ssam_base_hub {
++struct ssam_hub {
+ 	struct ssam_device *sdev;
+ 
+-	enum ssam_base_hub_state state;
++	enum ssam_hub_state state;
+ 	struct delayed_work update_work;
++	unsigned long connect_delay;
+ 
+ 	struct ssam_event_notifier notif;
++
++	int (*get_state)(struct ssam_hub *hub, enum ssam_hub_state *state);
+ };
+ 
++static void ssam_hub_update_workfn(struct work_struct *work)
++{
++	struct ssam_hub *hub = container_of(work, struct ssam_hub, update_work.work);
++	struct fwnode_handle *node = dev_fwnode(&hub->sdev->dev);
++	enum ssam_hub_state state;
++	int status = 0;
++
++	status = hub->get_state(hub, &state);
++	if (status)
++		return;
++
++	if (hub->state == state)
++		return;
++	hub->state = state;
++
++	if (hub->state == SSAM_HUB_CONNECTED)
++		status = ssam_hub_register_clients(&hub->sdev->dev, hub->sdev->ctrl, node);
++	else
++		ssam_remove_clients(&hub->sdev->dev);
++
++	if (status)
++		dev_err(&hub->sdev->dev, "failed to update hub child devices: %d\n", status);
++}
++
++static int ssam_hub_mark_hot_removed(struct device *dev, void *_data)
++{
++	struct ssam_device *sdev = to_ssam_device(dev);
++
++	if (is_ssam_device(dev))
++		ssam_device_mark_hot_removed(sdev);
++
++	return 0;
++}
++
++static void ssam_hub_update(struct ssam_hub *hub, bool connected)
++{
++	unsigned long delay;
++
++	/* Mark devices as hot-removed before we remove any */
++	if (!connected)
++		device_for_each_child_reverse(&hub->sdev->dev, NULL, ssam_hub_mark_hot_removed);
++
++	/*
++	 * Delay update when the base/keyboard cover is being connected to give
++	 * devices/EC some time to set up.
++	 */
++	delay = connected ? hub->connect_delay : 0;
++
++	schedule_delayed_work(&hub->update_work, delay);
++}
++
++static int __maybe_unused ssam_hub_resume(struct device *dev)
++{
++	struct ssam_hub *hub = dev_get_drvdata(dev);
++
++	schedule_delayed_work(&hub->update_work, 0);
++	return 0;
++}
++static SIMPLE_DEV_PM_OPS(ssam_hub_pm_ops, NULL, ssam_hub_resume);
++
++static int ssam_hub_setup(struct ssam_device *sdev, struct ssam_hub *hub)
++{
++	int status;
++
++	hub->sdev = sdev;
++	hub->state = SSAM_HUB_UNINITIALIZED;
++
++	INIT_DELAYED_WORK(&hub->update_work, ssam_hub_update_workfn);
++
++	ssam_device_set_drvdata(sdev, hub);
++
++	status = ssam_device_notifier_register(sdev, &hub->notif);
++	if (status)
++		return status;
++
++	schedule_delayed_work(&hub->update_work, 0);
++	return 0;
++}
++
++static void ssam_hub_remove(struct ssam_device *sdev)
++{
++	struct ssam_hub *hub = ssam_device_get_drvdata(sdev);
++
++	ssam_device_notifier_unregister(sdev, &hub->notif);
++	cancel_delayed_work_sync(&hub->update_work);
++	ssam_remove_clients(&sdev->dev);
++}
++
++
++/* -- SSAM base-hub driver. ------------------------------------------------- */
++
++/*
++ * Some devices (especially battery) may need a bit of time to be fully usable
++ * after being (re-)connected. This delay has been determined via
++ * experimentation.
++ */
++#define SSAM_BASE_UPDATE_CONNECT_DELAY		msecs_to_jiffies(2500)
++
+ SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_query_opmode, u8, {
+ 	.target_category = SSAM_SSH_TC_BAS,
+ 	.target_id       = 0x01,
+@@ -342,7 +436,7 @@ SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_query_opmode, u8, {
+ #define SSAM_BAS_OPMODE_TABLET		0x00
+ #define SSAM_EVENT_BAS_CID_CONNECTION	0x0c
+ 
+-static int ssam_base_hub_query_state(struct ssam_base_hub *hub, enum ssam_base_hub_state *state)
++static int ssam_base_hub_query_state(struct ssam_hub *hub, enum ssam_hub_state *state)
+ {
+ 	u8 opmode;
+ 	int status;
+@@ -354,62 +448,16 @@ static int ssam_base_hub_query_state(struct ssam_base_hub *hub, enum ssam_base_h
+ 	}
+ 
+ 	if (opmode != SSAM_BAS_OPMODE_TABLET)
+-		*state = SSAM_BASE_HUB_CONNECTED;
++		*state = SSAM_HUB_CONNECTED;
+ 	else
+-		*state = SSAM_BASE_HUB_DISCONNECTED;
++		*state = SSAM_HUB_DISCONNECTED;
+ 
+ 	return 0;
+ }
+ 
+-static ssize_t ssam_base_hub_state_show(struct device *dev, struct device_attribute *attr,
+-					char *buf)
+-{
+-	struct ssam_base_hub *hub = dev_get_drvdata(dev);
+-	bool connected = hub->state == SSAM_BASE_HUB_CONNECTED;
+-
+-	return sysfs_emit(buf, "%d\n", connected);
+-}
+-
+-static struct device_attribute ssam_base_hub_attr_state =
+-	__ATTR(state, 0444, ssam_base_hub_state_show, NULL);
+-
+-static struct attribute *ssam_base_hub_attrs[] = {
+-	&ssam_base_hub_attr_state.attr,
+-	NULL,
+-};
+-
+-static const struct attribute_group ssam_base_hub_group = {
+-	.attrs = ssam_base_hub_attrs,
+-};
+-
+-static void ssam_base_hub_update_workfn(struct work_struct *work)
+-{
+-	struct ssam_base_hub *hub = container_of(work, struct ssam_base_hub, update_work.work);
+-	struct fwnode_handle *node = dev_fwnode(&hub->sdev->dev);
+-	enum ssam_base_hub_state state;
+-	int status = 0;
+-
+-	status = ssam_base_hub_query_state(hub, &state);
+-	if (status)
+-		return;
+-
+-	if (hub->state == state)
+-		return;
+-	hub->state = state;
+-
+-	if (hub->state == SSAM_BASE_HUB_CONNECTED)
+-		status = ssam_hub_register_clients(&hub->sdev->dev, hub->sdev->ctrl, node);
+-	else
+-		ssam_remove_clients(&hub->sdev->dev);
+-
+-	if (status)
+-		dev_err(&hub->sdev->dev, "failed to update base-hub devices: %d\n", status);
+-}
+-
+ static u32 ssam_base_hub_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
+ {
+-	struct ssam_base_hub *hub = container_of(nf, struct ssam_base_hub, notif);
+-	unsigned long delay;
++	struct ssam_hub *hub = container_of(nf, struct ssam_hub, notif);
+ 
+ 	if (event->command_id != SSAM_EVENT_BAS_CID_CONNECTION)
+ 		return 0;
+@@ -419,13 +467,7 @@ static u32 ssam_base_hub_notif(struct ssam_event_notifier *nf, const struct ssam
+ 		return 0;
+ 	}
+ 
+-	/*
+-	 * Delay update when the base is being connected to give devices/EC
+-	 * some time to set up.
+-	 */
+-	delay = event->data[0] ? SSAM_BASE_UPDATE_CONNECT_DELAY : 0;
+-
+-	schedule_delayed_work(&hub->update_work, delay);
++	ssam_hub_update(hub, event->data[0]);
+ 
+ 	/*
+ 	 * Do not return SSAM_NOTIF_HANDLED: The event should be picked up and
+@@ -435,27 +477,14 @@ static u32 ssam_base_hub_notif(struct ssam_event_notifier *nf, const struct ssam
+ 	return 0;
+ }
+ 
+-static int __maybe_unused ssam_base_hub_resume(struct device *dev)
+-{
+-	struct ssam_base_hub *hub = dev_get_drvdata(dev);
+-
+-	schedule_delayed_work(&hub->update_work, 0);
+-	return 0;
+-}
+-static SIMPLE_DEV_PM_OPS(ssam_base_hub_pm_ops, NULL, ssam_base_hub_resume);
+-
+ static int ssam_base_hub_probe(struct ssam_device *sdev)
+ {
+-	struct ssam_base_hub *hub;
+-	int status;
++	struct ssam_hub *hub;
+ 
+ 	hub = devm_kzalloc(&sdev->dev, sizeof(*hub), GFP_KERNEL);
+ 	if (!hub)
+ 		return -ENOMEM;
+ 
+-	hub->sdev = sdev;
+-	hub->state = SSAM_BASE_HUB_UNINITIALIZED;
+-
+ 	hub->notif.base.priority = INT_MAX;  /* This notifier should run first. */
+ 	hub->notif.base.fn = ssam_base_hub_notif;
+ 	hub->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
+@@ -464,37 +493,10 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
+ 	hub->notif.event.mask = SSAM_EVENT_MASK_NONE;
+ 	hub->notif.event.flags = SSAM_EVENT_SEQUENCED;
+ 
+-	INIT_DELAYED_WORK(&hub->update_work, ssam_base_hub_update_workfn);
+-
+-	ssam_device_set_drvdata(sdev, hub);
+-
+-	status = ssam_device_notifier_register(sdev, &hub->notif);
+-	if (status)
+-		return status;
++	hub->connect_delay = SSAM_BASE_UPDATE_CONNECT_DELAY;
++	hub->get_state = ssam_base_hub_query_state;
+ 
+-	status = sysfs_create_group(&sdev->dev.kobj, &ssam_base_hub_group);
+-	if (status)
+-		goto err;
+-
+-	schedule_delayed_work(&hub->update_work, 0);
+-	return 0;
+-
+-err:
+-	ssam_device_notifier_unregister(sdev, &hub->notif);
+-	cancel_delayed_work_sync(&hub->update_work);
+-	ssam_remove_clients(&sdev->dev);
+-	return status;
+-}
+-
+-static void ssam_base_hub_remove(struct ssam_device *sdev)
+-{
+-	struct ssam_base_hub *hub = ssam_device_get_drvdata(sdev);
+-
+-	sysfs_remove_group(&sdev->dev.kobj, &ssam_base_hub_group);
+-
+-	ssam_device_notifier_unregister(sdev, &hub->notif);
+-	cancel_delayed_work_sync(&hub->update_work);
+-	ssam_remove_clients(&sdev->dev);
++	return ssam_hub_setup(sdev, hub);
+ }
+ 
+ static const struct ssam_device_id ssam_base_hub_match[] = {
+@@ -504,12 +506,12 @@ static const struct ssam_device_id ssam_base_hub_match[] = {
+ 
+ static struct ssam_device_driver ssam_base_hub_driver = {
+ 	.probe = ssam_base_hub_probe,
+-	.remove = ssam_base_hub_remove,
++	.remove = ssam_hub_remove,
+ 	.match_table = ssam_base_hub_match,
+ 	.driver = {
+ 		.name = "surface_aggregator_base_hub",
+ 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
+-		.pm = &ssam_base_hub_pm_ops,
++		.pm = &ssam_hub_pm_ops,
+ 	},
+ };
+ 
+-- 
+2.36.0
+
+From 29878abe6a5fd9abb177ca66d5ba618336f3bd1a Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 29 Apr 2022 23:02:06 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add KIP device hub
 
 Add a Surface System Aggregator Module (SSAM) client device hub for
@@ -717,14 +1070,14 @@ been (re-)attached.
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-sam
 ---
- .../surface/surface_aggregator_registry.c     | 247 +++++++++++++++++-
- 1 file changed, 245 insertions(+), 2 deletions(-)
+ .../surface/surface_aggregator_registry.c     | 103 +++++++++++++++++-
+ 1 file changed, 101 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 9f630e890ff7..4838ce6519a6 100644
+index fadfaf4eb6e9..eb4b55516d3f 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
-@@ -514,6 +514,237 @@ static struct ssam_device_driver ssam_base_hub_driver = {
+@@ -516,6 +516,93 @@ static struct ssam_device_driver ssam_base_hub_driver = {
  };
  
  
@@ -738,21 +1091,6 @@ index 9f630e890ff7..4838ce6519a6 100644
 +
 +#define SSAM_EVENT_KIP_CID_CONNECTION		0x2c
 +
-+enum ssam_kip_hub_state {
-+	SSAM_KIP_HUB_UNINITIALIZED,
-+	SSAM_KIP_HUB_CONNECTED,
-+	SSAM_KIP_HUB_DISCONNECTED,
-+};
-+
-+struct ssam_kip_hub {
-+	struct ssam_device *sdev;
-+
-+	enum ssam_kip_hub_state state;
-+	struct delayed_work update_work;
-+
-+	struct ssam_event_notifier notif;
-+};
-+
 +SSAM_DEFINE_SYNC_REQUEST_R(__ssam_kip_get_connection_state, u8, {
 +	.target_category = SSAM_SSH_TC_KIP,
 +	.target_id       = 0x01,
@@ -760,7 +1098,7 @@ index 9f630e890ff7..4838ce6519a6 100644
 +	.instance_id     = 0x00,
 +});
 +
-+static int ssam_kip_get_connection_state(struct ssam_kip_hub *hub, enum ssam_kip_hub_state *state)
++static int ssam_kip_get_connection_state(struct ssam_hub *hub, enum ssam_hub_state *state)
 +{
 +	int status;
 +	u8 connected;
@@ -771,92 +1109,13 @@ index 9f630e890ff7..4838ce6519a6 100644
 +		return status;
 +	}
 +
-+	*state = connected ? SSAM_KIP_HUB_CONNECTED : SSAM_KIP_HUB_DISCONNECTED;
++	*state = connected ? SSAM_HUB_CONNECTED : SSAM_HUB_DISCONNECTED;
 +	return 0;
-+}
-+
-+static ssize_t ssam_kip_hub_state_show(struct device *dev, struct device_attribute *attr, char *buf)
-+{
-+	struct ssam_kip_hub *hub = dev_get_drvdata(dev);
-+	const char *state;
-+
-+	switch (hub->state) {
-+	case SSAM_KIP_HUB_UNINITIALIZED:
-+		state = "uninitialized";
-+		break;
-+
-+	case SSAM_KIP_HUB_CONNECTED:
-+		state = "connected";
-+		break;
-+
-+	case SSAM_KIP_HUB_DISCONNECTED:
-+		state = "disconnected";
-+		break;
-+
-+	default:
-+		/*
-+		 * Any value not handled in the above cases is invalid and
-+		 * should never have been set. Thus this case should be
-+		 * impossible to reach.
-+		 */
-+		WARN(1, "invalid KIP hub state: %d\n", hub->state);
-+		state = "<invalid>";
-+		break;
-+	}
-+
-+	return sysfs_emit(buf, "%s\n", state);
-+}
-+
-+static struct device_attribute ssam_kip_hub_attr_state =
-+	__ATTR(state, 0444, ssam_kip_hub_state_show, NULL);
-+
-+static struct attribute *ssam_kip_hub_attrs[] = {
-+	&ssam_kip_hub_attr_state.attr,
-+	NULL,
-+};
-+
-+static const struct attribute_group ssam_kip_hub_group = {
-+	.attrs = ssam_kip_hub_attrs,
-+};
-+
-+static int ssam_kip_hub_mark_hot_removed(struct device *dev, void *_data)
-+{
-+	struct ssam_device *sdev = to_ssam_device(dev);
-+
-+	if (is_ssam_device(dev))
-+		ssam_device_mark_hot_removed(sdev);
-+
-+	return 0;
-+}
-+
-+static void ssam_kip_hub_update_workfn(struct work_struct *work)
-+{
-+	struct ssam_kip_hub *hub = container_of(work, struct ssam_kip_hub, update_work.work);
-+	struct fwnode_handle *node = dev_fwnode(&hub->sdev->dev);
-+	enum ssam_kip_hub_state state;
-+	int status = 0;
-+
-+	status = ssam_kip_get_connection_state(hub, &state);
-+	if (status)
-+		return;
-+
-+	if (hub->state == state)
-+		return;
-+	hub->state = state;
-+
-+	if (hub->state == SSAM_KIP_HUB_CONNECTED)
-+		status = ssam_hub_register_clients(&hub->sdev->dev, hub->sdev->ctrl, node);
-+	else
-+		ssam_remove_clients(&hub->sdev->dev);
-+
-+	if (status)
-+		dev_err(&hub->sdev->dev, "failed to update KIP-hub devices: %d\n", status);
 +}
 +
 +static u32 ssam_kip_hub_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
 +{
-+	struct ssam_kip_hub *hub = container_of(nf, struct ssam_kip_hub, notif);
-+	unsigned long delay;
++	struct ssam_hub *hub = container_of(nf, struct ssam_hub, notif);
 +
 +	if (event->command_id != SSAM_EVENT_KIP_CID_CONNECTION)
 +		return 0;	/* Return "unhandled". */
@@ -866,40 +1125,17 @@ index 9f630e890ff7..4838ce6519a6 100644
 +		return 0;
 +	}
 +
-+	/* Mark devices as hot-removed before we remove any */
-+	if (!event->data[0])
-+		device_for_each_child_reverse(&hub->sdev->dev, NULL, ssam_kip_hub_mark_hot_removed);
-+
-+	/*
-+	 * Delay update when KIP devices are being connected to give devices/EC
-+	 * some time to set up.
-+	 */
-+	delay = event->data[0] ? SSAM_KIP_UPDATE_CONNECT_DELAY : 0;
-+
-+	schedule_delayed_work(&hub->update_work, delay);
++	ssam_hub_update(hub, event->data[0]);
 +	return SSAM_NOTIF_HANDLED;
 +}
 +
-+static int __maybe_unused ssam_kip_hub_resume(struct device *dev)
-+{
-+	struct ssam_kip_hub *hub = dev_get_drvdata(dev);
-+
-+	schedule_delayed_work(&hub->update_work, 0);
-+	return 0;
-+}
-+static SIMPLE_DEV_PM_OPS(ssam_kip_hub_pm_ops, NULL, ssam_kip_hub_resume);
-+
 +static int ssam_kip_hub_probe(struct ssam_device *sdev)
 +{
-+	struct ssam_kip_hub *hub;
-+	int status;
++	struct ssam_hub *hub;
 +
 +	hub = devm_kzalloc(&sdev->dev, sizeof(*hub), GFP_KERNEL);
 +	if (!hub)
 +		return -ENOMEM;
-+
-+	hub->sdev = sdev;
-+	hub->state = SSAM_KIP_HUB_UNINITIALIZED;
 +
 +	hub->notif.base.priority = INT_MAX;  /* This notifier should run first. */
 +	hub->notif.base.fn = ssam_kip_hub_notif;
@@ -909,37 +1145,10 @@ index 9f630e890ff7..4838ce6519a6 100644
 +	hub->notif.event.mask = SSAM_EVENT_MASK_TARGET;
 +	hub->notif.event.flags = SSAM_EVENT_SEQUENCED;
 +
-+	INIT_DELAYED_WORK(&hub->update_work, ssam_kip_hub_update_workfn);
++	hub->connect_delay = SSAM_KIP_UPDATE_CONNECT_DELAY;
++	hub->get_state = ssam_kip_get_connection_state;
 +
-+	ssam_device_set_drvdata(sdev, hub);
-+
-+	status = ssam_device_notifier_register(sdev, &hub->notif);
-+	if (status)
-+		return status;
-+
-+	status = sysfs_create_group(&sdev->dev.kobj, &ssam_kip_hub_group);
-+	if (status)
-+		goto err;
-+
-+	schedule_delayed_work(&hub->update_work, 0);
-+	return 0;
-+
-+err:
-+	ssam_device_notifier_unregister(sdev, &hub->notif);
-+	cancel_delayed_work_sync(&hub->update_work);
-+	ssam_remove_clients(&sdev->dev);
-+	return status;
-+}
-+
-+static void ssam_kip_hub_remove(struct ssam_device *sdev)
-+{
-+	struct ssam_kip_hub *hub = ssam_device_get_drvdata(sdev);
-+
-+	sysfs_remove_group(&sdev->dev.kobj, &ssam_kip_hub_group);
-+
-+	ssam_device_notifier_unregister(sdev, &hub->notif);
-+	cancel_delayed_work_sync(&hub->update_work);
-+	ssam_remove_clients(&sdev->dev);
++	return ssam_hub_setup(sdev, hub);
 +}
 +
 +static const struct ssam_device_id ssam_kip_hub_match[] = {
@@ -949,12 +1158,12 @@ index 9f630e890ff7..4838ce6519a6 100644
 +
 +static struct ssam_device_driver ssam_kip_hub_driver = {
 +	.probe = ssam_kip_hub_probe,
-+	.remove = ssam_kip_hub_remove,
++	.remove = ssam_hub_remove,
 +	.match_table = ssam_kip_hub_match,
 +	.driver = {
 +		.name = "surface_kip_hub",
 +		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
-+		.pm = &ssam_kip_hub_pm_ops,
++		.pm = &ssam_hub_pm_ops,
 +	},
 +};
 +
@@ -962,7 +1171,7 @@ index 9f630e890ff7..4838ce6519a6 100644
  /* -- SSAM platform/meta-hub driver. ---------------------------------------- */
  
  static const struct acpi_device_id ssam_platform_hub_match[] = {
-@@ -636,18 +867,30 @@ static int __init ssam_device_hub_init(void)
+@@ -638,18 +725,30 @@ static int __init ssam_device_hub_init(void)
  
  	status = platform_driver_register(&ssam_platform_hub_driver);
  	if (status)
@@ -998,7 +1207,7 @@ index 9f630e890ff7..4838ce6519a6 100644
 -- 
 2.36.0
 
-From 72361a719765b4c3e644f5c1a78560856698b9d9 Mon Sep 17 00:00:00 2001
+From 0187e4c74438246925c820e32486fcac043d1bb7 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 27 Oct 2021 22:33:03 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add support for
@@ -1029,7 +1238,7 @@ Patchset: surface-sam
  1 file changed, 36 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 4838ce6519a6..c0e29c0514df 100644
+index eb4b55516d3f..ebe8e78cdfef 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -47,6 +47,12 @@ static const struct software_node ssam_node_hub_base = {
@@ -1096,7 +1305,7 @@ index 4838ce6519a6..c0e29c0514df 100644
 -- 
 2.36.0
 
-From 50deaaa19434c8871712984d4bc2cc348e33c082 Mon Sep 17 00:00:00 2001
+From 820556ab9ff756017b68df7a28c685b869f0b36e Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 03:19:20 +0200
 Subject: [PATCH] platform/surface: Add KIP tablet-mode switch
@@ -1440,7 +1649,7 @@ index 000000000000..458470067579
 -- 
 2.36.0
 
-From 6d860892e44db08cec0f0e666582447daf17d488 Mon Sep 17 00:00:00 2001
+From 739e009ec2dcb4bf68f533a2a4b6343b2b02f4ac Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 27 Oct 2021 22:33:03 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add support for tablet
@@ -1458,7 +1667,7 @@ Patchset: surface-sam
  1 file changed, 7 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index c0e29c0514df..eaf0054627a5 100644
+index ebe8e78cdfef..e9df8420b145 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -77,6 +77,12 @@ static const struct software_node ssam_node_tmp_pprof = {

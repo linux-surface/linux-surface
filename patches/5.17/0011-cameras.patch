@@ -1,4 +1,4 @@
-From 60158c7b6219f00a91187c7203df0fc9aeb6a0df Mon Sep 17 00:00:00 2001
+From 148b4c36347ed6bf38edbc72443f875e3da003c9 Mon Sep 17 00:00:00 2001
 From: Hans de Goede <hdegoede@redhat.com>
 Date: Sun, 10 Oct 2021 20:56:57 +0200
 Subject: [PATCH] ACPI: delay enumeration of devices with a _DEP pointing to an
@@ -74,7 +74,7 @@ index c82b1bfa1c3d..2227625202aa 100644
 -- 
 2.36.0
 
-From 06add1b4d4cfb7e3bbf5a5a7a17040786569694e Mon Sep 17 00:00:00 2001
+From b06b7dc558d5a57efce81df201aa6f24ad7b84d6 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 10 Oct 2021 20:57:02 +0200
 Subject: [PATCH] platform/x86: int3472: Enable I2c daisy chain
@@ -111,7 +111,7 @@ index 22f61b47f9e5..e1de1ff40bba 100644
 -- 
 2.36.0
 
-From ad82b50db9f9100119925d54804cf0c393f46013 Mon Sep 17 00:00:00 2001
+From f707270ec875d2a6ce1d2129e9750e246ae0b1c3 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 28 Oct 2021 21:55:16 +0100
 Subject: [PATCH] media: i2c: Add driver for DW9719 VCM
@@ -614,6 +614,330 @@ index 000000000000..8451c75b696b
 +MODULE_AUTHOR("Daniel Scally <djrscally@gmail.com>");
 +MODULE_DESCRIPTION("DW9719 VCM Driver");
 +MODULE_LICENSE("GPL");
+-- 
+2.36.0
+
+From c7cf5d45fd1e245f70bfb138e2aeabae993dc984 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Mon, 13 Dec 2021 22:38:17 +0000
+Subject: [PATCH] media: entity: Skip non-data links in graph iteration
+
+When iterating over the media graph, don't follow links that are not
+data links.
+
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/mc/mc-entity.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/media/mc/mc-entity.c b/drivers/media/mc/mc-entity.c
+index b411f9796191..d0563ee4b28b 100644
+--- a/drivers/media/mc/mc-entity.c
++++ b/drivers/media/mc/mc-entity.c
+@@ -295,6 +295,12 @@ static void media_graph_walk_iter(struct media_graph *graph)
+ 
+ 	link = list_entry(link_top(graph), typeof(*link), list);
+ 
++	/* If the link is not a data link, don't follow it */
++	if ((link->flags & MEDIA_LNK_FL_LINK_TYPE) != MEDIA_LNK_FL_DATA_LINK) {
++		link_top(graph) = link_top(graph)->next;
++		return;
++	}
++
+ 	/* The link is not enabled so we do not follow. */
+ 	if (!(link->flags & MEDIA_LNK_FL_ENABLED)) {
+ 		link_top(graph) = link_top(graph)->next;
+-- 
+2.36.0
+
+From f5a8d58e2dd0bd7c229da3edfd984ddee3b7c727 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Mon, 13 Dec 2021 22:53:09 +0000
+Subject: [PATCH] media: media.h: Add new media link type
+
+To describe in the kernel the connection between devices and their
+supporting peripherals (for example, a camera sensor and the vcm
+driving the focusing lens for it), add a new type of media link
+to introduce the concept of these ancillary links.
+
+Add some elements to the uAPI documentation to explain the new link
+type, their purpose and some aspects of their current implementation.
+
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ .../media/mediactl/media-controller-model.rst   |  6 ++++++
+ .../media/mediactl/media-types.rst              | 17 ++++++++++++-----
+ include/uapi/linux/media.h                      |  1 +
+ 3 files changed, 19 insertions(+), 5 deletions(-)
+
+diff --git a/Documentation/userspace-api/media/mediactl/media-controller-model.rst b/Documentation/userspace-api/media/mediactl/media-controller-model.rst
+index 222cb99debb5..78bfdfb2a322 100644
+--- a/Documentation/userspace-api/media/mediactl/media-controller-model.rst
++++ b/Documentation/userspace-api/media/mediactl/media-controller-model.rst
+@@ -33,3 +33,9 @@ are:
+ 
+ -  An **interface link** is a point-to-point bidirectional control
+    connection between a Linux Kernel interface and an entity.
++
++- An **ancillary link** is a point-to-point connection denoting that two
++  entities form a single logical unit. For example this could represent the
++  fact that a particular camera sensor and lens controller form a single
++  physical module, meaning this lens controller drives the lens for this
++  camera sensor.
+\ No newline at end of file
+diff --git a/Documentation/userspace-api/media/mediactl/media-types.rst b/Documentation/userspace-api/media/mediactl/media-types.rst
+index 0a26397bd01d..60747251d409 100644
+--- a/Documentation/userspace-api/media/mediactl/media-types.rst
++++ b/Documentation/userspace-api/media/mediactl/media-types.rst
+@@ -412,14 +412,21 @@ must be set for every pad.
+ 	  is set by drivers and is read-only for applications.
+ 
+     *  -  ``MEDIA_LNK_FL_LINK_TYPE``
+-       -  This is a bitmask that defines the type of the link. Currently,
+-	  two types of links are supported:
++       -  This is a bitmask that defines the type of the link. The following
++	  link types are currently supported:
+ 
+ 	  .. _MEDIA-LNK-FL-DATA-LINK:
+ 
+-	  ``MEDIA_LNK_FL_DATA_LINK`` if the link is between two pads
++	  ``MEDIA_LNK_FL_DATA_LINK`` for links that represent a data connection
++     between two pads.
+ 
+ 	  .. _MEDIA-LNK-FL-INTERFACE-LINK:
+ 
+-	  ``MEDIA_LNK_FL_INTERFACE_LINK`` if the link is between an
+-	  interface and an entity
++	  ``MEDIA_LNK_FL_INTERFACE_LINK`` for links that associate an entity to its
++     interface.
++
++	  .. _MEDIA-LNK-FL-ANCILLARY-LINK:
++
++	  ``MEDIA_LNK_FL_ANCILLARY_LINK`` for links that represent a physical
++     relationship between two entities. The link may or may not be ummutable, so
++     applications must not assume either case.
+\ No newline at end of file
+diff --git a/include/uapi/linux/media.h b/include/uapi/linux/media.h
+index 200fa8462b90..afbae7213d35 100644
+--- a/include/uapi/linux/media.h
++++ b/include/uapi/linux/media.h
+@@ -226,6 +226,7 @@ struct media_pad_desc {
+ #define MEDIA_LNK_FL_LINK_TYPE			(0xf << 28)
+ #  define MEDIA_LNK_FL_DATA_LINK		(0 << 28)
+ #  define MEDIA_LNK_FL_INTERFACE_LINK		(1 << 28)
++#  define MEDIA_LNK_FL_ANCILLARY_LINK		(2 << 28)
+ 
+ struct media_link_desc {
+ 	struct media_pad_desc source;
+-- 
+2.36.0
+
+From 1ddba27bb46a846b8a501fb770ee9091e02f274a Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Mon, 13 Dec 2021 22:36:31 +0000
+Subject: [PATCH] media: entity: Add link_type_name() helper
+
+Now we have three types of media link, printing the right name during
+debug output is slightly more complicated. Add a helper function to
+make it easier.
+
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/mc/mc-entity.c | 18 +++++++++++++++---
+ 1 file changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/media/mc/mc-entity.c b/drivers/media/mc/mc-entity.c
+index d0563ee4b28b..1a7d0a4fb9e8 100644
+--- a/drivers/media/mc/mc-entity.c
++++ b/drivers/media/mc/mc-entity.c
+@@ -44,6 +44,20 @@ static inline const char *intf_type(struct media_interface *intf)
+ 	}
+ };
+ 
++static inline const char *link_type_name(struct media_link *link)
++{
++	switch (link->flags & MEDIA_LNK_FL_LINK_TYPE) {
++	case MEDIA_LNK_FL_DATA_LINK:
++		return "data";
++	case MEDIA_LNK_FL_INTERFACE_LINK:
++		return "interface";
++	case MEDIA_LNK_FL_ANCILLARY_LINK:
++		return "ancillary";
++	default:
++		return "unknown";
++	}
++}
++
+ __must_check int __media_entity_enum_init(struct media_entity_enum *ent_enum,
+ 					  int idx_max)
+ {
+@@ -89,9 +103,7 @@ static void dev_dbg_obj(const char *event_name,  struct media_gobj *gobj)
+ 
+ 		dev_dbg(gobj->mdev->dev,
+ 			"%s id %u: %s link id %u ==> id %u\n",
+-			event_name, media_id(gobj),
+-			media_type(link->gobj0) == MEDIA_GRAPH_PAD ?
+-				"data" : "interface",
++			event_name, media_id(gobj), link_type_name(link),
+ 			media_id(link->gobj0),
+ 			media_id(link->gobj1));
+ 		break;
+-- 
+2.36.0
+
+From ba756c496f09ac556bbcf339c503f91e4376f812 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Mon, 13 Dec 2021 22:54:10 +0000
+Subject: [PATCH] media: entity: Add support for ancillary links
+
+Add functions to create ancillary links, so that they don't need to
+be manually created by users.
+
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/mc/mc-entity.c | 22 ++++++++++++++++++++++
+ include/media/media-entity.h | 19 +++++++++++++++++++
+ 2 files changed, 41 insertions(+)
+
+diff --git a/drivers/media/mc/mc-entity.c b/drivers/media/mc/mc-entity.c
+index 1a7d0a4fb9e8..d7e2f78a83cc 100644
+--- a/drivers/media/mc/mc-entity.c
++++ b/drivers/media/mc/mc-entity.c
+@@ -1032,3 +1032,25 @@ void media_remove_intf_links(struct media_interface *intf)
+ 	mutex_unlock(&mdev->graph_mutex);
+ }
+ EXPORT_SYMBOL_GPL(media_remove_intf_links);
++
++struct media_link *media_create_ancillary_link(struct media_entity *primary,
++					       struct media_entity *ancillary)
++{
++	struct media_link *link;
++
++	link = media_add_link(&primary->links);
++	if (!link)
++		return ERR_PTR(-ENOMEM);
++
++	link->gobj0 = &primary->graph_obj;
++	link->gobj1 = &ancillary->graph_obj;
++	link->flags = MEDIA_LNK_FL_IMMUTABLE | MEDIA_LNK_FL_ENABLED |
++		      MEDIA_LNK_FL_ANCILLARY_LINK;
++
++	/* Initialize graph object embedded in the new link */
++	media_gobj_create(primary->graph_obj.mdev, MEDIA_GRAPH_LINK,
++			  &link->graph_obj);
++
++	return link;
++}
++EXPORT_SYMBOL_GPL(media_create_ancillary_link);
+diff --git a/include/media/media-entity.h b/include/media/media-entity.h
+index fea489f03d57..2a58defc4886 100644
+--- a/include/media/media-entity.h
++++ b/include/media/media-entity.h
+@@ -1108,4 +1108,23 @@ void media_remove_intf_links(struct media_interface *intf);
+ 	(((entity)->ops && (entity)->ops->operation) ?			\
+ 	 (entity)->ops->operation((entity) , ##args) : -ENOIOCTLCMD)
+ 
++/**
++ * media_create_ancillary_link() - create an ancillary link between two
++ *				   instances of &media_entity
++ *
++ * @primary:	pointer to the primary &media_entity
++ * @ancillary:	pointer to the ancillary &media_entity
++ *
++ * Create an ancillary link between two entities, indicating that they
++ * represent two connected pieces of hardware that form a single logical unit.
++ * A typical example is a camera lens controller being linked to the sensor that
++ * it is supporting.
++ *
++ * The function sets both MEDIA_LNK_FL_ENABLED and MEDIA_LNK_FL_IMMUTABLE for
++ * the new link.
++ */
++struct media_link *
++media_create_ancillary_link(struct media_entity *primary,
++			    struct media_entity *ancillary);
++
+ #endif
+-- 
+2.36.0
+
+From 214d8e2570a6e1ced400e51de771eb10020b3bbc Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Fri, 26 Nov 2021 22:55:50 +0000
+Subject: [PATCH] media: v4l2-async: Create links during
+ v4l2_async_match_notify()
+
+Upon an async fwnode match, there's some typical behaviour that the
+notifier and matching subdev will want to do. For example, a notifier
+representing a sensor matching to an async subdev representing its
+VCM will want to create an ancillary link to expose that relationship
+to userspace.
+
+To avoid lots of code in individual drivers, try to build these links
+within v4l2 core.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/v4l2-core/v4l2-async.c | 31 ++++++++++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/drivers/media/v4l2-core/v4l2-async.c b/drivers/media/v4l2-core/v4l2-async.c
+index 0404267f1ae4..436bd6900fd8 100644
+--- a/drivers/media/v4l2-core/v4l2-async.c
++++ b/drivers/media/v4l2-core/v4l2-async.c
+@@ -275,6 +275,24 @@ v4l2_async_nf_try_complete(struct v4l2_async_notifier *notifier)
+ static int
+ v4l2_async_nf_try_all_subdevs(struct v4l2_async_notifier *notifier);
+ 
++static int v4l2_async_create_ancillary_links(struct v4l2_async_notifier *n,
++					     struct v4l2_subdev *sd)
++{
++	struct media_link *link = NULL;
++
++#if IS_ENABLED(CONFIG_MEDIA_CONTROLLER)
++
++	if (sd->entity.function != MEDIA_ENT_F_LENS &&
++	    sd->entity.function != MEDIA_ENT_F_FLASH)
++		return 0;
++
++	link = media_create_ancillary_link(&n->sd->entity, &sd->entity);
++
++#endif
++
++	return IS_ERR(link) ? PTR_ERR(link) : 0;
++}
++
+ static int v4l2_async_match_notify(struct v4l2_async_notifier *notifier,
+ 				   struct v4l2_device *v4l2_dev,
+ 				   struct v4l2_subdev *sd,
+@@ -293,6 +311,19 @@ static int v4l2_async_match_notify(struct v4l2_async_notifier *notifier,
+ 		return ret;
+ 	}
+ 
++	/*
++	 * Depending of the function of the entities involved, we may want to
++	 * create links between them (for example between a sensor and its lens
++	 * or between a sensor's source pad and the connected device's sink
++	 * pad).
++	 */
++	ret = v4l2_async_create_ancillary_links(notifier, sd);
++	if (ret) {
++		v4l2_async_nf_call_unbind(notifier, sd, asd);
++		v4l2_device_unregister_subdev(sd);
++		return ret;
++	}
++
+ 	/* Remove from the waiting list */
+ 	list_del(&asd->list);
+ 	sd->asd = asd;
 -- 
 2.36.0
 
