@@ -1,55 +1,80 @@
-From a571ac532f5b41c81a7d3e699d22f9964747bd45 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Tue, 8 Feb 2022 01:29:48 +0100
-Subject: [PATCH] ACPI: battery: Add "Not Charging" quirk for Microsoft Surface
- devices
+From fa5e5a1177be9906364cbd1a0908e7952e62e126 Mon Sep 17 00:00:00 2001
+From: Werner Sembach <wse@tuxedocomputers.com>
+Date: Wed, 27 Apr 2022 17:40:53 +0200
+Subject: [PATCH] ACPI: battery: Make "not-charging" the default on no charging
+ or full info
 
-Microsoft Surface devices have a limiter that sets a fixed maximum
-charge capacity for the battery. When that maximum capacity has been
-reached, charging stops. In that case, _BST returns a battery state
-field with both "charging" and "discharging" bits cleared. The battery
-driver, however, returns "unknown" as status.
+When the battery is neither charging or discharging and is not full,
+"not-charging" is a useful status description for the case in general.
+Currently this state is set as "unknown" by default, expect when this is
+explicitly replaced with "not-charging" on a per device or per vendor
+basis.
 
-This seems to be the same behavior as observed on the ThinkPads, so
-let's use the same quirk to handle that as well.
+A lot of devices have this state without a BIOS specification available
+explicitly describing it. e.g. some current Clevo barebones have a BIOS
+setting to stop charging at a user defined battery level.
 
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Signed-off-by: Werner Sembach <wse@tuxedocomputers.com>
+Signed-off-by: Rafael J. Wysocki <rafael.j.wysocki@intel.com>
 Patchset: surface-battery
-
 ---
-For what it's worth, I don't think the ACPI spec explicitly states that
-any of the status bits need to be set, or that there are only the
-"charging" and "discharging" states. As far as I can tell, ACPI only
-states:
-
-    Notice that the Charging bit and the Discharging bit are mutually
-    exclusive and must not both be set at the same time. Even in
-    critical state, hardware should report the corresponding
-    charging/discharging state.
-
-But that does not exclude the case that no bit is set. So, strictly
-going by spec, I don't think it's necessary to put all of this behind a
-quirk.
----
- drivers/acpi/battery.c | 8 ++++++++
- 1 file changed, 8 insertions(+)
+ drivers/acpi/battery.c | 24 +-----------------------
+ 1 file changed, 1 insertion(+), 23 deletions(-)
 
 diff --git a/drivers/acpi/battery.c b/drivers/acpi/battery.c
-index dc208f5f5a1f..db2aa56c746a 100644
+index dc208f5f5a1f..306513fec1e1 100644
 --- a/drivers/acpi/battery.c
 +++ b/drivers/acpi/battery.c
-@@ -1152,6 +1152,14 @@ static const struct dmi_system_id bat_dmi_table[] __initconst = {
- 			DMI_MATCH(DMI_PRODUCT_VERSION, "ThinkPad"),
+@@ -52,7 +52,6 @@ static bool battery_driver_registered;
+ static int battery_bix_broken_package;
+ static int battery_notification_delay_ms;
+ static int battery_ac_is_broken;
+-static int battery_quirk_notcharging;
+ static unsigned int cache_time = 1000;
+ module_param(cache_time, uint, 0644);
+ MODULE_PARM_DESC(cache_time, "cache time in milliseconds");
+@@ -216,10 +215,8 @@ static int acpi_battery_get_property(struct power_supply *psy,
+ 			val->intval = POWER_SUPPLY_STATUS_CHARGING;
+ 		else if (acpi_battery_is_charged(battery))
+ 			val->intval = POWER_SUPPLY_STATUS_FULL;
+-		else if (battery_quirk_notcharging)
+-			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
+ 		else
+-			val->intval = POWER_SUPPLY_STATUS_UNKNOWN;
++			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
+ 		break;
+ 	case POWER_SUPPLY_PROP_PRESENT:
+ 		val->intval = acpi_battery_present(battery);
+@@ -1105,12 +1102,6 @@ battery_ac_is_broken_quirk(const struct dmi_system_id *d)
+ 	return 0;
+ }
+ 
+-static int __init battery_quirk_not_charging(const struct dmi_system_id *d)
+-{
+-	battery_quirk_notcharging = 1;
+-	return 0;
+-}
+-
+ static const struct dmi_system_id bat_dmi_table[] __initconst = {
+ 	{
+ 		/* NEC LZ750/LS */
+@@ -1139,19 +1130,6 @@ static const struct dmi_system_id bat_dmi_table[] __initconst = {
+ 			DMI_MATCH(DMI_BIOS_DATE, "08/22/2014"),
  		},
  	},
-+	{
-+		.callback = battery_quirk_not_charging,
-+		.ident = "Microsoft Surface",
-+		.matches = {
-+			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
-+			DMI_MATCH(DMI_PRODUCT_NAME, "Surface"),
-+		},
-+	},
+-	{
+-		/*
+-		 * On Lenovo ThinkPads the BIOS specification defines
+-		 * a state when the bits for charging and discharging
+-		 * are both set to 0. That state is "Not Charging".
+-		 */
+-		.callback = battery_quirk_not_charging,
+-		.ident = "Lenovo ThinkPad",
+-		.matches = {
+-			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+-			DMI_MATCH(DMI_PRODUCT_VERSION, "ThinkPad"),
+-		},
+-	},
  	{
  		/* Microsoft Surface Go 3 */
  		.callback = battery_notification_delay_quirk,

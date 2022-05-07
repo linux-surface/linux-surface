@@ -1,4 +1,4 @@
-From 148b4c36347ed6bf38edbc72443f875e3da003c9 Mon Sep 17 00:00:00 2001
+From ac7371c834f74561a5b3fb9f2fd90de90b5cbc43 Mon Sep 17 00:00:00 2001
 From: Hans de Goede <hdegoede@redhat.com>
 Date: Sun, 10 Oct 2021 20:56:57 +0200
 Subject: [PATCH] ACPI: delay enumeration of devices with a _DEP pointing to an
@@ -74,7 +74,7 @@ index c82b1bfa1c3d..2227625202aa 100644
 -- 
 2.36.0
 
-From b06b7dc558d5a57efce81df201aa6f24ad7b84d6 Mon Sep 17 00:00:00 2001
+From 79912646fc29bf5b59d2a9762d813df8bbdd4ccc Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 10 Oct 2021 20:57:02 +0200
 Subject: [PATCH] platform/x86: int3472: Enable I2c daisy chain
@@ -111,7 +111,7 @@ index 22f61b47f9e5..e1de1ff40bba 100644
 -- 
 2.36.0
 
-From f707270ec875d2a6ce1d2129e9750e246ae0b1c3 Mon Sep 17 00:00:00 2001
+From 8e4b6239719aa5dac266ecc39daca5ffd44221e9 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 28 Oct 2021 21:55:16 +0100
 Subject: [PATCH] media: i2c: Add driver for DW9719 VCM
@@ -617,7 +617,7 @@ index 000000000000..8451c75b696b
 -- 
 2.36.0
 
-From c7cf5d45fd1e245f70bfb138e2aeabae993dc984 Mon Sep 17 00:00:00 2001
+From 6401fa6a8e57895f0702bd6e28550904f0f3ddd4 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 13 Dec 2021 22:38:17 +0000
 Subject: [PATCH] media: entity: Skip non-data links in graph iteration
@@ -652,7 +652,7 @@ index b411f9796191..d0563ee4b28b 100644
 -- 
 2.36.0
 
-From f5a8d58e2dd0bd7c229da3edfd984ddee3b7c727 Mon Sep 17 00:00:00 2001
+From 63e07a09df21b5aaa4b4255dac88fad063181f45 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 13 Dec 2021 22:53:09 +0000
 Subject: [PATCH] media: media.h: Add new media link type
@@ -736,7 +736,7 @@ index 200fa8462b90..afbae7213d35 100644
 -- 
 2.36.0
 
-From 1ddba27bb46a846b8a501fb770ee9091e02f274a Mon Sep 17 00:00:00 2001
+From f21490a2de299ec3abcb12334682cee3823449f3 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 13 Dec 2021 22:36:31 +0000
 Subject: [PATCH] media: entity: Add link_type_name() helper
@@ -791,7 +791,7 @@ index d0563ee4b28b..1a7d0a4fb9e8 100644
 -- 
 2.36.0
 
-From ba756c496f09ac556bbcf339c503f91e4376f812 Mon Sep 17 00:00:00 2001
+From fce006b6667daa35412e391aa9c179280444ef1c Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 13 Dec 2021 22:54:10 +0000
 Subject: [PATCH] media: entity: Add support for ancillary links
@@ -868,7 +868,7 @@ index fea489f03d57..2a58defc4886 100644
 -- 
 2.36.0
 
-From 214d8e2570a6e1ced400e51de771eb10020b3bbc Mon Sep 17 00:00:00 2001
+From b41f625bb3b601b8995a4c7056750756f5dad73d Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Fri, 26 Nov 2021 22:55:50 +0000
 Subject: [PATCH] media: v4l2-async: Create links during
@@ -938,6 +938,121 @@ index 0404267f1ae4..436bd6900fd8 100644
  	/* Remove from the waiting list */
  	list_del(&asd->list);
  	sd->asd = asd;
+-- 
+2.36.0
+
+From 2c47f72cab3ff0fd3a69c99b711779a1f4075ec1 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Wed, 4 May 2022 23:21:45 +0100
+Subject: [PATCH] media: ipu3-cio2: Move functionality from .complete() to
+ .bound()
+
+Creating links and registering subdev nodes during the .complete()
+callback has the unfortunate effect of preventing all cameras that
+connect to a notifier from working if any one of their drivers fails
+to probe. Moving the functionality from .complete() to .bound() allows
+those camera sensor drivers that did probe correctly to work regardless.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu3/ipu3-cio2-main.c | 65 +++++++------------
+ 1 file changed, 23 insertions(+), 42 deletions(-)
+
+diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c b/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
+index 0e9b0503b62a..50682a7b2a07 100644
+--- a/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
++++ b/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
+@@ -1382,7 +1382,10 @@ static int cio2_notifier_bound(struct v4l2_async_notifier *notifier,
+ {
+ 	struct cio2_device *cio2 = to_cio2_device(notifier);
+ 	struct sensor_async_subdev *s_asd = to_sensor_asd(asd);
++	struct device *dev = &cio2->pci_dev->dev;
+ 	struct cio2_queue *q;
++	unsigned int pad;
++	int ret;
+ 
+ 	if (cio2->queue[s_asd->csi2.port].sensor)
+ 		return -EBUSY;
+@@ -1393,7 +1396,26 @@ static int cio2_notifier_bound(struct v4l2_async_notifier *notifier,
+ 	q->sensor = sd;
+ 	q->csi_rx_base = cio2->base + CIO2_REG_PIPE_BASE(q->csi2.port);
+ 
+-	return 0;
++	for (pad = 0; pad < q->sensor->entity.num_pads; pad++)
++		if (q->sensor->entity.pads[pad].flags &
++					MEDIA_PAD_FL_SOURCE)
++			break;
++
++	if (pad == q->sensor->entity.num_pads) {
++		dev_err(dev, "failed to find src pad for %s\n",
++			q->sensor->name);
++		return -ENXIO;
++	}
++
++	ret = media_create_pad_link(&q->sensor->entity, pad, &q->subdev.entity,
++				    CIO2_PAD_SINK, 0);
++	if (ret) {
++		dev_err(dev, "failed to create link for %s\n",
++			q->sensor->name);
++		return ret;
++	}
++
++	return v4l2_device_register_subdev_nodes(&cio2->v4l2_dev);
+ }
+ 
+ /* The .unbind callback */
+@@ -1407,50 +1429,9 @@ static void cio2_notifier_unbind(struct v4l2_async_notifier *notifier,
+ 	cio2->queue[s_asd->csi2.port].sensor = NULL;
+ }
+ 
+-/* .complete() is called after all subdevices have been located */
+-static int cio2_notifier_complete(struct v4l2_async_notifier *notifier)
+-{
+-	struct cio2_device *cio2 = to_cio2_device(notifier);
+-	struct device *dev = &cio2->pci_dev->dev;
+-	struct sensor_async_subdev *s_asd;
+-	struct v4l2_async_subdev *asd;
+-	struct cio2_queue *q;
+-	unsigned int pad;
+-	int ret;
+-
+-	list_for_each_entry(asd, &cio2->notifier.asd_list, asd_list) {
+-		s_asd = to_sensor_asd(asd);
+-		q = &cio2->queue[s_asd->csi2.port];
+-
+-		for (pad = 0; pad < q->sensor->entity.num_pads; pad++)
+-			if (q->sensor->entity.pads[pad].flags &
+-						MEDIA_PAD_FL_SOURCE)
+-				break;
+-
+-		if (pad == q->sensor->entity.num_pads) {
+-			dev_err(dev, "failed to find src pad for %s\n",
+-				q->sensor->name);
+-			return -ENXIO;
+-		}
+-
+-		ret = media_create_pad_link(
+-				&q->sensor->entity, pad,
+-				&q->subdev.entity, CIO2_PAD_SINK,
+-				0);
+-		if (ret) {
+-			dev_err(dev, "failed to create link for %s\n",
+-				q->sensor->name);
+-			return ret;
+-		}
+-	}
+-
+-	return v4l2_device_register_subdev_nodes(&cio2->v4l2_dev);
+-}
+-
+ static const struct v4l2_async_notifier_operations cio2_async_ops = {
+ 	.bound = cio2_notifier_bound,
+ 	.unbind = cio2_notifier_unbind,
+-	.complete = cio2_notifier_complete,
+ };
+ 
+ static int cio2_parse_firmware(struct cio2_device *cio2)
 -- 
 2.36.0
 
