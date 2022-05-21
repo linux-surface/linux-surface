@@ -1,4 +1,4 @@
-From 42b9be0a9d7e155047e712274a7977e0a6eb823e Mon Sep 17 00:00:00 2001
+From 9b62ff3261ee0d1447fadafbba9243d5726708b9 Mon Sep 17 00:00:00 2001
 From: Hans de Goede <hdegoede@redhat.com>
 Date: Sun, 10 Oct 2021 20:56:57 +0200
 Subject: [PATCH] ACPI: delay enumeration of devices with a _DEP pointing to an
@@ -74,7 +74,124 @@ index c82b1bfa1c3d..2227625202aa 100644
 -- 
 2.36.1
 
-From ad7593de84d5f9ecb889e201fc7dbfa6bad802f2 Mon Sep 17 00:00:00 2001
+From 1b644cf52bd707216921409e34b28367e0c033ff Mon Sep 17 00:00:00 2001
+From: zouxiaoh <xiaohong.zou@intel.com>
+Date: Fri, 25 Jun 2021 08:52:59 +0800
+Subject: [PATCH] iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs
+
+Intel IPU(Image Processing Unit) has its own (IO)MMU hardware,
+The IPU driver allocates its own page table that is not mapped
+via the DMA, and thus the Intel IOMMU driver blocks access giving
+this error: DMAR: DRHD: handling fault status reg 3 DMAR:
+[DMA Read] Request device [00:05.0] PASID ffffffff
+fault addr 76406000 [fault reason 06] PTE Read access is not set
+As IPU is not an external facing device which is not risky, so use
+IOMMU passthrough mode for Intel IPUs.
+
+Change-Id: I6dcccdadac308cf42e20a18e1b593381391e3e6b
+Depends-On: Iacd67578e8c6a9b9ac73285f52b4081b72fb68a6
+Tracked-On: #JIITL8-411
+Signed-off-by: Bingbu Cao <bingbu.cao@intel.com>
+Signed-off-by: zouxiaoh <xiaohong.zou@intel.com>
+Signed-off-by: Xu Chongyang <chongyang.xu@intel.com>
+Patchset: cameras
+---
+ drivers/iommu/intel/iommu.c | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/drivers/iommu/intel/iommu.c b/drivers/iommu/intel/iommu.c
+index a91eed82bb39..0d16c6bf0e0b 100644
+--- a/drivers/iommu/intel/iommu.c
++++ b/drivers/iommu/intel/iommu.c
+@@ -57,6 +57,12 @@
+ #define IS_GFX_DEVICE(pdev) ((pdev->class >> 16) == PCI_BASE_CLASS_DISPLAY)
+ #define IS_USB_DEVICE(pdev) ((pdev->class >> 8) == PCI_CLASS_SERIAL_USB)
+ #define IS_ISA_DEVICE(pdev) ((pdev->class >> 8) == PCI_CLASS_BRIDGE_ISA)
++#define IS_INTEL_IPU(pdev) ((pdev)->vendor == PCI_VENDOR_ID_INTEL &&	\
++			   ((pdev)->device == 0x9a19 ||		\
++			    (pdev)->device == 0x9a39 ||		\
++			    (pdev)->device == 0x4e19 ||		\
++			    (pdev)->device == 0x465d ||		\
++			    (pdev)->device == 0x1919))
+ #define IS_IPTS(pdev) ((pdev)->vendor == PCI_VENDOR_ID_INTEL &&	\
+ 			    ((pdev)->device == 0x9d3e))
+ #define IS_AZALIA(pdev) ((pdev)->vendor == 0x8086 && (pdev)->device == 0x3a3e)
+@@ -335,12 +341,14 @@ EXPORT_SYMBOL_GPL(intel_iommu_enabled);
+ 
+ static int dmar_map_gfx = 1;
+ static int dmar_map_ipts = 1;
++static int dmar_map_ipu = 1;
+ static int intel_iommu_superpage = 1;
+ static int iommu_identity_mapping;
+ static int iommu_skip_te_disable;
+ 
+ #define IDENTMAP_GFX		2
+ #define IDENTMAP_AZALIA		4
++#define IDENTMAP_IPU		8
+ #define IDENTMAP_IPTS		16
+ 
+ int intel_iommu_gfx_mapped;
+@@ -2992,6 +3000,9 @@ static int device_def_domain_type(struct device *dev)
+ 		if ((iommu_identity_mapping & IDENTMAP_GFX) && IS_GFX_DEVICE(pdev))
+ 			return IOMMU_DOMAIN_IDENTITY;
+ 
++		if ((iommu_identity_mapping & IDENTMAP_IPU) && IS_INTEL_IPU(pdev))
++			return IOMMU_DOMAIN_IDENTITY;
++
+ 		if ((iommu_identity_mapping & IDENTMAP_IPTS) && IS_IPTS(pdev))
+ 			return IOMMU_DOMAIN_IDENTITY;
+ 	}
+@@ -3430,6 +3441,9 @@ static int __init init_dmars(void)
+ 	if (!dmar_map_gfx)
+ 		iommu_identity_mapping |= IDENTMAP_GFX;
+ 
++	if (!dmar_map_ipu)
++		iommu_identity_mapping |= IDENTMAP_IPU;
++
+ 	if (!dmar_map_ipts)
+ 		iommu_identity_mapping |= IDENTMAP_IPTS;
+ 
+@@ -5674,6 +5688,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
+ 	dmar_map_gfx = 0;
+ }
+ 
++static void quirk_iommu_ipu(struct pci_dev *dev)
++{
++	if (!IS_INTEL_IPU(dev))
++		return;
++
++	if (risky_device(dev))
++		return;
++
++	pci_info(dev, "Passthrough IOMMU for integrated Intel IPU\n");
++	dmar_map_ipu = 0;
++}
++
+ static void quirk_iommu_ipts(struct pci_dev *dev)
+ {
+ 	if (!IS_IPTS(dev))
+@@ -5685,6 +5711,7 @@ static void quirk_iommu_ipts(struct pci_dev *dev)
+ 	pci_info(dev, "Passthrough IOMMU for IPTS\n");
+ 	dmar_map_ipts = 0;
+ }
++
+ /* G4x/GM45 integrated gfx dmar support is totally busted. */
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2a40, quirk_iommu_igfx);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2e00, quirk_iommu_igfx);
+@@ -5720,6 +5747,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163A, quirk_iommu_igfx);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163D, quirk_iommu_igfx);
+ 
++/* disable IPU dmar support */
++DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, PCI_ANY_ID, quirk_iommu_ipu);
++
+ /* disable IPTS dmar support */
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9D3E, quirk_iommu_ipts);
+ 
+-- 
+2.36.1
+
+From c91db3c87b3ace9eb3b8751d16a8d81918167aa1 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 10 Oct 2021 20:57:02 +0200
 Subject: [PATCH] platform/x86: int3472: Enable I2c daisy chain
@@ -111,7 +228,7 @@ index 22f61b47f9e5..e1de1ff40bba 100644
 -- 
 2.36.1
 
-From 910b0dc55c6a5a631b0308a1561c65398ad6421a Mon Sep 17 00:00:00 2001
+From 87e937e41f4b0ee24743f8d23b873e38a9b4c8ff Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 28 Oct 2021 21:55:16 +0100
 Subject: [PATCH] media: i2c: Add driver for DW9719 VCM
@@ -617,7 +734,7 @@ index 000000000000..8451c75b696b
 -- 
 2.36.1
 
-From 77f2ff5654488eadf3725644e8f1c08861d3bad4 Mon Sep 17 00:00:00 2001
+From b3f48443b9e4d4fd4d62e157a1a9fc5c5a3172c1 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 13 Dec 2021 22:38:17 +0000
 Subject: [PATCH] media: entity: Skip non-data links in graph iteration
@@ -652,7 +769,7 @@ index b411f9796191..d0563ee4b28b 100644
 -- 
 2.36.1
 
-From 3399c718f545d0dc91f12163df6a7946c9c1d4ed Mon Sep 17 00:00:00 2001
+From 0016f1cc163433a701cfb3bf2724b2498977aec1 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 13 Dec 2021 22:53:09 +0000
 Subject: [PATCH] media: media.h: Add new media link type
@@ -736,7 +853,7 @@ index 200fa8462b90..afbae7213d35 100644
 -- 
 2.36.1
 
-From 511e79d5ba0200de56f32be6cf5bebd368071fd1 Mon Sep 17 00:00:00 2001
+From 8263f61bdcef252cf1f847e96ac70a3f237a176c Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 13 Dec 2021 22:36:31 +0000
 Subject: [PATCH] media: entity: Add link_type_name() helper
@@ -791,7 +908,7 @@ index d0563ee4b28b..1a7d0a4fb9e8 100644
 -- 
 2.36.1
 
-From cf0742d09ede8e75f69bd6bcec3b8a98856ac4c5 Mon Sep 17 00:00:00 2001
+From 1d5ac8ff430953b6e4a21145444bb4784b62ce61 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 13 Dec 2021 22:54:10 +0000
 Subject: [PATCH] media: entity: Add support for ancillary links
@@ -868,7 +985,7 @@ index fea489f03d57..2a58defc4886 100644
 -- 
 2.36.1
 
-From d75aabdabf67a09d6ffdc1f975f28e30dae2212f Mon Sep 17 00:00:00 2001
+From d73c5be1644e13387421d110a777a4ca2a89b180 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Fri, 26 Nov 2021 22:55:50 +0000
 Subject: [PATCH] media: v4l2-async: Create links during
@@ -941,7 +1058,7 @@ index 0404267f1ae4..436bd6900fd8 100644
 -- 
 2.36.1
 
-From 22617184a837d41b3a942caa9bc0d0d715152a46 Mon Sep 17 00:00:00 2001
+From 359b0ab317c47c26eb3827148900c2fd37de5386 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 4 May 2022 23:21:45 +0100
 Subject: [PATCH] media: ipu3-cio2: Move functionality from .complete() to

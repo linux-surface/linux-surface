@@ -1,4 +1,4 @@
-From 04b2ff1b78b0f36536bad0e3e193951d5028d2e9 Mon Sep 17 00:00:00 2001
+From e2a9cc1c420b8f9584c85914b6b8c8cb38b2fecc Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Thu, 30 Jul 2020 13:21:53 +0200
 Subject: [PATCH] misc: mei: Add missing IPTS device IDs
@@ -36,7 +36,7 @@ index a738253dbd05..4e1c3fe09e53 100644
 -- 
 2.36.1
 
-From 2cff5747cece8b1537ee34e96d2a94ff5909c9f0 Mon Sep 17 00:00:00 2001
+From c7d40fe3f9a803b17f8529caa7bc4b58c0a2e66a Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Thu, 6 Aug 2020 11:20:41 +0200
 Subject: [PATCH] misc: Add support for Intel Precise Touch & Stylus
@@ -1501,116 +1501,7 @@ index 000000000000..53fb86a88f97
 -- 
 2.36.1
 
-From 729bc1af3979f4826b11db82d5353a5f85971d3e Mon Sep 17 00:00:00 2001
-From: zouxiaoh <xiaohong.zou@intel.com>
-Date: Fri, 25 Jun 2021 08:52:59 +0800
-Subject: [PATCH] iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs
-
-Intel IPU(Image Processing Unit) has its own (IO)MMU hardware,
-The IPU driver allocates its own page table that is not mapped
-via the DMA, and thus the Intel IOMMU driver blocks access giving
-this error: DMAR: DRHD: handling fault status reg 3 DMAR:
-[DMA Read] Request device [00:05.0] PASID ffffffff
-fault addr 76406000 [fault reason 06] PTE Read access is not set
-As IPU is not an external facing device which is not risky, so use
-IOMMU passthrough mode for Intel IPUs.
-
-Change-Id: I6dcccdadac308cf42e20a18e1b593381391e3e6b
-Depends-On: Iacd67578e8c6a9b9ac73285f52b4081b72fb68a6
-Tracked-On: #JIITL8-411
-Signed-off-by: Bingbu Cao <bingbu.cao@intel.com>
-Signed-off-by: zouxiaoh <xiaohong.zou@intel.com>
-Signed-off-by: Xu Chongyang <chongyang.xu@intel.com>
-Patchset: ipts
----
- drivers/iommu/intel/iommu.c | 29 +++++++++++++++++++++++++++++
- 1 file changed, 29 insertions(+)
-
-diff --git a/drivers/iommu/intel/iommu.c b/drivers/iommu/intel/iommu.c
-index ab2273300346..c1c0b111e512 100644
---- a/drivers/iommu/intel/iommu.c
-+++ b/drivers/iommu/intel/iommu.c
-@@ -57,6 +57,12 @@
- #define IS_GFX_DEVICE(pdev) ((pdev->class >> 16) == PCI_BASE_CLASS_DISPLAY)
- #define IS_USB_DEVICE(pdev) ((pdev->class >> 8) == PCI_CLASS_SERIAL_USB)
- #define IS_ISA_DEVICE(pdev) ((pdev->class >> 8) == PCI_CLASS_BRIDGE_ISA)
-+#define IS_INTEL_IPU(pdev) ((pdev)->vendor == PCI_VENDOR_ID_INTEL &&	\
-+			   ((pdev)->device == 0x9a19 ||		\
-+			    (pdev)->device == 0x9a39 ||		\
-+			    (pdev)->device == 0x4e19 ||		\
-+			    (pdev)->device == 0x465d ||		\
-+			    (pdev)->device == 0x1919))
- #define IS_AZALIA(pdev) ((pdev)->vendor == 0x8086 && (pdev)->device == 0x3a3e)
- 
- #define IOAPIC_RANGE_START	(0xfee00000)
-@@ -332,12 +338,14 @@ int intel_iommu_enabled = 0;
- EXPORT_SYMBOL_GPL(intel_iommu_enabled);
- 
- static int dmar_map_gfx = 1;
-+static int dmar_map_ipu = 1;
- static int intel_iommu_superpage = 1;
- static int iommu_identity_mapping;
- static int iommu_skip_te_disable;
- 
- #define IDENTMAP_GFX		2
- #define IDENTMAP_AZALIA		4
-+#define IDENTMAP_IPU		8
- 
- int intel_iommu_gfx_mapped;
- EXPORT_SYMBOL_GPL(intel_iommu_gfx_mapped);
-@@ -2987,6 +2995,9 @@ static int device_def_domain_type(struct device *dev)
- 
- 		if ((iommu_identity_mapping & IDENTMAP_GFX) && IS_GFX_DEVICE(pdev))
- 			return IOMMU_DOMAIN_IDENTITY;
-+
-+		if ((iommu_identity_mapping & IDENTMAP_IPU) && IS_INTEL_IPU(pdev))
-+			return IOMMU_DOMAIN_IDENTITY;
- 	}
- 
- 	return 0;
-@@ -3423,6 +3434,9 @@ static int __init init_dmars(void)
- 	if (!dmar_map_gfx)
- 		iommu_identity_mapping |= IDENTMAP_GFX;
- 
-+	if (!dmar_map_ipu)
-+		iommu_identity_mapping |= IDENTMAP_IPU;
-+
- 	check_tylersburg_isoch();
- 
- 	ret = si_domain_init(hw_pass_through);
-@@ -5664,6 +5678,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
- 	dmar_map_gfx = 0;
- }
- 
-+static void quirk_iommu_ipu(struct pci_dev *dev)
-+{
-+	if (!IS_INTEL_IPU(dev))
-+		return;
-+
-+	if (risky_device(dev))
-+		return;
-+
-+	pci_info(dev, "Passthrough IOMMU for integrated Intel IPU\n");
-+	dmar_map_ipu = 0;
-+}
-+
- /* G4x/GM45 integrated gfx dmar support is totally busted. */
- DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2a40, quirk_iommu_igfx);
- DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2e00, quirk_iommu_igfx);
-@@ -5699,6 +5725,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
- DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163A, quirk_iommu_igfx);
- DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163D, quirk_iommu_igfx);
- 
-+/* disable IPU dmar support */
-+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, PCI_ANY_ID, quirk_iommu_ipu);
-+
- static void quirk_iommu_rwbf(struct pci_dev *dev)
- {
- 	if (risky_device(dev))
--- 
-2.36.1
-
-From 8e0d67470adea3b5f4cd744fa863292c8835f641 Mon Sep 17 00:00:00 2001
+From af203d5ea529b8d75dfcb53b993bd7c060d258a2 Mon Sep 17 00:00:00 2001
 From: Liban Hannan <liban.p@gmail.com>
 Date: Tue, 12 Apr 2022 23:31:12 +0100
 Subject: [PATCH] iommu: ipts: use IOMMU passthrough mode for IPTS
@@ -1632,37 +1523,36 @@ Patchset: ipts
  1 file changed, 24 insertions(+)
 
 diff --git a/drivers/iommu/intel/iommu.c b/drivers/iommu/intel/iommu.c
-index c1c0b111e512..4d28bcc35dfb 100644
+index ab2273300346..a91eed82bb39 100644
 --- a/drivers/iommu/intel/iommu.c
 +++ b/drivers/iommu/intel/iommu.c
-@@ -63,6 +63,8 @@
- 			    (pdev)->device == 0x4e19 ||		\
- 			    (pdev)->device == 0x465d ||		\
- 			    (pdev)->device == 0x1919))
+@@ -57,6 +57,8 @@
+ #define IS_GFX_DEVICE(pdev) ((pdev->class >> 16) == PCI_BASE_CLASS_DISPLAY)
+ #define IS_USB_DEVICE(pdev) ((pdev->class >> 8) == PCI_CLASS_SERIAL_USB)
+ #define IS_ISA_DEVICE(pdev) ((pdev->class >> 8) == PCI_CLASS_BRIDGE_ISA)
 +#define IS_IPTS(pdev) ((pdev)->vendor == PCI_VENDOR_ID_INTEL &&	\
 +			    ((pdev)->device == 0x9d3e))
  #define IS_AZALIA(pdev) ((pdev)->vendor == 0x8086 && (pdev)->device == 0x3a3e)
  
  #define IOAPIC_RANGE_START	(0xfee00000)
-@@ -339,6 +341,7 @@ EXPORT_SYMBOL_GPL(intel_iommu_enabled);
+@@ -332,12 +334,14 @@ int intel_iommu_enabled = 0;
+ EXPORT_SYMBOL_GPL(intel_iommu_enabled);
  
  static int dmar_map_gfx = 1;
- static int dmar_map_ipu = 1;
 +static int dmar_map_ipts = 1;
  static int intel_iommu_superpage = 1;
  static int iommu_identity_mapping;
  static int iommu_skip_te_disable;
-@@ -346,6 +349,7 @@ static int iommu_skip_te_disable;
+ 
  #define IDENTMAP_GFX		2
  #define IDENTMAP_AZALIA		4
- #define IDENTMAP_IPU		8
 +#define IDENTMAP_IPTS		16
  
  int intel_iommu_gfx_mapped;
  EXPORT_SYMBOL_GPL(intel_iommu_gfx_mapped);
-@@ -2998,6 +3002,9 @@ static int device_def_domain_type(struct device *dev)
+@@ -2987,6 +2991,9 @@ static int device_def_domain_type(struct device *dev)
  
- 		if ((iommu_identity_mapping & IDENTMAP_IPU) && IS_INTEL_IPU(pdev))
+ 		if ((iommu_identity_mapping & IDENTMAP_GFX) && IS_GFX_DEVICE(pdev))
  			return IOMMU_DOMAIN_IDENTITY;
 +
 +		if ((iommu_identity_mapping & IDENTMAP_IPTS) && IS_IPTS(pdev))
@@ -1670,9 +1560,9 @@ index c1c0b111e512..4d28bcc35dfb 100644
  	}
  
  	return 0;
-@@ -3437,6 +3444,9 @@ static int __init init_dmars(void)
- 	if (!dmar_map_ipu)
- 		iommu_identity_mapping |= IDENTMAP_IPU;
+@@ -3423,6 +3430,9 @@ static int __init init_dmars(void)
+ 	if (!dmar_map_gfx)
+ 		iommu_identity_mapping |= IDENTMAP_GFX;
  
 +	if (!dmar_map_ipts)
 +		iommu_identity_mapping |= IDENTMAP_IPTS;
@@ -1680,8 +1570,8 @@ index c1c0b111e512..4d28bcc35dfb 100644
  	check_tylersburg_isoch();
  
  	ret = si_domain_init(hw_pass_through);
-@@ -5690,6 +5700,17 @@ static void quirk_iommu_ipu(struct pci_dev *dev)
- 	dmar_map_ipu = 0;
+@@ -5664,6 +5674,17 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
+ 	dmar_map_gfx = 0;
  }
  
 +static void quirk_iommu_ipts(struct pci_dev *dev)
@@ -1698,9 +1588,9 @@ index c1c0b111e512..4d28bcc35dfb 100644
  /* G4x/GM45 integrated gfx dmar support is totally busted. */
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2a40, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2e00, quirk_iommu_igfx);
-@@ -5728,6 +5749,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163D, quirk_iommu_igfx);
- /* disable IPU dmar support */
- DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, PCI_ANY_ID, quirk_iommu_ipu);
+@@ -5699,6 +5720,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163A, quirk_iommu_igfx);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163D, quirk_iommu_igfx);
  
 +/* disable IPTS dmar support */
 +DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9D3E, quirk_iommu_ipts);
