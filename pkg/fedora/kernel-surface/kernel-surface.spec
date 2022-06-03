@@ -302,12 +302,12 @@ cp -a --parents arch/x86/boot/string.h %{kernel_modpath}/build/
 cp -a --parents arch/x86/boot/string.c %{kernel_modpath}/build/
 cp -a --parents arch/x86/boot/ctype.h %{kernel_modpath}/build/
 
-# Make sure the Makefile and version.h have a matching timestamp so that
-# external modules can be built
-touch -r %{kernel_modpath}/build/Makefile %{kernel_modpath}/build/include/generated/uapi/linux/version.h
+# Make sure the Makefile, version.h, and auto.conf have a matching
+# timestamp so that external modules can be built
 
-# Copy .config to include/config/auto.conf so "make prepare" is unnecessary.
-cp %{kernel_modpath}/build/.config %{kernel_modpath}/build/include/config/auto.conf
+touch -r %{kernel_modpath}/build/Makefile \
+	%{kernel_modpath}/build/include/generated/uapi/linux/version.h \
+	%{kernel_modpath}/build/include/config/auto.conf
 
 mkdir -p %{buildroot}/usr/src/kernels
 mv %{kernel_modpath}/build %{buildroot}/usr/src/kernels/%{kernel_name}
