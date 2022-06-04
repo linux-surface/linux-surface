@@ -1,0 +1,149 @@
+From 9e4639574703df65179840d951379d1f525a7975 Mon Sep 17 00:00:00 2001
+From: Sachi King <nakato@nakato.io>
+Date: Tue, 5 Oct 2021 00:05:09 +1100
+Subject: [PATCH] Input: soc_button_array - support AMD variant Surface devices
+
+The power button on the AMD variant of the Surface Laptop uses the
+same MSHW0040 device ID as the 5th and later generation of Surface
+devices, however they report 0 for their OEM platform revision.  As the
+_DSM does not exist on the devices requiring special casing, check for
+the existance of the _DSM to determine if soc_button_array should be
+loaded.
+
+Fixes: c394159310d0 ("Input: soc_button_array - add support for newer surface devices")
+Co-developed-by: Maximilian Luz <luzmaximilian@gmail.com>
+
+Signed-off-by: Sachi King <nakato@nakato.io>
+Patchset: surface-button
+---
+ drivers/input/misc/soc_button_array.c | 33 +++++++--------------------
+ 1 file changed, 8 insertions(+), 25 deletions(-)
+
+diff --git a/drivers/input/misc/soc_button_array.c b/drivers/input/misc/soc_button_array.c
+index cbb1599a520e..f044c731c6a9 100644
+--- a/drivers/input/misc/soc_button_array.c
++++ b/drivers/input/misc/soc_button_array.c
+@@ -495,8 +495,8 @@ static const struct soc_device_data soc_device_MSHW0028 = {
+  * Both, the Surface Pro 4 (surfacepro3_button.c) and the above mentioned
+  * devices use MSHW0040 for power and volume buttons, however the way they
+  * have to be addressed differs. Make sure that we only load this drivers
+- * for the correct devices by checking the OEM Platform Revision provided by
+- * the _DSM method.
++ * for the correct devices by checking if the OEM Platform Revision DSM call
++ * exists.
+  */
+ #define MSHW0040_DSM_REVISION		0x01
+ #define MSHW0040_DSM_GET_OMPR		0x02	// get OEM Platform Revision
+@@ -507,31 +507,14 @@ static const guid_t MSHW0040_DSM_UUID =
+ static int soc_device_check_MSHW0040(struct device *dev)
+ {
+ 	acpi_handle handle = ACPI_HANDLE(dev);
+-	union acpi_object *result;
+-	u64 oem_platform_rev = 0;	// valid revisions are nonzero
+-
+-	// get OEM platform revision
+-	result = acpi_evaluate_dsm_typed(handle, &MSHW0040_DSM_UUID,
+-					 MSHW0040_DSM_REVISION,
+-					 MSHW0040_DSM_GET_OMPR, NULL,
+-					 ACPI_TYPE_INTEGER);
+-
+-	if (result) {
+-		oem_platform_rev = result->integer.value;
+-		ACPI_FREE(result);
+-	}
+-
+-	/*
+-	 * If the revision is zero here, the _DSM evaluation has failed. This
+-	 * indicates that we have a Pro 4 or Book 1 and this driver should not
+-	 * be used.
+-	 */
+-	if (oem_platform_rev == 0)
+-		return -ENODEV;
++	bool exists;
+ 
+-	dev_dbg(dev, "OEM Platform Revision %llu\n", oem_platform_rev);
++	// check if OEM platform revision DSM call exists
++	exists = acpi_check_dsm(handle, &MSHW0040_DSM_UUID,
++				MSHW0040_DSM_REVISION,
++				BIT(MSHW0040_DSM_GET_OMPR));
+ 
+-	return 0;
++	return exists ? 0 : -ENODEV;
+ }
+ 
+ /*
+-- 
+2.36.1
+
+From 3695ee8a0fe905e311b8bd6268661517d6ea4d1a Mon Sep 17 00:00:00 2001
+From: Sachi King <nakato@nakato.io>
+Date: Tue, 5 Oct 2021 00:22:57 +1100
+Subject: [PATCH] platform/surface: surfacepro3_button: don't load on amd
+ variant
+
+The AMD variant of the Surface Laptop report 0 for their OEM platform
+revision.  The Surface devices that require the surfacepro3_button
+driver do not have the _DSM that gets the OEM platform revision.  If the
+method does not exist, load surfacepro3_button.
+
+Fixes: 64dd243d7356 ("platform/x86: surfacepro3_button: Fix device check")
+Co-developed-by: Maximilian Luz <luzmaximilian@gmail.com>
+
+Signed-off-by: Sachi King <nakato@nakato.io>
+Patchset: surface-button
+---
+ drivers/platform/surface/surfacepro3_button.c | 30 ++++---------------
+ 1 file changed, 6 insertions(+), 24 deletions(-)
+
+diff --git a/drivers/platform/surface/surfacepro3_button.c b/drivers/platform/surface/surfacepro3_button.c
+index 242fb690dcaf..30eea54dbb47 100644
+--- a/drivers/platform/surface/surfacepro3_button.c
++++ b/drivers/platform/surface/surfacepro3_button.c
+@@ -149,7 +149,8 @@ static int surface_button_resume(struct device *dev)
+ /*
+  * Surface Pro 4 and Surface Book 2 / Surface Pro 2017 use the same device
+  * ID (MSHW0040) for the power/volume buttons. Make sure this is the right
+- * device by checking for the _DSM method and OEM Platform Revision.
++ * device by checking for the _DSM method and OEM Platform Revision DSM
++ * function.
+  *
+  * Returns true if the driver should bind to this device, i.e. the device is
+  * either MSWH0028 (Pro 3) or MSHW0040 on a Pro 4 or Book 1.
+@@ -157,30 +158,11 @@ static int surface_button_resume(struct device *dev)
+ static bool surface_button_check_MSHW0040(struct acpi_device *dev)
+ {
+ 	acpi_handle handle = dev->handle;
+-	union acpi_object *result;
+-	u64 oem_platform_rev = 0;	// valid revisions are nonzero
+-
+-	// get OEM platform revision
+-	result = acpi_evaluate_dsm_typed(handle, &MSHW0040_DSM_UUID,
+-					 MSHW0040_DSM_REVISION,
+-					 MSHW0040_DSM_GET_OMPR,
+-					 NULL, ACPI_TYPE_INTEGER);
+-
+-	/*
+-	 * If evaluating the _DSM fails, the method is not present. This means
+-	 * that we have either MSHW0028 or MSHW0040 on Pro 4 or Book 1, so we
+-	 * should use this driver. We use revision 0 indicating it is
+-	 * unavailable.
+-	 */
+-
+-	if (result) {
+-		oem_platform_rev = result->integer.value;
+-		ACPI_FREE(result);
+-	}
+-
+-	dev_dbg(&dev->dev, "OEM Platform Revision %llu\n", oem_platform_rev);
+ 
+-	return oem_platform_rev == 0;
++	// make sure that OEM platform revision DSM call does not exist
++	return !acpi_check_dsm(handle, &MSHW0040_DSM_UUID,
++			       MSHW0040_DSM_REVISION,
++			       BIT(MSHW0040_DSM_GET_OMPR));
+ }
+ 
+ 
+-- 
+2.36.1
+

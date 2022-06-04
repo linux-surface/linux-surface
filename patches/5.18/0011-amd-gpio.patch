@@ -1,0 +1,109 @@
+From 8e5ad1404653beb51399841eb1f245d0660ea9fd Mon Sep 17 00:00:00 2001
+From: Sachi King <nakato@nakato.io>
+Date: Sat, 29 May 2021 17:47:38 +1000
+Subject: [PATCH] ACPI: Add quirk for Surface Laptop 4 AMD missing irq 7
+ override
+
+This patch is the work of Thomas Gleixner <tglx@linutronix.de> and is
+copied from:
+https://lore.kernel.org/lkml/87lf8ddjqx.ffs@nanos.tec.linutronix.de/
+
+This patch adds a quirk to the ACPI setup to patch in the the irq 7 pin
+setup that is missing in the laptops ACPI table.
+
+This patch was used for validation of the issue, and is not a proper
+fix, but is probably a better temporary hack than continuing to probe
+the Legacy PIC and run with the PIC in an unknown state.
+
+Patchset: amd-gpio
+---
+ arch/x86/kernel/acpi/boot.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/arch/x86/kernel/acpi/boot.c b/arch/x86/kernel/acpi/boot.c
+index 0d01e7f5078c..2b06cf5f2b1f 100644
+--- a/arch/x86/kernel/acpi/boot.c
++++ b/arch/x86/kernel/acpi/boot.c
+@@ -22,6 +22,7 @@
+ #include <linux/efi-bgrt.h>
+ #include <linux/serial_core.h>
+ #include <linux/pgtable.h>
++#include <linux/dmi.h>
+ 
+ #include <asm/e820/api.h>
+ #include <asm/irqdomain.h>
+@@ -1152,6 +1153,17 @@ static void __init mp_config_acpi_legacy_irqs(void)
+ 	}
+ }
+ 
++static const struct dmi_system_id surface_quirk[] __initconst = {
++	{
++		.ident = "Microsoft Surface Laptop 4 (AMD)",
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_4_1952:1953")
++		},
++	},
++	{}
++};
++
+ /*
+  * Parse IOAPIC related entries in MADT
+  * returns 0 on success, < 0 on error
+@@ -1207,6 +1219,11 @@ static int __init acpi_parse_madt_ioapic_entries(void)
+ 		acpi_sci_ioapic_setup(acpi_gbl_FADT.sci_interrupt, 0, 0,
+ 				      acpi_gbl_FADT.sci_interrupt);
+ 
++	if (dmi_check_system(surface_quirk)) {
++		pr_warn("Surface hack: Override irq 7\n");
++		mp_override_legacy_irq(7, 3, 3, 7);
++	}
++
+ 	/* Fill in identity legacy mappings where no override */
+ 	mp_config_acpi_legacy_irqs();
+ 
+-- 
+2.36.1
+
+From d7bab966d2e956310804efb2c1d0a89696755540 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Thu, 3 Jun 2021 14:04:26 +0200
+Subject: [PATCH] ACPI: Add AMD 13" Surface Laptop 4 model to irq 7 override
+ quirk
+
+The 13" version of the Surface Laptop 4 has the same problem as the 15"
+version, but uses a different SKU. Add that SKU to the quirk as well.
+
+Patchset: amd-gpio
+---
+ arch/x86/kernel/acpi/boot.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/kernel/acpi/boot.c b/arch/x86/kernel/acpi/boot.c
+index 2b06cf5f2b1f..caaec200bea2 100644
+--- a/arch/x86/kernel/acpi/boot.c
++++ b/arch/x86/kernel/acpi/boot.c
+@@ -1155,12 +1155,19 @@ static void __init mp_config_acpi_legacy_irqs(void)
+ 
+ static const struct dmi_system_id surface_quirk[] __initconst = {
+ 	{
+-		.ident = "Microsoft Surface Laptop 4 (AMD)",
++		.ident = "Microsoft Surface Laptop 4 (AMD 15\")",
+ 		.matches = {
+ 			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+ 			DMI_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_4_1952:1953")
+ 		},
+ 	},
++	{
++		.ident = "Microsoft Surface Laptop 4 (AMD 13\")",
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_4_1958:1959")
++		},
++	},
+ 	{}
+ };
+ 
+-- 
+2.36.1
+

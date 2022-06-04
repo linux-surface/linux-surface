@@ -1,0 +1,131 @@
+From 9261de06016ee191d83bbea352ed143d66f6c61b Mon Sep 17 00:00:00 2001
+From: Werner Sembach <wse@tuxedocomputers.com>
+Date: Wed, 27 Apr 2022 17:40:53 +0200
+Subject: [PATCH] ACPI: battery: Make "not-charging" the default on no charging
+ or full info
+
+When the battery is neither charging or discharging and is not full,
+"not-charging" is a useful status description for the case in general.
+Currently this state is set as "unknown" by default, expect when this is
+explicitly replaced with "not-charging" on a per device or per vendor
+basis.
+
+A lot of devices have this state without a BIOS specification available
+explicitly describing it. e.g. some current Clevo barebones have a BIOS
+setting to stop charging at a user defined battery level.
+
+Signed-off-by: Werner Sembach <wse@tuxedocomputers.com>
+Signed-off-by: Rafael J. Wysocki <rafael.j.wysocki@intel.com>
+Patchset: surface-battery
+---
+ drivers/acpi/battery.c | 24 +-----------------------
+ 1 file changed, 1 insertion(+), 23 deletions(-)
+
+diff --git a/drivers/acpi/battery.c b/drivers/acpi/battery.c
+index dc208f5f5a1f..306513fec1e1 100644
+--- a/drivers/acpi/battery.c
++++ b/drivers/acpi/battery.c
+@@ -52,7 +52,6 @@ static bool battery_driver_registered;
+ static int battery_bix_broken_package;
+ static int battery_notification_delay_ms;
+ static int battery_ac_is_broken;
+-static int battery_quirk_notcharging;
+ static unsigned int cache_time = 1000;
+ module_param(cache_time, uint, 0644);
+ MODULE_PARM_DESC(cache_time, "cache time in milliseconds");
+@@ -216,10 +215,8 @@ static int acpi_battery_get_property(struct power_supply *psy,
+ 			val->intval = POWER_SUPPLY_STATUS_CHARGING;
+ 		else if (acpi_battery_is_charged(battery))
+ 			val->intval = POWER_SUPPLY_STATUS_FULL;
+-		else if (battery_quirk_notcharging)
+-			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
+ 		else
+-			val->intval = POWER_SUPPLY_STATUS_UNKNOWN;
++			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
+ 		break;
+ 	case POWER_SUPPLY_PROP_PRESENT:
+ 		val->intval = acpi_battery_present(battery);
+@@ -1105,12 +1102,6 @@ battery_ac_is_broken_quirk(const struct dmi_system_id *d)
+ 	return 0;
+ }
+ 
+-static int __init battery_quirk_not_charging(const struct dmi_system_id *d)
+-{
+-	battery_quirk_notcharging = 1;
+-	return 0;
+-}
+-
+ static const struct dmi_system_id bat_dmi_table[] __initconst = {
+ 	{
+ 		/* NEC LZ750/LS */
+@@ -1139,19 +1130,6 @@ static const struct dmi_system_id bat_dmi_table[] __initconst = {
+ 			DMI_MATCH(DMI_BIOS_DATE, "08/22/2014"),
+ 		},
+ 	},
+-	{
+-		/*
+-		 * On Lenovo ThinkPads the BIOS specification defines
+-		 * a state when the bits for charging and discharging
+-		 * are both set to 0. That state is "Not Charging".
+-		 */
+-		.callback = battery_quirk_not_charging,
+-		.ident = "Lenovo ThinkPad",
+-		.matches = {
+-			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+-			DMI_MATCH(DMI_PRODUCT_VERSION, "ThinkPad"),
+-		},
+-	},
+ 	{
+ 		/* Microsoft Surface Go 3 */
+ 		.callback = battery_notification_delay_quirk,
+-- 
+2.36.1
+
+From 2533e285b9b7bfa87547ce077056b8c1a6d793f3 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Wed, 25 May 2022 14:20:10 +0200
+Subject: [PATCH] HID: hid-input: add Surface Go battery quirk
+
+Similar to the Surface Go (1), the (Elantech) touchscreen/digitizer in
+the Surface Go 2 mistakenly reports the battery of the stylus. Instead
+of over the touchsreen device, battery information is provided via
+bluetooth and the touchscreen device reports an empty battery.
+
+Apply the HID_BATTERY_QUIRK_IGNORE quirk to to ignore this battery and
+prevent the erroneous low battery warnings.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-battery
+---
+ drivers/hid/hid-ids.h   | 1 +
+ drivers/hid/hid-input.c | 2 ++
+ 2 files changed, 3 insertions(+)
+
+diff --git a/drivers/hid/hid-ids.h b/drivers/hid/hid-ids.h
+index 053853a891c5..1b67820707cc 100644
+--- a/drivers/hid/hid-ids.h
++++ b/drivers/hid/hid-ids.h
+@@ -413,6 +413,7 @@
+ #define USB_DEVICE_ID_ASUS_UX550VE_TOUCHSCREEN	0x2544
+ #define USB_DEVICE_ID_ASUS_UX550_TOUCHSCREEN	0x2706
+ #define I2C_DEVICE_ID_SURFACE_GO_TOUCHSCREEN	0x261A
++#define I2C_DEVICE_ID_SURFACE_GO2_TOUCHSCREEN	0x2A1C
+ 
+ #define USB_VENDOR_ID_ELECOM		0x056e
+ #define USB_DEVICE_ID_ELECOM_BM084	0x0061
+diff --git a/drivers/hid/hid-input.c b/drivers/hid/hid-input.c
+index c6b27aab9041..48c1c02c69f4 100644
+--- a/drivers/hid/hid-input.c
++++ b/drivers/hid/hid-input.c
+@@ -381,6 +381,8 @@ static const struct hid_device_id hid_battery_quirks[] = {
+ 	  HID_BATTERY_QUIRK_IGNORE },
+ 	{ HID_I2C_DEVICE(USB_VENDOR_ID_ELAN, I2C_DEVICE_ID_SURFACE_GO_TOUCHSCREEN),
+ 	  HID_BATTERY_QUIRK_IGNORE },
++	{ HID_I2C_DEVICE(USB_VENDOR_ID_ELAN, I2C_DEVICE_ID_SURFACE_GO2_TOUCHSCREEN),
++	  HID_BATTERY_QUIRK_IGNORE },
+ 	{}
+ };
+ 
+-- 
+2.36.1
+

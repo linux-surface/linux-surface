@@ -1,0 +1,101 @@
+From e574a091b2c968a4bbcaddada28f630290ea5c91 Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Sun, 18 Oct 2020 16:42:44 +0900
+Subject: [PATCH] (surface3-oemb) add DMI matches for Surface 3 with broken DMI
+ table
+
+On some Surface 3, the DMI table gets corrupted for unknown reasons
+and breaks existing DMI matching used for device-specific quirks.
+
+This commit adds the (broken) DMI data into dmi_system_id tables used
+for quirks so that each driver can enable quirks even on the affected
+systems.
+
+On affected systems, DMI data will look like this:
+    $ grep . /sys/devices/virtual/dmi/id/{bios_vendor,board_name,board_vendor,\
+    chassis_vendor,product_name,sys_vendor}
+    /sys/devices/virtual/dmi/id/bios_vendor:American Megatrends Inc.
+    /sys/devices/virtual/dmi/id/board_name:OEMB
+    /sys/devices/virtual/dmi/id/board_vendor:OEMB
+    /sys/devices/virtual/dmi/id/chassis_vendor:OEMB
+    /sys/devices/virtual/dmi/id/product_name:OEMB
+    /sys/devices/virtual/dmi/id/sys_vendor:OEMB
+
+Expected:
+    $ grep . /sys/devices/virtual/dmi/id/{bios_vendor,board_name,board_vendor,\
+    chassis_vendor,product_name,sys_vendor}
+    /sys/devices/virtual/dmi/id/bios_vendor:American Megatrends Inc.
+    /sys/devices/virtual/dmi/id/board_name:Surface 3
+    /sys/devices/virtual/dmi/id/board_vendor:Microsoft Corporation
+    /sys/devices/virtual/dmi/id/chassis_vendor:Microsoft Corporation
+    /sys/devices/virtual/dmi/id/product_name:Surface 3
+    /sys/devices/virtual/dmi/id/sys_vendor:Microsoft Corporation
+
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: surface3-oemb
+---
+ drivers/platform/surface/surface3-wmi.c           | 7 +++++++
+ sound/soc/codecs/rt5645.c                         | 9 +++++++++
+ sound/soc/intel/common/soc-acpi-intel-cht-match.c | 8 ++++++++
+ 3 files changed, 24 insertions(+)
+
+diff --git a/drivers/platform/surface/surface3-wmi.c b/drivers/platform/surface/surface3-wmi.c
+index ca4602bcc7de..490b9731068a 100644
+--- a/drivers/platform/surface/surface3-wmi.c
++++ b/drivers/platform/surface/surface3-wmi.c
+@@ -37,6 +37,13 @@ static const struct dmi_system_id surface3_dmi_table[] = {
+ 			DMI_MATCH(DMI_PRODUCT_NAME, "Surface 3"),
+ 		},
+ 	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_BIOS_VENDOR, "American Megatrends Inc."),
++			DMI_MATCH(DMI_SYS_VENDOR, "OEMB"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "OEMB"),
++		},
++	},
+ #endif
+ 	{ }
+ };
+diff --git a/sound/soc/codecs/rt5645.c b/sound/soc/codecs/rt5645.c
+index 197c56047947..9893e9c3cdf7 100644
+--- a/sound/soc/codecs/rt5645.c
++++ b/sound/soc/codecs/rt5645.c
+@@ -3718,6 +3718,15 @@ static const struct dmi_system_id dmi_platform_data[] = {
+ 		},
+ 		.driver_data = (void *)&intel_braswell_platform_data,
+ 	},
++	{
++		.ident = "Microsoft Surface 3",
++		.matches = {
++			DMI_MATCH(DMI_BIOS_VENDOR, "American Megatrends Inc."),
++			DMI_MATCH(DMI_SYS_VENDOR, "OEMB"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "OEMB"),
++		},
++		.driver_data = (void *)&intel_braswell_platform_data,
++	},
+ 	{
+ 		/*
+ 		 * Match for the GPDwin which unfortunately uses somewhat
+diff --git a/sound/soc/intel/common/soc-acpi-intel-cht-match.c b/sound/soc/intel/common/soc-acpi-intel-cht-match.c
+index 6beb00858c33..d82d77387a0a 100644
+--- a/sound/soc/intel/common/soc-acpi-intel-cht-match.c
++++ b/sound/soc/intel/common/soc-acpi-intel-cht-match.c
+@@ -27,6 +27,14 @@ static const struct dmi_system_id cht_table[] = {
+ 			DMI_MATCH(DMI_PRODUCT_NAME, "Surface 3"),
+ 		},
+ 	},
++	{
++		.callback = cht_surface_quirk_cb,
++		.matches = {
++			DMI_MATCH(DMI_BIOS_VENDOR, "American Megatrends Inc."),
++			DMI_MATCH(DMI_SYS_VENDOR, "OEMB"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "OEMB"),
++		},
++	},
+ 	{ }
+ };
+ 
+-- 
+2.36.1
+

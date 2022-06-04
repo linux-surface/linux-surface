@@ -1,0 +1,3349 @@
+From 11cb4f8c05666e7092892e306e22b5e0b2d1c91b Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Tue, 8 Jun 2021 00:24:47 +0200
+Subject: [PATCH] platform/surface: aggregator: Allow devices to be marked as
+ hot-removed
+
+Some SSAM devices, notably the keyboard cover (keyboard and touchpad) on
+the Surface Pro 8, can be hot-removed. When this occurs, communication
+with the device may fail and time out. This timeout can unnecessarily
+block and slow down device removal and even cause issues when the
+devices are detached and re-attached quickly. Thus, communication should
+generally be avoided once hot-removal is detected.
+
+While we already remove a device as soon as we detect its (hot-)removal,
+the corresponding device driver may still attempt to communicate with
+the device during teardown. This is especially critical as communication
+failure may also extend to disabling of events, which is typically done
+at that stage.
+
+Add a flag to allow marking devices as hot-removed. This can then be
+used during client driver teardown to check if any communication
+attempts should be avoided.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ include/linux/surface_aggregator/device.h | 48 +++++++++++++++++++++--
+ 1 file changed, 45 insertions(+), 3 deletions(-)
+
+diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
+index cc257097eb05..491aa7e9f4bc 100644
+--- a/include/linux/surface_aggregator/device.h
++++ b/include/linux/surface_aggregator/device.h
+@@ -148,17 +148,30 @@ struct ssam_device_uid {
+ #define SSAM_SDEV(cat, tid, iid, fun) \
+ 	SSAM_DEVICE(SSAM_DOMAIN_SERIALHUB, SSAM_SSH_TC_##cat, tid, iid, fun)
+ 
++/*
++ * enum ssam_device_flags - Flags for SSAM client devices.
++ * @SSAM_DEVICE_HOT_REMOVED_BIT:
++ *	The device has been hot-removed. Further communication with it may time
++ *	out and should be avoided.
++ */
++enum ssam_device_flags {
++	SSAM_DEVICE_HOT_REMOVED_BIT = 0,
++};
++
+ /**
+  * struct ssam_device - SSAM client device.
+- * @dev:  Driver model representation of the device.
+- * @ctrl: SSAM controller managing this device.
+- * @uid:  UID identifying the device.
++ * @dev:   Driver model representation of the device.
++ * @ctrl:  SSAM controller managing this device.
++ * @uid:   UID identifying the device.
++ * @flags: Device state flags, see &enum ssam_device_flags.
+  */
+ struct ssam_device {
+ 	struct device dev;
+ 	struct ssam_controller *ctrl;
+ 
+ 	struct ssam_device_uid uid;
++
++	unsigned long flags;
+ };
+ 
+ /**
+@@ -240,6 +253,35 @@ struct ssam_device *ssam_device_alloc(struct ssam_controller *ctrl,
+ int ssam_device_add(struct ssam_device *sdev);
+ void ssam_device_remove(struct ssam_device *sdev);
+ 
++/**
++ * ssam_device_mark_hot_removed() - Mark the given device as hot-removed.
++ * @sdev: The device to mark as hot-removed.
++ *
++ * Mark the device as having been hot-removed. This signals drivers using the
++ * device that communication with the device should be avoided and may lead to
++ * timeouts.
++ */
++static inline void ssam_device_mark_hot_removed(struct ssam_device *sdev)
++{
++	dev_dbg(&sdev->dev, "marking device as hot-removed\n");
++	set_bit(SSAM_DEVICE_HOT_REMOVED_BIT, &sdev->flags);
++}
++
++/**
++ * ssam_device_is_hot_removed() - Check if the given device has been
++ * hot-removed.
++ * @sdev: The device to check.
++ *
++ * Checks if the given device has been marked as hot-removed. See
++ * ssam_device_mark_hot_removed() for more details.
++ *
++ * Return: Returns ``true`` if the device has been marked as hot-removed.
++ */
++static inline bool ssam_device_is_hot_removed(struct ssam_device *sdev)
++{
++	return test_bit(SSAM_DEVICE_HOT_REMOVED_BIT, &sdev->flags);
++}
++
+ /**
+  * ssam_device_get() - Increment reference count of SSAM client device.
+  * @sdev: The device to increment the reference count of.
+-- 
+2.36.1
+
+From 69be483916d47a555690ce409e620cb39e9b0c3e Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Tue, 8 Jun 2021 00:48:22 +0200
+Subject: [PATCH] platform/surface: aggregator: Allow notifiers to avoid
+ communication on unregistering
+
+When SSAM client devices have been (physically) hot-removed,
+communication attempts with those devices may fail and time out. This
+can even extend to event notifiers, due to which timeouts may occur
+during device removal, slowing down that process.
+
+Add a parameter to the notifier unregister function that allows skipping
+communication with the EC to prevent this. Furthermore, add wrappers for
+registering and unregistering notifiers belonging to SSAM client devices
+that automatically check if the device has been marked as hot-removed
+and communication should be avoided.
+
+Note that non-SSAM client devices can generally not be hot-removed, so
+also add a convenience wrapper for those, defaulting to allow
+communication.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../driver-api/surface_aggregator/client.rst  |  6 +-
+ .../platform/surface/aggregator/controller.c  | 53 ++++++++++-----
+ include/linux/surface_aggregator/controller.h | 24 ++++++-
+ include/linux/surface_aggregator/device.h     | 66 +++++++++++++++++++
+ 4 files changed, 128 insertions(+), 21 deletions(-)
+
+diff --git a/Documentation/driver-api/surface_aggregator/client.rst b/Documentation/driver-api/surface_aggregator/client.rst
+index e519d374c378..27f95abdbe99 100644
+--- a/Documentation/driver-api/surface_aggregator/client.rst
++++ b/Documentation/driver-api/surface_aggregator/client.rst
+@@ -17,6 +17,8 @@
+ .. |SSAM_DEVICE| replace:: :c:func:`SSAM_DEVICE`
+ .. |ssam_notifier_register| replace:: :c:func:`ssam_notifier_register`
+ .. |ssam_notifier_unregister| replace:: :c:func:`ssam_notifier_unregister`
++.. |ssam_device_notifier_register| replace:: :c:func:`ssam_device_notifier_register`
++.. |ssam_device_notifier_unregister| replace:: :c:func:`ssam_device_notifier_unregister`
+ .. |ssam_request_sync| replace:: :c:func:`ssam_request_sync`
+ .. |ssam_event_mask| replace:: :c:type:`enum ssam_event_mask <ssam_event_mask>`
+ 
+@@ -312,7 +314,9 @@ Handling Events
+ To receive events from the SAM EC, an event notifier must be registered for
+ the desired event via |ssam_notifier_register|. The notifier must be
+ unregistered via |ssam_notifier_unregister| once it is not required any
+-more.
++more. For |ssam_device| type clients, the |ssam_device_notifier_register| and
++|ssam_device_notifier_unregister| wrappers should be preferred as they properly
++handle hot-removal of client devices.
+ 
+ Event notifiers are registered by providing (at minimum) a callback to call
+ in case an event has been received, the registry specifying how the event
+diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
+index b8c377b3f932..6de834b52b63 100644
+--- a/drivers/platform/surface/aggregator/controller.c
++++ b/drivers/platform/surface/aggregator/controller.c
+@@ -2199,16 +2199,26 @@ static int ssam_nf_refcount_enable(struct ssam_controller *ctrl,
+ }
+ 
+ /**
+- * ssam_nf_refcount_disable_free() - Disable event for reference count entry if it is
+- * no longer in use and free the corresponding entry.
++ * ssam_nf_refcount_disable_free() - Disable event for reference count entry if
++ * it is no longer in use and free the corresponding entry.
+  * @ctrl:  The controller to disable the event on.
+  * @entry: The reference count entry for the event to be disabled.
+  * @flags: The flags used for enabling the event on the EC.
++ * @ec:    Flag specifying if the event should actually be disabled on the EC.
+  *
+- * If the reference count equals zero, i.e. the event is no longer requested by
+- * any client, the event will be disabled and the corresponding reference count
+- * entry freed. The reference count entry must not be used any more after a
+- * call to this function.
++ * If ``ec`` equals ``true`` and the reference count equals zero (i.e. the
++ * event is no longer requested by any client), the specified event will be
++ * disabled on the EC via the corresponding request.
++ *
++ * If ``ec`` equals ``false``, no request will be sent to the EC and the event
++ * can be considered in a detached state (i.e. no longer used but still
++ * enabled). Disabling an event via this method may be required for
++ * hot-removable devices, where event disable requests may time out after the
++ * device has been physically removed.
++ *
++ * In both cases, if the reference count equals zero, the corresponding
++ * reference count entry will be freed. The reference count entry must not be
++ * used any more after a call to this function.
+  *
+  * Also checks if the flags used for disabling the event match the flags used
+  * for enabling the event and warns if they do not (regardless of reference
+@@ -2223,7 +2233,7 @@ static int ssam_nf_refcount_enable(struct ssam_controller *ctrl,
+  * returns the status of the event-enable EC command.
+  */
+ static int ssam_nf_refcount_disable_free(struct ssam_controller *ctrl,
+-					 struct ssam_nf_refcount_entry *entry, u8 flags)
++					 struct ssam_nf_refcount_entry *entry, u8 flags, bool ec)
+ {
+ 	const struct ssam_event_registry reg = entry->key.reg;
+ 	const struct ssam_event_id id = entry->key.id;
+@@ -2232,8 +2242,9 @@ static int ssam_nf_refcount_disable_free(struct ssam_controller *ctrl,
+ 
+ 	lockdep_assert_held(&nf->lock);
+ 
+-	ssam_dbg(ctrl, "disabling event (reg: %#04x, tc: %#04x, iid: %#04x, rc: %d)\n",
+-		 reg.target_category, id.target_category, id.instance, entry->refcount);
++	ssam_dbg(ctrl, "%s event (reg: %#04x, tc: %#04x, iid: %#04x, rc: %d)\n",
++		 ec ? "disabling" : "detaching", reg.target_category, id.target_category,
++		 id.instance, entry->refcount);
+ 
+ 	if (entry->flags != flags) {
+ 		ssam_warn(ctrl,
+@@ -2242,7 +2253,7 @@ static int ssam_nf_refcount_disable_free(struct ssam_controller *ctrl,
+ 			  id.instance);
+ 	}
+ 
+-	if (entry->refcount == 0) {
++	if (ec && entry->refcount == 0) {
+ 		status = ssam_ssh_event_disable(ctrl, reg, id, flags);
+ 		kfree(entry);
+ 	}
+@@ -2322,20 +2333,26 @@ int ssam_notifier_register(struct ssam_controller *ctrl, struct ssam_event_notif
+ EXPORT_SYMBOL_GPL(ssam_notifier_register);
+ 
+ /**
+- * ssam_notifier_unregister() - Unregister an event notifier.
+- * @ctrl: The controller the notifier has been registered on.
+- * @n:    The event notifier to unregister.
++ * __ssam_notifier_unregister() - Unregister an event notifier.
++ * @ctrl:    The controller the notifier has been registered on.
++ * @n:       The event notifier to unregister.
++ * @disable: Whether to disable the corresponding event on the EC.
+  *
+  * Unregister an event notifier. Decrement the usage counter of the associated
+  * SAM event if the notifier is not marked as an observer. If the usage counter
+- * reaches zero, the event will be disabled.
++ * reaches zero and ``disable`` equals ``true``, the event will be disabled.
++ *
++ * Useful for hot-removable devices, where communication may fail once the
++ * device has been physically removed. In that case, specifying ``disable`` as
++ * ``false`` avoids communication with the EC.
+  *
+  * Return: Returns zero on success, %-ENOENT if the given notifier block has
+  * not been registered on the controller. If the given notifier block was the
+  * last one associated with its specific event, returns the status of the
+  * event-disable EC-command.
+  */
+-int ssam_notifier_unregister(struct ssam_controller *ctrl, struct ssam_event_notifier *n)
++int __ssam_notifier_unregister(struct ssam_controller *ctrl, struct ssam_event_notifier *n,
++			       bool disable)
+ {
+ 	u16 rqid = ssh_tc_to_rqid(n->event.id.target_category);
+ 	struct ssam_nf_refcount_entry *entry;
+@@ -2373,7 +2390,7 @@ int ssam_notifier_unregister(struct ssam_controller *ctrl, struct ssam_event_not
+ 			goto remove;
+ 		}
+ 
+-		status = ssam_nf_refcount_disable_free(ctrl, entry, n->event.flags);
++		status = ssam_nf_refcount_disable_free(ctrl, entry, n->event.flags, disable);
+ 	}
+ 
+ remove:
+@@ -2383,7 +2400,7 @@ int ssam_notifier_unregister(struct ssam_controller *ctrl, struct ssam_event_not
+ 
+ 	return status;
+ }
+-EXPORT_SYMBOL_GPL(ssam_notifier_unregister);
++EXPORT_SYMBOL_GPL(__ssam_notifier_unregister);
+ 
+ /**
+  * ssam_controller_event_enable() - Enable the specified event.
+@@ -2477,7 +2494,7 @@ int ssam_controller_event_disable(struct ssam_controller *ctrl,
+ 		return -ENOENT;
+ 	}
+ 
+-	status = ssam_nf_refcount_disable_free(ctrl, entry, flags);
++	status = ssam_nf_refcount_disable_free(ctrl, entry, flags, true);
+ 
+ 	mutex_unlock(&nf->lock);
+ 	return status;
+diff --git a/include/linux/surface_aggregator/controller.h b/include/linux/surface_aggregator/controller.h
+index 74bfdffaf7b0..50a2b4926c06 100644
+--- a/include/linux/surface_aggregator/controller.h
++++ b/include/linux/surface_aggregator/controller.h
+@@ -835,8 +835,28 @@ struct ssam_event_notifier {
+ int ssam_notifier_register(struct ssam_controller *ctrl,
+ 			   struct ssam_event_notifier *n);
+ 
+-int ssam_notifier_unregister(struct ssam_controller *ctrl,
+-			     struct ssam_event_notifier *n);
++int __ssam_notifier_unregister(struct ssam_controller *ctrl,
++			       struct ssam_event_notifier *n, bool disable);
++
++/**
++ * ssam_notifier_unregister() - Unregister an event notifier.
++ * @ctrl:    The controller the notifier has been registered on.
++ * @n:       The event notifier to unregister.
++ *
++ * Unregister an event notifier. Decrement the usage counter of the associated
++ * SAM event if the notifier is not marked as an observer. If the usage counter
++ * reaches zero, the event will be disabled.
++ *
++ * Return: Returns zero on success, %-ENOENT if the given notifier block has
++ * not been registered on the controller. If the given notifier block was the
++ * last one associated with its specific event, returns the status of the
++ * event-disable EC-command.
++ */
++static inline int ssam_notifier_unregister(struct ssam_controller *ctrl,
++					   struct ssam_event_notifier *n)
++{
++	return __ssam_notifier_unregister(ctrl, n, true);
++}
+ 
+ int ssam_controller_event_enable(struct ssam_controller *ctrl,
+ 				 struct ssam_event_registry reg,
+diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
+index 491aa7e9f4bc..ad245c6b00d0 100644
+--- a/include/linux/surface_aggregator/device.h
++++ b/include/linux/surface_aggregator/device.h
+@@ -472,4 +472,70 @@ static inline void ssam_remove_clients(struct device *dev) {}
+ 				    sdev->uid.instance, ret);		\
+ 	}
+ 
++
++/* -- Helpers for client-device notifiers. ---------------------------------- */
++
++/**
++ * ssam_device_notifier_register() - Register an event notifier for the
++ * specified client device.
++ * @sdev: The device the notifier should be registered on.
++ * @n:    The event notifier to register.
++ *
++ * Register an event notifier. Increment the usage counter of the associated
++ * SAM event if the notifier is not marked as an observer. If the event is not
++ * marked as an observer and is currently not enabled, it will be enabled
++ * during this call. If the notifier is marked as an observer, no attempt will
++ * be made at enabling any event and no reference count will be modified.
++ *
++ * Notifiers marked as observers do not need to be associated with one specific
++ * event, i.e. as long as no event matching is performed, only the event target
++ * category needs to be set.
++ *
++ * Return: Returns zero on success, %-ENOSPC if there have already been
++ * %INT_MAX notifiers for the event ID/type associated with the notifier block
++ * registered, %-ENOMEM if the corresponding event entry could not be
++ * allocated, %-ENODEV if the device is marked as hot-removed. If this is the
++ * first time that a notifier block is registered for the specific associated
++ * event, returns the status of the event-enable EC-command.
++ */
++static inline int ssam_device_notifier_register(struct ssam_device *sdev,
++						struct ssam_event_notifier *n)
++{
++	/*
++	 * Note that this check does not provide any guarantees whatsoever as
++	 * hot-removal could happen at any point and we can't protect against
++	 * it. Nevertheless, if we can detect hot-removal, bail early to avoid
++	 * communication timeouts.
++	 */
++	if (ssam_device_is_hot_removed(sdev))
++		return -ENODEV;
++
++	return ssam_notifier_register(sdev->ctrl, n);
++}
++
++/**
++ * ssam_device_notifier_unregister() - Unregister an event notifier for the
++ * specified client device.
++ * @sdev: The device the notifier has been registered on.
++ * @n:    The event notifier to unregister.
++ *
++ * Unregister an event notifier. Decrement the usage counter of the associated
++ * SAM event if the notifier is not marked as an observer. If the usage counter
++ * reaches zero, the event will be disabled.
++ *
++ * In case the device has been marked as hot-removed, the event will not be
++ * disabled on the EC, as in those cases any attempt at doing so may time out.
++ *
++ * Return: Returns zero on success, %-ENOENT if the given notifier block has
++ * not been registered on the controller. If the given notifier block was the
++ * last one associated with its specific event, returns the status of the
++ * event-disable EC-command.
++ */
++static inline int ssam_device_notifier_unregister(struct ssam_device *sdev,
++						  struct ssam_event_notifier *n)
++{
++	return __ssam_notifier_unregister(sdev->ctrl, n,
++					  !ssam_device_is_hot_removed(sdev));
++}
++
+ #endif /* _LINUX_SURFACE_AGGREGATOR_DEVICE_H */
+-- 
+2.36.1
+
+From 01a341b88606f2e4523134a2ec17a21b7c252370 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Tue, 8 Jun 2021 01:20:49 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Use client device
+ wrappers for notifier registration
+
+Use newly introduced client device wrapper functions for notifier
+registration and unregistration.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index ce2bd88feeaa..9f630e890ff7 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -468,7 +468,7 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
+ 
+ 	ssam_device_set_drvdata(sdev, hub);
+ 
+-	status = ssam_notifier_register(sdev->ctrl, &hub->notif);
++	status = ssam_device_notifier_register(sdev, &hub->notif);
+ 	if (status)
+ 		return status;
+ 
+@@ -480,7 +480,7 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
+ 	return 0;
+ 
+ err:
+-	ssam_notifier_unregister(sdev->ctrl, &hub->notif);
++	ssam_device_notifier_unregister(sdev, &hub->notif);
+ 	cancel_delayed_work_sync(&hub->update_work);
+ 	ssam_remove_clients(&sdev->dev);
+ 	return status;
+@@ -492,7 +492,7 @@ static void ssam_base_hub_remove(struct ssam_device *sdev)
+ 
+ 	sysfs_remove_group(&sdev->dev.kobj, &ssam_base_hub_group);
+ 
+-	ssam_notifier_unregister(sdev->ctrl, &hub->notif);
++	ssam_device_notifier_unregister(sdev, &hub->notif);
+ 	cancel_delayed_work_sync(&hub->update_work);
+ 	ssam_remove_clients(&sdev->dev);
+ }
+-- 
+2.36.1
+
+From 337f42d4d9482d3d1fcc81f86e0615b7dbed8f43 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Thu, 28 Oct 2021 03:37:06 +0200
+Subject: [PATCH] power/supply: surface_charger: Use client device wrappers for
+ notifier registration
+
+Use newly introduced client device wrapper functions for notifier
+registration and unregistration.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/power/supply/surface_charger.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/power/supply/surface_charger.c b/drivers/power/supply/surface_charger.c
+index a060c36c7766..59182d55742d 100644
+--- a/drivers/power/supply/surface_charger.c
++++ b/drivers/power/supply/surface_charger.c
+@@ -216,7 +216,7 @@ static int spwr_ac_register(struct spwr_ac_device *ac)
+ 	if (IS_ERR(ac->psy))
+ 		return PTR_ERR(ac->psy);
+ 
+-	return ssam_notifier_register(ac->sdev->ctrl, &ac->notif);
++	return ssam_device_notifier_register(ac->sdev, &ac->notif);
+ }
+ 
+ 
+@@ -251,7 +251,7 @@ static void surface_ac_remove(struct ssam_device *sdev)
+ {
+ 	struct spwr_ac_device *ac = ssam_device_get_drvdata(sdev);
+ 
+-	ssam_notifier_unregister(sdev->ctrl, &ac->notif);
++	ssam_device_notifier_unregister(sdev, &ac->notif);
+ }
+ 
+ static const struct spwr_psy_properties spwr_psy_props_adp1 = {
+-- 
+2.36.1
+
+From bcd638f85b4838e83cff7df5e6b84f6d2a72a4c2 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Thu, 28 Oct 2021 03:38:09 +0200
+Subject: [PATCH] power/supply: surface_battery: Use client device wrappers for
+ notifier registration
+
+Use newly introduced client device wrapper functions for notifier
+registration and unregistration.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/power/supply/surface_battery.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/power/supply/surface_battery.c b/drivers/power/supply/surface_battery.c
+index 5ec2e6bb2465..540707882bb0 100644
+--- a/drivers/power/supply/surface_battery.c
++++ b/drivers/power/supply/surface_battery.c
+@@ -802,7 +802,7 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
+ 	if (IS_ERR(bat->psy))
+ 		return PTR_ERR(bat->psy);
+ 
+-	return ssam_notifier_register(bat->sdev->ctrl, &bat->notif);
++	return ssam_device_notifier_register(bat->sdev, &bat->notif);
+ }
+ 
+ 
+@@ -837,7 +837,7 @@ static void surface_battery_remove(struct ssam_device *sdev)
+ {
+ 	struct spwr_battery_device *bat = ssam_device_get_drvdata(sdev);
+ 
+-	ssam_notifier_unregister(sdev->ctrl, &bat->notif);
++	ssam_device_notifier_unregister(sdev, &bat->notif);
+ 	cancel_delayed_work_sync(&bat->update_work);
+ }
+ 
+-- 
+2.36.1
+
+From cd0d0fd5cb8891a768117a4b942930fdd948daa4 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Tue, 8 Jun 2021 01:33:02 +0200
+Subject: [PATCH] HID: surface-hid: Add support for hot-removal
+
+Add support for hot-removal of SSAM HID client devices.
+
+Once a device has been hot-removed, further communication with it should
+be avoided as it may fail and time out. While the device will be removed
+as soon as we detect hot-removal, communication may still occur during
+teardown, especially when unregistering notifiers.
+
+While hot-removal is a surprise event that can happen at any time, try
+to avoid communication as much as possible once it has been detected to
+prevent timeouts that can slow down device removal and cause issues,
+e.g. when quickly re-attaching the device.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/hid/surface-hid/surface_hid_core.c | 38 +++++++++++++++++++++-
+ 1 file changed, 37 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/hid/surface-hid/surface_hid_core.c b/drivers/hid/surface-hid/surface_hid_core.c
+index e46330b2e561..87637f813de2 100644
+--- a/drivers/hid/surface-hid/surface_hid_core.c
++++ b/drivers/hid/surface-hid/surface_hid_core.c
+@@ -19,12 +19,30 @@
+ #include "surface_hid_core.h"
+ 
+ 
++/* -- Utility functions. ---------------------------------------------------- */
++
++static bool surface_hid_is_hot_removed(struct surface_hid_device *shid)
++{
++	/*
++	 * Non-ssam client devices, i.e. platform client devices, cannot be
++	 * hot-removed.
++	 */
++	if (!is_ssam_device(shid->dev))
++		return false;
++
++	return ssam_device_is_hot_removed(to_ssam_device(shid->dev));
++}
++
++
+ /* -- Device descriptor access. --------------------------------------------- */
+ 
+ static int surface_hid_load_hid_descriptor(struct surface_hid_device *shid)
+ {
+ 	int status;
+ 
++	if (surface_hid_is_hot_removed(shid))
++		return -ENODEV;
++
+ 	status = shid->ops.get_descriptor(shid, SURFACE_HID_DESC_HID,
+ 			(u8 *)&shid->hid_desc, sizeof(shid->hid_desc));
+ 	if (status)
+@@ -61,6 +79,9 @@ static int surface_hid_load_device_attributes(struct surface_hid_device *shid)
+ {
+ 	int status;
+ 
++	if (surface_hid_is_hot_removed(shid))
++		return -ENODEV;
++
+ 	status = shid->ops.get_descriptor(shid, SURFACE_HID_DESC_ATTRS,
+ 			(u8 *)&shid->attrs, sizeof(shid->attrs));
+ 	if (status)
+@@ -88,9 +109,18 @@ static int surface_hid_start(struct hid_device *hid)
+ static void surface_hid_stop(struct hid_device *hid)
+ {
+ 	struct surface_hid_device *shid = hid->driver_data;
++	bool hot_removed;
++
++	/*
++	 * Communication may fail for devices that have been hot-removed. This
++	 * also includes unregistration of HID events, so we need to check this
++	 * here. Only if the device has not been marked as hot-removed, we can
++	 * safely disable events.
++	 */
++	hot_removed = surface_hid_is_hot_removed(shid);
+ 
+ 	/* Note: This call will log errors for us, so ignore them here. */
+-	ssam_notifier_unregister(shid->ctrl, &shid->notif);
++	__ssam_notifier_unregister(shid->ctrl, &shid->notif, !hot_removed);
+ }
+ 
+ static int surface_hid_open(struct hid_device *hid)
+@@ -109,6 +139,9 @@ static int surface_hid_parse(struct hid_device *hid)
+ 	u8 *buf;
+ 	int status;
+ 
++	if (surface_hid_is_hot_removed(shid))
++		return -ENODEV;
++
+ 	buf = kzalloc(len, GFP_KERNEL);
+ 	if (!buf)
+ 		return -ENOMEM;
+@@ -126,6 +159,9 @@ static int surface_hid_raw_request(struct hid_device *hid, unsigned char reportn
+ {
+ 	struct surface_hid_device *shid = hid->driver_data;
+ 
++	if (surface_hid_is_hot_removed(shid))
++		return -ENODEV;
++
+ 	if (rtype == HID_OUTPUT_REPORT && reqtype == HID_REQ_SET_REPORT)
+ 		return shid->ops.output_report(shid, reportnum, buf, len);
+ 
+-- 
+2.36.1
+
+From 3c1d8a475299af30b1a048d1b256374284aae1b7 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 31 Oct 2021 12:34:08 +0100
+Subject: [PATCH] platform/surface: aggregator: Add comment for KIP subsystem
+ category
+
+The KIP subsystem (full name unknown, abbreviation has been obtained
+through reverse engineering) handles detachable peripherals such as the
+keyboard cover on the Surface Pro X and Surface Pro 8.
+
+It is currently not entirely clear what this subsystem entails, but at
+the very least it provides event notifications for when the keyboard
+cover on the Surface Pro X and Surface Pro 8 have been detached or
+re-attached, as well as the state that the keyboard cover is currently
+in (e.g. folded-back, folded laptop-like, closed, etc.).
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ include/linux/surface_aggregator/serial_hub.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/include/linux/surface_aggregator/serial_hub.h b/include/linux/surface_aggregator/serial_hub.h
+index c3de43edcffa..26b95ec12733 100644
+--- a/include/linux/surface_aggregator/serial_hub.h
++++ b/include/linux/surface_aggregator/serial_hub.h
+@@ -306,7 +306,7 @@ enum ssam_ssh_tc {
+ 	SSAM_SSH_TC_LPC = 0x0b,
+ 	SSAM_SSH_TC_TCL = 0x0c,
+ 	SSAM_SSH_TC_SFL = 0x0d,
+-	SSAM_SSH_TC_KIP = 0x0e,
++	SSAM_SSH_TC_KIP = 0x0e,	/* Manages detachable peripherals (Pro X/8 keyboard cover) */
+ 	SSAM_SSH_TC_EXT = 0x0f,
+ 	SSAM_SSH_TC_BLD = 0x10,
+ 	SSAM_SSH_TC_BAS = 0x11,	/* Detachment system (Surface Book 2/3). */
+-- 
+2.36.1
+
+From e6e17e3230c3d67976b698b1ee055d7c8ed39e42 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 29 Apr 2022 22:42:32 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Generify subsystem hub
+ functionality
+
+The Surface System Aggregator Module (SSAM) has multiple subsystems that
+can manage detachable devices. At the moment, we only support the "base"
+(BAS/0x11) subsystem, which is used on the Surface Book 3 to manage
+devices (including keyboard, touchpad, and secondary battery) connected
+to the base of the device.
+
+The Surface Pro 8 has a new type-cover with keyboard and touchpad, which
+is managed via the KIP/0x0e subsystem. The general procedure is the
+same, but with slightly different events and setup. To make
+implementation of the KIP hub easier and prevent duplication, generify
+the parts of the base hub that we can use for the KIP hub (or any
+potential future subsystem hubs).
+
+This also switches over to use the newly introduced "hot-remove"
+functionality, which should prevent communication issues when devices
+have been detached.
+
+Lastly, also drop the undocumented and unused sysfs "state" attribute of
+the base hub. It has at best been useful for debugging.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c     | 269 ++++++++++--------
+ 1 file changed, 153 insertions(+), 116 deletions(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 9f630e890ff7..09cbeee2428b 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -308,30 +308,159 @@ static int ssam_hub_register_clients(struct device *parent, struct ssam_controll
+ }
+ 
+ 
+-/* -- SSAM base-hub driver. ------------------------------------------------- */
++/* -- SSAM generic subsystem hub driver framework. -------------------------- */
+ 
+-/*
+- * Some devices (especially battery) may need a bit of time to be fully usable
+- * after being (re-)connected. This delay has been determined via
+- * experimentation.
+- */
+-#define SSAM_BASE_UPDATE_CONNECT_DELAY		msecs_to_jiffies(2500)
++enum ssam_hub_state {
++	SSAM_HUB_UNINITIALIZED,		/* Only set during initialization. */
++	SSAM_HUB_CONNECTED,
++	SSAM_HUB_DISCONNECTED,
++};
+ 
+-enum ssam_base_hub_state {
+-	SSAM_BASE_HUB_UNINITIALIZED,
+-	SSAM_BASE_HUB_CONNECTED,
+-	SSAM_BASE_HUB_DISCONNECTED,
++enum ssam_hub_flags {
++	SSAM_HUB_HOT_REMOVED,
+ };
+ 
+-struct ssam_base_hub {
++struct ssam_hub {
+ 	struct ssam_device *sdev;
+ 
+-	enum ssam_base_hub_state state;
++	enum ssam_hub_state state;
++	unsigned long flags;
++
+ 	struct delayed_work update_work;
++	unsigned long connect_delay;
+ 
+ 	struct ssam_event_notifier notif;
++
++	int (*get_state)(struct ssam_hub *hub, enum ssam_hub_state *state);
+ };
+ 
++static void ssam_hub_update_workfn(struct work_struct *work)
++{
++	struct ssam_hub *hub = container_of(work, struct ssam_hub, update_work.work);
++	struct fwnode_handle *node = dev_fwnode(&hub->sdev->dev);
++	enum ssam_hub_state state;
++	int status = 0;
++
++	status = hub->get_state(hub, &state);
++	if (status)
++		return;
++
++	/*
++	 * There is a small possibility that hub devices were hot-removed and
++	 * re-added before we were able to remove them here. In that case, both
++	 * the state returned by get_state() and the state of the hub will
++	 * equal SSAM_HUB_CONNECTED and we would bail early below, which would
++	 * leave child devices without proper (re-)initialization and the
++	 * hot-remove flag set.
++	 *
++	 * Therefore, we check whether devices have been hot-removed via an
++	 * additional flag on the hub and, in this case, override the returned
++	 * hub state. In case of a missed disconnect (i.e. get_state returned
++	 * "connected"), we further need to re-schedule this work (with the
++	 * appropriate delay) as the actual connect work submission might have
++	 * been merged with this one.
++	 *
++	 * This then leads to one of two cases: Either we submit an unnecessary
++	 * work item (which will get ignored via either the queue or the state
++	 * checks) or, in the unlikely case that the work is actually required,
++	 * double the normal connect delay.
++	 */
++	if (test_and_clear_bit(SSAM_HUB_HOT_REMOVED, &hub->flags)) {
++		if (state == SSAM_HUB_CONNECTED)
++			schedule_delayed_work(&hub->update_work, hub->connect_delay);
++
++		state = SSAM_HUB_DISCONNECTED;
++	}
++
++	if (hub->state == state)
++		return;
++	hub->state = state;
++
++	if (hub->state == SSAM_HUB_CONNECTED)
++		status = ssam_hub_register_clients(&hub->sdev->dev, hub->sdev->ctrl, node);
++	else
++		ssam_remove_clients(&hub->sdev->dev);
++
++	if (status)
++		dev_err(&hub->sdev->dev, "failed to update hub child devices: %d\n", status);
++}
++
++static int ssam_hub_mark_hot_removed(struct device *dev, void *_data)
++{
++	struct ssam_device *sdev = to_ssam_device(dev);
++
++	if (is_ssam_device(dev))
++		ssam_device_mark_hot_removed(sdev);
++
++	return 0;
++}
++
++static void ssam_hub_update(struct ssam_hub *hub, bool connected)
++{
++	unsigned long delay;
++
++	/* Mark devices as hot-removed before we remove any. */
++	if (!connected) {
++		set_bit(SSAM_HUB_HOT_REMOVED, &hub->flags);
++		device_for_each_child_reverse(&hub->sdev->dev, NULL, ssam_hub_mark_hot_removed);
++	}
++
++	/*
++	 * Delay update when the base/keyboard cover is being connected to give
++	 * devices/EC some time to set up.
++	 */
++	delay = connected ? hub->connect_delay : 0;
++
++	schedule_delayed_work(&hub->update_work, delay);
++}
++
++static int __maybe_unused ssam_hub_resume(struct device *dev)
++{
++	struct ssam_hub *hub = dev_get_drvdata(dev);
++
++	schedule_delayed_work(&hub->update_work, 0);
++	return 0;
++}
++static SIMPLE_DEV_PM_OPS(ssam_hub_pm_ops, NULL, ssam_hub_resume);
++
++static int ssam_hub_setup(struct ssam_device *sdev, struct ssam_hub *hub)
++{
++	int status;
++
++	hub->sdev = sdev;
++	hub->state = SSAM_HUB_UNINITIALIZED;
++
++	INIT_DELAYED_WORK(&hub->update_work, ssam_hub_update_workfn);
++
++	ssam_device_set_drvdata(sdev, hub);
++
++	status = ssam_device_notifier_register(sdev, &hub->notif);
++	if (status)
++		return status;
++
++	schedule_delayed_work(&hub->update_work, 0);
++	return 0;
++}
++
++static void ssam_hub_remove(struct ssam_device *sdev)
++{
++	struct ssam_hub *hub = ssam_device_get_drvdata(sdev);
++
++	ssam_device_notifier_unregister(sdev, &hub->notif);
++	cancel_delayed_work_sync(&hub->update_work);
++	ssam_remove_clients(&sdev->dev);
++}
++
++
++/* -- SSAM base-hub driver. ------------------------------------------------- */
++
++/*
++ * Some devices (especially battery) may need a bit of time to be fully usable
++ * after being (re-)connected. This delay has been determined via
++ * experimentation.
++ */
++#define SSAM_BASE_UPDATE_CONNECT_DELAY		msecs_to_jiffies(2500)
++
+ SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_query_opmode, u8, {
+ 	.target_category = SSAM_SSH_TC_BAS,
+ 	.target_id       = 0x01,
+@@ -342,7 +471,7 @@ SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_query_opmode, u8, {
+ #define SSAM_BAS_OPMODE_TABLET		0x00
+ #define SSAM_EVENT_BAS_CID_CONNECTION	0x0c
+ 
+-static int ssam_base_hub_query_state(struct ssam_base_hub *hub, enum ssam_base_hub_state *state)
++static int ssam_base_hub_query_state(struct ssam_hub *hub, enum ssam_hub_state *state)
+ {
+ 	u8 opmode;
+ 	int status;
+@@ -354,62 +483,16 @@ static int ssam_base_hub_query_state(struct ssam_base_hub *hub, enum ssam_base_h
+ 	}
+ 
+ 	if (opmode != SSAM_BAS_OPMODE_TABLET)
+-		*state = SSAM_BASE_HUB_CONNECTED;
++		*state = SSAM_HUB_CONNECTED;
+ 	else
+-		*state = SSAM_BASE_HUB_DISCONNECTED;
++		*state = SSAM_HUB_DISCONNECTED;
+ 
+ 	return 0;
+ }
+ 
+-static ssize_t ssam_base_hub_state_show(struct device *dev, struct device_attribute *attr,
+-					char *buf)
+-{
+-	struct ssam_base_hub *hub = dev_get_drvdata(dev);
+-	bool connected = hub->state == SSAM_BASE_HUB_CONNECTED;
+-
+-	return sysfs_emit(buf, "%d\n", connected);
+-}
+-
+-static struct device_attribute ssam_base_hub_attr_state =
+-	__ATTR(state, 0444, ssam_base_hub_state_show, NULL);
+-
+-static struct attribute *ssam_base_hub_attrs[] = {
+-	&ssam_base_hub_attr_state.attr,
+-	NULL,
+-};
+-
+-static const struct attribute_group ssam_base_hub_group = {
+-	.attrs = ssam_base_hub_attrs,
+-};
+-
+-static void ssam_base_hub_update_workfn(struct work_struct *work)
+-{
+-	struct ssam_base_hub *hub = container_of(work, struct ssam_base_hub, update_work.work);
+-	struct fwnode_handle *node = dev_fwnode(&hub->sdev->dev);
+-	enum ssam_base_hub_state state;
+-	int status = 0;
+-
+-	status = ssam_base_hub_query_state(hub, &state);
+-	if (status)
+-		return;
+-
+-	if (hub->state == state)
+-		return;
+-	hub->state = state;
+-
+-	if (hub->state == SSAM_BASE_HUB_CONNECTED)
+-		status = ssam_hub_register_clients(&hub->sdev->dev, hub->sdev->ctrl, node);
+-	else
+-		ssam_remove_clients(&hub->sdev->dev);
+-
+-	if (status)
+-		dev_err(&hub->sdev->dev, "failed to update base-hub devices: %d\n", status);
+-}
+-
+ static u32 ssam_base_hub_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
+ {
+-	struct ssam_base_hub *hub = container_of(nf, struct ssam_base_hub, notif);
+-	unsigned long delay;
++	struct ssam_hub *hub = container_of(nf, struct ssam_hub, notif);
+ 
+ 	if (event->command_id != SSAM_EVENT_BAS_CID_CONNECTION)
+ 		return 0;
+@@ -419,13 +502,7 @@ static u32 ssam_base_hub_notif(struct ssam_event_notifier *nf, const struct ssam
+ 		return 0;
+ 	}
+ 
+-	/*
+-	 * Delay update when the base is being connected to give devices/EC
+-	 * some time to set up.
+-	 */
+-	delay = event->data[0] ? SSAM_BASE_UPDATE_CONNECT_DELAY : 0;
+-
+-	schedule_delayed_work(&hub->update_work, delay);
++	ssam_hub_update(hub, event->data[0]);
+ 
+ 	/*
+ 	 * Do not return SSAM_NOTIF_HANDLED: The event should be picked up and
+@@ -435,27 +512,14 @@ static u32 ssam_base_hub_notif(struct ssam_event_notifier *nf, const struct ssam
+ 	return 0;
+ }
+ 
+-static int __maybe_unused ssam_base_hub_resume(struct device *dev)
+-{
+-	struct ssam_base_hub *hub = dev_get_drvdata(dev);
+-
+-	schedule_delayed_work(&hub->update_work, 0);
+-	return 0;
+-}
+-static SIMPLE_DEV_PM_OPS(ssam_base_hub_pm_ops, NULL, ssam_base_hub_resume);
+-
+ static int ssam_base_hub_probe(struct ssam_device *sdev)
+ {
+-	struct ssam_base_hub *hub;
+-	int status;
++	struct ssam_hub *hub;
+ 
+ 	hub = devm_kzalloc(&sdev->dev, sizeof(*hub), GFP_KERNEL);
+ 	if (!hub)
+ 		return -ENOMEM;
+ 
+-	hub->sdev = sdev;
+-	hub->state = SSAM_BASE_HUB_UNINITIALIZED;
+-
+ 	hub->notif.base.priority = INT_MAX;  /* This notifier should run first. */
+ 	hub->notif.base.fn = ssam_base_hub_notif;
+ 	hub->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
+@@ -464,37 +528,10 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
+ 	hub->notif.event.mask = SSAM_EVENT_MASK_NONE;
+ 	hub->notif.event.flags = SSAM_EVENT_SEQUENCED;
+ 
+-	INIT_DELAYED_WORK(&hub->update_work, ssam_base_hub_update_workfn);
+-
+-	ssam_device_set_drvdata(sdev, hub);
+-
+-	status = ssam_device_notifier_register(sdev, &hub->notif);
+-	if (status)
+-		return status;
+-
+-	status = sysfs_create_group(&sdev->dev.kobj, &ssam_base_hub_group);
+-	if (status)
+-		goto err;
+-
+-	schedule_delayed_work(&hub->update_work, 0);
+-	return 0;
++	hub->connect_delay = SSAM_BASE_UPDATE_CONNECT_DELAY;
++	hub->get_state = ssam_base_hub_query_state;
+ 
+-err:
+-	ssam_device_notifier_unregister(sdev, &hub->notif);
+-	cancel_delayed_work_sync(&hub->update_work);
+-	ssam_remove_clients(&sdev->dev);
+-	return status;
+-}
+-
+-static void ssam_base_hub_remove(struct ssam_device *sdev)
+-{
+-	struct ssam_base_hub *hub = ssam_device_get_drvdata(sdev);
+-
+-	sysfs_remove_group(&sdev->dev.kobj, &ssam_base_hub_group);
+-
+-	ssam_device_notifier_unregister(sdev, &hub->notif);
+-	cancel_delayed_work_sync(&hub->update_work);
+-	ssam_remove_clients(&sdev->dev);
++	return ssam_hub_setup(sdev, hub);
+ }
+ 
+ static const struct ssam_device_id ssam_base_hub_match[] = {
+@@ -504,12 +541,12 @@ static const struct ssam_device_id ssam_base_hub_match[] = {
+ 
+ static struct ssam_device_driver ssam_base_hub_driver = {
+ 	.probe = ssam_base_hub_probe,
+-	.remove = ssam_base_hub_remove,
++	.remove = ssam_hub_remove,
+ 	.match_table = ssam_base_hub_match,
+ 	.driver = {
+ 		.name = "surface_aggregator_base_hub",
+ 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
+-		.pm = &ssam_base_hub_pm_ops,
++		.pm = &ssam_hub_pm_ops,
+ 	},
+ };
+ 
+-- 
+2.36.1
+
+From 974e92e633c22cbf9bcdc4e0669ee5464bfd602e Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 29 Apr 2022 23:02:06 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add KIP device hub
+
+Add a Surface System Aggregator Module (SSAM) client device hub for
+hot-removable devices managed via the KIP subsystem.
+
+The KIP subsystem (full name unknown, abbreviation has been obtained
+through reverse engineering) is a subsystem that manages hot-removable
+SSAM client devices. Specifically, it manages HID input devices
+contained in the detachable keyboard cover of the Surface Pro 8 and
+Surface Pro X.
+
+The KIP subsystem handles a single group of devices (e.g. all devices
+contained in the keyboard cover) and cannot handle devices individually.
+Thus we model it as a client device hub, which (hot-)removes all devices
+contained under it once removal of the hub (e.g. keyboard cover) has
+been detected and (re-)adds all devices once the physical hub device has
+been (re-)attached. To do this, use the previously generified SSAM
+subsystem hub framework.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c     | 103 +++++++++++++++++-
+ 1 file changed, 101 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 09cbeee2428b..1e60435c7cce 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -551,6 +551,93 @@ static struct ssam_device_driver ssam_base_hub_driver = {
+ };
+ 
+ 
++/* -- SSAM KIP-subsystem hub driver. ---------------------------------------- */
++
++/*
++ * Some devices may need a bit of time to be fully usable after being
++ * (re-)connected. This delay has been determined via experimentation.
++ */
++#define SSAM_KIP_UPDATE_CONNECT_DELAY		msecs_to_jiffies(250)
++
++#define SSAM_EVENT_KIP_CID_CONNECTION		0x2c
++
++SSAM_DEFINE_SYNC_REQUEST_R(__ssam_kip_get_connection_state, u8, {
++	.target_category = SSAM_SSH_TC_KIP,
++	.target_id       = 0x01,
++	.command_id      = 0x2c,
++	.instance_id     = 0x00,
++});
++
++static int ssam_kip_get_connection_state(struct ssam_hub *hub, enum ssam_hub_state *state)
++{
++	int status;
++	u8 connected;
++
++	status = ssam_retry(__ssam_kip_get_connection_state, hub->sdev->ctrl, &connected);
++	if (status < 0) {
++		dev_err(&hub->sdev->dev, "failed to query KIP connection state: %d\n", status);
++		return status;
++	}
++
++	*state = connected ? SSAM_HUB_CONNECTED : SSAM_HUB_DISCONNECTED;
++	return 0;
++}
++
++static u32 ssam_kip_hub_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
++{
++	struct ssam_hub *hub = container_of(nf, struct ssam_hub, notif);
++
++	if (event->command_id != SSAM_EVENT_KIP_CID_CONNECTION)
++		return 0;	/* Return "unhandled". */
++
++	if (event->length < 1) {
++		dev_err(&hub->sdev->dev, "unexpected payload size: %u\n", event->length);
++		return 0;
++	}
++
++	ssam_hub_update(hub, event->data[0]);
++	return SSAM_NOTIF_HANDLED;
++}
++
++static int ssam_kip_hub_probe(struct ssam_device *sdev)
++{
++	struct ssam_hub *hub;
++
++	hub = devm_kzalloc(&sdev->dev, sizeof(*hub), GFP_KERNEL);
++	if (!hub)
++		return -ENOMEM;
++
++	hub->notif.base.priority = INT_MAX;  /* This notifier should run first. */
++	hub->notif.base.fn = ssam_kip_hub_notif;
++	hub->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
++	hub->notif.event.id.target_category = SSAM_SSH_TC_KIP,
++	hub->notif.event.id.instance = 0,
++	hub->notif.event.mask = SSAM_EVENT_MASK_TARGET;
++	hub->notif.event.flags = SSAM_EVENT_SEQUENCED;
++
++	hub->connect_delay = SSAM_KIP_UPDATE_CONNECT_DELAY;
++	hub->get_state = ssam_kip_get_connection_state;
++
++	return ssam_hub_setup(sdev, hub);
++}
++
++static const struct ssam_device_id ssam_kip_hub_match[] = {
++	{ SSAM_SDEV(KIP, 0x01, 0x00, 0x00) },
++	{ },
++};
++
++static struct ssam_device_driver ssam_kip_hub_driver = {
++	.probe = ssam_kip_hub_probe,
++	.remove = ssam_hub_remove,
++	.match_table = ssam_kip_hub_match,
++	.driver = {
++		.name = "surface_kip_hub",
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++		.pm = &ssam_hub_pm_ops,
++	},
++};
++
++
+ /* -- SSAM platform/meta-hub driver. ---------------------------------------- */
+ 
+ static const struct acpi_device_id ssam_platform_hub_match[] = {
+@@ -673,18 +760,30 @@ static int __init ssam_device_hub_init(void)
+ 
+ 	status = platform_driver_register(&ssam_platform_hub_driver);
+ 	if (status)
+-		return status;
++		goto err_platform;
+ 
+ 	status = ssam_device_driver_register(&ssam_base_hub_driver);
+ 	if (status)
+-		platform_driver_unregister(&ssam_platform_hub_driver);
++		goto err_base;
++
++	status = ssam_device_driver_register(&ssam_kip_hub_driver);
++	if (status)
++		goto err_kip;
+ 
++	return 0;
++
++err_kip:
++	ssam_device_driver_unregister(&ssam_base_hub_driver);
++err_base:
++	platform_driver_unregister(&ssam_platform_hub_driver);
++err_platform:
+ 	return status;
+ }
+ module_init(ssam_device_hub_init);
+ 
+ static void __exit ssam_device_hub_exit(void)
+ {
++	ssam_device_driver_unregister(&ssam_kip_hub_driver);
+ 	ssam_device_driver_unregister(&ssam_base_hub_driver);
+ 	platform_driver_unregister(&ssam_platform_hub_driver);
+ }
+-- 
+2.36.1
+
+From b2163fb7f8188fd153f72b6fc83e94eba6c2fb2f Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Wed, 27 Oct 2021 22:33:03 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for
+ keyboard cover on Surface Pro 8
+
+Add support for the detachable keyboard cover on the Surface Pro 8.
+
+The keyboard cover on the Surface Pro 8 is, unlike the keyboard covers
+of earlier Surface Pro generations, handled via the Surface System
+Aggregator Module (SSAM). The keyboard and touchpad (as well as other
+HID input devices) of this cover are standard SSAM HID client devices
+(just like keyboard and touchpad on e.g. the Surface Laptop 3 and 4),
+however, some care needs to be taken as they can be physically detached
+(similarly to the Surface Book 3). Specifically, the respective SSAM
+client devices need to be removed when the keyboard cover has been
+detached and (re-)initialized when the keyboard cover has been
+(re-)attached.
+
+On the Surface Pro 8, detachment of the keyboard cover (and by extension
+its devices) is managed via the KIP subsystem. Therefore, said devices
+need to be registered under the KIP device hub, which in turn will
+remove and re-create/re-initialize those devices as needed.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c     | 37 ++++++++++++++++++-
+ 1 file changed, 36 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 1e60435c7cce..ab69669316bd 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -47,6 +47,12 @@ static const struct software_node ssam_node_hub_base = {
+ 	.parent = &ssam_node_root,
+ };
+ 
++/* KIP device hub (connects keyboard cover devices on Surface Pro 8). */
++static const struct software_node ssam_node_hub_kip = {
++	.name = "ssam:01:0e:01:00:00",
++	.parent = &ssam_node_root,
++};
++
+ /* AC adapter. */
+ static const struct software_node ssam_node_bat_ac = {
+ 	.name = "ssam:01:02:01:01:01",
+@@ -155,6 +161,30 @@ static const struct software_node ssam_node_hid_base_iid6 = {
+ 	.parent = &ssam_node_hub_base,
+ };
+ 
++/* HID keyboard (KIP hub). */
++static const struct software_node ssam_node_hid_kip_keyboard = {
++	.name = "ssam:01:15:02:01:00",
++	.parent = &ssam_node_hub_kip,
++};
++
++/* HID pen stash (KIP hub; pen taken / stashed away evens). */
++static const struct software_node ssam_node_hid_kip_penstash = {
++	.name = "ssam:01:15:02:02:00",
++	.parent = &ssam_node_hub_kip,
++};
++
++/* HID touchpad (KIP hub). */
++static const struct software_node ssam_node_hid_kip_touchpad = {
++	.name = "ssam:01:15:02:03:00",
++	.parent = &ssam_node_hub_kip,
++};
++
++/* HID device instance 5 (KIP hub, unknown HID device). */
++static const struct software_node ssam_node_hid_kip_iid5 = {
++	.name = "ssam:01:15:02:05:00",
++	.parent = &ssam_node_hub_kip,
++};
++
+ /*
+  * Devices for 5th- and 6th-generations models:
+  * - Surface Book 2,
+@@ -230,10 +260,15 @@ static const struct software_node *ssam_node_group_sp7[] = {
+ 
+ static const struct software_node *ssam_node_group_sp8[] = {
+ 	&ssam_node_root,
++	&ssam_node_hub_kip,
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+ 	&ssam_node_tmp_pprof,
+-	/* TODO: Add support for keyboard cover. */
++	&ssam_node_hid_kip_keyboard,
++	&ssam_node_hid_kip_penstash,
++	&ssam_node_hid_kip_touchpad,
++	&ssam_node_hid_kip_iid5,
++	/* TODO: Add support for tablet mode switch. */
+ 	NULL,
+ };
+ 
+-- 
+2.36.1
+
+From 61fae5943305a2f16d74f813c2e4648585ded62b Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Tue, 8 Jun 2021 03:19:20 +0200
+Subject: [PATCH] platform/surface: Add KIP tablet-mode switch
+
+Add a driver providing a tablet-mode switch input device for Surface
+models using the KIP subsystem to manage detachable peripherals.
+
+The Surface Pro 8 has a detachable keyboard cover. Unlike the keyboard
+covers of previous generation Surface Pro models, this cover is fully
+handled by the Surface System Aggregator Module (SSAM). The SSAM KIP
+subsystem (full name unknown, abbreviation found through reverse
+engineering) provides notifications for mode changes of the cover.
+Specifically, it allows us to know when the cover has been folded back,
+detached, or whether it is in laptop mode.
+
+The driver introduced with this change captures these events and
+translates them to standard SW_TABLET_MODE input events.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ MAINTAINERS                                   |   6 +
+ drivers/platform/surface/Kconfig              |  22 ++
+ drivers/platform/surface/Makefile             |   1 +
+ .../surface/surface_kip_tablet_switch.c       | 245 ++++++++++++++++++
+ 4 files changed, 274 insertions(+)
+ create mode 100644 drivers/platform/surface/surface_kip_tablet_switch.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index f468864fd268..38f7f19002ac 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -13079,6 +13079,12 @@ L:	platform-driver-x86@vger.kernel.org
+ S:	Maintained
+ F:	drivers/platform/surface/surface_hotplug.c
+ 
++MICROSOFT SURFACE KIP TABLET-MODE SWITCH
++M:	Maximilian Luz <luzmaximilian@gmail.com>
++L:	platform-driver-x86@vger.kernel.org
++S:	Maintained
++F:	drivers/platform/surface/surface_kip_tablet_switch.c
++
+ MICROSOFT SURFACE PLATFORM PROFILE DRIVER
+ M:	Maximilian Luz <luzmaximilian@gmail.com>
+ L:	platform-driver-x86@vger.kernel.org
+diff --git a/drivers/platform/surface/Kconfig b/drivers/platform/surface/Kconfig
+index eb79fbed8059..738d416ca4b2 100644
+--- a/drivers/platform/surface/Kconfig
++++ b/drivers/platform/surface/Kconfig
+@@ -149,6 +149,28 @@ config SURFACE_HOTPLUG
+ 	  Select M or Y here, if you want to (fully) support hot-plugging of
+ 	  dGPU devices on the Surface Book 2 and/or 3 during D3cold.
+ 
++config SURFACE_KIP_TABLET_SWITCH
++	tristate "Surface KIP Tablet-Mode Switch Driver"
++	depends on SURFACE_AGGREGATOR
++	depends on SURFACE_AGGREGATOR_BUS
++	depends on INPUT
++	help
++	  Provides a tablet-mode switch input device on Microsoft Surface models
++	  using the KIP subsystem for detachable keyboards (e.g. keyboard
++	  covers).
++
++	  The KIP subsystem is used on newer Surface generations to handle
++	  detachable input peripherals, specifically the keyboard cover
++	  (containing keyboard and touchpad) on the Surface Pro 8. This module
++	  provides a driver to let user-space know when the device should be
++	  considered in tablet-mode due to the keyboard cover being detached or
++	  folded back (essentially signaling when the keyboard is not available
++	  for input). It does so by creating a tablet-mode switch input device,
++	  sending the standard SW_TABLET_MODE event on mode change.
++
++	  Select M or Y here, if you want to provide tablet-mode switch input
++	  events on the Surface Pro 8.
++
+ config SURFACE_PLATFORM_PROFILE
+ 	tristate "Surface Platform Profile Driver"
+ 	depends on ACPI
+diff --git a/drivers/platform/surface/Makefile b/drivers/platform/surface/Makefile
+index 0fc9cd3e4dd9..e173a95f2e8d 100644
+--- a/drivers/platform/surface/Makefile
++++ b/drivers/platform/surface/Makefile
+@@ -13,5 +13,6 @@ obj-$(CONFIG_SURFACE_AGGREGATOR_REGISTRY) += surface_aggregator_registry.o
+ obj-$(CONFIG_SURFACE_DTX)		+= surface_dtx.o
+ obj-$(CONFIG_SURFACE_GPE)		+= surface_gpe.o
+ obj-$(CONFIG_SURFACE_HOTPLUG)		+= surface_hotplug.o
++obj-$(CONFIG_SURFACE_KIP_TABLET_SWITCH)	+= surface_kip_tablet_switch.o
+ obj-$(CONFIG_SURFACE_PLATFORM_PROFILE)	+= surface_platform_profile.o
+ obj-$(CONFIG_SURFACE_PRO3_BUTTON)	+= surfacepro3_button.o
+diff --git a/drivers/platform/surface/surface_kip_tablet_switch.c b/drivers/platform/surface/surface_kip_tablet_switch.c
+new file mode 100644
+index 000000000000..27371da71ef2
+--- /dev/null
++++ b/drivers/platform/surface/surface_kip_tablet_switch.c
+@@ -0,0 +1,245 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Surface System Aggregator Module (SSAM) tablet mode switch via KIP
++ * subsystem.
++ *
++ * Copyright (C) 2022 Maximilian Luz <luzmaximilian@gmail.com>
++ */
++
++#include <linux/input.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++#include <linux/types.h>
++#include <linux/workqueue.h>
++
++#include <linux/surface_aggregator/controller.h>
++#include <linux/surface_aggregator/device.h>
++
++#define SSAM_EVENT_KIP_CID_LID_STATE		0x1d
++
++enum ssam_kip_lid_state {
++	SSAM_KIP_LID_STATE_DISCONNECTED   = 0x01,
++	SSAM_KIP_LID_STATE_CLOSED         = 0x02,
++	SSAM_KIP_LID_STATE_LAPTOP         = 0x03,
++	SSAM_KIP_LID_STATE_FOLDED_CANVAS  = 0x04,
++	SSAM_KIP_LID_STATE_FOLDED_BACK    = 0x05,
++};
++
++struct ssam_kip_sw {
++	struct ssam_device *sdev;
++
++	enum ssam_kip_lid_state state;
++	struct work_struct update_work;
++	struct input_dev *mode_switch;
++
++	struct ssam_event_notifier notif;
++};
++
++SSAM_DEFINE_SYNC_REQUEST_R(__ssam_kip_get_lid_state, u8, {
++	.target_category = SSAM_SSH_TC_KIP,
++	.target_id       = 0x01,
++	.command_id      = 0x1d,
++	.instance_id     = 0x00,
++});
++
++static int ssam_kip_get_lid_state(struct ssam_kip_sw *sw, enum ssam_kip_lid_state *state)
++{
++	int status;
++	u8 raw;
++
++	status = ssam_retry(__ssam_kip_get_lid_state, sw->sdev->ctrl, &raw);
++	if (status < 0) {
++		dev_err(&sw->sdev->dev, "failed to query KIP lid state: %d\n", status);
++		return status;
++	}
++
++	*state = raw;
++	return 0;
++}
++
++static ssize_t state_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct ssam_kip_sw *sw = dev_get_drvdata(dev);
++	const char *state;
++
++	switch (sw->state) {
++	case SSAM_KIP_LID_STATE_DISCONNECTED:
++		state = "disconnected";
++		break;
++
++	case SSAM_KIP_LID_STATE_CLOSED:
++		state = "closed";
++		break;
++
++	case SSAM_KIP_LID_STATE_LAPTOP:
++		state = "laptop";
++		break;
++
++	case SSAM_KIP_LID_STATE_FOLDED_CANVAS:
++		state = "folded-canvas";
++		break;
++
++	case SSAM_KIP_LID_STATE_FOLDED_BACK:
++		state = "folded-back";
++		break;
++
++	default:
++		state = "<unknown>";
++		dev_warn(dev, "unknown KIP lid state: %d\n", sw->state);
++		break;
++	}
++
++	return sysfs_emit(buf, "%s\n", state);
++}
++static DEVICE_ATTR_RO(state);
++
++static struct attribute *ssam_kip_sw_attrs[] = {
++	&dev_attr_state.attr,
++	NULL,
++};
++
++static const struct attribute_group ssam_kip_sw_group = {
++	.attrs = ssam_kip_sw_attrs,
++};
++
++static void ssam_kip_sw_update_workfn(struct work_struct *work)
++{
++	struct ssam_kip_sw *sw = container_of(work, struct ssam_kip_sw, update_work);
++	enum ssam_kip_lid_state state;
++	int tablet, status;
++
++	status = ssam_kip_get_lid_state(sw, &state);
++	if (status)
++		return;
++
++	if (sw->state == state)
++		return;
++	sw->state = state;
++
++	/* Send SW_TABLET_MODE event. */
++	tablet = state != SSAM_KIP_LID_STATE_LAPTOP;
++	input_report_switch(sw->mode_switch, SW_TABLET_MODE, tablet);
++	input_sync(sw->mode_switch);
++}
++
++static u32 ssam_kip_sw_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
++{
++	struct ssam_kip_sw *sw = container_of(nf, struct ssam_kip_sw, notif);
++
++	if (event->command_id != SSAM_EVENT_KIP_CID_LID_STATE)
++		return 0;	/* Return "unhandled". */
++
++	if (event->length < 1) {
++		dev_err(&sw->sdev->dev, "unexpected payload size: %u\n", event->length);
++		return 0;
++	}
++
++	schedule_work(&sw->update_work);
++	return SSAM_NOTIF_HANDLED;
++}
++
++static int __maybe_unused ssam_kip_sw_resume(struct device *dev)
++{
++	struct ssam_kip_sw *sw = dev_get_drvdata(dev);
++
++	schedule_work(&sw->update_work);
++	return 0;
++}
++static SIMPLE_DEV_PM_OPS(ssam_kip_sw_pm_ops, NULL, ssam_kip_sw_resume);
++
++static int ssam_kip_sw_probe(struct ssam_device *sdev)
++{
++	struct ssam_kip_sw *sw;
++	int tablet, status;
++
++	sw = devm_kzalloc(&sdev->dev, sizeof(*sw), GFP_KERNEL);
++	if (!sw)
++		return -ENOMEM;
++
++	sw->sdev = sdev;
++	INIT_WORK(&sw->update_work, ssam_kip_sw_update_workfn);
++
++	ssam_device_set_drvdata(sdev, sw);
++
++	/* Get initial state. */
++	status = ssam_kip_get_lid_state(sw, &sw->state);
++	if (status)
++		return status;
++
++	/* Set up tablet mode switch. */
++	sw->mode_switch = devm_input_allocate_device(&sdev->dev);
++	if (!sw->mode_switch)
++		return -ENOMEM;
++
++	sw->mode_switch->name = "Microsoft Surface KIP Tablet Mode Switch";
++	sw->mode_switch->phys = "ssam/01:0e:01:00:01/input0";
++	sw->mode_switch->id.bustype = BUS_HOST;
++	sw->mode_switch->dev.parent = &sdev->dev;
++
++	tablet = sw->state != SSAM_KIP_LID_STATE_LAPTOP;
++	input_set_capability(sw->mode_switch, EV_SW, SW_TABLET_MODE);
++	input_report_switch(sw->mode_switch, SW_TABLET_MODE, tablet);
++
++	status = input_register_device(sw->mode_switch);
++	if (status)
++		return status;
++
++	/* Set up notifier. */
++	sw->notif.base.priority = 0;
++	sw->notif.base.fn = ssam_kip_sw_notif;
++	sw->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
++	sw->notif.event.id.target_category = SSAM_SSH_TC_KIP,
++	sw->notif.event.id.instance = 0,
++	sw->notif.event.mask = SSAM_EVENT_MASK_TARGET;
++	sw->notif.event.flags = SSAM_EVENT_SEQUENCED;
++
++	status = ssam_device_notifier_register(sdev, &sw->notif);
++	if (status)
++		return status;
++
++	status = sysfs_create_group(&sdev->dev.kobj, &ssam_kip_sw_group);
++	if (status)
++		goto err;
++
++	/* We might have missed events during setup, so check again. */
++	schedule_work(&sw->update_work);
++	return 0;
++
++err:
++	ssam_device_notifier_unregister(sdev, &sw->notif);
++	cancel_work_sync(&sw->update_work);
++	return status;
++}
++
++static void ssam_kip_sw_remove(struct ssam_device *sdev)
++{
++	struct ssam_kip_sw *sw = ssam_device_get_drvdata(sdev);
++
++	sysfs_remove_group(&sdev->dev.kobj, &ssam_kip_sw_group);
++
++	ssam_device_notifier_unregister(sdev, &sw->notif);
++	cancel_work_sync(&sw->update_work);
++}
++
++static const struct ssam_device_id ssam_kip_sw_match[] = {
++	{ SSAM_SDEV(KIP, 0x01, 0x00, 0x01) },
++	{ },
++};
++MODULE_DEVICE_TABLE(ssam, ssam_kip_sw_match);
++
++static struct ssam_device_driver ssam_kip_sw_driver = {
++	.probe = ssam_kip_sw_probe,
++	.remove = ssam_kip_sw_remove,
++	.match_table = ssam_kip_sw_match,
++	.driver = {
++		.name = "surface_kip_tablet_mode_switch",
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++		.pm = &ssam_kip_sw_pm_ops,
++	},
++};
++module_ssam_device_driver(ssam_kip_sw_driver);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Tablet mode switch driver for Surface devices using KIP subsystem");
++MODULE_LICENSE("GPL");
+-- 
+2.36.1
+
+From c52bb8c58a61e3c4842efe6c325f0f659f39996a Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Wed, 27 Oct 2021 22:33:03 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for tablet
+ mode switch on Surface Pro 8
+
+Add a KIP subsystem tablet-mode switch device for the Surface Pro 8.
+The respective driver for this device provides SW_TABLET_MODE input
+events for user-space based on the state of the keyboard cover (e.g.
+detached, folded-back, normal/laptop mode).
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index ab69669316bd..c666392d4a9a 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -77,6 +77,12 @@ static const struct software_node ssam_node_tmp_pprof = {
+ 	.parent = &ssam_node_root,
+ };
+ 
++/* Tablet-mode switch via KIP subsystem. */
++static const struct software_node ssam_node_kip_tablet_switch = {
++	.name = "ssam:01:0e:01:00:01",
++	.parent = &ssam_node_root,
++};
++
+ /* DTX / detachment-system device (Surface Book 3). */
+ static const struct software_node ssam_node_bas_dtx = {
+ 	.name = "ssam:01:11:01:00:00",
+@@ -264,11 +270,11 @@ static const struct software_node *ssam_node_group_sp8[] = {
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+ 	&ssam_node_tmp_pprof,
++	&ssam_node_kip_tablet_switch,
+ 	&ssam_node_hid_kip_keyboard,
+ 	&ssam_node_hid_kip_penstash,
+ 	&ssam_node_hid_kip_touchpad,
+ 	&ssam_node_hid_kip_iid5,
+-	/* TODO: Add support for tablet mode switch. */
+ 	NULL,
+ };
+ 
+-- 
+2.36.1
+
+From 615cedaf5078fb23d8d6330843a5989ffb3b5aa7 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sat, 21 May 2022 00:30:46 +0200
+Subject: [PATCH] platform/surface: aggregator: Move device registry helper
+ function to core module
+
+Move helper functions for client device registration to the core module.
+This simplifies addition of future DT/OF support and also allows us to
+split out the device hub drivers into their own module.
+
+At the same time, also improve device node validation a bit by not
+silently skipping devices with invalid device UID specifiers.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/aggregator/bus.c     | 176 ++++++++++++++++--
+ .../surface/surface_aggregator_registry.c     |  75 +-------
+ include/linux/surface_aggregator/device.h     |  37 ++++
+ 3 files changed, 199 insertions(+), 89 deletions(-)
+
+diff --git a/drivers/platform/surface/aggregator/bus.c b/drivers/platform/surface/aggregator/bus.c
+index abbbb5b08b07..4bba60884bb5 100644
+--- a/drivers/platform/surface/aggregator/bus.c
++++ b/drivers/platform/surface/aggregator/bus.c
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include <linux/device.h>
++#include <linux/property.h>
+ #include <linux/slab.h>
+ 
+ #include <linux/surface_aggregator/controller.h>
+@@ -14,6 +15,9 @@
+ #include "bus.h"
+ #include "controller.h"
+ 
++
++/* -- Device and bus functions. --------------------------------------------- */
++
+ static ssize_t modalias_show(struct device *dev, struct device_attribute *attr,
+ 			     char *buf)
+ {
+@@ -363,6 +367,162 @@ void ssam_device_driver_unregister(struct ssam_device_driver *sdrv)
+ }
+ EXPORT_SYMBOL_GPL(ssam_device_driver_unregister);
+ 
++
++/* -- Bus registration. ----------------------------------------------------- */
++
++/**
++ * ssam_bus_register() - Register and set-up the SSAM client device bus.
++ */
++int ssam_bus_register(void)
++{
++	return bus_register(&ssam_bus_type);
++}
++
++/**
++ * ssam_bus_unregister() - Unregister the SSAM client device bus.
++ */
++void ssam_bus_unregister(void)
++{
++	return bus_unregister(&ssam_bus_type);
++}
++
++
++/* -- Helpers for controller and hub devices. ------------------------------- */
++
++static int ssam_device_uid_from_string(const char *str, struct ssam_device_uid *uid)
++{
++	u8 d, tc, tid, iid, fn;
++	int n;
++
++	n = sscanf(str, "%hhx:%hhx:%hhx:%hhx:%hhx", &d, &tc, &tid, &iid, &fn);
++	if (n != 5)
++		return -EINVAL;
++
++	uid->domain = d;
++	uid->category = tc;
++	uid->target = tid;
++	uid->instance = iid;
++	uid->function = fn;
++
++	return 0;
++}
++
++static int ssam_get_uid_for_node(struct fwnode_handle *node, struct ssam_device_uid *uid)
++{
++	const char* str = fwnode_get_name(node);
++
++	/*
++	 * To simplify definitions of firmware nodes, we set the device name
++	 * based on the UID of the device, prefixed with "ssam:".
++	 */
++	if (strncmp(str, "ssam:", strlen("ssam:")) != 0)
++		return -ENODEV;
++
++	str += strlen("ssam:");
++	return ssam_device_uid_from_string(str, uid);
++}
++
++static int ssam_add_client_device(struct device *parent, struct ssam_controller *ctrl,
++				  struct fwnode_handle *node)
++{
++	struct ssam_device_uid uid;
++	struct ssam_device *sdev;
++	int status;
++
++	status = ssam_get_uid_for_node(node, &uid);
++	if (status)
++		return status;
++
++	sdev = ssam_device_alloc(ctrl, uid);
++	if (!sdev)
++		return -ENOMEM;
++
++	sdev->dev.parent = parent;
++	sdev->dev.fwnode = node;
++
++	status = ssam_device_add(sdev);
++	if (status)
++		ssam_device_put(sdev);
++
++	return status;
++}
++
++/**
++ * __ssam_register_clients() - Register client devices defined under the
++ * given firmware node as children of the given device.
++ * @parent: The parent device under which clients should be registered.
++ * @ctrl: The controller with which client should be registered.
++ * @node: The firmware node holding definitions of the devices to be added.
++ *
++ * Register all clients that have been defined as children of the given root
++ * firmware node as children of the given parent device. The respective child
++ * firmware nodes will be associated with the correspondingly created child
++ * devices.
++ *
++ * The given controller will be used to instantiate the new devices. See
++ * ssam_device_add() for details.
++ *
++ * Note that, generally, the use of either ssam_device_register_clients() or
++ * ssam_register_clients() should be preferred as they directly use the
++ * firmware node and/or controller associated with the given device. This
++ * function is only intended for use when different device specifications (e.g.
++ * ACPI and firmware nodes) need to be combined (as is done in the platform hub
++ * of the device registry).
++ *
++ * Return: Returns zero on success, nonzero on failure.
++ */
++int __ssam_register_clients(struct device *parent, struct ssam_controller *ctrl,
++			    struct fwnode_handle *node)
++{
++	struct fwnode_handle *child;
++	int status;
++
++	fwnode_for_each_child_node(node, child) {
++		/*
++		 * Try to add the device specified in the firmware node. If
++		 * this fails with -ENODEV, the node does not specify any SSAM
++		 * device, so ignore it and continue with the next one.
++		 */
++		status = ssam_add_client_device(parent, ctrl, child);
++		if (status && status != -ENODEV)
++			goto err;
++	}
++
++	return 0;
++err:
++	ssam_remove_clients(parent);
++	return status;
++}
++EXPORT_SYMBOL_GPL(__ssam_register_clients);
++
++/**
++ * ssam_register_clients() - Register all client devices defined under the
++ * given parent device.
++ * @dev: The parent device under which clients should be registered.
++ * @ctrl: The controller with which client should be registered.
++ *
++ * Register all clients that have via firmware nodes been defined as children
++ * of the given (parent) device. The respective child firmware nodes will be
++ * associated with the correspondingly created child devices.
++ *
++ * The given controller will be used to instantiate the new devices. See
++ * ssam_device_add() for details.
++ *
++ * Return: Returns zero on success, nonzero on failure.
++ */
++int ssam_register_clients(struct device *dev, struct ssam_controller *ctrl)
++{
++	struct fwnode_handle *node;
++	int status;
++
++	node = fwnode_handle_get(dev_fwnode(dev));
++	status = __ssam_register_clients(dev, ctrl, node);
++	fwnode_handle_put(node);
++
++	return status;
++}
++EXPORT_SYMBOL_GPL(ssam_register_clients);
++
+ static int ssam_remove_device(struct device *dev, void *_data)
+ {
+ 	struct ssam_device *sdev = to_ssam_device(dev);
+@@ -387,19 +547,3 @@ void ssam_remove_clients(struct device *dev)
+ 	device_for_each_child_reverse(dev, NULL, ssam_remove_device);
+ }
+ EXPORT_SYMBOL_GPL(ssam_remove_clients);
+-
+-/**
+- * ssam_bus_register() - Register and set-up the SSAM client device bus.
+- */
+-int ssam_bus_register(void)
+-{
+-	return bus_register(&ssam_bus_type);
+-}
+-
+-/**
+- * ssam_bus_unregister() - Unregister the SSAM client device bus.
+- */
+-void ssam_bus_unregister(void)
+-{
+-	return bus_unregister(&ssam_bus_type);
+-}
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index c666392d4a9a..3261c8141841 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -279,76 +279,6 @@ static const struct software_node *ssam_node_group_sp8[] = {
+ };
+ 
+ 
+-/* -- Device registry helper functions. ------------------------------------- */
+-
+-static int ssam_uid_from_string(const char *str, struct ssam_device_uid *uid)
+-{
+-	u8 d, tc, tid, iid, fn;
+-	int n;
+-
+-	n = sscanf(str, "ssam:%hhx:%hhx:%hhx:%hhx:%hhx", &d, &tc, &tid, &iid, &fn);
+-	if (n != 5)
+-		return -EINVAL;
+-
+-	uid->domain = d;
+-	uid->category = tc;
+-	uid->target = tid;
+-	uid->instance = iid;
+-	uid->function = fn;
+-
+-	return 0;
+-}
+-
+-static int ssam_hub_add_device(struct device *parent, struct ssam_controller *ctrl,
+-			       struct fwnode_handle *node)
+-{
+-	struct ssam_device_uid uid;
+-	struct ssam_device *sdev;
+-	int status;
+-
+-	status = ssam_uid_from_string(fwnode_get_name(node), &uid);
+-	if (status)
+-		return status;
+-
+-	sdev = ssam_device_alloc(ctrl, uid);
+-	if (!sdev)
+-		return -ENOMEM;
+-
+-	sdev->dev.parent = parent;
+-	sdev->dev.fwnode = node;
+-
+-	status = ssam_device_add(sdev);
+-	if (status)
+-		ssam_device_put(sdev);
+-
+-	return status;
+-}
+-
+-static int ssam_hub_register_clients(struct device *parent, struct ssam_controller *ctrl,
+-				     struct fwnode_handle *node)
+-{
+-	struct fwnode_handle *child;
+-	int status;
+-
+-	fwnode_for_each_child_node(node, child) {
+-		/*
+-		 * Try to add the device specified in the firmware node. If
+-		 * this fails with -EINVAL, the node does not specify any SSAM
+-		 * device, so ignore it and continue with the next one.
+-		 */
+-
+-		status = ssam_hub_add_device(parent, ctrl, child);
+-		if (status && status != -EINVAL)
+-			goto err;
+-	}
+-
+-	return 0;
+-err:
+-	ssam_remove_clients(parent);
+-	return status;
+-}
+-
+-
+ /* -- SSAM generic subsystem hub driver framework. -------------------------- */
+ 
+ enum ssam_hub_state {
+@@ -378,7 +308,6 @@ struct ssam_hub {
+ static void ssam_hub_update_workfn(struct work_struct *work)
+ {
+ 	struct ssam_hub *hub = container_of(work, struct ssam_hub, update_work.work);
+-	struct fwnode_handle *node = dev_fwnode(&hub->sdev->dev);
+ 	enum ssam_hub_state state;
+ 	int status = 0;
+ 
+@@ -418,7 +347,7 @@ static void ssam_hub_update_workfn(struct work_struct *work)
+ 	hub->state = state;
+ 
+ 	if (hub->state == SSAM_HUB_CONNECTED)
+-		status = ssam_hub_register_clients(&hub->sdev->dev, hub->sdev->ctrl, node);
++		status = ssam_device_register_clients(hub->sdev);
+ 	else
+ 		ssam_remove_clients(&hub->sdev->dev);
+ 
+@@ -762,7 +691,7 @@ static int ssam_platform_hub_probe(struct platform_device *pdev)
+ 
+ 	set_secondary_fwnode(&pdev->dev, root);
+ 
+-	status = ssam_hub_register_clients(&pdev->dev, ctrl, root);
++	status = __ssam_register_clients(&pdev->dev, ctrl, root);
+ 	if (status) {
+ 		set_secondary_fwnode(&pdev->dev, NULL);
+ 		software_node_unregister_node_group(nodes);
+diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
+index ad245c6b00d0..6ae110e830b4 100644
+--- a/include/linux/surface_aggregator/device.h
++++ b/include/linux/surface_aggregator/device.h
+@@ -364,11 +364,48 @@ void ssam_device_driver_unregister(struct ssam_device_driver *d);
+ /* -- Helpers for controller and hub devices. ------------------------------- */
+ 
+ #ifdef CONFIG_SURFACE_AGGREGATOR_BUS
++
++int __ssam_register_clients(struct device *parent, struct ssam_controller *ctrl,
++			    struct fwnode_handle *node);
++int ssam_register_clients(struct device *dev, struct ssam_controller *ctrl);
+ void ssam_remove_clients(struct device *dev);
++
+ #else /* CONFIG_SURFACE_AGGREGATOR_BUS */
++
++static inline int __ssam_register_clients(struct device *parent, struct ssam_controller *ctrl,
++					  struct fwnode_handle *node)
++{
++	return 0;
++}
++
++static inline int ssam_register_clients(struct device *dev, struct ssam_controller *ctrl)
++{
++	return 0;
++}
++
+ static inline void ssam_remove_clients(struct device *dev) {}
++
+ #endif /* CONFIG_SURFACE_AGGREGATOR_BUS */
+ 
++/**
++ * ssam_device_register_clients() - Register all client devices defined under
++ * the given SSAM parent device.
++ * @sdev: The parent device under which clients should be registered.
++ *
++ * Register all clients that have via firmware nodes been defined as children
++ * of the given (parent) device. The respective child firmware nodes will be
++ * associated with the correspondingly created child devices.
++ *
++ * The controller used by the parent device will be used to instantiate the new
++ * devices. See ssam_device_add() for details.
++ *
++ * Return: Returns zero on success, nonzero on failure.
++ */
++static inline int ssam_device_register_clients(struct ssam_device *sdev)
++{
++	return ssam_register_clients(&sdev->dev, sdev->ctrl);
++}
++
+ 
+ /* -- Helpers for client-device requests. ----------------------------------- */
+ 
+-- 
+2.36.1
+
+From d8a038b9b64c1236478821d79d5b5049b012fba3 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sat, 21 May 2022 00:39:56 +0200
+Subject: [PATCH] platform/surface: aggregator: Move subsystem hub drivers to
+ their own module
+
+Split out subsystem device hub drivers into their own module. This
+allows us to load the hub drivers separately from the registry, which
+will help future DT/OF support.
+
+While doing so, also remove a small bit of code duplication.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/Kconfig              |  35 +-
+ drivers/platform/surface/Makefile             |   1 +
+ .../platform/surface/surface_aggregator_hub.c | 363 +++++++++++++++++
+ .../surface/surface_aggregator_registry.c     | 371 +-----------------
+ 4 files changed, 396 insertions(+), 374 deletions(-)
+ create mode 100644 drivers/platform/surface/surface_aggregator_hub.c
+
+diff --git a/drivers/platform/surface/Kconfig b/drivers/platform/surface/Kconfig
+index 738d416ca4b2..27780746936d 100644
+--- a/drivers/platform/surface/Kconfig
++++ b/drivers/platform/surface/Kconfig
+@@ -72,18 +72,45 @@ config SURFACE_AGGREGATOR_CDEV
+ 	  The provided interface is intended for debugging and development only,
+ 	  and should not be used otherwise.
+ 
++config SURFACE_AGGREGATOR_HUB
++	tristate "Surface System Aggregator Module Subsystem Device Hubs"
++	depends on SURFACE_AGGREGATOR
++	depends on SURFACE_AGGREGATOR_BUS
++	help
++	  Device-hub drivers for Surface System Aggregator Module (SSAM) subsystem
++	  devices.
++
++	  Provides subsystem hub drivers which manage client devices on various
++	  SSAM subsystems. In some subsystems, notably the BAS subsystem managing
++	  devices contained in the base of the Surface Book 3 and the KIP subsystem
++	  managing type-cover devices in the Surface Pro 8 and Surface Pro X,
++	  devices can be (hot-)removed. Hub devices and drivers are required to
++	  manage these subdevices.
++
++	  Devices managed via these hubs are:
++	  - Battery/AC devices (Surface Book 3).
++	  - HID input devices (7th-generation and later models with detachable
++	    input devices).
++
++	  Select M (recommended) or Y here if you want support for the above
++	  mentioned devices on the corresponding Surface models. Without this
++	  module, the respective devices mentioned above will not be instantiated
++	  and thus any functionality provided by them will be missing, even when
++	  drivers for these devices are present. This module only provides the
++	  respective subsystem hubs. Both drivers and device specification (e.g.
++	  via the Surface Aggregator Registry) for these devices still need to be
++	  selected via other options.
++
+ config SURFACE_AGGREGATOR_REGISTRY
+ 	tristate "Surface System Aggregator Module Device Registry"
+ 	depends on SURFACE_AGGREGATOR
+ 	depends on SURFACE_AGGREGATOR_BUS
+ 	help
+-	  Device-registry and device-hubs for Surface System Aggregator Module
+-	  (SSAM) devices.
++	  Device-registry for Surface System Aggregator Module (SSAM) devices.
+ 
+ 	  Provides a module and driver which act as a device-registry for SSAM
+ 	  client devices that cannot be detected automatically, e.g. via ACPI.
+-	  Such devices are instead provided via this registry and attached via
+-	  device hubs, also provided in this module.
++	  Such devices are instead provided and managed via this registry.
+ 
+ 	  Devices provided via this registry are:
+ 	  - Platform profile (performance-/cooling-mode) device (5th- and later
+diff --git a/drivers/platform/surface/Makefile b/drivers/platform/surface/Makefile
+index e173a95f2e8d..73124b4fcd31 100644
+--- a/drivers/platform/surface/Makefile
++++ b/drivers/platform/surface/Makefile
+@@ -9,6 +9,7 @@ obj-$(CONFIG_SURFACE_3_POWER_OPREGION)	+= surface3_power.o
+ obj-$(CONFIG_SURFACE_ACPI_NOTIFY)	+= surface_acpi_notify.o
+ obj-$(CONFIG_SURFACE_AGGREGATOR)	+= aggregator/
+ obj-$(CONFIG_SURFACE_AGGREGATOR_CDEV)	+= surface_aggregator_cdev.o
++obj-$(CONFIG_SURFACE_AGGREGATOR_HUB)	+= surface_aggregator_hub.o
+ obj-$(CONFIG_SURFACE_AGGREGATOR_REGISTRY) += surface_aggregator_registry.o
+ obj-$(CONFIG_SURFACE_DTX)		+= surface_dtx.o
+ obj-$(CONFIG_SURFACE_GPE)		+= surface_gpe.o
+diff --git a/drivers/platform/surface/surface_aggregator_hub.c b/drivers/platform/surface/surface_aggregator_hub.c
+new file mode 100644
+index 000000000000..20b1c38debfe
+--- /dev/null
++++ b/drivers/platform/surface/surface_aggregator_hub.c
+@@ -0,0 +1,363 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Driver for Surface System Aggregator Module (SSAM) subsystem device hubs.
++ *
++ * Provides a driver for SSAM subsystems device hubs. This driver performs
++ * instantiation of the devices managed by said hubs and takes care of
++ * (hot-)removal.
++ *
++ * Copyright (C) 2020-2022 Maximilian Luz <luzmaximilian@gmail.com>
++ */
++
++#include <linux/kernel.h>
++#include <linux/limits.h>
++#include <linux/module.h>
++#include <linux/types.h>
++#include <linux/workqueue.h>
++
++#include <linux/surface_aggregator/device.h>
++
++
++/* -- SSAM generic subsystem hub driver framework. -------------------------- */
++
++enum ssam_hub_state {
++	SSAM_HUB_UNINITIALIZED,		/* Only set during initialization. */
++	SSAM_HUB_CONNECTED,
++	SSAM_HUB_DISCONNECTED,
++};
++
++enum ssam_hub_flags {
++	SSAM_HUB_HOT_REMOVED,
++};
++
++struct ssam_hub {
++	struct ssam_device *sdev;
++
++	enum ssam_hub_state state;
++	unsigned long flags;
++
++	struct delayed_work update_work;
++	unsigned long connect_delay;
++
++	struct ssam_event_notifier notif;
++
++	int (*get_state)(struct ssam_hub *hub, enum ssam_hub_state *state);
++};
++
++struct ssam_hub_info {
++	struct {
++		struct ssam_event_registry reg;
++		struct ssam_event_id id;
++		enum ssam_event_mask mask;
++		u8 flags;
++	} event;
++
++	u32 (*notify)(struct ssam_event_notifier *nf, const struct ssam_event *event);
++	int (*get_state)(struct ssam_hub *hub, enum ssam_hub_state *state);
++
++	unsigned long connect_delay_ms;
++};
++
++static void ssam_hub_update_workfn(struct work_struct *work)
++{
++	struct ssam_hub *hub = container_of(work, struct ssam_hub, update_work.work);
++	enum ssam_hub_state state;
++	int status = 0;
++
++	status = hub->get_state(hub, &state);
++	if (status)
++		return;
++
++	/*
++	 * There is a small possibility that hub devices were hot-removed and
++	 * re-added before we were able to remove them here. In that case, both
++	 * the state returned by get_state() and the state of the hub will
++	 * equal SSAM_HUB_CONNECTED and we would bail early below, which would
++	 * leave child devices without proper (re-)initialization and the
++	 * hot-remove flag set.
++	 *
++	 * Therefore, we check whether devices have been hot-removed via an
++	 * additional flag on the hub and, in this case, override the returned
++	 * hub state. In case of a missed disconnect (i.e. get_state returned
++	 * "connected"), we further need to re-schedule this work (with the
++	 * appropriate delay) as the actual connect work submission might have
++	 * been merged with this one.
++	 *
++	 * This then leads to one of two cases: Either we submit an unnecessary
++	 * work item (which will get ignored via either the queue or the state
++	 * checks) or, in the unlikely case that the work is actually required,
++	 * double the normal connect delay.
++	 */
++	if (test_and_clear_bit(SSAM_HUB_HOT_REMOVED, &hub->flags)) {
++		if (state == SSAM_HUB_CONNECTED)
++			schedule_delayed_work(&hub->update_work, hub->connect_delay);
++
++		state = SSAM_HUB_DISCONNECTED;
++	}
++
++	if (hub->state == state)
++		return;
++	hub->state = state;
++
++	if (hub->state == SSAM_HUB_CONNECTED)
++		status = ssam_device_register_clients(hub->sdev);
++	else
++		ssam_remove_clients(&hub->sdev->dev);
++
++	if (status)
++		dev_err(&hub->sdev->dev, "failed to update hub child devices: %d\n", status);
++}
++
++static int ssam_hub_mark_hot_removed(struct device *dev, void *_data)
++{
++	struct ssam_device *sdev = to_ssam_device(dev);
++
++	if (is_ssam_device(dev))
++		ssam_device_mark_hot_removed(sdev);
++
++	return 0;
++}
++
++static void ssam_hub_update(struct ssam_hub *hub, bool connected)
++{
++	unsigned long delay;
++
++	/* Mark devices as hot-removed before we remove any. */
++	if (!connected) {
++		set_bit(SSAM_HUB_HOT_REMOVED, &hub->flags);
++		device_for_each_child_reverse(&hub->sdev->dev, NULL, ssam_hub_mark_hot_removed);
++	}
++
++	/*
++	 * Delay update when the base/keyboard cover is being connected to give
++	 * devices/EC some time to set up.
++	 */
++	delay = connected ? hub->connect_delay : 0;
++
++	schedule_delayed_work(&hub->update_work, delay);
++}
++
++static int __maybe_unused ssam_hub_resume(struct device *dev)
++{
++	struct ssam_hub *hub = dev_get_drvdata(dev);
++
++	schedule_delayed_work(&hub->update_work, 0);
++	return 0;
++}
++static SIMPLE_DEV_PM_OPS(ssam_hub_pm_ops, NULL, ssam_hub_resume);
++
++static int ssam_hub_probe(struct ssam_device *sdev)
++{
++	const struct ssam_hub_info *info;
++	struct ssam_hub *hub;
++	int status;
++
++	info = ssam_device_get_match_data(sdev);
++	if (!info) {
++		WARN(1, "no driver match data specified");
++		return -EINVAL;
++	}
++
++	hub = devm_kzalloc(&sdev->dev, sizeof(*hub), GFP_KERNEL);
++	if (!hub)
++		return -ENOMEM;
++
++	hub->sdev = sdev;
++	hub->state = SSAM_HUB_UNINITIALIZED;
++
++	hub->notif.base.priority = INT_MAX;  /* This notifier should run first. */
++	hub->notif.base.fn = info->notify;
++	hub->notif.event.reg = info->event.reg;
++	hub->notif.event.id = info->event.id;
++	hub->notif.event.mask = info->event.mask;
++	hub->notif.event.flags = info->event.flags;
++
++	hub->connect_delay = msecs_to_jiffies(info->connect_delay_ms);
++	hub->get_state = info->get_state;
++
++	INIT_DELAYED_WORK(&hub->update_work, ssam_hub_update_workfn);
++
++	ssam_device_set_drvdata(sdev, hub);
++
++	status = ssam_device_notifier_register(sdev, &hub->notif);
++	if (status)
++		return status;
++
++	schedule_delayed_work(&hub->update_work, 0);
++	return 0;
++}
++
++static void ssam_hub_remove(struct ssam_device *sdev)
++{
++	struct ssam_hub *hub = ssam_device_get_drvdata(sdev);
++
++	ssam_device_notifier_unregister(sdev, &hub->notif);
++	cancel_delayed_work_sync(&hub->update_work);
++	ssam_remove_clients(&sdev->dev);
++}
++
++
++/* -- SSAM base-subsystem hub driver. --------------------------------------- */
++
++/*
++ * Some devices (especially battery) may need a bit of time to be fully usable
++ * after being (re-)connected. This delay has been determined via
++ * experimentation.
++ */
++#define SSAM_BASE_UPDATE_CONNECT_DELAY		2500
++
++SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_query_opmode, u8, {
++	.target_category = SSAM_SSH_TC_BAS,
++	.target_id       = 0x01,
++	.command_id      = 0x0d,
++	.instance_id     = 0x00,
++});
++
++#define SSAM_BAS_OPMODE_TABLET		0x00
++#define SSAM_EVENT_BAS_CID_CONNECTION	0x0c
++
++static int ssam_base_hub_query_state(struct ssam_hub *hub, enum ssam_hub_state *state)
++{
++	u8 opmode;
++	int status;
++
++	status = ssam_retry(ssam_bas_query_opmode, hub->sdev->ctrl, &opmode);
++	if (status < 0) {
++		dev_err(&hub->sdev->dev, "failed to query base state: %d\n", status);
++		return status;
++	}
++
++	if (opmode != SSAM_BAS_OPMODE_TABLET)
++		*state = SSAM_HUB_CONNECTED;
++	else
++		*state = SSAM_HUB_DISCONNECTED;
++
++	return 0;
++}
++
++static u32 ssam_base_hub_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
++{
++	struct ssam_hub *hub = container_of(nf, struct ssam_hub, notif);
++
++	if (event->command_id != SSAM_EVENT_BAS_CID_CONNECTION)
++		return 0;
++
++	if (event->length < 1) {
++		dev_err(&hub->sdev->dev, "unexpected payload size: %u\n", event->length);
++		return 0;
++	}
++
++	ssam_hub_update(hub, event->data[0]);
++
++	/*
++	 * Do not return SSAM_NOTIF_HANDLED: The event should be picked up and
++	 * consumed by the detachment system driver. We're just a (more or less)
++	 * silent observer.
++	 */
++	return 0;
++}
++
++static const struct ssam_hub_info base_hub = {
++	.event = {
++		.reg = SSAM_EVENT_REGISTRY_SAM,
++		.id = {
++			.target_category = SSAM_SSH_TC_BAS,
++			.instance = 0,
++		},
++		.mask = SSAM_EVENT_MASK_NONE,
++		.flags = SSAM_EVENT_SEQUENCED,
++	},
++	.notify = ssam_base_hub_notif,
++	.get_state = ssam_base_hub_query_state,
++	.connect_delay_ms = SSAM_BASE_UPDATE_CONNECT_DELAY,
++};
++
++
++/* -- SSAM KIP-subsystem hub driver. ---------------------------------------- */
++
++/*
++ * Some devices may need a bit of time to be fully usable after being
++ * (re-)connected. This delay has been determined via experimentation.
++ */
++#define SSAM_KIP_UPDATE_CONNECT_DELAY		250
++
++#define SSAM_EVENT_KIP_CID_CONNECTION		0x2c
++
++SSAM_DEFINE_SYNC_REQUEST_R(__ssam_kip_query_state, u8, {
++	.target_category = SSAM_SSH_TC_KIP,
++	.target_id       = 0x01,
++	.command_id      = 0x2c,
++	.instance_id     = 0x00,
++});
++
++static int ssam_kip_hub_query_state(struct ssam_hub *hub, enum ssam_hub_state *state)
++{
++	int status;
++	u8 connected;
++
++	status = ssam_retry(__ssam_kip_query_state, hub->sdev->ctrl, &connected);
++	if (status < 0) {
++		dev_err(&hub->sdev->dev, "failed to query KIP connection state: %d\n", status);
++		return status;
++	}
++
++	*state = connected ? SSAM_HUB_CONNECTED : SSAM_HUB_DISCONNECTED;
++	return 0;
++}
++
++static u32 ssam_kip_hub_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
++{
++	struct ssam_hub *hub = container_of(nf, struct ssam_hub, notif);
++
++	if (event->command_id != SSAM_EVENT_KIP_CID_CONNECTION)
++		return 0;	/* Return "unhandled". */
++
++	if (event->length < 1) {
++		dev_err(&hub->sdev->dev, "unexpected payload size: %u\n", event->length);
++		return 0;
++	}
++
++	ssam_hub_update(hub, event->data[0]);
++	return SSAM_NOTIF_HANDLED;
++}
++
++static const struct ssam_hub_info kip_hub = {
++	.event = {
++		.reg = SSAM_EVENT_REGISTRY_SAM,
++		.id = {
++			.target_category = SSAM_SSH_TC_KIP,
++			.instance = 0,
++		},
++		.mask = SSAM_EVENT_MASK_TARGET,
++		.flags = SSAM_EVENT_SEQUENCED,
++	},
++	.notify = ssam_kip_hub_notif,
++	.get_state = ssam_kip_hub_query_state,
++	.connect_delay_ms = SSAM_KIP_UPDATE_CONNECT_DELAY,
++};
++
++
++/* -- Driver registration. -------------------------------------------------- */
++
++static const struct ssam_device_id ssam_hub_match[] = {
++	{ SSAM_VDEV(HUB, 0x02, SSAM_ANY_IID, 0x00), (unsigned long)&base_hub },
++	{ SSAM_SDEV(KIP, 0x01, 0x00, 0x00),         (unsigned long)&kip_hub  },
++	{ }
++};
++MODULE_DEVICE_TABLE(ssam, ssam_hub_match);
++
++static struct ssam_device_driver ssam_subsystem_hub_driver = {
++	.probe = ssam_hub_probe,
++	.remove = ssam_hub_remove,
++	.match_table = ssam_hub_match,
++	.driver = {
++		.name = "surface_aggregator_subsystem_hub",
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++		.pm = &ssam_hub_pm_ops,
++	},
++};
++module_ssam_device_driver(ssam_subsystem_hub_driver);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Subsystem device hub driver for Surface System Aggregator Module");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 3261c8141841..11b51aa9ea73 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -11,14 +11,11 @@
+ 
+ #include <linux/acpi.h>
+ #include <linux/kernel.h>
+-#include <linux/limits.h>
+ #include <linux/module.h>
+ #include <linux/platform_device.h>
+ #include <linux/property.h>
+ #include <linux/types.h>
+-#include <linux/workqueue.h>
+ 
+-#include <linux/surface_aggregator/controller.h>
+ #include <linux/surface_aggregator/device.h>
+ 
+ 
+@@ -279,335 +276,6 @@ static const struct software_node *ssam_node_group_sp8[] = {
+ };
+ 
+ 
+-/* -- SSAM generic subsystem hub driver framework. -------------------------- */
+-
+-enum ssam_hub_state {
+-	SSAM_HUB_UNINITIALIZED,		/* Only set during initialization. */
+-	SSAM_HUB_CONNECTED,
+-	SSAM_HUB_DISCONNECTED,
+-};
+-
+-enum ssam_hub_flags {
+-	SSAM_HUB_HOT_REMOVED,
+-};
+-
+-struct ssam_hub {
+-	struct ssam_device *sdev;
+-
+-	enum ssam_hub_state state;
+-	unsigned long flags;
+-
+-	struct delayed_work update_work;
+-	unsigned long connect_delay;
+-
+-	struct ssam_event_notifier notif;
+-
+-	int (*get_state)(struct ssam_hub *hub, enum ssam_hub_state *state);
+-};
+-
+-static void ssam_hub_update_workfn(struct work_struct *work)
+-{
+-	struct ssam_hub *hub = container_of(work, struct ssam_hub, update_work.work);
+-	enum ssam_hub_state state;
+-	int status = 0;
+-
+-	status = hub->get_state(hub, &state);
+-	if (status)
+-		return;
+-
+-	/*
+-	 * There is a small possibility that hub devices were hot-removed and
+-	 * re-added before we were able to remove them here. In that case, both
+-	 * the state returned by get_state() and the state of the hub will
+-	 * equal SSAM_HUB_CONNECTED and we would bail early below, which would
+-	 * leave child devices without proper (re-)initialization and the
+-	 * hot-remove flag set.
+-	 *
+-	 * Therefore, we check whether devices have been hot-removed via an
+-	 * additional flag on the hub and, in this case, override the returned
+-	 * hub state. In case of a missed disconnect (i.e. get_state returned
+-	 * "connected"), we further need to re-schedule this work (with the
+-	 * appropriate delay) as the actual connect work submission might have
+-	 * been merged with this one.
+-	 *
+-	 * This then leads to one of two cases: Either we submit an unnecessary
+-	 * work item (which will get ignored via either the queue or the state
+-	 * checks) or, in the unlikely case that the work is actually required,
+-	 * double the normal connect delay.
+-	 */
+-	if (test_and_clear_bit(SSAM_HUB_HOT_REMOVED, &hub->flags)) {
+-		if (state == SSAM_HUB_CONNECTED)
+-			schedule_delayed_work(&hub->update_work, hub->connect_delay);
+-
+-		state = SSAM_HUB_DISCONNECTED;
+-	}
+-
+-	if (hub->state == state)
+-		return;
+-	hub->state = state;
+-
+-	if (hub->state == SSAM_HUB_CONNECTED)
+-		status = ssam_device_register_clients(hub->sdev);
+-	else
+-		ssam_remove_clients(&hub->sdev->dev);
+-
+-	if (status)
+-		dev_err(&hub->sdev->dev, "failed to update hub child devices: %d\n", status);
+-}
+-
+-static int ssam_hub_mark_hot_removed(struct device *dev, void *_data)
+-{
+-	struct ssam_device *sdev = to_ssam_device(dev);
+-
+-	if (is_ssam_device(dev))
+-		ssam_device_mark_hot_removed(sdev);
+-
+-	return 0;
+-}
+-
+-static void ssam_hub_update(struct ssam_hub *hub, bool connected)
+-{
+-	unsigned long delay;
+-
+-	/* Mark devices as hot-removed before we remove any. */
+-	if (!connected) {
+-		set_bit(SSAM_HUB_HOT_REMOVED, &hub->flags);
+-		device_for_each_child_reverse(&hub->sdev->dev, NULL, ssam_hub_mark_hot_removed);
+-	}
+-
+-	/*
+-	 * Delay update when the base/keyboard cover is being connected to give
+-	 * devices/EC some time to set up.
+-	 */
+-	delay = connected ? hub->connect_delay : 0;
+-
+-	schedule_delayed_work(&hub->update_work, delay);
+-}
+-
+-static int __maybe_unused ssam_hub_resume(struct device *dev)
+-{
+-	struct ssam_hub *hub = dev_get_drvdata(dev);
+-
+-	schedule_delayed_work(&hub->update_work, 0);
+-	return 0;
+-}
+-static SIMPLE_DEV_PM_OPS(ssam_hub_pm_ops, NULL, ssam_hub_resume);
+-
+-static int ssam_hub_setup(struct ssam_device *sdev, struct ssam_hub *hub)
+-{
+-	int status;
+-
+-	hub->sdev = sdev;
+-	hub->state = SSAM_HUB_UNINITIALIZED;
+-
+-	INIT_DELAYED_WORK(&hub->update_work, ssam_hub_update_workfn);
+-
+-	ssam_device_set_drvdata(sdev, hub);
+-
+-	status = ssam_device_notifier_register(sdev, &hub->notif);
+-	if (status)
+-		return status;
+-
+-	schedule_delayed_work(&hub->update_work, 0);
+-	return 0;
+-}
+-
+-static void ssam_hub_remove(struct ssam_device *sdev)
+-{
+-	struct ssam_hub *hub = ssam_device_get_drvdata(sdev);
+-
+-	ssam_device_notifier_unregister(sdev, &hub->notif);
+-	cancel_delayed_work_sync(&hub->update_work);
+-	ssam_remove_clients(&sdev->dev);
+-}
+-
+-
+-/* -- SSAM base-hub driver. ------------------------------------------------- */
+-
+-/*
+- * Some devices (especially battery) may need a bit of time to be fully usable
+- * after being (re-)connected. This delay has been determined via
+- * experimentation.
+- */
+-#define SSAM_BASE_UPDATE_CONNECT_DELAY		msecs_to_jiffies(2500)
+-
+-SSAM_DEFINE_SYNC_REQUEST_R(ssam_bas_query_opmode, u8, {
+-	.target_category = SSAM_SSH_TC_BAS,
+-	.target_id       = 0x01,
+-	.command_id      = 0x0d,
+-	.instance_id     = 0x00,
+-});
+-
+-#define SSAM_BAS_OPMODE_TABLET		0x00
+-#define SSAM_EVENT_BAS_CID_CONNECTION	0x0c
+-
+-static int ssam_base_hub_query_state(struct ssam_hub *hub, enum ssam_hub_state *state)
+-{
+-	u8 opmode;
+-	int status;
+-
+-	status = ssam_retry(ssam_bas_query_opmode, hub->sdev->ctrl, &opmode);
+-	if (status < 0) {
+-		dev_err(&hub->sdev->dev, "failed to query base state: %d\n", status);
+-		return status;
+-	}
+-
+-	if (opmode != SSAM_BAS_OPMODE_TABLET)
+-		*state = SSAM_HUB_CONNECTED;
+-	else
+-		*state = SSAM_HUB_DISCONNECTED;
+-
+-	return 0;
+-}
+-
+-static u32 ssam_base_hub_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
+-{
+-	struct ssam_hub *hub = container_of(nf, struct ssam_hub, notif);
+-
+-	if (event->command_id != SSAM_EVENT_BAS_CID_CONNECTION)
+-		return 0;
+-
+-	if (event->length < 1) {
+-		dev_err(&hub->sdev->dev, "unexpected payload size: %u\n", event->length);
+-		return 0;
+-	}
+-
+-	ssam_hub_update(hub, event->data[0]);
+-
+-	/*
+-	 * Do not return SSAM_NOTIF_HANDLED: The event should be picked up and
+-	 * consumed by the detachment system driver. We're just a (more or less)
+-	 * silent observer.
+-	 */
+-	return 0;
+-}
+-
+-static int ssam_base_hub_probe(struct ssam_device *sdev)
+-{
+-	struct ssam_hub *hub;
+-
+-	hub = devm_kzalloc(&sdev->dev, sizeof(*hub), GFP_KERNEL);
+-	if (!hub)
+-		return -ENOMEM;
+-
+-	hub->notif.base.priority = INT_MAX;  /* This notifier should run first. */
+-	hub->notif.base.fn = ssam_base_hub_notif;
+-	hub->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
+-	hub->notif.event.id.target_category = SSAM_SSH_TC_BAS,
+-	hub->notif.event.id.instance = 0,
+-	hub->notif.event.mask = SSAM_EVENT_MASK_NONE;
+-	hub->notif.event.flags = SSAM_EVENT_SEQUENCED;
+-
+-	hub->connect_delay = SSAM_BASE_UPDATE_CONNECT_DELAY;
+-	hub->get_state = ssam_base_hub_query_state;
+-
+-	return ssam_hub_setup(sdev, hub);
+-}
+-
+-static const struct ssam_device_id ssam_base_hub_match[] = {
+-	{ SSAM_VDEV(HUB, 0x02, SSAM_ANY_IID, 0x00) },
+-	{ },
+-};
+-
+-static struct ssam_device_driver ssam_base_hub_driver = {
+-	.probe = ssam_base_hub_probe,
+-	.remove = ssam_hub_remove,
+-	.match_table = ssam_base_hub_match,
+-	.driver = {
+-		.name = "surface_aggregator_base_hub",
+-		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
+-		.pm = &ssam_hub_pm_ops,
+-	},
+-};
+-
+-
+-/* -- SSAM KIP-subsystem hub driver. ---------------------------------------- */
+-
+-/*
+- * Some devices may need a bit of time to be fully usable after being
+- * (re-)connected. This delay has been determined via experimentation.
+- */
+-#define SSAM_KIP_UPDATE_CONNECT_DELAY		msecs_to_jiffies(250)
+-
+-#define SSAM_EVENT_KIP_CID_CONNECTION		0x2c
+-
+-SSAM_DEFINE_SYNC_REQUEST_R(__ssam_kip_get_connection_state, u8, {
+-	.target_category = SSAM_SSH_TC_KIP,
+-	.target_id       = 0x01,
+-	.command_id      = 0x2c,
+-	.instance_id     = 0x00,
+-});
+-
+-static int ssam_kip_get_connection_state(struct ssam_hub *hub, enum ssam_hub_state *state)
+-{
+-	int status;
+-	u8 connected;
+-
+-	status = ssam_retry(__ssam_kip_get_connection_state, hub->sdev->ctrl, &connected);
+-	if (status < 0) {
+-		dev_err(&hub->sdev->dev, "failed to query KIP connection state: %d\n", status);
+-		return status;
+-	}
+-
+-	*state = connected ? SSAM_HUB_CONNECTED : SSAM_HUB_DISCONNECTED;
+-	return 0;
+-}
+-
+-static u32 ssam_kip_hub_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
+-{
+-	struct ssam_hub *hub = container_of(nf, struct ssam_hub, notif);
+-
+-	if (event->command_id != SSAM_EVENT_KIP_CID_CONNECTION)
+-		return 0;	/* Return "unhandled". */
+-
+-	if (event->length < 1) {
+-		dev_err(&hub->sdev->dev, "unexpected payload size: %u\n", event->length);
+-		return 0;
+-	}
+-
+-	ssam_hub_update(hub, event->data[0]);
+-	return SSAM_NOTIF_HANDLED;
+-}
+-
+-static int ssam_kip_hub_probe(struct ssam_device *sdev)
+-{
+-	struct ssam_hub *hub;
+-
+-	hub = devm_kzalloc(&sdev->dev, sizeof(*hub), GFP_KERNEL);
+-	if (!hub)
+-		return -ENOMEM;
+-
+-	hub->notif.base.priority = INT_MAX;  /* This notifier should run first. */
+-	hub->notif.base.fn = ssam_kip_hub_notif;
+-	hub->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
+-	hub->notif.event.id.target_category = SSAM_SSH_TC_KIP,
+-	hub->notif.event.id.instance = 0,
+-	hub->notif.event.mask = SSAM_EVENT_MASK_TARGET;
+-	hub->notif.event.flags = SSAM_EVENT_SEQUENCED;
+-
+-	hub->connect_delay = SSAM_KIP_UPDATE_CONNECT_DELAY;
+-	hub->get_state = ssam_kip_get_connection_state;
+-
+-	return ssam_hub_setup(sdev, hub);
+-}
+-
+-static const struct ssam_device_id ssam_kip_hub_match[] = {
+-	{ SSAM_SDEV(KIP, 0x01, 0x00, 0x00) },
+-	{ },
+-};
+-
+-static struct ssam_device_driver ssam_kip_hub_driver = {
+-	.probe = ssam_kip_hub_probe,
+-	.remove = ssam_hub_remove,
+-	.match_table = ssam_kip_hub_match,
+-	.driver = {
+-		.name = "surface_kip_hub",
+-		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
+-		.pm = &ssam_hub_pm_ops,
+-	},
+-};
+-
+-
+ /* -- SSAM platform/meta-hub driver. ---------------------------------------- */
+ 
+ static const struct acpi_device_id ssam_platform_hub_match[] = {
+@@ -720,44 +388,7 @@ static struct platform_driver ssam_platform_hub_driver = {
+ 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
+ 	},
+ };
+-
+-
+-/* -- Module initialization. ------------------------------------------------ */
+-
+-static int __init ssam_device_hub_init(void)
+-{
+-	int status;
+-
+-	status = platform_driver_register(&ssam_platform_hub_driver);
+-	if (status)
+-		goto err_platform;
+-
+-	status = ssam_device_driver_register(&ssam_base_hub_driver);
+-	if (status)
+-		goto err_base;
+-
+-	status = ssam_device_driver_register(&ssam_kip_hub_driver);
+-	if (status)
+-		goto err_kip;
+-
+-	return 0;
+-
+-err_kip:
+-	ssam_device_driver_unregister(&ssam_base_hub_driver);
+-err_base:
+-	platform_driver_unregister(&ssam_platform_hub_driver);
+-err_platform:
+-	return status;
+-}
+-module_init(ssam_device_hub_init);
+-
+-static void __exit ssam_device_hub_exit(void)
+-{
+-	ssam_device_driver_unregister(&ssam_kip_hub_driver);
+-	ssam_device_driver_unregister(&ssam_base_hub_driver);
+-	platform_driver_unregister(&ssam_platform_hub_driver);
+-}
+-module_exit(ssam_device_hub_exit);
++module_platform_driver(ssam_platform_hub_driver);
+ 
+ MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
+ MODULE_DESCRIPTION("Device-registry for Surface System Aggregator Module");
+-- 
+2.36.1
+
+From 9733bfb395839e0cf33b1e3d36d714b0d7c572f1 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sat, 21 May 2022 00:51:05 +0200
+Subject: [PATCH] platform/surface: aggregator: Be consistent with hub device
+ IDs
+
+Currently, we use a virtual device ID for the base (BAS) hub but an
+actual device ID for the KIP hub. Let's be consistent about the naming
+format and make all hubs virtual, with their instance ID reflecting the
+subsystem.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_hub.c    |  4 ++--
+ .../platform/surface/surface_aggregator_registry.c   | 12 ++++++------
+ 2 files changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_hub.c b/drivers/platform/surface/surface_aggregator_hub.c
+index 20b1c38debfe..c473bdebf90c 100644
+--- a/drivers/platform/surface/surface_aggregator_hub.c
++++ b/drivers/platform/surface/surface_aggregator_hub.c
+@@ -340,8 +340,8 @@ static const struct ssam_hub_info kip_hub = {
+ /* -- Driver registration. -------------------------------------------------- */
+ 
+ static const struct ssam_device_id ssam_hub_match[] = {
+-	{ SSAM_VDEV(HUB, 0x02, SSAM_ANY_IID, 0x00), (unsigned long)&base_hub },
+-	{ SSAM_SDEV(KIP, 0x01, 0x00, 0x00),         (unsigned long)&kip_hub  },
++	{ SSAM_VDEV(HUB, 0x01, SSAM_SSH_TC_KIP, 0x00), (unsigned long)&kip_hub  },
++	{ SSAM_VDEV(HUB, 0x02, SSAM_SSH_TC_BAS, 0x00), (unsigned long)&base_hub },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(ssam, ssam_hub_match);
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 11b51aa9ea73..cee7121e7fa6 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -38,15 +38,15 @@ static const struct software_node ssam_node_root = {
+ 	.name = "ssam_platform_hub",
+ };
+ 
+-/* Base device hub (devices attached to Surface Book 3 base). */
+-static const struct software_node ssam_node_hub_base = {
+-	.name = "ssam:00:00:02:00:00",
++/* KIP device hub (connects keyboard cover devices on Surface Pro 8). */
++static const struct software_node ssam_node_hub_kip = {
++	.name = "ssam:00:00:01:0e:00",
+ 	.parent = &ssam_node_root,
+ };
+ 
+-/* KIP device hub (connects keyboard cover devices on Surface Pro 8). */
+-static const struct software_node ssam_node_hub_kip = {
+-	.name = "ssam:01:0e:01:00:00",
++/* Base device hub (devices attached to Surface Book 3 base). */
++static const struct software_node ssam_node_hub_base = {
++	.name = "ssam:00:00:02:11:00",
+ 	.parent = &ssam_node_root,
+ };
+ 
+-- 
+2.36.1
+
+From 2d3a54490933722f2165f982c04de88e3ba46f31 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sat, 21 May 2022 00:57:40 +0200
+Subject: [PATCH] platform/surface: Update copyright year of various drivers
+
+Update the copyright of various Surface drivers to the current year.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/aggregator/Kconfig             | 2 +-
+ drivers/platform/surface/aggregator/Makefile            | 2 +-
+ drivers/platform/surface/aggregator/bus.c               | 2 +-
+ drivers/platform/surface/aggregator/bus.h               | 2 +-
+ drivers/platform/surface/aggregator/controller.c        | 2 +-
+ drivers/platform/surface/aggregator/controller.h        | 2 +-
+ drivers/platform/surface/aggregator/core.c              | 2 +-
+ drivers/platform/surface/aggregator/ssh_msgb.h          | 2 +-
+ drivers/platform/surface/aggregator/ssh_packet_layer.c  | 2 +-
+ drivers/platform/surface/aggregator/ssh_packet_layer.h  | 2 +-
+ drivers/platform/surface/aggregator/ssh_parser.c        | 2 +-
+ drivers/platform/surface/aggregator/ssh_parser.h        | 2 +-
+ drivers/platform/surface/aggregator/ssh_request_layer.c | 2 +-
+ drivers/platform/surface/aggregator/ssh_request_layer.h | 2 +-
+ drivers/platform/surface/aggregator/trace.h             | 2 +-
+ drivers/platform/surface/surface_acpi_notify.c          | 2 +-
+ drivers/platform/surface/surface_aggregator_cdev.c      | 2 +-
+ drivers/platform/surface/surface_aggregator_registry.c  | 2 +-
+ drivers/platform/surface/surface_dtx.c                  | 2 +-
+ drivers/platform/surface/surface_gpe.c                  | 2 +-
+ drivers/platform/surface/surface_hotplug.c              | 2 +-
+ drivers/platform/surface/surface_platform_profile.c     | 2 +-
+ 22 files changed, 22 insertions(+), 22 deletions(-)
+
+diff --git a/drivers/platform/surface/aggregator/Kconfig b/drivers/platform/surface/aggregator/Kconfig
+index cab020324256..c114f9dd5fe1 100644
+--- a/drivers/platform/surface/aggregator/Kconfig
++++ b/drivers/platform/surface/aggregator/Kconfig
+@@ -1,5 +1,5 @@
+ # SPDX-License-Identifier: GPL-2.0+
+-# Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++# Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+ 
+ menuconfig SURFACE_AGGREGATOR
+ 	tristate "Microsoft Surface System Aggregator Module Subsystem and Drivers"
+diff --git a/drivers/platform/surface/aggregator/Makefile b/drivers/platform/surface/aggregator/Makefile
+index c0d550eda5cd..fdf664a217f9 100644
+--- a/drivers/platform/surface/aggregator/Makefile
++++ b/drivers/platform/surface/aggregator/Makefile
+@@ -1,5 +1,5 @@
+ # SPDX-License-Identifier: GPL-2.0+
+-# Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++# Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+ 
+ # For include/trace/define_trace.h to include trace.h
+ CFLAGS_core.o = -I$(src)
+diff --git a/drivers/platform/surface/aggregator/bus.c b/drivers/platform/surface/aggregator/bus.c
+index 4bba60884bb5..96986042a257 100644
+--- a/drivers/platform/surface/aggregator/bus.c
++++ b/drivers/platform/surface/aggregator/bus.c
+@@ -2,7 +2,7 @@
+ /*
+  * Surface System Aggregator Module bus and device integration.
+  *
+- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #include <linux/device.h>
+diff --git a/drivers/platform/surface/aggregator/bus.h b/drivers/platform/surface/aggregator/bus.h
+index 6964ee84e79c..5b4dbf21906c 100644
+--- a/drivers/platform/surface/aggregator/bus.h
++++ b/drivers/platform/surface/aggregator/bus.h
+@@ -2,7 +2,7 @@
+ /*
+  * Surface System Aggregator Module bus and device integration.
+  *
+- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #ifndef _SURFACE_AGGREGATOR_BUS_H
+diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
+index 6de834b52b63..43e765199137 100644
+--- a/drivers/platform/surface/aggregator/controller.c
++++ b/drivers/platform/surface/aggregator/controller.c
+@@ -2,7 +2,7 @@
+ /*
+  * Main SSAM/SSH controller structure and functionality.
+  *
+- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #include <linux/acpi.h>
+diff --git a/drivers/platform/surface/aggregator/controller.h b/drivers/platform/surface/aggregator/controller.h
+index a0963c3562ff..f0d987abc51e 100644
+--- a/drivers/platform/surface/aggregator/controller.h
++++ b/drivers/platform/surface/aggregator/controller.h
+@@ -2,7 +2,7 @@
+ /*
+  * Main SSAM/SSH controller structure and functionality.
+  *
+- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #ifndef _SURFACE_AGGREGATOR_CONTROLLER_H
+diff --git a/drivers/platform/surface/aggregator/core.c b/drivers/platform/surface/aggregator/core.c
+index a62c5dfe42d6..1a6373dea109 100644
+--- a/drivers/platform/surface/aggregator/core.c
++++ b/drivers/platform/surface/aggregator/core.c
+@@ -7,7 +7,7 @@
+  * Handles communication via requests as well as enabling, disabling, and
+  * relaying of events.
+  *
+- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #include <linux/acpi.h>
+diff --git a/drivers/platform/surface/aggregator/ssh_msgb.h b/drivers/platform/surface/aggregator/ssh_msgb.h
+index e562958ffdf0..f3ecad92eefd 100644
+--- a/drivers/platform/surface/aggregator/ssh_msgb.h
++++ b/drivers/platform/surface/aggregator/ssh_msgb.h
+@@ -2,7 +2,7 @@
+ /*
+  * SSH message builder functions.
+  *
+- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #ifndef _SURFACE_AGGREGATOR_SSH_MSGB_H
+diff --git a/drivers/platform/surface/aggregator/ssh_packet_layer.c b/drivers/platform/surface/aggregator/ssh_packet_layer.c
+index 8a4451c1ffe5..6748fe4ac5d5 100644
+--- a/drivers/platform/surface/aggregator/ssh_packet_layer.c
++++ b/drivers/platform/surface/aggregator/ssh_packet_layer.c
+@@ -2,7 +2,7 @@
+ /*
+  * SSH packet transport layer.
+  *
+- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #include <asm/unaligned.h>
+diff --git a/drivers/platform/surface/aggregator/ssh_packet_layer.h b/drivers/platform/surface/aggregator/ssh_packet_layer.h
+index 2eb329f0b91a..64633522f971 100644
+--- a/drivers/platform/surface/aggregator/ssh_packet_layer.h
++++ b/drivers/platform/surface/aggregator/ssh_packet_layer.h
+@@ -2,7 +2,7 @@
+ /*
+  * SSH packet transport layer.
+  *
+- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #ifndef _SURFACE_AGGREGATOR_SSH_PACKET_LAYER_H
+diff --git a/drivers/platform/surface/aggregator/ssh_parser.c b/drivers/platform/surface/aggregator/ssh_parser.c
+index b77912f8f13b..a6f668694365 100644
+--- a/drivers/platform/surface/aggregator/ssh_parser.c
++++ b/drivers/platform/surface/aggregator/ssh_parser.c
+@@ -2,7 +2,7 @@
+ /*
+  * SSH message parser.
+  *
+- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #include <asm/unaligned.h>
+diff --git a/drivers/platform/surface/aggregator/ssh_parser.h b/drivers/platform/surface/aggregator/ssh_parser.h
+index 3bd6e180fd16..801d8fa69fb5 100644
+--- a/drivers/platform/surface/aggregator/ssh_parser.h
++++ b/drivers/platform/surface/aggregator/ssh_parser.h
+@@ -2,7 +2,7 @@
+ /*
+  * SSH message parser.
+  *
+- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #ifndef _SURFACE_AGGREGATOR_SSH_PARSER_H
+diff --git a/drivers/platform/surface/aggregator/ssh_request_layer.c b/drivers/platform/surface/aggregator/ssh_request_layer.c
+index 790f7f0eee98..f5565570f16c 100644
+--- a/drivers/platform/surface/aggregator/ssh_request_layer.c
++++ b/drivers/platform/surface/aggregator/ssh_request_layer.c
+@@ -2,7 +2,7 @@
+ /*
+  * SSH request transport layer.
+  *
+- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #include <asm/unaligned.h>
+diff --git a/drivers/platform/surface/aggregator/ssh_request_layer.h b/drivers/platform/surface/aggregator/ssh_request_layer.h
+index 9c3cbae2d4bd..4e387a031351 100644
+--- a/drivers/platform/surface/aggregator/ssh_request_layer.h
++++ b/drivers/platform/surface/aggregator/ssh_request_layer.h
+@@ -2,7 +2,7 @@
+ /*
+  * SSH request transport layer.
+  *
+- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #ifndef _SURFACE_AGGREGATOR_SSH_REQUEST_LAYER_H
+diff --git a/drivers/platform/surface/aggregator/trace.h b/drivers/platform/surface/aggregator/trace.h
+index de64cf169060..7be0bb097dea 100644
+--- a/drivers/platform/surface/aggregator/trace.h
++++ b/drivers/platform/surface/aggregator/trace.h
+@@ -2,7 +2,7 @@
+ /*
+  * Trace points for SSAM/SSH.
+  *
+- * Copyright (C) 2020-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2020-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #undef TRACE_SYSTEM
+diff --git a/drivers/platform/surface/surface_acpi_notify.c b/drivers/platform/surface/surface_acpi_notify.c
+index 7b758f8cc137..b0a83255d060 100644
+--- a/drivers/platform/surface/surface_acpi_notify.c
++++ b/drivers/platform/surface/surface_acpi_notify.c
+@@ -8,7 +8,7 @@
+  * notifications sent from ACPI via the SAN interface by providing them to any
+  * registered external driver.
+  *
+- * Copyright (C) 2019-2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #include <asm/unaligned.h>
+diff --git a/drivers/platform/surface/surface_aggregator_cdev.c b/drivers/platform/surface/surface_aggregator_cdev.c
+index 30fb50fde450..492c82e69182 100644
+--- a/drivers/platform/surface/surface_aggregator_cdev.c
++++ b/drivers/platform/surface/surface_aggregator_cdev.c
+@@ -3,7 +3,7 @@
+  * Provides user-space access to the SSAM EC via the /dev/surface/aggregator
+  * misc device. Intended for debugging and development.
+  *
+- * Copyright (C) 2020-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2020-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #include <linux/fs.h>
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index cee7121e7fa6..3f81db28a702 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -6,7 +6,7 @@
+  * cannot be auto-detected. Provides device-hubs and performs instantiation
+  * for these devices.
+  *
+- * Copyright (C) 2020-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2020-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #include <linux/acpi.h>
+diff --git a/drivers/platform/surface/surface_dtx.c b/drivers/platform/surface/surface_dtx.c
+index 1203b9a82993..ed36944467f9 100644
+--- a/drivers/platform/surface/surface_dtx.c
++++ b/drivers/platform/surface/surface_dtx.c
+@@ -8,7 +8,7 @@
+  * acknowledge (to speed things up), abort (e.g. in case the dGPU is still in
+  * use), or request detachment via user-space.
+  *
+- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #include <linux/fs.h>
+diff --git a/drivers/platform/surface/surface_gpe.c b/drivers/platform/surface/surface_gpe.c
+index ec66fde28e75..27365cbe1ee9 100644
+--- a/drivers/platform/surface/surface_gpe.c
++++ b/drivers/platform/surface/surface_gpe.c
+@@ -4,7 +4,7 @@
+  * properly configuring the respective GPEs. Required for wakeup via lid on
+  * newer Intel-based Microsoft Surface devices.
+  *
+- * Copyright (C) 2020 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2020-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+diff --git a/drivers/platform/surface/surface_hotplug.c b/drivers/platform/surface/surface_hotplug.c
+index cfcc15cfbacb..f004a2495201 100644
+--- a/drivers/platform/surface/surface_hotplug.c
++++ b/drivers/platform/surface/surface_hotplug.c
+@@ -10,7 +10,7 @@
+  * Event signaling is handled via ACPI, which will generate the appropriate
+  * device-check notifications to be picked up by the PCIe hot-plug driver.
+  *
+- * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2019-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #include <linux/acpi.h>
+diff --git a/drivers/platform/surface/surface_platform_profile.c b/drivers/platform/surface/surface_platform_profile.c
+index 6373d3b5eb7f..fbf2e11fd6ce 100644
+--- a/drivers/platform/surface/surface_platform_profile.c
++++ b/drivers/platform/surface/surface_platform_profile.c
+@@ -3,7 +3,7 @@
+  * Surface Platform Profile / Performance Mode driver for Surface System
+  * Aggregator Module (thermal subsystem).
+  *
+- * Copyright (C) 2021 Maximilian Luz <luzmaximilian@gmail.com>
++ * Copyright (C) 2021-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+ 
+ #include <asm/unaligned.h>
+-- 
+2.36.1
+

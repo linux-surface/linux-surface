@@ -1,0 +1,121 @@
+From fdad6d7397202fbca80d69ae6135637fff45d26e Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sat, 27 Feb 2021 00:45:52 +0100
+Subject: [PATCH] ath10k: Add module parameters to override board files
+
+Some Surface devices, specifically the Surface Go and AMD version of the
+Surface Laptop 3 (wich both come with QCA6174 WiFi chips), work better
+with a different board file, as it seems that the firmeware included
+upstream is buggy.
+
+As it is generally not a good idea to randomly overwrite files, let
+alone doing so via packages, we add module parameters to override those
+file names in the driver. This allows us to package/deploy the override
+via a modprobe.d config.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: ath10k
+---
+ drivers/net/wireless/ath/ath10k/core.c | 58 ++++++++++++++++++++++++++
+ 1 file changed, 58 insertions(+)
+
+diff --git a/drivers/net/wireless/ath/ath10k/core.c b/drivers/net/wireless/ath/ath10k/core.c
+index 9e1f483e1362..34cfce241e4a 100644
+--- a/drivers/net/wireless/ath/ath10k/core.c
++++ b/drivers/net/wireless/ath/ath10k/core.c
+@@ -36,6 +36,9 @@ static bool skip_otp;
+ static bool rawmode;
+ static bool fw_diag_log;
+ 
++static char *override_board = "";
++static char *override_board2 = "";
++
+ unsigned long ath10k_coredump_mask = BIT(ATH10K_FW_CRASH_DUMP_REGISTERS) |
+ 				     BIT(ATH10K_FW_CRASH_DUMP_CE_DATA);
+ 
+@@ -48,6 +51,9 @@ module_param(rawmode, bool, 0644);
+ module_param(fw_diag_log, bool, 0644);
+ module_param_named(coredump_mask, ath10k_coredump_mask, ulong, 0444);
+ 
++module_param(override_board, charp, 0644);
++module_param(override_board2, charp, 0644);
++
+ MODULE_PARM_DESC(debug_mask, "Debugging mask");
+ MODULE_PARM_DESC(uart_print, "Uart target debugging");
+ MODULE_PARM_DESC(skip_otp, "Skip otp failure for calibration in testmode");
+@@ -56,6 +62,9 @@ MODULE_PARM_DESC(rawmode, "Use raw 802.11 frame datapath");
+ MODULE_PARM_DESC(coredump_mask, "Bitfield of what to include in firmware crash file");
+ MODULE_PARM_DESC(fw_diag_log, "Diag based fw log debugging");
+ 
++MODULE_PARM_DESC(override_board, "Override for board.bin file");
++MODULE_PARM_DESC(override_board2, "Override for board-2.bin file");
++
+ static const struct ath10k_hw_params ath10k_hw_params_list[] = {
+ 	{
+ 		.id = QCA988X_HW_2_0_VERSION,
+@@ -860,6 +869,42 @@ static int ath10k_init_configure_target(struct ath10k *ar)
+ 	return 0;
+ }
+ 
++static const char *ath10k_override_board_fw_file(struct ath10k *ar,
++						 const char *file)
++{
++	if (strcmp(file, "board.bin") == 0) {
++		if (strcmp(override_board, "") == 0)
++			return file;
++
++		if (strcmp(override_board, "none") == 0) {
++			dev_info(ar->dev, "firmware override: pretending 'board.bin' does not exist\n");
++			return NULL;
++		}
++
++		dev_info(ar->dev, "firmware override: replacing 'board.bin' with '%s'\n",
++			 override_board);
++
++		return override_board;
++	}
++
++	if (strcmp(file, "board-2.bin") == 0) {
++		if (strcmp(override_board2, "") == 0)
++			return file;
++
++		if (strcmp(override_board2, "none") == 0) {
++			dev_info(ar->dev, "firmware override: pretending 'board-2.bin' does not exist\n");
++			return NULL;
++		}
++
++		dev_info(ar->dev, "firmware override: replacing 'board-2.bin' with '%s'\n",
++			 override_board2);
++
++		return override_board2;
++	}
++
++	return file;
++}
++
+ static const struct firmware *ath10k_fetch_fw_file(struct ath10k *ar,
+ 						   const char *dir,
+ 						   const char *file)
+@@ -874,6 +919,19 @@ static const struct firmware *ath10k_fetch_fw_file(struct ath10k *ar,
+ 	if (dir == NULL)
+ 		dir = ".";
+ 
++	/* HACK: Override board.bin and board-2.bin files if specified.
++	 *
++	 * Some Surface devices perform better with a different board
++	 * configuration. To this end, one would need to replace the board.bin
++	 * file with the modified config and remove the board-2.bin file.
++	 * Unfortunately, that's not a solution that we can easily package. So
++	 * we add module options to perform these overrides here.
++	 */
++
++	file = ath10k_override_board_fw_file(ar, file);
++	if (!file)
++		return ERR_PTR(-ENOENT);
++
+ 	snprintf(filename, sizeof(filename), "%s/%s", dir, file);
+ 	ret = firmware_request_nowarn(&fw, filename, ar->dev);
+ 	ath10k_dbg(ar, ATH10K_DBG_BOOT, "boot fw request '%s': %d\n",
+-- 
+2.36.1
+

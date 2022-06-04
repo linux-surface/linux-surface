@@ -1,0 +1,533 @@
+From e9e5cbcf7350399c76342b98a35d4cf97f9163df Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Thu, 5 Nov 2020 13:09:45 +0100
+Subject: [PATCH] hid/multitouch: Turn off Type Cover keyboard backlight when
+ suspending
+
+The Type Cover for Microsoft Surface devices supports a special usb
+control request to disable or enable the built-in keyboard backlight.
+On Windows, this request happens when putting the device into suspend or
+resuming it, without it the backlight of the Type Cover will remain
+enabled for some time even though the computer is suspended, which looks
+weird to the user.
+
+So add support for this special usb control request to hid-multitouch,
+which is the driver that's handling the Type Cover.
+
+The reason we have to use a pm_notifier for this instead of the usual
+suspend/resume methods is that those won't get called in case the usb
+device is already autosuspended.
+
+Also, if the device is autosuspended, we have to briefly autoresume it
+in order to send the request. Doing that should be fine, the usb-core
+driver does something similar during suspend inside choose_wakeup().
+
+To make sure we don't send that request to every device but only to
+devices which support it, add a new quirk
+MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER to hid-multitouch. For now this quirk
+is only enabled for the usb id of the Surface Pro 2017 Type Cover, which
+is where I confirmed that it's working.
+
+Patchset: surface-typecover
+---
+ drivers/hid/hid-multitouch.c | 100 ++++++++++++++++++++++++++++++++++-
+ 1 file changed, 98 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index 99eabfb4145b..bbfcae39f375 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -34,7 +34,10 @@
+ #include <linux/device.h>
+ #include <linux/hid.h>
+ #include <linux/module.h>
++#include <linux/pm_runtime.h>
+ #include <linux/slab.h>
++#include <linux/suspend.h>
++#include <linux/usb.h>
+ #include <linux/input/mt.h>
+ #include <linux/jiffies.h>
+ #include <linux/string.h>
+@@ -47,6 +50,7 @@ MODULE_DESCRIPTION("HID multitouch panels");
+ MODULE_LICENSE("GPL");
+ 
+ #include "hid-ids.h"
++#include "usbhid/usbhid.h"
+ 
+ /* quirks to control the device */
+ #define MT_QUIRK_NOT_SEEN_MEANS_UP	BIT(0)
+@@ -71,12 +75,15 @@ MODULE_LICENSE("GPL");
+ #define MT_QUIRK_SEPARATE_APP_REPORT	BIT(19)
+ #define MT_QUIRK_FORCE_MULTI_INPUT	BIT(20)
+ #define MT_QUIRK_DISABLE_WAKEUP		BIT(21)
++#define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(22)
+ 
+ #define MT_INPUTMODE_TOUCHSCREEN	0x02
+ #define MT_INPUTMODE_TOUCHPAD		0x03
+ 
+ #define MT_BUTTONTYPE_CLICKPAD		0
+ 
++#define MS_TYPE_COVER_FEATURE_REPORT_USAGE	0xff050086
++
+ enum latency_mode {
+ 	HID_LATENCY_NORMAL = 0,
+ 	HID_LATENCY_HIGH = 1,
+@@ -168,6 +175,8 @@ struct mt_device {
+ 
+ 	struct list_head applications;
+ 	struct list_head reports;
++
++	struct notifier_block pm_notifier;
+ };
+ 
+ static void mt_post_parse_default_settings(struct mt_device *td,
+@@ -211,6 +220,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
+ #define MT_CLS_GOOGLE				0x0111
+ #define MT_CLS_RAZER_BLADE_STEALTH		0x0112
+ #define MT_CLS_SMART_TECH			0x0113
++#define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0114
+ 
+ #define MT_DEFAULT_MAXCONTACT	10
+ #define MT_MAX_MAXCONTACT	250
+@@ -386,6 +396,16 @@ static const struct mt_class mt_classes[] = {
+ 			MT_QUIRK_CONTACT_CNT_ACCURATE |
+ 			MT_QUIRK_SEPARATE_APP_REPORT,
+ 	},
++	{ .name = MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER,
++		.quirks = MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT |
++			MT_QUIRK_ALWAYS_VALID |
++			MT_QUIRK_IGNORE_DUPLICATES |
++			MT_QUIRK_HOVERING |
++			MT_QUIRK_CONTACT_CNT_ACCURATE |
++			MT_QUIRK_STICKY_FINGERS |
++			MT_QUIRK_WIN8_PTP_BUTTONS,
++		.export_all_inputs = true
++	},
+ 	{ }
+ };
+ 
+@@ -1695,6 +1715,69 @@ static void mt_expired_timeout(struct timer_list *t)
+ 	clear_bit(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
+ }
+ 
++static void get_type_cover_backlight_field(struct hid_device *hdev,
++					   struct hid_field **field)
++{
++	struct hid_report_enum *rep_enum;
++	struct hid_report *rep;
++	struct hid_field *cur_field;
++	int i, j;
++
++	rep_enum = &hdev->report_enum[HID_FEATURE_REPORT];
++	list_for_each_entry(rep, &rep_enum->report_list, list) {
++		for (i = 0; i < rep->maxfield; i++) {
++			cur_field = rep->field[i];
++
++			for (j = 0; j < cur_field->maxusage; j++) {
++				if (cur_field->usage[j].hid
++				    == MS_TYPE_COVER_FEATURE_REPORT_USAGE) {
++					*field = cur_field;
++					return;
++				}
++			}
++		}
++	}
++}
++
++static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
++{
++	struct usb_device *udev = hid_to_usb_dev(hdev);
++	struct hid_field *field = NULL;
++
++	/* Wake up the device in case it's already suspended */
++	pm_runtime_get_sync(&udev->dev);
++
++	get_type_cover_backlight_field(hdev, &field);
++	if (!field) {
++		hid_err(hdev, "couldn't find backlight field\n");
++		goto out;
++	}
++
++	field->value[field->index] = enabled ? 0x01ff00ff : 0x00ff00ff;
++	hid_hw_request(hdev, field->report, HID_REQ_SET_REPORT);
++
++out:
++	pm_runtime_put_sync(&udev->dev);
++}
++
++static int mt_pm_notifier(struct notifier_block *notifier,
++			  unsigned long pm_event,
++			  void *unused)
++{
++	struct mt_device *td =
++		container_of(notifier, struct mt_device, pm_notifier);
++	struct hid_device *hdev = td->hdev;
++
++	if (td->mtclass.quirks & MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT) {
++		if (pm_event == PM_SUSPEND_PREPARE)
++			update_keyboard_backlight(hdev, 0);
++		else if (pm_event == PM_POST_SUSPEND)
++			update_keyboard_backlight(hdev, 1);
++	}
++
++	return NOTIFY_DONE;
++}
++
+ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+ {
+ 	int ret, i;
+@@ -1718,6 +1801,9 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+ 	td->inputmode_value = MT_INPUTMODE_TOUCHSCREEN;
+ 	hid_set_drvdata(hdev, td);
+ 
++	td->pm_notifier.notifier_call = mt_pm_notifier;
++	register_pm_notifier(&td->pm_notifier);
++
+ 	INIT_LIST_HEAD(&td->applications);
+ 	INIT_LIST_HEAD(&td->reports);
+ 
+@@ -1747,15 +1833,19 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+ 	timer_setup(&td->release_timer, mt_expired_timeout, 0);
+ 
+ 	ret = hid_parse(hdev);
+-	if (ret != 0)
++	if (ret != 0) {
++		unregister_pm_notifier(&td->pm_notifier);
+ 		return ret;
++	}
+ 
+ 	if (mtclass->quirks & MT_QUIRK_FIX_CONST_CONTACT_ID)
+ 		mt_fix_const_fields(hdev, HID_DG_CONTACTID);
+ 
+ 	ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
+-	if (ret)
++	if (ret) {
++		unregister_pm_notifier(&td->pm_notifier);
+ 		return ret;
++	}
+ 
+ 	ret = sysfs_create_group(&hdev->dev.kobj, &mt_attribute_group);
+ 	if (ret)
+@@ -1807,6 +1897,7 @@ static void mt_remove(struct hid_device *hdev)
+ {
+ 	struct mt_device *td = hid_get_drvdata(hdev);
+ 
++	unregister_pm_notifier(&td->pm_notifier);
+ 	del_timer_sync(&td->release_timer);
+ 
+ 	sysfs_remove_group(&hdev->dev.kobj, &mt_attribute_group);
+@@ -2174,6 +2265,11 @@ static const struct hid_device_id mt_devices[] = {
+ 		MT_USB_DEVICE(USB_VENDOR_ID_XIROKU,
+ 			USB_DEVICE_ID_XIROKU_CSR2) },
+ 
++	/* Microsoft Surface type cover */
++	{ .driver_data = MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER,
++		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
++			USB_VENDOR_ID_MICROSOFT, 0x09c0) },
++
+ 	/* Google MT devices */
+ 	{ .driver_data = MT_CLS_GOOGLE,
+ 		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY, USB_VENDOR_ID_GOOGLE,
+-- 
+2.36.1
+
+From 3a33e6f8d42dec0a0e0c608dd8a9021c0845389a Mon Sep 17 00:00:00 2001
+From: PJungkamp <p.jungkamp@gmail.com>
+Date: Fri, 25 Feb 2022 12:04:25 +0100
+Subject: [PATCH] hid/multitouch: Add support for surface pro type cover tablet
+ switch
+
+The Surface Pro Type Cover has several non standard HID usages in it's
+hid report descriptor.
+I noticed that, upon folding the typecover back, a vendor specific range
+of 4 32 bit integer hid usages is transmitted.
+Only the first byte of the message seems to convey reliable information
+about the keyboard state.
+
+0x22 => Normal (keys enabled)
+0x33 => Folded back (keys disabled)
+0x53 => Rotated left/right side up (keys disabled)
+0x13 => Cover closed (keys disabled)
+0x43 => Folded back and Tablet upside down (keys disabled)
+This list may not be exhaustive.
+
+The tablet mode switch will be disabled for a value of 0x22 and enabled
+on any other value.
+
+Patchset: surface-typecover
+---
+ drivers/hid/hid-multitouch.c | 148 +++++++++++++++++++++++++++++------
+ 1 file changed, 122 insertions(+), 26 deletions(-)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index bbfcae39f375..d53228452501 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -76,6 +76,7 @@ MODULE_LICENSE("GPL");
+ #define MT_QUIRK_FORCE_MULTI_INPUT	BIT(20)
+ #define MT_QUIRK_DISABLE_WAKEUP		BIT(21)
+ #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(22)
++#define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(23)
+ 
+ #define MT_INPUTMODE_TOUCHSCREEN	0x02
+ #define MT_INPUTMODE_TOUCHPAD		0x03
+@@ -83,6 +84,8 @@ MODULE_LICENSE("GPL");
+ #define MT_BUTTONTYPE_CLICKPAD		0
+ 
+ #define MS_TYPE_COVER_FEATURE_REPORT_USAGE	0xff050086
++#define MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE	0xff050072
++#define MS_TYPE_COVER_APPLICATION	0xff050050
+ 
+ enum latency_mode {
+ 	HID_LATENCY_NORMAL = 0,
+@@ -398,6 +401,7 @@ static const struct mt_class mt_classes[] = {
+ 	},
+ 	{ .name = MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER,
+ 		.quirks = MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT |
++			MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH |
+ 			MT_QUIRK_ALWAYS_VALID |
+ 			MT_QUIRK_IGNORE_DUPLICATES |
+ 			MT_QUIRK_HOVERING |
+@@ -1357,6 +1361,9 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
+ 	    field->application != HID_CP_CONSUMER_CONTROL &&
+ 	    field->application != HID_GD_WIRELESS_RADIO_CTLS &&
+ 	    field->application != HID_GD_SYSTEM_MULTIAXIS &&
++	    !(field->application == MS_TYPE_COVER_APPLICATION &&
++	      application->quirks & MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH &&
++	      usage->hid == MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE) &&
+ 	    !(field->application == HID_VD_ASUS_CUSTOM_MEDIA_KEYS &&
+ 	      application->quirks & MT_QUIRK_ASUS_CUSTOM_UP))
+ 		return -1;
+@@ -1384,6 +1391,21 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
+ 		return 1;
+ 	}
+ 
++	/*
++	 * The Microsoft Surface Pro Typecover has a non-standard HID
++	 * tablet mode switch on a vendor specific usage page with vendor
++	 * specific usage.
++	 */
++	if (field->application == MS_TYPE_COVER_APPLICATION &&
++	    application->quirks & MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH &&
++	    usage->hid == MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE) {
++		usage->type = EV_SW;
++		usage->code = SW_TABLET_MODE;
++		*max = SW_MAX;
++		*bit = hi->input->swbit;
++		return 1;
++	}
++
+ 	if (rdata->is_mt_collection)
+ 		return mt_touch_input_mapping(hdev, hi, field, usage, bit, max,
+ 					      application);
+@@ -1405,6 +1427,7 @@ static int mt_input_mapped(struct hid_device *hdev, struct hid_input *hi,
+ {
+ 	struct mt_device *td = hid_get_drvdata(hdev);
+ 	struct mt_report_data *rdata;
++	struct input_dev *input;
+ 
+ 	rdata = mt_find_report_data(td, field->report);
+ 	if (rdata && rdata->is_mt_collection) {
+@@ -1412,6 +1435,19 @@ static int mt_input_mapped(struct hid_device *hdev, struct hid_input *hi,
+ 		return -1;
+ 	}
+ 
++	/*
++	 * We own an input device which acts as a tablet mode switch for
++	 * the Surface Pro Typecover.
++	 */
++	if (field->application == MS_TYPE_COVER_APPLICATION &&
++	    rdata->application->quirks & MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH &&
++	    usage->hid == MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE) {
++		input = hi->input;
++		input_set_capability(input, EV_SW, SW_TABLET_MODE);
++		input_report_switch(input, SW_TABLET_MODE, 0);
++		return -1;
++	}
++
+ 	/* let hid-core decide for the others */
+ 	return 0;
+ }
+@@ -1421,11 +1457,21 @@ static int mt_event(struct hid_device *hid, struct hid_field *field,
+ {
+ 	struct mt_device *td = hid_get_drvdata(hid);
+ 	struct mt_report_data *rdata;
++	struct input_dev *input;
+ 
+ 	rdata = mt_find_report_data(td, field->report);
+ 	if (rdata && rdata->is_mt_collection)
+ 		return mt_touch_event(hid, field, usage, value);
+ 
++	if (field->application == MS_TYPE_COVER_APPLICATION &&
++	    rdata->application->quirks & MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH &&
++	    usage->hid == MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE) {
++		input = field->hidinput->input;
++		input_report_switch(input, SW_TABLET_MODE, (value & 0xFF) != 0x22);
++		input_sync(input);
++		return 1;
++	}
++
+ 	return 0;
+ }
+ 
+@@ -1578,6 +1624,42 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app)
+ 		app->quirks &= ~MT_QUIRK_CONTACT_CNT_ACCURATE;
+ }
+ 
++static int get_type_cover_field(struct hid_report_enum *rep_enum,
++				struct hid_field **field, int usage)
++{
++	struct hid_report *rep;
++	struct hid_field *cur_field;
++	int i, j;
++
++	list_for_each_entry(rep, &rep_enum->report_list, list) {
++		for (i = 0; i < rep->maxfield; i++) {
++			cur_field = rep->field[i];
++			if (cur_field->application != MS_TYPE_COVER_APPLICATION)
++				continue;
++			for (j = 0; j < cur_field->maxusage; j++) {
++				if (cur_field->usage[j].hid == usage) {
++					*field = cur_field;
++					return true;
++				}
++			}
++		}
++	}
++	return false;
++}
++
++static void request_type_cover_tablet_mode_switch(struct hid_device *hdev)
++{
++	struct hid_field *field;
++
++	if (get_type_cover_field(&hdev->report_enum[HID_INPUT_REPORT],
++				 &field,
++				 MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE)) {
++		hid_hw_request(hdev, field->report, HID_REQ_GET_REPORT);
++	} else {
++		hid_err(hdev, "couldn't find tablet mode field\n");
++	}
++}
++
+ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
+ {
+ 	struct mt_device *td = hid_get_drvdata(hdev);
+@@ -1627,6 +1709,13 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
+ 		/* force BTN_STYLUS to allow tablet matching in udev */
+ 		__set_bit(BTN_STYLUS, hi->input->keybit);
+ 		break;
++	case MS_TYPE_COVER_APPLICATION:
++		if (td->mtclass.quirks & MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH) {
++			suffix = "Tablet Mode Switch";
++			request_type_cover_tablet_mode_switch(hdev);
++			break;
++		}
++		fallthrough;
+ 	default:
+ 		suffix = "UNKNOWN";
+ 		break;
+@@ -1715,30 +1804,6 @@ static void mt_expired_timeout(struct timer_list *t)
+ 	clear_bit(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
+ }
+ 
+-static void get_type_cover_backlight_field(struct hid_device *hdev,
+-					   struct hid_field **field)
+-{
+-	struct hid_report_enum *rep_enum;
+-	struct hid_report *rep;
+-	struct hid_field *cur_field;
+-	int i, j;
+-
+-	rep_enum = &hdev->report_enum[HID_FEATURE_REPORT];
+-	list_for_each_entry(rep, &rep_enum->report_list, list) {
+-		for (i = 0; i < rep->maxfield; i++) {
+-			cur_field = rep->field[i];
+-
+-			for (j = 0; j < cur_field->maxusage; j++) {
+-				if (cur_field->usage[j].hid
+-				    == MS_TYPE_COVER_FEATURE_REPORT_USAGE) {
+-					*field = cur_field;
+-					return;
+-				}
+-			}
+-		}
+-	}
+-}
+-
+ static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
+ {
+ 	struct usb_device *udev = hid_to_usb_dev(hdev);
+@@ -1747,8 +1812,9 @@ static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
+ 	/* Wake up the device in case it's already suspended */
+ 	pm_runtime_get_sync(&udev->dev);
+ 
+-	get_type_cover_backlight_field(hdev, &field);
+-	if (!field) {
++	if (!get_type_cover_field(&hdev->report_enum[HID_FEATURE_REPORT],
++				  &field,
++				  MS_TYPE_COVER_FEATURE_REPORT_USAGE)) {
+ 		hid_err(hdev, "couldn't find backlight field\n");
+ 		goto out;
+ 	}
+@@ -1874,13 +1940,24 @@ static int mt_suspend(struct hid_device *hdev, pm_message_t state)
+ 
+ static int mt_reset_resume(struct hid_device *hdev)
+ {
++	struct mt_device *td = hid_get_drvdata(hdev);
++
+ 	mt_release_contacts(hdev);
+ 	mt_set_modes(hdev, HID_LATENCY_NORMAL, true, true);
++
++	/* Request an update on the typecover folding state on resume
++	 * after reset.
++	 */
++	if (td->mtclass.quirks & MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH)
++		request_type_cover_tablet_mode_switch(hdev);
++
+ 	return 0;
+ }
+ 
+ static int mt_resume(struct hid_device *hdev)
+ {
++	struct mt_device *td = hid_get_drvdata(hdev);
++
+ 	/* Some Elan legacy devices require SET_IDLE to be set on resume.
+ 	 * It should be safe to send it to other devices too.
+ 	 * Tested on 3M, Stantum, Cypress, Zytronic, eGalax, and Elan panels. */
+@@ -1889,6 +1966,10 @@ static int mt_resume(struct hid_device *hdev)
+ 
+ 	mt_set_modes(hdev, HID_LATENCY_NORMAL, true, true);
+ 
++	/* Request an update on the typecover folding state on resume. */
++	if (td->mtclass.quirks & MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH)
++		request_type_cover_tablet_mode_switch(hdev);
++
+ 	return 0;
+ }
+ #endif
+@@ -1896,6 +1977,21 @@ static int mt_resume(struct hid_device *hdev)
+ static void mt_remove(struct hid_device *hdev)
+ {
+ 	struct mt_device *td = hid_get_drvdata(hdev);
++	struct hid_field *field;
++	struct input_dev *input;
++
++	/* Reset tablet mode switch on disconnect. */
++	if (td->mtclass.quirks & MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH) {
++		if (get_type_cover_field(&hdev->report_enum[HID_INPUT_REPORT],
++					 &field,
++					 MS_TYPE_COVER_TABLET_MODE_SWITCH_USAGE)) {
++			input = field->hidinput->input;
++			input_report_switch(input, SW_TABLET_MODE, 0);
++			input_sync(input);
++		} else {
++			hid_err(hdev, "couldn't find tablet mode field\n");
++		}
++	}
+ 
+ 	unregister_pm_notifier(&td->pm_notifier);
+ 	del_timer_sync(&td->release_timer);
+-- 
+2.36.1
+

@@ -1,0 +1,1175 @@
+From 39da3a6373d1831182ac1b5e1b167e24473e6c90 Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Sun, 10 Oct 2021 20:56:57 +0200
+Subject: [PATCH] ACPI: delay enumeration of devices with a _DEP pointing to an
+ INT3472 device
+
+The clk and regulator frameworks expect clk/regulator consumer-devices
+to have info about the consumed clks/regulators described in the device's
+fw_node.
+
+To work around cases where this info is not present in the firmware tables,
+which is often the case on x86/ACPI devices, both frameworks allow the
+provider-driver to attach info about consumers to the clks/regulators
+when registering these.
+
+This causes problems with the probe ordering wrt drivers for consumers
+of these clks/regulators. Since the lookups are only registered when the
+provider-driver binds, trying to get these clks/regulators before then
+results in a -ENOENT error for clks and a dummy regulator for regulators.
+
+One case where we hit this issue is camera sensors such as e.g. the OV8865
+sensor found on the Microsoft Surface Go. The sensor uses clks, regulators
+and GPIOs provided by a TPS68470 PMIC which is described in an INT3472
+ACPI device. There is special platform code handling this and setting
+platform_data with the necessary consumer info on the MFD cells
+instantiated for the PMIC under: drivers/platform/x86/intel/int3472.
+
+For this to work properly the ov8865 driver must not bind to the I2C-client
+for the OV8865 sensor until after the TPS68470 PMIC gpio, regulator and
+clk MFD cells have all been fully setup.
+
+The OV8865 on the Microsoft Surface Go is just one example, all X86
+devices using the Intel IPU3 camera block found on recent Intel SoCs
+have similar issues where there is an INT3472 HID ACPI-device, which
+describes the clks and regulators, and the driver for this INT3472 device
+must be fully initialized before the sensor driver (any sensor driver)
+binds for things to work properly.
+
+On these devices the ACPI nodes describing the sensors all have a _DEP
+dependency on the matching INT3472 ACPI device (there is one per sensor).
+
+This allows solving the probe-ordering problem by delaying the enumeration
+(instantiation of the I2C-client in the ov8865 example) of ACPI-devices
+which have a _DEP dependency on an INT3472 device.
+
+The new acpi_dev_ready_for_enumeration() helper used for this is also
+exported because for devices, which have the enumeration_by_parent flag
+set, the parent-driver will do its own scan of child ACPI devices and
+it will try to enumerate those during its probe(). Code doing this such
+as e.g. the i2c-core-acpi.c code must call this new helper to ensure
+that it too delays the enumeration until all the _DEP dependencies are
+met on devices which have the new honor_deps flag set.
+
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: cameras
+---
+ drivers/acpi/scan.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/acpi/scan.c b/drivers/acpi/scan.c
+index 762b61f67e6c..2c0f39a7f2a1 100644
+--- a/drivers/acpi/scan.c
++++ b/drivers/acpi/scan.c
+@@ -2122,6 +2122,9 @@ static acpi_status acpi_bus_check_add_2(acpi_handle handle, u32 lvl_not_used,
+ 
+ static void acpi_default_enumeration(struct acpi_device *device)
+ {
++	if (!acpi_dev_ready_for_enumeration(device))
++		return;
++
+ 	/*
+ 	 * Do not enumerate devices with enumeration_by_parent flag set as
+ 	 * they will be enumerated by their respective parents.
+-- 
+2.36.1
+
+From 09c2ebc75c2a2e8accc0554439b97292e23f6287 Mon Sep 17 00:00:00 2001
+From: zouxiaoh <xiaohong.zou@intel.com>
+Date: Fri, 25 Jun 2021 08:52:59 +0800
+Subject: [PATCH] iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs
+
+Intel IPU(Image Processing Unit) has its own (IO)MMU hardware,
+The IPU driver allocates its own page table that is not mapped
+via the DMA, and thus the Intel IOMMU driver blocks access giving
+this error: DMAR: DRHD: handling fault status reg 3 DMAR:
+[DMA Read] Request device [00:05.0] PASID ffffffff
+fault addr 76406000 [fault reason 06] PTE Read access is not set
+As IPU is not an external facing device which is not risky, so use
+IOMMU passthrough mode for Intel IPUs.
+
+Change-Id: I6dcccdadac308cf42e20a18e1b593381391e3e6b
+Depends-On: Iacd67578e8c6a9b9ac73285f52b4081b72fb68a6
+Tracked-On: #JIITL8-411
+Signed-off-by: Bingbu Cao <bingbu.cao@intel.com>
+Signed-off-by: zouxiaoh <xiaohong.zou@intel.com>
+Signed-off-by: Xu Chongyang <chongyang.xu@intel.com>
+Patchset: cameras
+---
+ drivers/iommu/intel/iommu.c | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/drivers/iommu/intel/iommu.c b/drivers/iommu/intel/iommu.c
+index f437c0118c00..12b5d13c57db 100644
+--- a/drivers/iommu/intel/iommu.c
++++ b/drivers/iommu/intel/iommu.c
+@@ -37,6 +37,12 @@
+ #define IS_GFX_DEVICE(pdev) ((pdev->class >> 16) == PCI_BASE_CLASS_DISPLAY)
+ #define IS_USB_DEVICE(pdev) ((pdev->class >> 8) == PCI_CLASS_SERIAL_USB)
+ #define IS_ISA_DEVICE(pdev) ((pdev->class >> 8) == PCI_CLASS_BRIDGE_ISA)
++#define IS_INTEL_IPU(pdev) ((pdev)->vendor == PCI_VENDOR_ID_INTEL &&	\
++			   ((pdev)->device == 0x9a19 ||		\
++			    (pdev)->device == 0x9a39 ||		\
++			    (pdev)->device == 0x4e19 ||		\
++			    (pdev)->device == 0x465d ||		\
++			    (pdev)->device == 0x1919))
+ #define IS_IPTS(pdev) ((pdev)->vendor == PCI_VENDOR_ID_INTEL &&	\
+ 			    ((pdev)->device == 0x9d3e))
+ #define IS_AZALIA(pdev) ((pdev)->vendor == 0x8086 && (pdev)->device == 0x3a3e)
+@@ -310,12 +316,14 @@ EXPORT_SYMBOL_GPL(intel_iommu_enabled);
+ 
+ static int dmar_map_gfx = 1;
+ static int dmar_map_ipts = 1;
++static int dmar_map_ipu = 1;
+ static int intel_iommu_superpage = 1;
+ static int iommu_identity_mapping;
+ static int iommu_skip_te_disable;
+ 
+ #define IDENTMAP_GFX		2
+ #define IDENTMAP_AZALIA		4
++#define IDENTMAP_IPU		8
+ #define IDENTMAP_IPTS		16
+ 
+ int intel_iommu_gfx_mapped;
+@@ -2729,6 +2737,9 @@ static int device_def_domain_type(struct device *dev)
+ 		if ((iommu_identity_mapping & IDENTMAP_GFX) && IS_GFX_DEVICE(pdev))
+ 			return IOMMU_DOMAIN_IDENTITY;
+ 
++		if ((iommu_identity_mapping & IDENTMAP_IPU) && IS_INTEL_IPU(pdev))
++			return IOMMU_DOMAIN_IDENTITY;
++
+ 		if ((iommu_identity_mapping & IDENTMAP_IPTS) && IS_IPTS(pdev))
+ 			return IOMMU_DOMAIN_IDENTITY;
+ 	}
+@@ -3167,6 +3178,9 @@ static int __init init_dmars(void)
+ 	if (!dmar_map_gfx)
+ 		iommu_identity_mapping |= IDENTMAP_GFX;
+ 
++	if (!dmar_map_ipu)
++		iommu_identity_mapping |= IDENTMAP_IPU;
++
+ 	if (!dmar_map_ipts)
+ 		iommu_identity_mapping |= IDENTMAP_IPTS;
+ 
+@@ -4941,6 +4955,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
+ 	dmar_map_gfx = 0;
+ }
+ 
++static void quirk_iommu_ipu(struct pci_dev *dev)
++{
++	if (!IS_INTEL_IPU(dev))
++		return;
++
++	if (risky_device(dev))
++		return;
++
++	pci_info(dev, "Passthrough IOMMU for integrated Intel IPU\n");
++	dmar_map_ipu = 0;
++}
++
+ static void quirk_iommu_ipts(struct pci_dev *dev)
+ {
+ 	if (!IS_IPTS(dev))
+@@ -4952,6 +4978,7 @@ static void quirk_iommu_ipts(struct pci_dev *dev)
+ 	pci_info(dev, "Passthrough IOMMU for IPTS\n");
+ 	dmar_map_ipts = 0;
+ }
++
+ /* G4x/GM45 integrated gfx dmar support is totally busted. */
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2a40, quirk_iommu_igfx);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2e00, quirk_iommu_igfx);
+@@ -4987,6 +5014,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163A, quirk_iommu_igfx);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163D, quirk_iommu_igfx);
+ 
++/* disable IPU dmar support */
++DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, PCI_ANY_ID, quirk_iommu_ipu);
++
+ /* disable IPTS dmar support */
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9D3E, quirk_iommu_ipts);
+ 
+-- 
+2.36.1
+
+From cdd22cf98a08d5f2404dd7ab28d588f74e645386 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sun, 10 Oct 2021 20:57:02 +0200
+Subject: [PATCH] platform/x86: int3472: Enable I2c daisy chain
+
+The TPS68470 PMIC has an I2C passthrough mode through which I2C traffic
+can be forwarded to a device connected to the PMIC as though it were
+connected directly to the system bus. Enable this mode when the chip
+is initialised.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/tps68470.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/platform/x86/intel/int3472/tps68470.c b/drivers/platform/x86/intel/int3472/tps68470.c
+index 22f61b47f9e5..e1de1ff40bba 100644
+--- a/drivers/platform/x86/intel/int3472/tps68470.c
++++ b/drivers/platform/x86/intel/int3472/tps68470.c
+@@ -45,6 +45,13 @@ static int tps68470_chip_init(struct device *dev, struct regmap *regmap)
+ 		return ret;
+ 	}
+ 
++	/* Enable I2C daisy chain */
++	ret = regmap_write(regmap, TPS68470_REG_S_I2C_CTL, 0x03);
++	if (ret) {
++		dev_err(dev, "Failed to enable i2c daisy chain\n");
++		return ret;
++	}
++
+ 	dev_info(dev, "TPS68470 REVID: 0x%02x\n", version);
+ 
+ 	return 0;
+-- 
+2.36.1
+
+From c976a350a7cdd3c81abca49e3b8aa0be1b77886c Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Thu, 28 Oct 2021 21:55:16 +0100
+Subject: [PATCH] media: i2c: Add driver for DW9719 VCM
+
+Add a driver for the DW9719 VCM. The driver creates a v4l2 subdevice
+and registers a control to set the desired focus.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ MAINTAINERS                |   7 +
+ drivers/media/i2c/Kconfig  |  11 +
+ drivers/media/i2c/Makefile |   1 +
+ drivers/media/i2c/dw9719.c | 427 +++++++++++++++++++++++++++++++++++++
+ 4 files changed, 446 insertions(+)
+ create mode 100644 drivers/media/i2c/dw9719.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 38f7f19002ac..194754394f77 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -6002,6 +6002,13 @@ T:	git git://linuxtv.org/media_tree.git
+ F:	Documentation/devicetree/bindings/media/i2c/dongwoon,dw9714.txt
+ F:	drivers/media/i2c/dw9714.c
+ 
++DONGWOON DW9719 LENS VOICE COIL DRIVER
++M:	Daniel Scally <djrscally@gmail.com>
++L:	linux-media@vger.kernel.org
++S:	Maintained
++T:	git git://linuxtv.org/media_tree.git
++F:	drivers/media/i2c/dw9719.c
++
+ DONGWOON DW9768 LENS VOICE COIL DRIVER
+ M:	Dongchun Zhu <dongchun.zhu@mediatek.com>
+ L:	linux-media@vger.kernel.org
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index fae2baabb773..2a9074a8d054 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -805,6 +805,17 @@ config VIDEO_DW9714
+ 	  capability. This is designed for linear control of
+ 	  voice coil motors, controlled via I2C serial interface.
+ 
++config VIDEO_DW9719
++	tristate "DW9719 lens voice coil support"
++	depends on I2C && VIDEO_V4L2
++	select MEDIA_CONTROLLER
++	select VIDEO_V4L2_SUBDEV_API
++	select V4L2_ASYNC
++	help
++	  This is a driver for the DW9719 camera lens voice coil.
++	  This is designed for linear control of  voice coil motors,
++	  controlled via I2C serial interface.
++
+ config VIDEO_DW9768
+ 	tristate "DW9768 lens voice coil support"
+ 	depends on I2C && VIDEO_DEV
+diff --git a/drivers/media/i2c/Makefile b/drivers/media/i2c/Makefile
+index 3e1696963e7f..9dfda069e006 100644
+--- a/drivers/media/i2c/Makefile
++++ b/drivers/media/i2c/Makefile
+@@ -29,6 +29,7 @@ obj-$(CONFIG_VIDEO_CS5345) += cs5345.o
+ obj-$(CONFIG_VIDEO_CS53L32A) += cs53l32a.o
+ obj-$(CONFIG_VIDEO_CX25840) += cx25840/
+ obj-$(CONFIG_VIDEO_DW9714) += dw9714.o
++obj-$(CONFIG_VIDEO_DW9719) += dw9719.o
+ obj-$(CONFIG_VIDEO_DW9768) += dw9768.o
+ obj-$(CONFIG_VIDEO_DW9807_VCM) += dw9807-vcm.o
+ obj-$(CONFIG_VIDEO_ET8EK8) += et8ek8/
+diff --git a/drivers/media/i2c/dw9719.c b/drivers/media/i2c/dw9719.c
+new file mode 100644
+index 000000000000..8451c75b696b
+--- /dev/null
++++ b/drivers/media/i2c/dw9719.c
+@@ -0,0 +1,427 @@
++// SPDX-License-Identifier: GPL-2.0
++// Copyright (c) 2012 Intel Corporation
++
++/*
++ * Based on linux/modules/camera/drivers/media/i2c/imx/dw9719.c in this repo:
++ * https://github.com/ZenfoneArea/android_kernel_asus_zenfone5
++ */
++
++#include <asm/unaligned.h>
++
++#include <linux/delay.h>
++#include <linux/i2c.h>
++#include <linux/pm_runtime.h>
++#include <linux/regulator/consumer.h>
++#include <linux/types.h>
++
++#include <media/v4l2-common.h>
++#include <media/v4l2-ctrls.h>
++#include <media/v4l2-subdev.h>
++
++#define DW9719_MAX_FOCUS_POS	1023
++#define DW9719_CTRL_STEPS	16
++#define DW9719_CTRL_DELAY_US	1000
++#define DELAY_MAX_PER_STEP_NS	(1000000 * 1023)
++
++#define DW9719_INFO			0
++#define DW9719_ID			0xF1
++#define DW9719_CONTROL			2
++#define DW9719_VCM_CURRENT		3
++
++#define DW9719_MODE			6
++#define DW9719_VCM_FREQ			7
++
++#define DW9719_MODE_SAC3		0x40
++#define DW9719_DEFAULT_VCM_FREQ		0x60
++#define DW9719_ENABLE_RINGING		0x02
++
++#define NUM_REGULATORS			2
++
++#define to_dw9719_device(x) container_of(x, struct dw9719_device, sd)
++
++struct dw9719_device {
++	struct device *dev;
++	struct i2c_client *client;
++	struct regulator_bulk_data regulators[NUM_REGULATORS];
++	struct v4l2_subdev sd;
++
++	struct dw9719_v4l2_ctrls {
++		struct v4l2_ctrl_handler handler;
++		struct v4l2_ctrl *focus;
++	} ctrls;
++};
++
++static int dw9719_i2c_rd8(struct i2c_client *client, u8 reg, u8 *val)
++{
++	struct i2c_msg msg[2];
++	u8 buf[2] = { reg };
++	int ret;
++
++	msg[0].addr = client->addr;
++	msg[0].flags = 0;
++	msg[0].len = 1;
++	msg[0].buf = buf;
++
++	msg[1].addr = client->addr;
++	msg[1].flags = I2C_M_RD;
++	msg[1].len = 1;
++	msg[1].buf = &buf[1];
++	*val = 0;
++
++	ret = i2c_transfer(client->adapter, msg, 2);
++	if (ret < 0)
++		return ret;
++
++	*val = buf[1];
++
++	return 0;
++}
++
++static int dw9719_i2c_wr8(struct i2c_client *client, u8 reg, u8 val)
++{
++	struct i2c_msg msg;
++	int ret;
++
++	u8 buf[2] = { reg, val };
++
++	msg.addr = client->addr;
++	msg.flags = 0;
++	msg.len = sizeof(buf);
++	msg.buf = buf;
++
++	ret = i2c_transfer(client->adapter, &msg, 1);
++
++	return ret < 0 ? ret : 0;
++}
++
++static int dw9719_i2c_wr16(struct i2c_client *client, u8 reg, u16 val)
++{
++	struct i2c_msg msg;
++	u8 buf[3] = { reg };
++	int ret;
++
++	put_unaligned_be16(val, buf + 1);
++
++	msg.addr = client->addr;
++	msg.flags = 0;
++	msg.len = sizeof(buf);
++	msg.buf = buf;
++
++	ret = i2c_transfer(client->adapter, &msg, 1);
++
++	return ret < 0 ? ret : 0;
++}
++
++static int dw9719_detect(struct dw9719_device *dw9719)
++{
++	int ret;
++	u8 val;
++
++	ret = dw9719_i2c_rd8(dw9719->client, DW9719_INFO, &val);
++	if (ret < 0)
++		return ret;
++
++	if (val != DW9719_ID) {
++		dev_err(dw9719->dev, "Failed to detect correct id\n");
++		ret = -ENXIO;
++	}
++
++	return 0;
++}
++
++static int dw9719_power_down(struct dw9719_device *dw9719)
++{
++	return regulator_bulk_disable(NUM_REGULATORS, dw9719->regulators);
++}
++
++static int dw9719_power_up(struct dw9719_device *dw9719)
++{
++	int ret;
++
++	ret = regulator_bulk_enable(NUM_REGULATORS, dw9719->regulators);
++	if (ret)
++		return ret;
++
++	/* Jiggle SCL pin to wake up device */
++	ret = dw9719_i2c_wr8(dw9719->client, DW9719_CONTROL, 1);
++
++	/* Need 100us to transit from SHUTDOWN to STANDBY*/
++	usleep_range(100, 1000);
++
++	ret = dw9719_i2c_wr8(dw9719->client, DW9719_CONTROL,
++			     DW9719_ENABLE_RINGING);
++	if (ret < 0)
++		goto fail_powerdown;
++
++	ret = dw9719_i2c_wr8(dw9719->client, DW9719_MODE, DW9719_MODE_SAC3);
++	if (ret < 0)
++		goto fail_powerdown;
++
++	ret = dw9719_i2c_wr8(dw9719->client, DW9719_VCM_FREQ,
++			     DW9719_DEFAULT_VCM_FREQ);
++	if (ret < 0)
++		goto fail_powerdown;
++
++	return 0;
++
++fail_powerdown:
++	dw9719_power_down(dw9719);
++	return ret;
++}
++
++static int dw9719_t_focus_abs(struct dw9719_device *dw9719, s32 value)
++{
++	int ret;
++
++	value = clamp(value, 0, DW9719_MAX_FOCUS_POS);
++	ret = dw9719_i2c_wr16(dw9719->client, DW9719_VCM_CURRENT, value);
++	if (ret < 0)
++		return ret;
++
++	return 0;
++}
++
++static int dw9719_set_ctrl(struct v4l2_ctrl *ctrl)
++{
++	struct dw9719_device *dw9719 = container_of(ctrl->handler,
++						    struct dw9719_device,
++						    ctrls.handler);
++	int ret;
++
++	/* Only apply changes to the controls if the device is powered up */
++	if (!pm_runtime_get_if_in_use(dw9719->dev))
++		return 0;
++
++	switch (ctrl->id) {
++	case V4L2_CID_FOCUS_ABSOLUTE:
++		ret = dw9719_t_focus_abs(dw9719, ctrl->val);
++		break;
++	default:
++		ret = -EINVAL;
++	}
++
++	pm_runtime_put(dw9719->dev);
++
++	return ret;
++}
++
++static const struct v4l2_ctrl_ops dw9719_ctrl_ops = {
++	.s_ctrl = dw9719_set_ctrl,
++};
++
++static int __maybe_unused dw9719_suspend(struct device *dev)
++{
++	struct v4l2_subdev *sd = dev_get_drvdata(dev);
++	struct dw9719_device *dw9719 = to_dw9719_device(sd);
++	int ret;
++	int val;
++
++	for (val = dw9719->ctrls.focus->val; val >= 0;
++	     val -= DW9719_CTRL_STEPS) {
++		ret = dw9719_t_focus_abs(dw9719, val);
++		if (ret)
++			return ret;
++
++		usleep_range(DW9719_CTRL_DELAY_US, DW9719_CTRL_DELAY_US + 10);
++	}
++
++	return dw9719_power_down(dw9719);
++}
++
++static int __maybe_unused dw9719_resume(struct device *dev)
++{
++	struct v4l2_subdev *sd = dev_get_drvdata(dev);
++	struct dw9719_device *dw9719 = to_dw9719_device(sd);
++	int current_focus = dw9719->ctrls.focus->val;
++	int ret;
++	int val;
++
++	ret = dw9719_power_up(dw9719);
++	if (ret)
++		return ret;
++
++	for (val = current_focus % DW9719_CTRL_STEPS; val < current_focus;
++	     val += DW9719_CTRL_STEPS) {
++		ret = dw9719_t_focus_abs(dw9719, val);
++		if (ret)
++			goto err_power_down;
++
++		usleep_range(DW9719_CTRL_DELAY_US, DW9719_CTRL_DELAY_US + 10);
++	}
++
++	return 0;
++
++err_power_down:
++	dw9719_power_down(dw9719);
++	return ret;
++}
++
++static int dw9719_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
++{
++	return pm_runtime_resume_and_get(sd->dev);
++}
++
++static int dw9719_close(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
++{
++	pm_runtime_put(sd->dev);
++
++	return 0;
++}
++
++static const struct v4l2_subdev_internal_ops dw9719_internal_ops = {
++	.open = dw9719_open,
++	.close = dw9719_close,
++};
++
++static int dw9719_init_controls(struct dw9719_device *dw9719)
++{
++	const struct v4l2_ctrl_ops *ops = &dw9719_ctrl_ops;
++	int ret;
++
++	ret = v4l2_ctrl_handler_init(&dw9719->ctrls.handler, 1);
++	if (ret)
++		return ret;
++
++	dw9719->ctrls.focus = v4l2_ctrl_new_std(&dw9719->ctrls.handler, ops,
++						V4L2_CID_FOCUS_ABSOLUTE, 0,
++						DW9719_MAX_FOCUS_POS, 1, 0);
++
++	if (dw9719->ctrls.handler.error) {
++		dev_err(dw9719->dev, "Error initialising v4l2 ctrls\n");
++		ret = dw9719->ctrls.handler.error;
++		goto err_free_handler;
++	}
++
++	dw9719->sd.ctrl_handler = &dw9719->ctrls.handler;
++
++	return ret;
++
++err_free_handler:
++	v4l2_ctrl_handler_free(&dw9719->ctrls.handler);
++	return ret;
++}
++
++static const struct v4l2_subdev_ops dw9719_ops = { };
++
++static int dw9719_probe(struct i2c_client *client)
++{
++	struct dw9719_device *dw9719;
++	int ret;
++
++	dw9719 = devm_kzalloc(&client->dev, sizeof(*dw9719), GFP_KERNEL);
++	if (!dw9719)
++		return -ENOMEM;
++
++	dw9719->client = client;
++	dw9719->dev = &client->dev;
++
++	dw9719->regulators[0].supply = "vdd";
++	/*
++	 * The DW9719 has only the 1 VDD voltage input, but some PMICs such as
++	 * the TPS68470 PMIC have I2C passthrough capability, to disconnect the
++	 * sensor's I2C pins from the I2C bus when the sensors VSIO (Sensor-IO)
++	 * is off, because some sensors then short these pins to ground;
++	 * and the DW9719 might sit behind this passthrough, this it needs to
++	 * enable VSIO as that will also enable the I2C passthrough.
++	 */
++	dw9719->regulators[1].supply = "vsio";
++
++	ret = devm_regulator_bulk_get(&client->dev, NUM_REGULATORS,
++				      dw9719->regulators);
++	if (ret)
++		return dev_err_probe(&client->dev, ret, "getting regulators\n");
++
++	v4l2_i2c_subdev_init(&dw9719->sd, client, &dw9719_ops);
++	dw9719->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
++	dw9719->sd.internal_ops = &dw9719_internal_ops;
++
++	ret = dw9719_init_controls(dw9719);
++	if (ret)
++		return ret;
++
++	ret = media_entity_pads_init(&dw9719->sd.entity, 0, NULL);
++	if (ret < 0)
++		goto err_free_ctrl_handler;
++
++	dw9719->sd.entity.function = MEDIA_ENT_F_LENS;
++
++	/*
++	 * We need the driver to work in the event that pm runtime is disable in
++	 * the kernel, so power up and verify the chip now. In the event that
++	 * runtime pm is disabled this will leave the chip on, so that the lens
++	 * will work.
++	 */
++
++	ret = dw9719_power_up(dw9719);
++	if (ret)
++		goto err_cleanup_media;
++
++	ret = dw9719_detect(dw9719);
++	if (ret)
++		goto err_powerdown;
++
++	pm_runtime_set_active(&client->dev);
++	pm_runtime_get_noresume(&client->dev);
++	pm_runtime_enable(&client->dev);
++
++	ret = v4l2_async_register_subdev(&dw9719->sd);
++	if (ret < 0)
++		goto err_pm_runtime;
++
++	pm_runtime_set_autosuspend_delay(&client->dev, 1000);
++	pm_runtime_use_autosuspend(&client->dev);
++	pm_runtime_put_autosuspend(&client->dev);
++
++	return ret;
++
++err_pm_runtime:
++	pm_runtime_disable(&client->dev);
++	pm_runtime_put_noidle(&client->dev);
++err_powerdown:
++	dw9719_power_down(dw9719);
++err_cleanup_media:
++	media_entity_cleanup(&dw9719->sd.entity);
++err_free_ctrl_handler:
++	v4l2_ctrl_handler_free(&dw9719->ctrls.handler);
++
++	return ret;
++}
++
++static int dw9719_remove(struct i2c_client *client)
++{
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct dw9719_device *dw9719 = container_of(sd, struct dw9719_device,
++						    sd);
++
++	pm_runtime_disable(&client->dev);
++	v4l2_async_unregister_subdev(sd);
++	v4l2_ctrl_handler_free(&dw9719->ctrls.handler);
++	media_entity_cleanup(&dw9719->sd.entity);
++
++	return 0;
++}
++
++static const struct i2c_device_id dw9719_id_table[] = {
++	{ "dw9719" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, dw9719_id_table);
++
++static const struct dev_pm_ops dw9719_pm_ops = {
++	SET_RUNTIME_PM_OPS(dw9719_suspend, dw9719_resume, NULL)
++};
++
++static struct i2c_driver dw9719_i2c_driver = {
++	.driver = {
++		.name = "dw9719",
++		.pm = &dw9719_pm_ops,
++	},
++	.probe_new = dw9719_probe,
++	.remove = dw9719_remove,
++	.id_table = dw9719_id_table,
++};
++module_i2c_driver(dw9719_i2c_driver);
++
++MODULE_AUTHOR("Daniel Scally <djrscally@gmail.com>");
++MODULE_DESCRIPTION("DW9719 VCM Driver");
++MODULE_LICENSE("GPL");
+-- 
+2.36.1
+
+From 57b0975f939a1acbde7dcd2fd7350ef73138ad74 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Mon, 13 Dec 2021 22:38:17 +0000
+Subject: [PATCH] media: entity: Skip non-data links in graph iteration
+
+When iterating over the media graph, don't follow links that are not
+data links.
+
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/mc/mc-entity.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/media/mc/mc-entity.c b/drivers/media/mc/mc-entity.c
+index 8ab0913d8d82..a8631f74dcee 100644
+--- a/drivers/media/mc/mc-entity.c
++++ b/drivers/media/mc/mc-entity.c
+@@ -295,6 +295,12 @@ static void media_graph_walk_iter(struct media_graph *graph)
+ 
+ 	link = list_entry(link_top(graph), typeof(*link), list);
+ 
++	/* If the link is not a data link, don't follow it */
++	if ((link->flags & MEDIA_LNK_FL_LINK_TYPE) != MEDIA_LNK_FL_DATA_LINK) {
++		link_top(graph) = link_top(graph)->next;
++		return;
++	}
++
+ 	/* The link is not enabled so we do not follow. */
+ 	if (!(link->flags & MEDIA_LNK_FL_ENABLED)) {
+ 		link_top(graph) = link_top(graph)->next;
+-- 
+2.36.1
+
+From 16effbd6b9c96c9cceefa65954e7ddc170142f11 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Mon, 13 Dec 2021 22:53:09 +0000
+Subject: [PATCH] media: media.h: Add new media link type
+
+To describe in the kernel the connection between devices and their
+supporting peripherals (for example, a camera sensor and the vcm
+driving the focusing lens for it), add a new type of media link
+to introduce the concept of these ancillary links.
+
+Add some elements to the uAPI documentation to explain the new link
+type, their purpose and some aspects of their current implementation.
+
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ .../media/mediactl/media-controller-model.rst   |  6 ++++++
+ .../media/mediactl/media-types.rst              | 17 ++++++++++++-----
+ include/uapi/linux/media.h                      |  1 +
+ 3 files changed, 19 insertions(+), 5 deletions(-)
+
+diff --git a/Documentation/userspace-api/media/mediactl/media-controller-model.rst b/Documentation/userspace-api/media/mediactl/media-controller-model.rst
+index 222cb99debb5..78bfdfb2a322 100644
+--- a/Documentation/userspace-api/media/mediactl/media-controller-model.rst
++++ b/Documentation/userspace-api/media/mediactl/media-controller-model.rst
+@@ -33,3 +33,9 @@ are:
+ 
+ -  An **interface link** is a point-to-point bidirectional control
+    connection between a Linux Kernel interface and an entity.
++
++- An **ancillary link** is a point-to-point connection denoting that two
++  entities form a single logical unit. For example this could represent the
++  fact that a particular camera sensor and lens controller form a single
++  physical module, meaning this lens controller drives the lens for this
++  camera sensor.
+\ No newline at end of file
+diff --git a/Documentation/userspace-api/media/mediactl/media-types.rst b/Documentation/userspace-api/media/mediactl/media-types.rst
+index 0a26397bd01d..60747251d409 100644
+--- a/Documentation/userspace-api/media/mediactl/media-types.rst
++++ b/Documentation/userspace-api/media/mediactl/media-types.rst
+@@ -412,14 +412,21 @@ must be set for every pad.
+ 	  is set by drivers and is read-only for applications.
+ 
+     *  -  ``MEDIA_LNK_FL_LINK_TYPE``
+-       -  This is a bitmask that defines the type of the link. Currently,
+-	  two types of links are supported:
++       -  This is a bitmask that defines the type of the link. The following
++	  link types are currently supported:
+ 
+ 	  .. _MEDIA-LNK-FL-DATA-LINK:
+ 
+-	  ``MEDIA_LNK_FL_DATA_LINK`` if the link is between two pads
++	  ``MEDIA_LNK_FL_DATA_LINK`` for links that represent a data connection
++     between two pads.
+ 
+ 	  .. _MEDIA-LNK-FL-INTERFACE-LINK:
+ 
+-	  ``MEDIA_LNK_FL_INTERFACE_LINK`` if the link is between an
+-	  interface and an entity
++	  ``MEDIA_LNK_FL_INTERFACE_LINK`` for links that associate an entity to its
++     interface.
++
++	  .. _MEDIA-LNK-FL-ANCILLARY-LINK:
++
++	  ``MEDIA_LNK_FL_ANCILLARY_LINK`` for links that represent a physical
++     relationship between two entities. The link may or may not be ummutable, so
++     applications must not assume either case.
+\ No newline at end of file
+diff --git a/include/uapi/linux/media.h b/include/uapi/linux/media.h
+index 200fa8462b90..afbae7213d35 100644
+--- a/include/uapi/linux/media.h
++++ b/include/uapi/linux/media.h
+@@ -226,6 +226,7 @@ struct media_pad_desc {
+ #define MEDIA_LNK_FL_LINK_TYPE			(0xf << 28)
+ #  define MEDIA_LNK_FL_DATA_LINK		(0 << 28)
+ #  define MEDIA_LNK_FL_INTERFACE_LINK		(1 << 28)
++#  define MEDIA_LNK_FL_ANCILLARY_LINK		(2 << 28)
+ 
+ struct media_link_desc {
+ 	struct media_pad_desc source;
+-- 
+2.36.1
+
+From cb3fd72e7ef525829ab9484de4f1cb570286b4a4 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Mon, 13 Dec 2021 22:36:31 +0000
+Subject: [PATCH] media: entity: Add link_type_name() helper
+
+Now we have three types of media link, printing the right name during
+debug output is slightly more complicated. Add a helper function to
+make it easier.
+
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/mc/mc-entity.c | 18 +++++++++++++++---
+ 1 file changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/media/mc/mc-entity.c b/drivers/media/mc/mc-entity.c
+index a8631f74dcee..4bd80ce1a33d 100644
+--- a/drivers/media/mc/mc-entity.c
++++ b/drivers/media/mc/mc-entity.c
+@@ -44,6 +44,20 @@ static inline const char *intf_type(struct media_interface *intf)
+ 	}
+ };
+ 
++static inline const char *link_type_name(struct media_link *link)
++{
++	switch (link->flags & MEDIA_LNK_FL_LINK_TYPE) {
++	case MEDIA_LNK_FL_DATA_LINK:
++		return "data";
++	case MEDIA_LNK_FL_INTERFACE_LINK:
++		return "interface";
++	case MEDIA_LNK_FL_ANCILLARY_LINK:
++		return "ancillary";
++	default:
++		return "unknown";
++	}
++}
++
+ __must_check int __media_entity_enum_init(struct media_entity_enum *ent_enum,
+ 					  int idx_max)
+ {
+@@ -89,9 +103,7 @@ static void dev_dbg_obj(const char *event_name,  struct media_gobj *gobj)
+ 
+ 		dev_dbg(gobj->mdev->dev,
+ 			"%s id %u: %s link id %u ==> id %u\n",
+-			event_name, media_id(gobj),
+-			media_type(link->gobj0) == MEDIA_GRAPH_PAD ?
+-				"data" : "interface",
++			event_name, media_id(gobj), link_type_name(link),
+ 			media_id(link->gobj0),
+ 			media_id(link->gobj1));
+ 		break;
+-- 
+2.36.1
+
+From f4522cbba67621b3d11413966a455fc7677e82c8 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Mon, 13 Dec 2021 22:54:10 +0000
+Subject: [PATCH] media: entity: Add support for ancillary links
+
+Add functions to create ancillary links, so that they don't need to
+be manually created by users.
+
+Reviewed-by: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/mc/mc-entity.c | 22 ++++++++++++++++++++++
+ include/media/media-entity.h | 19 +++++++++++++++++++
+ 2 files changed, 41 insertions(+)
+
+diff --git a/drivers/media/mc/mc-entity.c b/drivers/media/mc/mc-entity.c
+index 4bd80ce1a33d..1ff60d411ea9 100644
+--- a/drivers/media/mc/mc-entity.c
++++ b/drivers/media/mc/mc-entity.c
+@@ -1025,3 +1025,25 @@ void media_remove_intf_links(struct media_interface *intf)
+ 	mutex_unlock(&mdev->graph_mutex);
+ }
+ EXPORT_SYMBOL_GPL(media_remove_intf_links);
++
++struct media_link *media_create_ancillary_link(struct media_entity *primary,
++					       struct media_entity *ancillary)
++{
++	struct media_link *link;
++
++	link = media_add_link(&primary->links);
++	if (!link)
++		return ERR_PTR(-ENOMEM);
++
++	link->gobj0 = &primary->graph_obj;
++	link->gobj1 = &ancillary->graph_obj;
++	link->flags = MEDIA_LNK_FL_IMMUTABLE | MEDIA_LNK_FL_ENABLED |
++		      MEDIA_LNK_FL_ANCILLARY_LINK;
++
++	/* Initialize graph object embedded in the new link */
++	media_gobj_create(primary->graph_obj.mdev, MEDIA_GRAPH_LINK,
++			  &link->graph_obj);
++
++	return link;
++}
++EXPORT_SYMBOL_GPL(media_create_ancillary_link);
+diff --git a/include/media/media-entity.h b/include/media/media-entity.h
+index 742918962d46..1d13b8939a11 100644
+--- a/include/media/media-entity.h
++++ b/include/media/media-entity.h
+@@ -1121,4 +1121,23 @@ void media_remove_intf_links(struct media_interface *intf);
+ 	(((entity)->ops && (entity)->ops->operation) ?			\
+ 	 (entity)->ops->operation((entity) , ##args) : -ENOIOCTLCMD)
+ 
++/**
++ * media_create_ancillary_link() - create an ancillary link between two
++ *				   instances of &media_entity
++ *
++ * @primary:	pointer to the primary &media_entity
++ * @ancillary:	pointer to the ancillary &media_entity
++ *
++ * Create an ancillary link between two entities, indicating that they
++ * represent two connected pieces of hardware that form a single logical unit.
++ * A typical example is a camera lens controller being linked to the sensor that
++ * it is supporting.
++ *
++ * The function sets both MEDIA_LNK_FL_ENABLED and MEDIA_LNK_FL_IMMUTABLE for
++ * the new link.
++ */
++struct media_link *
++media_create_ancillary_link(struct media_entity *primary,
++			    struct media_entity *ancillary);
++
+ #endif
+-- 
+2.36.1
+
+From 88a01ad062473789b7c45495e243135a18fb1200 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Fri, 26 Nov 2021 22:55:50 +0000
+Subject: [PATCH] media: v4l2-async: Create links during
+ v4l2_async_match_notify()
+
+Upon an async fwnode match, there's some typical behaviour that the
+notifier and matching subdev will want to do. For example, a notifier
+representing a sensor matching to an async subdev representing its
+VCM will want to create an ancillary link to expose that relationship
+to userspace.
+
+To avoid lots of code in individual drivers, try to build these links
+within v4l2 core.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/v4l2-core/v4l2-async.c | 31 ++++++++++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/drivers/media/v4l2-core/v4l2-async.c b/drivers/media/v4l2-core/v4l2-async.c
+index 0404267f1ae4..436bd6900fd8 100644
+--- a/drivers/media/v4l2-core/v4l2-async.c
++++ b/drivers/media/v4l2-core/v4l2-async.c
+@@ -275,6 +275,24 @@ v4l2_async_nf_try_complete(struct v4l2_async_notifier *notifier)
+ static int
+ v4l2_async_nf_try_all_subdevs(struct v4l2_async_notifier *notifier);
+ 
++static int v4l2_async_create_ancillary_links(struct v4l2_async_notifier *n,
++					     struct v4l2_subdev *sd)
++{
++	struct media_link *link = NULL;
++
++#if IS_ENABLED(CONFIG_MEDIA_CONTROLLER)
++
++	if (sd->entity.function != MEDIA_ENT_F_LENS &&
++	    sd->entity.function != MEDIA_ENT_F_FLASH)
++		return 0;
++
++	link = media_create_ancillary_link(&n->sd->entity, &sd->entity);
++
++#endif
++
++	return IS_ERR(link) ? PTR_ERR(link) : 0;
++}
++
+ static int v4l2_async_match_notify(struct v4l2_async_notifier *notifier,
+ 				   struct v4l2_device *v4l2_dev,
+ 				   struct v4l2_subdev *sd,
+@@ -293,6 +311,19 @@ static int v4l2_async_match_notify(struct v4l2_async_notifier *notifier,
+ 		return ret;
+ 	}
+ 
++	/*
++	 * Depending of the function of the entities involved, we may want to
++	 * create links between them (for example between a sensor and its lens
++	 * or between a sensor's source pad and the connected device's sink
++	 * pad).
++	 */
++	ret = v4l2_async_create_ancillary_links(notifier, sd);
++	if (ret) {
++		v4l2_async_nf_call_unbind(notifier, sd, asd);
++		v4l2_device_unregister_subdev(sd);
++		return ret;
++	}
++
+ 	/* Remove from the waiting list */
+ 	list_del(&asd->list);
+ 	sd->asd = asd;
+-- 
+2.36.1
+
+From 8c9f71bb44a3f86a6c88b199f6fd0f5802b267ba Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Wed, 4 May 2022 23:21:45 +0100
+Subject: [PATCH] media: ipu3-cio2: Move functionality from .complete() to
+ .bound()
+
+Creating links and registering subdev nodes during the .complete()
+callback has the unfortunate effect of preventing all cameras that
+connect to a notifier from working if any one of their drivers fails
+to probe. Moving the functionality from .complete() to .bound() allows
+those camera sensor drivers that did probe correctly to work regardless.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu3/ipu3-cio2-main.c | 65 +++++++------------
+ 1 file changed, 23 insertions(+), 42 deletions(-)
+
+diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c b/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
+index 0e9b0503b62a..50682a7b2a07 100644
+--- a/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
++++ b/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
+@@ -1382,7 +1382,10 @@ static int cio2_notifier_bound(struct v4l2_async_notifier *notifier,
+ {
+ 	struct cio2_device *cio2 = to_cio2_device(notifier);
+ 	struct sensor_async_subdev *s_asd = to_sensor_asd(asd);
++	struct device *dev = &cio2->pci_dev->dev;
+ 	struct cio2_queue *q;
++	unsigned int pad;
++	int ret;
+ 
+ 	if (cio2->queue[s_asd->csi2.port].sensor)
+ 		return -EBUSY;
+@@ -1393,7 +1396,26 @@ static int cio2_notifier_bound(struct v4l2_async_notifier *notifier,
+ 	q->sensor = sd;
+ 	q->csi_rx_base = cio2->base + CIO2_REG_PIPE_BASE(q->csi2.port);
+ 
+-	return 0;
++	for (pad = 0; pad < q->sensor->entity.num_pads; pad++)
++		if (q->sensor->entity.pads[pad].flags &
++					MEDIA_PAD_FL_SOURCE)
++			break;
++
++	if (pad == q->sensor->entity.num_pads) {
++		dev_err(dev, "failed to find src pad for %s\n",
++			q->sensor->name);
++		return -ENXIO;
++	}
++
++	ret = media_create_pad_link(&q->sensor->entity, pad, &q->subdev.entity,
++				    CIO2_PAD_SINK, 0);
++	if (ret) {
++		dev_err(dev, "failed to create link for %s\n",
++			q->sensor->name);
++		return ret;
++	}
++
++	return v4l2_device_register_subdev_nodes(&cio2->v4l2_dev);
+ }
+ 
+ /* The .unbind callback */
+@@ -1407,50 +1429,9 @@ static void cio2_notifier_unbind(struct v4l2_async_notifier *notifier,
+ 	cio2->queue[s_asd->csi2.port].sensor = NULL;
+ }
+ 
+-/* .complete() is called after all subdevices have been located */
+-static int cio2_notifier_complete(struct v4l2_async_notifier *notifier)
+-{
+-	struct cio2_device *cio2 = to_cio2_device(notifier);
+-	struct device *dev = &cio2->pci_dev->dev;
+-	struct sensor_async_subdev *s_asd;
+-	struct v4l2_async_subdev *asd;
+-	struct cio2_queue *q;
+-	unsigned int pad;
+-	int ret;
+-
+-	list_for_each_entry(asd, &cio2->notifier.asd_list, asd_list) {
+-		s_asd = to_sensor_asd(asd);
+-		q = &cio2->queue[s_asd->csi2.port];
+-
+-		for (pad = 0; pad < q->sensor->entity.num_pads; pad++)
+-			if (q->sensor->entity.pads[pad].flags &
+-						MEDIA_PAD_FL_SOURCE)
+-				break;
+-
+-		if (pad == q->sensor->entity.num_pads) {
+-			dev_err(dev, "failed to find src pad for %s\n",
+-				q->sensor->name);
+-			return -ENXIO;
+-		}
+-
+-		ret = media_create_pad_link(
+-				&q->sensor->entity, pad,
+-				&q->subdev.entity, CIO2_PAD_SINK,
+-				0);
+-		if (ret) {
+-			dev_err(dev, "failed to create link for %s\n",
+-				q->sensor->name);
+-			return ret;
+-		}
+-	}
+-
+-	return v4l2_device_register_subdev_nodes(&cio2->v4l2_dev);
+-}
+-
+ static const struct v4l2_async_notifier_operations cio2_async_ops = {
+ 	.bound = cio2_notifier_bound,
+ 	.unbind = cio2_notifier_unbind,
+-	.complete = cio2_notifier_complete,
+ };
+ 
+ static int cio2_parse_firmware(struct cio2_device *cio2)
+-- 
+2.36.1
+
