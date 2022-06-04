@@ -1,4 +1,4 @@
-From d769fb32cc1fde10896380418e74f6b1511f83dd Mon Sep 17 00:00:00 2001
+From 42ca7cec6b266bd2a73488b175ea29487e2b22af Mon Sep 17 00:00:00 2001
 From: Ben Hutchings <ben@decadent.org.uk>
 Date: Mon, 7 Sep 2020 02:51:53 +0100
 Subject: [PATCH 1/2] Export symbols needed by Android drivers
@@ -21,10 +21,10 @@ Export the currently un-exported symbols they depend on.
  8 files changed, 11 insertions(+)
 
 diff --git a/fs/file.c b/fs/file.c
-index ad4a8bf3cf10..4d75dd415d58 100644
+index ee9317346702..9885f25f5340 100644
 --- a/fs/file.c
 +++ b/fs/file.c
-@@ -804,6 +804,7 @@ int close_fd_get_file(unsigned int fd, struct file **res)
+@@ -833,6 +833,7 @@ int close_fd_get_file(unsigned int fd, struct file **res)
  
  	return ret;
  }
@@ -33,10 +33,10 @@ index ad4a8bf3cf10..4d75dd415d58 100644
  void do_close_on_exec(struct files_struct *files)
  {
 diff --git a/kernel/fork.c b/kernel/fork.c
-index 10885c649ca4..0fb1d884af77 100644
+index 35a3beff140b..1e9ecaa4f5ac 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
-@@ -1153,6 +1153,7 @@ void mmput_async(struct mm_struct *mm)
+@@ -1222,6 +1222,7 @@ void mmput_async(struct mm_struct *mm)
  		schedule_work(&mm->async_put_work);
  	}
  }
@@ -45,10 +45,10 @@ index 10885c649ca4..0fb1d884af77 100644
  
  /**
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 0d12ec7be301..57046ac84be2 100644
+index d58c0389eb23..b4ca294b5100 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -6935,6 +6935,7 @@ int can_nice(const struct task_struct *p, const int nice)
+@@ -6940,6 +6940,7 @@ int can_nice(const struct task_struct *p, const int nice)
  	return (nice_rlim <= task_rlimit(p, RLIMIT_NICE) ||
  		capable(CAP_SYS_NICE));
  }
@@ -57,10 +57,10 @@ index 0d12ec7be301..57046ac84be2 100644
  #ifdef __ARCH_WANT_SYS_NICE
  
 diff --git a/kernel/sched/wait.c b/kernel/sched/wait.c
-index eca38107b32f..2e645b076916 100644
+index 9860bb9a847c..ad76d49bf4e1 100644
 --- a/kernel/sched/wait.c
 +++ b/kernel/sched/wait.c
-@@ -244,6 +244,7 @@ void __wake_up_pollfree(struct wait_queue_head *wq_head)
+@@ -243,6 +243,7 @@ void __wake_up_pollfree(struct wait_queue_head *wq_head)
  	/* POLLFREE must have cleared the queue. */
  	WARN_ON_ONCE(waitqueue_active(wq_head));
  }
@@ -69,7 +69,7 @@ index eca38107b32f..2e645b076916 100644
  /*
   * Note: we use "set_current_state()" _after_ the wait-queue add,
 diff --git a/kernel/task_work.c b/kernel/task_work.c
-index 1698fbe6f0e1..2a1644189182 100644
+index c59e1a49bc40..d92b8726b1d4 100644
 --- a/kernel/task_work.c
 +++ b/kernel/task_work.c
 @@ -60,6 +60,7 @@ int task_work_add(struct task_struct *task, struct callback_head *work,
@@ -81,10 +81,10 @@ index 1698fbe6f0e1..2a1644189182 100644
  /**
   * task_work_cancel_match - cancel a pending work added by task_work_add()
 diff --git a/mm/memory.c b/mm/memory.c
-index c52be6d6b605..43012ba7ede7 100644
+index 76e3af9639d9..90a8d8730876 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
-@@ -1655,6 +1655,7 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long start,
+@@ -1671,6 +1671,7 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long start,
  	mmu_notifier_invalidate_range_end(&range);
  	tlb_finish_mmu(&tlb);
  }
@@ -93,10 +93,10 @@ index c52be6d6b605..43012ba7ede7 100644
  /**
   * zap_page_range_single - remove user pages in a given range
 diff --git a/mm/shmem.c b/mm/shmem.c
-index b5860f4a2738..c1f352f4717d 100644
+index 4b2fea33158e..0fcd0cfea35d 100644
 --- a/mm/shmem.c
 +++ b/mm/shmem.c
-@@ -4162,6 +4162,7 @@ int shmem_zero_setup(struct vm_area_struct *vma)
+@@ -4153,6 +4153,7 @@ int shmem_zero_setup(struct vm_area_struct *vma)
  
  	return 0;
  }
@@ -105,10 +105,10 @@ index b5860f4a2738..c1f352f4717d 100644
  /**
   * shmem_read_mapping_page_gfp - read into page cache, using specified page allocation flags.
 diff --git a/security/security.c b/security/security.c
-index 67264cb08fb3..3df62aa37ac0 100644
+index aaf6566deb9f..f32e312ef6fc 100644
 --- a/security/security.c
 +++ b/security/security.c
-@@ -751,24 +751,28 @@ int security_binder_set_context_mgr(const struct cred *mgr)
+@@ -753,24 +753,28 @@ int security_binder_set_context_mgr(const struct cred *mgr)
  {
  	return call_int_hook(binder_set_context_mgr, 0, mgr);
  }
@@ -138,5 +138,5 @@ index 67264cb08fb3..3df62aa37ac0 100644
  int security_ptrace_access_check(struct task_struct *child, unsigned int mode)
  {
 -- 
-2.34.1
+2.36.1
 
