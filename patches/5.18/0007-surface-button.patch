@@ -1,4 +1,4 @@
-From 9e4639574703df65179840d951379d1f525a7975 Mon Sep 17 00:00:00 2001
+From b7233663e2174356a234a5b10775ca4b29979926 Mon Sep 17 00:00:00 2001
 From: Sachi King <nakato@nakato.io>
 Date: Tue, 5 Oct 2021 00:05:09 +1100
 Subject: [PATCH] Input: soc_button_array - support AMD variant Surface devices
@@ -75,7 +75,7 @@ index cbb1599a520e..f044c731c6a9 100644
 -- 
 2.36.1
 
-From 3695ee8a0fe905e311b8bd6268661517d6ea4d1a Mon Sep 17 00:00:00 2001
+From f82333cfa47f78fe4e480c423ef5be83a5139259 Mon Sep 17 00:00:00 2001
 From: Sachi King <nakato@nakato.io>
 Date: Tue, 5 Oct 2021 00:22:57 +1100
 Subject: [PATCH] platform/surface: surfacepro3_button: don't load on amd
@@ -143,6 +143,44 @@ index 242fb690dcaf..30eea54dbb47 100644
 +			       BIT(MSHW0040_DSM_GET_OMPR));
  }
  
+ 
+-- 
+2.36.1
+
+From 205e198625d121cbbd781a071f9c9fe77dd48b74 Mon Sep 17 00:00:00 2001
+From: Duke Lee <krnhotwings@gmail.com>
+Date: Fri, 10 Jun 2022 13:49:48 -0700
+Subject: [PATCH] platform/x86/intel: hid: Add Surface Go to VGBS allow list
+
+The Surface Go reports Chassis Type 9 (Laptop,) so the device needs to be
+added to dmi_vgbs_allow_list to enable tablet mode when an attached Type
+Cover is folded back.
+
+Relevant bug report and discussion:
+https://github.com/linux-surface/linux-surface/issues/837
+
+Signed-off-by: Duke Lee <krnhotwings@gmail.com>
+Patchset: surface-button
+---
+ drivers/platform/x86/intel/hid.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/platform/x86/intel/hid.c b/drivers/platform/x86/intel/hid.c
+index 216d31e3403d..79cff1fc675c 100644
+--- a/drivers/platform/x86/intel/hid.c
++++ b/drivers/platform/x86/intel/hid.c
+@@ -122,6 +122,12 @@ static const struct dmi_system_id dmi_vgbs_allow_list[] = {
+ 			DMI_MATCH(DMI_PRODUCT_NAME, "HP Spectre x360 Convertible 15-df0xxx"),
+ 		},
+ 	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Go"),
++		},
++	},
+ 	{ }
+ };
  
 -- 
 2.36.1
