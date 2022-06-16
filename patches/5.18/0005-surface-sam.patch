@@ -1,6 +1,63 @@
-From 3434dbd2d1886acb555aa603115977157fe60076 Mon Sep 17 00:00:00 2001
+From 097657e71c5be762bf979a3113103a10fd2d7948 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Tue, 8 Jun 2021 00:24:47 +0200
+Date: Fri, 27 May 2022 04:34:36 +0200
+Subject: [PATCH] platform/surface: aggregator: Allow is_ssam_device() to be
+ used when CONFIG_SURFACE_AGGREGATOR_BUS is disabled
+
+In SSAM subsystem drivers that handle both ACPI and SSAM-native client
+devices, we may want to check whether we have a SSAM (native) client
+device. Further, we may want to do this even when instantiation thereof
+cannot happen due to CONFIG_SURFACE_AGGREGATOR_BUS=n. Currently, doing
+so causes an error due to an undefined reference error due to
+ssam_device_type being placed in the bus source unit.
+
+Therefore, if CONFIG_SURFACE_AGGREGATOR_BUS is not defined, simply let
+is_ssam_device() return false to prevent this error.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Link: https://lore.kernel.org/r/20220527023447.2460025-2-luzmaximilian@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: surface-sam
+---
+ include/linux/surface_aggregator/device.h | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
+index cc257097eb05..62b38b4487eb 100644
+--- a/include/linux/surface_aggregator/device.h
++++ b/include/linux/surface_aggregator/device.h
+@@ -177,6 +177,8 @@ struct ssam_device_driver {
+ 	void (*remove)(struct ssam_device *sdev);
+ };
+ 
++#ifdef CONFIG_SURFACE_AGGREGATOR_BUS
++
+ extern struct bus_type ssam_bus_type;
+ extern const struct device_type ssam_device_type;
+ 
+@@ -193,6 +195,15 @@ static inline bool is_ssam_device(struct device *d)
+ 	return d->type == &ssam_device_type;
+ }
+ 
++#else /* CONFIG_SURFACE_AGGREGATOR_BUS */
++
++static inline bool is_ssam_device(struct device *d)
++{
++	return false;
++}
++
++#endif /* CONFIG_SURFACE_AGGREGATOR_BUS */
++
+ /**
+  * to_ssam_device() - Casts the given device to a SSAM client device.
+  * @d: The device to cast.
+-- 
+2.36.1
+
+From d562e9d16ba3e9c6c5ff1211e2b70144cedd82d2 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 27 May 2022 04:34:37 +0200
 Subject: [PATCH] platform/surface: aggregator: Allow devices to be marked as
  hot-removed
 
@@ -22,13 +79,16 @@ used during client driver teardown to check if any communication
 attempts should be avoided.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Link: https://lore.kernel.org/r/20220527023447.2460025-3-luzmaximilian@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: surface-sam
 ---
  include/linux/surface_aggregator/device.h | 48 +++++++++++++++++++++--
  1 file changed, 45 insertions(+), 3 deletions(-)
 
 diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
-index cc257097eb05..491aa7e9f4bc 100644
+index 62b38b4487eb..6df7c8d4e50e 100644
 --- a/include/linux/surface_aggregator/device.h
 +++ b/include/linux/surface_aggregator/device.h
 @@ -148,17 +148,30 @@ struct ssam_device_uid {
@@ -65,7 +125,7 @@ index cc257097eb05..491aa7e9f4bc 100644
  };
  
  /**
-@@ -240,6 +253,35 @@ struct ssam_device *ssam_device_alloc(struct ssam_controller *ctrl,
+@@ -251,6 +264,35 @@ struct ssam_device *ssam_device_alloc(struct ssam_controller *ctrl,
  int ssam_device_add(struct ssam_device *sdev);
  void ssam_device_remove(struct ssam_device *sdev);
  
@@ -104,9 +164,9 @@ index cc257097eb05..491aa7e9f4bc 100644
 -- 
 2.36.1
 
-From 320b2dbe78b787308902bc68e22fcbb3f162cedb Mon Sep 17 00:00:00 2001
+From 48200d7535f3220bc293f016965eceaf7b07c072 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Tue, 8 Jun 2021 00:48:22 +0200
+Date: Fri, 27 May 2022 04:34:38 +0200
 Subject: [PATCH] platform/surface: aggregator: Allow notifiers to avoid
  communication on unregistering
 
@@ -126,6 +186,9 @@ also add a convenience wrapper for those, defaulting to allow
 communication.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Link: https://lore.kernel.org/r/20220527023447.2460025-4-luzmaximilian@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: surface-sam
 ---
  .../driver-api/surface_aggregator/client.rst  |  6 +-
@@ -320,10 +383,10 @@ index 74bfdffaf7b0..50a2b4926c06 100644
  int ssam_controller_event_enable(struct ssam_controller *ctrl,
  				 struct ssam_event_registry reg,
 diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
-index 491aa7e9f4bc..ad245c6b00d0 100644
+index 6df7c8d4e50e..c418f7f2732d 100644
 --- a/include/linux/surface_aggregator/device.h
 +++ b/include/linux/surface_aggregator/device.h
-@@ -472,4 +472,70 @@ static inline void ssam_remove_clients(struct device *dev) {}
+@@ -483,4 +483,70 @@ static inline void ssam_remove_clients(struct device *dev) {}
  				    sdev->uid.instance, ret);		\
  	}
  
@@ -397,9 +460,9 @@ index 491aa7e9f4bc..ad245c6b00d0 100644
 -- 
 2.36.1
 
-From 9eb459188c5879f24339596858348da5db721271 Mon Sep 17 00:00:00 2001
+From dacf08a098a2e6f4e94d1e2942bc55650610f08b Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Tue, 8 Jun 2021 01:20:49 +0200
+Date: Fri, 27 May 2022 04:34:39 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Use client device
  wrappers for notifier registration
 
@@ -407,6 +470,9 @@ Use newly introduced client device wrapper functions for notifier
 registration and unregistration.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Link: https://lore.kernel.org/r/20220527023447.2460025-5-luzmaximilian@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: surface-sam
 ---
  drivers/platform/surface/surface_aggregator_registry.c | 6 +++---
@@ -446,9 +512,9 @@ index ce2bd88feeaa..9f630e890ff7 100644
 -- 
 2.36.1
 
-From 37b01e0295741ce94882f428ef9a9370011ac41a Mon Sep 17 00:00:00 2001
+From d37dad7828ee0eb07f43a5fa8e65f4e42578aee0 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Thu, 28 Oct 2021 03:37:06 +0200
+Date: Fri, 27 May 2022 04:34:40 +0200
 Subject: [PATCH] power/supply: surface_charger: Use client device wrappers for
  notifier registration
 
@@ -456,6 +522,10 @@ Use newly introduced client device wrapper functions for notifier
 registration and unregistration.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Acked-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+Link: https://lore.kernel.org/r/20220527023447.2460025-6-luzmaximilian@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: surface-sam
 ---
  drivers/power/supply/surface_charger.c | 4 ++--
@@ -486,9 +556,9 @@ index a060c36c7766..59182d55742d 100644
 -- 
 2.36.1
 
-From 67d56ec629a03cd48b463916ff728ffc4a614b31 Mon Sep 17 00:00:00 2001
+From aa33fbfcae2a5180a73a0c7c4d191b5a86dc3a5c Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Thu, 28 Oct 2021 03:38:09 +0200
+Date: Fri, 27 May 2022 04:34:41 +0200
 Subject: [PATCH] power/supply: surface_battery: Use client device wrappers for
  notifier registration
 
@@ -496,6 +566,10 @@ Use newly introduced client device wrapper functions for notifier
 registration and unregistration.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Acked-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+Link: https://lore.kernel.org/r/20220527023447.2460025-7-luzmaximilian@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: surface-sam
 ---
  drivers/power/supply/surface_battery.c | 4 ++--
@@ -526,9 +600,9 @@ index 5ec2e6bb2465..540707882bb0 100644
 -- 
 2.36.1
 
-From 10fd3298f566a122fa1a1c6420b40a904f3667c7 Mon Sep 17 00:00:00 2001
+From 4e747fd2e517665eb7d8282b0c7c5c77b907e298 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Tue, 8 Jun 2021 01:33:02 +0200
+Date: Fri, 27 May 2022 04:34:42 +0200
 Subject: [PATCH] HID: surface-hid: Add support for hot-removal
 
 Add support for hot-removal of SSAM HID client devices.
@@ -544,6 +618,9 @@ prevent timeouts that can slow down device removal and cause issues,
 e.g. when quickly re-attaching the device.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Link: https://lore.kernel.org/r/20220527023447.2460025-8-luzmaximilian@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: surface-sam
 ---
  drivers/hid/surface-hid/surface_hid_core.c | 38 +++++++++++++++++++++-
@@ -637,9 +714,9 @@ index e46330b2e561..87637f813de2 100644
 -- 
 2.36.1
 
-From e020481acbc3da350ae62778fed7fd058dff9c6c Mon Sep 17 00:00:00 2001
+From 1261ddf08d3e8ea6a66fa8f3127e1e931b70dae3 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Sun, 31 Oct 2021 12:34:08 +0100
+Date: Fri, 27 May 2022 04:34:43 +0200
 Subject: [PATCH] platform/surface: aggregator: Add comment for KIP subsystem
  category
 
@@ -654,6 +731,9 @@ re-attached, as well as the state that the keyboard cover is currently
 in (e.g. folded-back, folded laptop-like, closed, etc.).
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Link: https://lore.kernel.org/r/20220527023447.2460025-9-luzmaximilian@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: surface-sam
 ---
  include/linux/surface_aggregator/serial_hub.h | 2 +-
@@ -675,9 +755,9 @@ index c3de43edcffa..26b95ec12733 100644
 -- 
 2.36.1
 
-From b5492006e8141f4bdd5f87468810f973daa63a55 Mon Sep 17 00:00:00 2001
+From 0bd82a6a348dc780edee3feb0c1619e74b9928e5 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Fri, 29 Apr 2022 22:42:32 +0200
+Date: Fri, 27 May 2022 04:34:44 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Generify subsystem hub
  functionality
 
@@ -702,6 +782,9 @@ Lastly, also drop the undocumented and unused sysfs "state" attribute of
 the base hub. It has at best been useful for debugging.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Link: https://lore.kernel.org/r/20220527023447.2460025-10-luzmaximilian@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: surface-sam
 ---
  .../surface/surface_aggregator_registry.c     | 269 ++++++++++--------
@@ -1062,9 +1145,53 @@ index 9f630e890ff7..09cbeee2428b 100644
 -- 
 2.36.1
 
-From 4b3ea8d79aa4330de8f2d5ec3f8fae3409874040 Mon Sep 17 00:00:00 2001
+From 29688869f641940bcf1a42b0dbeb0e7e55af47a3 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Fri, 29 Apr 2022 23:02:06 +0200
+Date: Fri, 27 May 2022 04:34:45 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Change device ID for
+ base hub
+
+Use the target category of the (base) hub as instance id in the
+(virtual) hub device UID. This makes association of the hub with the
+respective subsystem easier.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Link: https://lore.kernel.org/r/20220527023447.2460025-11-luzmaximilian@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 09cbeee2428b..b11ce87c7184 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -43,7 +43,7 @@ static const struct software_node ssam_node_root = {
+ 
+ /* Base device hub (devices attached to Surface Book 3 base). */
+ static const struct software_node ssam_node_hub_base = {
+-	.name = "ssam:00:00:02:00:00",
++	.name = "ssam:00:00:02:11:00",
+ 	.parent = &ssam_node_root,
+ };
+ 
+@@ -535,7 +535,7 @@ static int ssam_base_hub_probe(struct ssam_device *sdev)
+ }
+ 
+ static const struct ssam_device_id ssam_base_hub_match[] = {
+-	{ SSAM_VDEV(HUB, 0x02, SSAM_ANY_IID, 0x00) },
++	{ SSAM_VDEV(HUB, 0x02, SSAM_SSH_TC_BAS, 0x00) },
+ 	{ },
+ };
+ 
+-- 
+2.36.1
+
+From 431a0450a5d32e9091a248f8a81acea4b2188699 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 27 May 2022 04:34:46 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add KIP device hub
 
 Add a Surface System Aggregator Module (SSAM) client device hub for
@@ -1085,13 +1212,16 @@ been (re-)attached. To do this, use the previously generified SSAM
 subsystem hub framework.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Link: https://lore.kernel.org/r/20220527023447.2460025-12-luzmaximilian@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: surface-sam
 ---
  .../surface/surface_aggregator_registry.c     | 103 +++++++++++++++++-
  1 file changed, 101 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 09cbeee2428b..1e60435c7cce 100644
+index b11ce87c7184..f15cef60630f 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -551,6 +551,93 @@ static struct ssam_device_driver ssam_base_hub_driver = {
@@ -1169,7 +1299,7 @@ index 09cbeee2428b..1e60435c7cce 100644
 +}
 +
 +static const struct ssam_device_id ssam_kip_hub_match[] = {
-+	{ SSAM_SDEV(KIP, 0x01, 0x00, 0x00) },
++	{ SSAM_VDEV(HUB, 0x01, SSAM_SSH_TC_KIP, 0x00) },
 +	{ },
 +};
 +
@@ -1224,9 +1354,9 @@ index 09cbeee2428b..1e60435c7cce 100644
 -- 
 2.36.1
 
-From a6b06ffdac171f945aaaaf58dea38f3824c7e24b Mon Sep 17 00:00:00 2001
+From f61f1f111b7b347e642755879542bc8c4778617f Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Wed, 27 Oct 2021 22:33:03 +0200
+Date: Fri, 27 May 2022 04:34:47 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add support for
  keyboard cover on Surface Pro 8
 
@@ -1249,28 +1379,31 @@ need to be registered under the KIP device hub, which in turn will
 remove and re-create/re-initialize those devices as needed.
 
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Link: https://lore.kernel.org/r/20220527023447.2460025-13-luzmaximilian@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
 Patchset: surface-sam
 ---
  .../surface/surface_aggregator_registry.c     | 37 ++++++++++++++++++-
  1 file changed, 36 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 1e60435c7cce..ab69669316bd 100644
+index f15cef60630f..bf3303f1aa71 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
-@@ -47,6 +47,12 @@ static const struct software_node ssam_node_hub_base = {
- 	.parent = &ssam_node_root,
+@@ -41,6 +41,12 @@ static const struct software_node ssam_node_root = {
+ 	.name = "ssam_platform_hub",
  };
  
 +/* KIP device hub (connects keyboard cover devices on Surface Pro 8). */
 +static const struct software_node ssam_node_hub_kip = {
-+	.name = "ssam:01:0e:01:00:00",
++	.name = "ssam:00:00:01:0e:00",
 +	.parent = &ssam_node_root,
 +};
 +
- /* AC adapter. */
- static const struct software_node ssam_node_bat_ac = {
- 	.name = "ssam:01:02:01:01:01",
+ /* Base device hub (devices attached to Surface Book 3 base). */
+ static const struct software_node ssam_node_hub_base = {
+ 	.name = "ssam:00:00:02:11:00",
 @@ -155,6 +161,30 @@ static const struct software_node ssam_node_hid_base_iid6 = {
  	.parent = &ssam_node_hub_base,
  };
@@ -1322,7 +1455,436 @@ index 1e60435c7cce..ab69669316bd 100644
 -- 
 2.36.1
 
-From 61037fe8bcd3c36dba5d21dabae06526e95104f7 Mon Sep 17 00:00:00 2001
+From a0044e1fad27f45d2bf251c831b37c78e10b6933 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Tue, 14 Jun 2022 13:17:49 +0200
+Subject: [PATCH] platform/surface: aggregator: Reserve more event- and
+ target-categories
+
+With the introduction of the Surface Laptop Studio, more event- and
+target categories have been added. Therefore, increase the number of
+reserved events and extend the enum of know target categories to
+accommodate this.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/aggregator/trace.h   | 80 +++++++++++--------
+ include/linux/surface_aggregator/serial_hub.h | 75 +++++++++--------
+ 2 files changed, 85 insertions(+), 70 deletions(-)
+
+diff --git a/drivers/platform/surface/aggregator/trace.h b/drivers/platform/surface/aggregator/trace.h
+index de64cf169060..cc9e73fbc18e 100644
+--- a/drivers/platform/surface/aggregator/trace.h
++++ b/drivers/platform/surface/aggregator/trace.h
+@@ -76,7 +76,7 @@ TRACE_DEFINE_ENUM(SSAM_SSH_TC_HID);
+ TRACE_DEFINE_ENUM(SSAM_SSH_TC_TCH);
+ TRACE_DEFINE_ENUM(SSAM_SSH_TC_BKL);
+ TRACE_DEFINE_ENUM(SSAM_SSH_TC_TAM);
+-TRACE_DEFINE_ENUM(SSAM_SSH_TC_ACC);
++TRACE_DEFINE_ENUM(SSAM_SSH_TC_ACC0);
+ TRACE_DEFINE_ENUM(SSAM_SSH_TC_UFI);
+ TRACE_DEFINE_ENUM(SSAM_SSH_TC_USC);
+ TRACE_DEFINE_ENUM(SSAM_SSH_TC_PEN);
+@@ -85,6 +85,11 @@ TRACE_DEFINE_ENUM(SSAM_SSH_TC_AUD);
+ TRACE_DEFINE_ENUM(SSAM_SSH_TC_SMC);
+ TRACE_DEFINE_ENUM(SSAM_SSH_TC_KPD);
+ TRACE_DEFINE_ENUM(SSAM_SSH_TC_REG);
++TRACE_DEFINE_ENUM(SSAM_SSH_TC_SPT);
++TRACE_DEFINE_ENUM(SSAM_SSH_TC_SYS);
++TRACE_DEFINE_ENUM(SSAM_SSH_TC_ACC1);
++TRACE_DEFINE_ENUM(SSAM_SSH_TC_SHB);
++TRACE_DEFINE_ENUM(SSAM_SSH_TC_POS);
+ 
+ #define SSAM_PTR_UID_LEN		9
+ #define SSAM_U8_FIELD_NOT_APPLICABLE	((u16)-1)
+@@ -229,40 +234,45 @@ static inline u32 ssam_trace_get_request_tc(const struct ssh_packet *p)
+ 
+ #define ssam_show_ssh_tc(rqid)						\
+ 	__print_symbolic(rqid,						\
+-		{ SSAM_SSH_TC_NOT_APPLICABLE,		"N/A" },	\
+-		{ SSAM_SSH_TC_SAM,			"SAM" },	\
+-		{ SSAM_SSH_TC_BAT,			"BAT" },	\
+-		{ SSAM_SSH_TC_TMP,			"TMP" },	\
+-		{ SSAM_SSH_TC_PMC,			"PMC" },	\
+-		{ SSAM_SSH_TC_FAN,			"FAN" },	\
+-		{ SSAM_SSH_TC_PoM,			"PoM" },	\
+-		{ SSAM_SSH_TC_DBG,			"DBG" },	\
+-		{ SSAM_SSH_TC_KBD,			"KBD" },	\
+-		{ SSAM_SSH_TC_FWU,			"FWU" },	\
+-		{ SSAM_SSH_TC_UNI,			"UNI" },	\
+-		{ SSAM_SSH_TC_LPC,			"LPC" },	\
+-		{ SSAM_SSH_TC_TCL,			"TCL" },	\
+-		{ SSAM_SSH_TC_SFL,			"SFL" },	\
+-		{ SSAM_SSH_TC_KIP,			"KIP" },	\
+-		{ SSAM_SSH_TC_EXT,			"EXT" },	\
+-		{ SSAM_SSH_TC_BLD,			"BLD" },	\
+-		{ SSAM_SSH_TC_BAS,			"BAS" },	\
+-		{ SSAM_SSH_TC_SEN,			"SEN" },	\
+-		{ SSAM_SSH_TC_SRQ,			"SRQ" },	\
+-		{ SSAM_SSH_TC_MCU,			"MCU" },	\
+-		{ SSAM_SSH_TC_HID,			"HID" },	\
+-		{ SSAM_SSH_TC_TCH,			"TCH" },	\
+-		{ SSAM_SSH_TC_BKL,			"BKL" },	\
+-		{ SSAM_SSH_TC_TAM,			"TAM" },	\
+-		{ SSAM_SSH_TC_ACC,			"ACC" },	\
+-		{ SSAM_SSH_TC_UFI,			"UFI" },	\
+-		{ SSAM_SSH_TC_USC,			"USC" },	\
+-		{ SSAM_SSH_TC_PEN,			"PEN" },	\
+-		{ SSAM_SSH_TC_VID,			"VID" },	\
+-		{ SSAM_SSH_TC_AUD,			"AUD" },	\
+-		{ SSAM_SSH_TC_SMC,			"SMC" },	\
+-		{ SSAM_SSH_TC_KPD,			"KPD" },	\
+-		{ SSAM_SSH_TC_REG,			"REG" }		\
++		{ SSAM_SSH_TC_NOT_APPLICABLE,		"N/A"  },	\
++		{ SSAM_SSH_TC_SAM,			"SAM"  },	\
++		{ SSAM_SSH_TC_BAT,			"BAT"  },	\
++		{ SSAM_SSH_TC_TMP,			"TMP"  },	\
++		{ SSAM_SSH_TC_PMC,			"PMC"  },	\
++		{ SSAM_SSH_TC_FAN,			"FAN"  },	\
++		{ SSAM_SSH_TC_PoM,			"PoM"  },	\
++		{ SSAM_SSH_TC_DBG,			"DBG"  },	\
++		{ SSAM_SSH_TC_KBD,			"KBD"  },	\
++		{ SSAM_SSH_TC_FWU,			"FWU"  },	\
++		{ SSAM_SSH_TC_UNI,			"UNI"  },	\
++		{ SSAM_SSH_TC_LPC,			"LPC"  },	\
++		{ SSAM_SSH_TC_TCL,			"TCL"  },	\
++		{ SSAM_SSH_TC_SFL,			"SFL"  },	\
++		{ SSAM_SSH_TC_KIP,			"KIP"  },	\
++		{ SSAM_SSH_TC_EXT,			"EXT"  },	\
++		{ SSAM_SSH_TC_BLD,			"BLD"  },	\
++		{ SSAM_SSH_TC_BAS,			"BAS"  },	\
++		{ SSAM_SSH_TC_SEN,			"SEN"  },	\
++		{ SSAM_SSH_TC_SRQ,			"SRQ"  },	\
++		{ SSAM_SSH_TC_MCU,			"MCU"  },	\
++		{ SSAM_SSH_TC_HID,			"HID"  },	\
++		{ SSAM_SSH_TC_TCH,			"TCH"  },	\
++		{ SSAM_SSH_TC_BKL,			"BKL"  },	\
++		{ SSAM_SSH_TC_TAM,			"TAM"  },	\
++		{ SSAM_SSH_TC_ACC0,			"ACC0" },	\
++		{ SSAM_SSH_TC_UFI,			"UFI"  },	\
++		{ SSAM_SSH_TC_USC,			"USC"  },	\
++		{ SSAM_SSH_TC_PEN,			"PEN"  },	\
++		{ SSAM_SSH_TC_VID,			"VID"  },	\
++		{ SSAM_SSH_TC_AUD,			"AUD"  },	\
++		{ SSAM_SSH_TC_SMC,			"SMC"  },	\
++		{ SSAM_SSH_TC_KPD,			"KPD"  },	\
++		{ SSAM_SSH_TC_REG,			"REG"  },	\
++		{ SSAM_SSH_TC_SPT,			"SPT"  },	\
++		{ SSAM_SSH_TC_SYS,			"SYS"  },	\
++		{ SSAM_SSH_TC_ACC1,			"ACC1" },	\
++		{ SSAM_SSH_TC_SHB,			"SMB"  },	\
++		{ SSAM_SSH_TC_POS,			"POS"  }	\
+ 	)
+ 
+ DECLARE_EVENT_CLASS(ssam_frame_class,
+diff --git a/include/linux/surface_aggregator/serial_hub.h b/include/linux/surface_aggregator/serial_hub.h
+index 26b95ec12733..45501b6e54e8 100644
+--- a/include/linux/surface_aggregator/serial_hub.h
++++ b/include/linux/surface_aggregator/serial_hub.h
+@@ -201,7 +201,7 @@ static inline u16 ssh_crc(const u8 *buf, size_t len)
+  * exception of zero, which is not an event ID. Thus, this is also the
+  * absolute maximum number of event handlers that can be registered.
+  */
+-#define SSH_NUM_EVENTS		34
++#define SSH_NUM_EVENTS		38
+ 
+ /*
+  * SSH_NUM_TARGETS - The number of communication targets used in the protocol.
+@@ -292,40 +292,45 @@ struct ssam_span {
+  * Windows driver.
+  */
+ enum ssam_ssh_tc {
+-				/* Category 0x00 is invalid for EC use. */
+-	SSAM_SSH_TC_SAM = 0x01,	/* Generic system functionality, real-time clock. */
+-	SSAM_SSH_TC_BAT = 0x02,	/* Battery/power subsystem. */
+-	SSAM_SSH_TC_TMP = 0x03,	/* Thermal subsystem. */
+-	SSAM_SSH_TC_PMC = 0x04,
+-	SSAM_SSH_TC_FAN = 0x05,
+-	SSAM_SSH_TC_PoM = 0x06,
+-	SSAM_SSH_TC_DBG = 0x07,
+-	SSAM_SSH_TC_KBD = 0x08,	/* Legacy keyboard (Laptop 1/2). */
+-	SSAM_SSH_TC_FWU = 0x09,
+-	SSAM_SSH_TC_UNI = 0x0a,
+-	SSAM_SSH_TC_LPC = 0x0b,
+-	SSAM_SSH_TC_TCL = 0x0c,
+-	SSAM_SSH_TC_SFL = 0x0d,
+-	SSAM_SSH_TC_KIP = 0x0e,	/* Manages detachable peripherals (Pro X/8 keyboard cover) */
+-	SSAM_SSH_TC_EXT = 0x0f,
+-	SSAM_SSH_TC_BLD = 0x10,
+-	SSAM_SSH_TC_BAS = 0x11,	/* Detachment system (Surface Book 2/3). */
+-	SSAM_SSH_TC_SEN = 0x12,
+-	SSAM_SSH_TC_SRQ = 0x13,
+-	SSAM_SSH_TC_MCU = 0x14,
+-	SSAM_SSH_TC_HID = 0x15,	/* Generic HID input subsystem. */
+-	SSAM_SSH_TC_TCH = 0x16,
+-	SSAM_SSH_TC_BKL = 0x17,
+-	SSAM_SSH_TC_TAM = 0x18,
+-	SSAM_SSH_TC_ACC = 0x19,
+-	SSAM_SSH_TC_UFI = 0x1a,
+-	SSAM_SSH_TC_USC = 0x1b,
+-	SSAM_SSH_TC_PEN = 0x1c,
+-	SSAM_SSH_TC_VID = 0x1d,
+-	SSAM_SSH_TC_AUD = 0x1e,
+-	SSAM_SSH_TC_SMC = 0x1f,
+-	SSAM_SSH_TC_KPD = 0x20,
+-	SSAM_SSH_TC_REG = 0x21,	/* Extended event registry. */
++				  /* Category 0x00 is invalid for EC use. */
++	SSAM_SSH_TC_SAM  = 0x01,  /* Generic system functionality, real-time clock. */
++	SSAM_SSH_TC_BAT  = 0x02,  /* Battery/power subsystem. */
++	SSAM_SSH_TC_TMP  = 0x03,  /* Thermal subsystem. */
++	SSAM_SSH_TC_PMC  = 0x04,
++	SSAM_SSH_TC_FAN  = 0x05,
++	SSAM_SSH_TC_PoM  = 0x06,
++	SSAM_SSH_TC_DBG  = 0x07,
++	SSAM_SSH_TC_KBD  = 0x08,  /* Legacy keyboard (Laptop 1/2). */
++	SSAM_SSH_TC_FWU  = 0x09,
++	SSAM_SSH_TC_UNI  = 0x0a,
++	SSAM_SSH_TC_LPC  = 0x0b,
++	SSAM_SSH_TC_TCL  = 0x0c,
++	SSAM_SSH_TC_SFL  = 0x0d,
++	SSAM_SSH_TC_KIP  = 0x0e,  /* Manages detachable peripherals (Pro X/8 keyboard cover) */
++	SSAM_SSH_TC_EXT  = 0x0f,
++	SSAM_SSH_TC_BLD  = 0x10,
++	SSAM_SSH_TC_BAS  = 0x11,  /* Detachment system (Surface Book 2/3). */
++	SSAM_SSH_TC_SEN  = 0x12,
++	SSAM_SSH_TC_SRQ  = 0x13,
++	SSAM_SSH_TC_MCU  = 0x14,
++	SSAM_SSH_TC_HID  = 0x15,  /* Generic HID input subsystem. */
++	SSAM_SSH_TC_TCH  = 0x16,
++	SSAM_SSH_TC_BKL  = 0x17,
++	SSAM_SSH_TC_TAM  = 0x18,
++	SSAM_SSH_TC_ACC0 = 0x19,
++	SSAM_SSH_TC_UFI  = 0x1a,
++	SSAM_SSH_TC_USC  = 0x1b,
++	SSAM_SSH_TC_PEN  = 0x1c,
++	SSAM_SSH_TC_VID  = 0x1d,
++	SSAM_SSH_TC_AUD  = 0x1e,
++	SSAM_SSH_TC_SMC  = 0x1f,
++	SSAM_SSH_TC_KPD  = 0x20,
++	SSAM_SSH_TC_REG  = 0x21,  /* Extended event registry. */
++	SSAM_SSH_TC_SPT  = 0x22,
++	SSAM_SSH_TC_SYS  = 0x23,
++	SSAM_SSH_TC_ACC1 = 0x24,
++	SSAM_SSH_TC_SHB  = 0x25,
++	SSAM_SSH_TC_POS  = 0x26,  /* For obtaining Laptop Studio screen position. */
+ };
+ 
+ 
+-- 
+2.36.1
+
+From 0de5abea7880ab860df0db95fa4c1b990731a140 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Thu, 16 Jun 2022 01:50:12 +0200
+Subject: [PATCH] platform/surface: aggregator: Add helper macros for requests
+ with argument and return value
+
+Add helper macros for synchronous stack-allocated Surface Aggregator
+request with both argument and return value, similar to the current
+argument-only and return-value-only ones.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ include/linux/surface_aggregator/controller.h | 125 ++++++++++++++++++
+ include/linux/surface_aggregator/device.h     |  36 +++++
+ 2 files changed, 161 insertions(+)
+
+diff --git a/include/linux/surface_aggregator/controller.h b/include/linux/surface_aggregator/controller.h
+index 50a2b4926c06..d11a1c6e3186 100644
+--- a/include/linux/surface_aggregator/controller.h
++++ b/include/linux/surface_aggregator/controller.h
+@@ -469,6 +469,67 @@ struct ssam_request_spec_md {
+ 		return 0;							\
+ 	}
+ 
++/**
++ * SSAM_DEFINE_SYNC_REQUEST_WR() - Define synchronous SAM request function with
++ * both argument and return value.
++ * @name:  Name of the generated function.
++ * @atype: Type of the request's argument.
++ * @rtype: Type of the request's return value.
++ * @spec:  Specification (&struct ssam_request_spec) defining the request.
++ *
++ * Defines a function executing the synchronous SAM request specified by @spec,
++ * with the request taking an argument of type @atype and having a return value
++ * of type @rtype. The generated function takes care of setting up the request
++ * and response structs, buffer allocation, as well as execution of the request
++ * itself, returning once the request has been fully completed. The required
++ * transport buffer will be allocated on the stack.
++ *
++ * The generated function is defined as ``static int name(struct
++ * ssam_controller *ctrl, const atype *arg, rtype *ret)``, returning the status
++ * of the request, which is zero on success and negative on failure. The
++ * ``ctrl`` parameter is the controller via which the request is sent. The
++ * request argument is specified via the ``arg`` pointer. The request's return
++ * value is written to the memory pointed to by the ``ret`` parameter.
++ *
++ * Refer to ssam_request_sync_onstack() for more details on the behavior of
++ * the generated function.
++ */
++#define SSAM_DEFINE_SYNC_REQUEST_WR(name, atype, rtype, spec...)		\
++	static int name(struct ssam_controller *ctrl, const atype *arg, rtype *ret) \
++	{									\
++		struct ssam_request_spec s = (struct ssam_request_spec)spec;	\
++		struct ssam_request rqst;					\
++		struct ssam_response rsp;					\
++		int status;							\
++										\
++		rqst.target_category = s.target_category;			\
++		rqst.target_id = s.target_id;					\
++		rqst.command_id = s.command_id;					\
++		rqst.instance_id = s.instance_id;				\
++		rqst.flags = s.flags | SSAM_REQUEST_HAS_RESPONSE;		\
++		rqst.length = sizeof(atype);					\
++		rqst.payload = (u8 *)arg;					\
++										\
++		rsp.capacity = sizeof(rtype);					\
++		rsp.length = 0;							\
++		rsp.pointer = (u8 *)ret;					\
++										\
++		status = ssam_request_sync_onstack(ctrl, &rqst, &rsp, sizeof(atype)); \
++		if (status)							\
++			return status;						\
++										\
++		if (rsp.length != sizeof(rtype)) {				\
++			struct device *dev = ssam_controller_device(ctrl);	\
++			dev_err(dev,						\
++				"rqst: invalid response length, expected %zu, got %zu (tc: %#04x, cid: %#04x)", \
++				sizeof(rtype), rsp.length, rqst.target_category,\
++				rqst.command_id);				\
++			return -EIO;						\
++		}								\
++										\
++		return 0;							\
++	}
++
+ /**
+  * SSAM_DEFINE_SYNC_REQUEST_MD_N() - Define synchronous multi-device SAM
+  * request function with neither argument nor return value.
+@@ -613,6 +674,70 @@ struct ssam_request_spec_md {
+ 		return 0;							\
+ 	}
+ 
++/**
++ * SSAM_DEFINE_SYNC_REQUEST_MD_WR() - Define synchronous multi-device SAM
++ * request function with both argument and return value.
++ * @name:  Name of the generated function.
++ * @atype: Type of the request's argument.
++ * @rtype: Type of the request's return value.
++ * @spec:  Specification (&struct ssam_request_spec_md) defining the request.
++ *
++ * Defines a function executing the synchronous SAM request specified by @spec,
++ * with the request taking an argument of type @atype and having a return value
++ * of type @rtype. Device specifying parameters are not hard-coded, but instead
++ * must be provided to the function. The generated function takes care of
++ * setting up the request and response structs, buffer allocation, as well as
++ * execution of the request itself, returning once the request has been fully
++ * completed. The required transport buffer will be allocated on the stack.
++ *
++ * The generated function is defined as ``static int name(struct
++ * ssam_controller *ctrl, u8 tid, u8 iid, const atype *arg, rtype *ret)``,
++ * returning the status of the request, which is zero on success and negative
++ * on failure. The ``ctrl`` parameter is the controller via which the request
++ * is sent, ``tid`` the target ID for the request, and ``iid`` the instance ID.
++ * The request argument is specified via the ``arg`` pointer. The request's
++ * return value is written to the memory pointed to by the ``ret`` parameter.
++ *
++ * Refer to ssam_request_sync_onstack() for more details on the behavior of
++ * the generated function.
++ */
++#define SSAM_DEFINE_SYNC_REQUEST_MD_WR(name, atype, rtype, spec...)		\
++	static int name(struct ssam_controller *ctrl, u8 tid, u8 iid,		\
++			const atype *arg, rtype *ret)				\
++	{									\
++		struct ssam_request_spec_md s = (struct ssam_request_spec_md)spec; \
++		struct ssam_request rqst;					\
++		struct ssam_response rsp;					\
++		int status;							\
++										\
++		rqst.target_category = s.target_category;			\
++		rqst.target_id = tid;						\
++		rqst.command_id = s.command_id;					\
++		rqst.instance_id = iid;						\
++		rqst.flags = s.flags | SSAM_REQUEST_HAS_RESPONSE;		\
++		rqst.length = sizeof(atype);					\
++		rqst.payload = (u8 *)arg;					\
++										\
++		rsp.capacity = sizeof(rtype);					\
++		rsp.length = 0;							\
++		rsp.pointer = (u8 *)ret;					\
++										\
++		status = ssam_request_sync_onstack(ctrl, &rqst, &rsp, sizeof(atype)); \
++		if (status)							\
++			return status;						\
++										\
++		if (rsp.length != sizeof(rtype)) {				\
++			struct device *dev = ssam_controller_device(ctrl);	\
++			dev_err(dev,						\
++				"rqst: invalid response length, expected %zu, got %zu (tc: %#04x, cid: %#04x)", \
++				sizeof(rtype), rsp.length, rqst.target_category,\
++				rqst.command_id);				\
++			return -EIO;						\
++		}								\
++										\
++		return 0;							\
++	}
++
+ 
+ /* -- Event notifier/callbacks. --------------------------------------------- */
+ 
+diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
+index c418f7f2732d..6cf7e80312d5 100644
+--- a/include/linux/surface_aggregator/device.h
++++ b/include/linux/surface_aggregator/device.h
+@@ -483,6 +483,42 @@ static inline void ssam_remove_clients(struct device *dev) {}
+ 				    sdev->uid.instance, ret);		\
+ 	}
+ 
++/**
++ * SSAM_DEFINE_SYNC_REQUEST_CL_WR() - Define synchronous client-device SAM
++ * request function with argument and return value.
++ * @name:  Name of the generated function.
++ * @atype: Type of the request's argument.
++ * @rtype: Type of the request's return value.
++ * @spec:  Specification (&struct ssam_request_spec_md) defining the request.
++ *
++ * Defines a function executing the synchronous SAM request specified by @spec,
++ * with the request taking an argument of type @atype and having a return value
++ * of type @rtype. Device specifying parameters are not hard-coded, but instead
++ * are provided via the client device, specifically its UID, supplied when
++ * calling this function. The generated function takes care of setting up the
++ * request struct, buffer allocation, as well as execution of the request
++ * itself, returning once the request has been fully completed. The required
++ * transport buffer will be allocated on the stack.
++ *
++ * The generated function is defined as ``static int name(struct ssam_device
++ * *sdev, const atype *arg, rtype *ret)``, returning the status of the request,
++ * which is zero on success and negative on failure. The ``sdev`` parameter
++ * specifies both the target device of the request and by association the
++ * controller via which the request is sent. The request's argument is
++ * specified via the ``arg`` pointer. The request's return value is written to
++ * the memory pointed to by the ``ret`` parameter.
++ *
++ * Refer to ssam_request_sync_onstack() for more details on the behavior of
++ * the generated function.
++ */
++#define SSAM_DEFINE_SYNC_REQUEST_CL_WR(name, atype, rtype, spec...)		\
++	SSAM_DEFINE_SYNC_REQUEST_MD_WR(__raw_##name, atype, rtype, spec)	\
++	static int name(struct ssam_device *sdev, const atype *arg, rtype *ret)	\
++	{									\
++		return __raw_##name(sdev->ctrl, sdev->uid.target,		\
++				    sdev->uid.instance, arg, ret);		\
++	}
++
+ 
+ /* -- Helpers for client-device notifiers. ---------------------------------- */
+ 
+-- 
+2.36.1
+
+From 87e36bd7600f7fcc19cabbf24226b0e93970aae0 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 8 Jun 2021 03:19:20 +0200
 Subject: [PATCH] platform/surface: Add KIP tablet-mode switch
@@ -1345,191 +1907,166 @@ Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-sam
 ---
  MAINTAINERS                                   |   6 +
- drivers/platform/surface/Kconfig              |  22 ++
+ drivers/platform/surface/Kconfig              |  23 +
  drivers/platform/surface/Makefile             |   1 +
- .../surface/surface_kip_tablet_switch.c       | 245 ++++++++++++++++++
- 4 files changed, 274 insertions(+)
- create mode 100644 drivers/platform/surface/surface_kip_tablet_switch.c
+ .../surface/surface_aggregator_tabletsw.c     | 535 ++++++++++++++++++
+ 4 files changed, 565 insertions(+)
+ create mode 100644 drivers/platform/surface/surface_aggregator_tabletsw.c
 
 diff --git a/MAINTAINERS b/MAINTAINERS
-index f468864fd268..38f7f19002ac 100644
+index f468864fd268..e8131f6d7a97 100644
 --- a/MAINTAINERS
 +++ b/MAINTAINERS
-@@ -13079,6 +13079,12 @@ L:	platform-driver-x86@vger.kernel.org
- S:	Maintained
- F:	drivers/platform/surface/surface_hotplug.c
+@@ -13035,6 +13035,12 @@ F:	drivers/scsi/smartpqi/smartpqi*.[ch]
+ F:	include/linux/cciss*.h
+ F:	include/uapi/linux/cciss*.h
  
-+MICROSOFT SURFACE KIP TABLET-MODE SWITCH
++MICROSOFT SURFACE AGGREGATOR TABLET-MODE SWITCH
 +M:	Maximilian Luz <luzmaximilian@gmail.com>
 +L:	platform-driver-x86@vger.kernel.org
 +S:	Maintained
-+F:	drivers/platform/surface/surface_kip_tablet_switch.c
++F:	drivers/platform/surface/surface_aggregator_tablet_switch.c
 +
- MICROSOFT SURFACE PLATFORM PROFILE DRIVER
+ MICROSOFT SURFACE BATTERY AND AC DRIVERS
  M:	Maximilian Luz <luzmaximilian@gmail.com>
- L:	platform-driver-x86@vger.kernel.org
+ L:	linux-pm@vger.kernel.org
 diff --git a/drivers/platform/surface/Kconfig b/drivers/platform/surface/Kconfig
-index eb79fbed8059..738d416ca4b2 100644
+index eb79fbed8059..b152e930cc84 100644
 --- a/drivers/platform/surface/Kconfig
 +++ b/drivers/platform/surface/Kconfig
-@@ -149,6 +149,28 @@ config SURFACE_HOTPLUG
- 	  Select M or Y here, if you want to (fully) support hot-plugging of
- 	  dGPU devices on the Surface Book 2 and/or 3 during D3cold.
+@@ -99,6 +99,29 @@ config SURFACE_AGGREGATOR_REGISTRY
+ 	  the respective client devices. Drivers for these devices still need to
+ 	  be selected via the other options.
  
-+config SURFACE_KIP_TABLET_SWITCH
-+	tristate "Surface KIP Tablet-Mode Switch Driver"
++config SURFACE_AGGREGATOR_TABLET_SWITCH
++	tristate "Surface Aggregator Generic Tablet-Mode Switch Driver"
 +	depends on SURFACE_AGGREGATOR
 +	depends on SURFACE_AGGREGATOR_BUS
 +	depends on INPUT
 +	help
 +	  Provides a tablet-mode switch input device on Microsoft Surface models
-+	  using the KIP subsystem for detachable keyboards (e.g. keyboard
-+	  covers).
++	  using the KIP subsystem for detachable keyboards (e.g. keyboard covers)
++	  or the POS subsystem for device/screen posture changes.
 +
 +	  The KIP subsystem is used on newer Surface generations to handle
-+	  detachable input peripherals, specifically the keyboard cover
-+	  (containing keyboard and touchpad) on the Surface Pro 8. This module
-+	  provides a driver to let user-space know when the device should be
-+	  considered in tablet-mode due to the keyboard cover being detached or
-+	  folded back (essentially signaling when the keyboard is not available
-+	  for input). It does so by creating a tablet-mode switch input device,
-+	  sending the standard SW_TABLET_MODE event on mode change.
++	  detachable input peripherals, specifically the keyboard cover (containing
++	  keyboard and touchpad) on the Surface Pro 8 and Surface Pro X. The POS
++	  subsystem is used for device posture change notifications on the Surface
++	  Laptop Studio. This module provides a driver to let user-space know when
++	  the device should be considered in tablet-mode due to the keyboard cover
++	  being detached or folded back (essentially signaling when the keyboard is
++	  not available for input). It does so by creating a tablet-mode switch
++	  input device, sending the standard SW_TABLET_MODE event on mode change.
 +
 +	  Select M or Y here, if you want to provide tablet-mode switch input
-+	  events on the Surface Pro 8.
++	  events on the Surface Pro 8, Surface Pro X, and Surface Laptop Studio.
 +
- config SURFACE_PLATFORM_PROFILE
- 	tristate "Surface Platform Profile Driver"
- 	depends on ACPI
+ config SURFACE_DTX
+ 	tristate "Surface DTX (Detachment System) Driver"
+ 	depends on SURFACE_AGGREGATOR
 diff --git a/drivers/platform/surface/Makefile b/drivers/platform/surface/Makefile
-index 0fc9cd3e4dd9..e173a95f2e8d 100644
+index 0fc9cd3e4dd9..18b27898543e 100644
 --- a/drivers/platform/surface/Makefile
 +++ b/drivers/platform/surface/Makefile
-@@ -13,5 +13,6 @@ obj-$(CONFIG_SURFACE_AGGREGATOR_REGISTRY) += surface_aggregator_registry.o
+@@ -10,6 +10,7 @@ obj-$(CONFIG_SURFACE_ACPI_NOTIFY)	+= surface_acpi_notify.o
+ obj-$(CONFIG_SURFACE_AGGREGATOR)	+= aggregator/
+ obj-$(CONFIG_SURFACE_AGGREGATOR_CDEV)	+= surface_aggregator_cdev.o
+ obj-$(CONFIG_SURFACE_AGGREGATOR_REGISTRY) += surface_aggregator_registry.o
++obj-$(CONFIG_SURFACE_AGGREGATOR_TABLET_SWITCH) += surface_aggregator_tabletsw.o
  obj-$(CONFIG_SURFACE_DTX)		+= surface_dtx.o
  obj-$(CONFIG_SURFACE_GPE)		+= surface_gpe.o
  obj-$(CONFIG_SURFACE_HOTPLUG)		+= surface_hotplug.o
-+obj-$(CONFIG_SURFACE_KIP_TABLET_SWITCH)	+= surface_kip_tablet_switch.o
- obj-$(CONFIG_SURFACE_PLATFORM_PROFILE)	+= surface_platform_profile.o
- obj-$(CONFIG_SURFACE_PRO3_BUTTON)	+= surfacepro3_button.o
-diff --git a/drivers/platform/surface/surface_kip_tablet_switch.c b/drivers/platform/surface/surface_kip_tablet_switch.c
+diff --git a/drivers/platform/surface/surface_aggregator_tabletsw.c b/drivers/platform/surface/surface_aggregator_tabletsw.c
 new file mode 100644
-index 000000000000..27371da71ef2
+index 000000000000..6f402d2ca894
 --- /dev/null
-+++ b/drivers/platform/surface/surface_kip_tablet_switch.c
-@@ -0,0 +1,245 @@
++++ b/drivers/platform/surface/surface_aggregator_tabletsw.c
+@@ -0,0 +1,535 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
-+ * Surface System Aggregator Module (SSAM) tablet mode switch via KIP
-+ * subsystem.
++ * Surface System Aggregator Module (SSAM) tablet mode switch driver.
 + *
 + * Copyright (C) 2022 Maximilian Luz <luzmaximilian@gmail.com>
 + */
 +
++#include <asm/unaligned.h>
 +#include <linux/input.h>
 +#include <linux/kernel.h>
 +#include <linux/module.h>
-+#include <linux/platform_device.h>
 +#include <linux/types.h>
 +#include <linux/workqueue.h>
 +
 +#include <linux/surface_aggregator/controller.h>
 +#include <linux/surface_aggregator/device.h>
 +
-+#define SSAM_EVENT_KIP_CID_LID_STATE		0x1d
 +
-+enum ssam_kip_lid_state {
-+	SSAM_KIP_LID_STATE_DISCONNECTED   = 0x01,
-+	SSAM_KIP_LID_STATE_CLOSED         = 0x02,
-+	SSAM_KIP_LID_STATE_LAPTOP         = 0x03,
-+	SSAM_KIP_LID_STATE_FOLDED_CANVAS  = 0x04,
-+	SSAM_KIP_LID_STATE_FOLDED_BACK    = 0x05,
++/* -- SSAM generic tablet switch driver framework. -------------------------- */
++
++struct ssam_tablet_sw;
++
++struct ssam_tablet_sw_ops {
++	int (*get_state)(struct ssam_tablet_sw *sw, u32 *state);
++	const char *(*state_name)(struct ssam_tablet_sw *sw, u32 state);
++	bool (*state_is_tablet_mode)(struct ssam_tablet_sw *sw, u32 state);
 +};
 +
-+struct ssam_kip_sw {
++struct ssam_tablet_sw {
 +	struct ssam_device *sdev;
 +
-+	enum ssam_kip_lid_state state;
++	u32 state;
 +	struct work_struct update_work;
 +	struct input_dev *mode_switch;
 +
++	struct ssam_tablet_sw_ops ops;
 +	struct ssam_event_notifier notif;
 +};
 +
-+SSAM_DEFINE_SYNC_REQUEST_R(__ssam_kip_get_lid_state, u8, {
-+	.target_category = SSAM_SSH_TC_KIP,
-+	.target_id       = 0x01,
-+	.command_id      = 0x1d,
-+	.instance_id     = 0x00,
-+});
++struct ssam_tablet_sw_desc {
++	struct {
++		const char *name;
++		const char *phys;
++	} dev;
 +
-+static int ssam_kip_get_lid_state(struct ssam_kip_sw *sw, enum ssam_kip_lid_state *state)
-+{
-+	int status;
-+	u8 raw;
++	struct {
++		u32 (*notify)(struct ssam_event_notifier *nf, const struct ssam_event *event);
++		int (*get_state)(struct ssam_tablet_sw *sw, u32 *state);
++		const char *(*state_name)(struct ssam_tablet_sw *sw, u32 state);
++		bool (*state_is_tablet_mode)(struct ssam_tablet_sw *sw, u32 state);
++	} ops;
 +
-+	status = ssam_retry(__ssam_kip_get_lid_state, sw->sdev->ctrl, &raw);
-+	if (status < 0) {
-+		dev_err(&sw->sdev->dev, "failed to query KIP lid state: %d\n", status);
-+		return status;
-+	}
-+
-+	*state = raw;
-+	return 0;
-+}
++	struct {
++		struct ssam_event_registry reg;
++		struct ssam_event_id id;
++		enum ssam_event_mask mask;
++		u8 flags;
++	} event;
++};
 +
 +static ssize_t state_show(struct device *dev, struct device_attribute *attr, char *buf)
 +{
-+	struct ssam_kip_sw *sw = dev_get_drvdata(dev);
-+	const char *state;
-+
-+	switch (sw->state) {
-+	case SSAM_KIP_LID_STATE_DISCONNECTED:
-+		state = "disconnected";
-+		break;
-+
-+	case SSAM_KIP_LID_STATE_CLOSED:
-+		state = "closed";
-+		break;
-+
-+	case SSAM_KIP_LID_STATE_LAPTOP:
-+		state = "laptop";
-+		break;
-+
-+	case SSAM_KIP_LID_STATE_FOLDED_CANVAS:
-+		state = "folded-canvas";
-+		break;
-+
-+	case SSAM_KIP_LID_STATE_FOLDED_BACK:
-+		state = "folded-back";
-+		break;
-+
-+	default:
-+		state = "<unknown>";
-+		dev_warn(dev, "unknown KIP lid state: %d\n", sw->state);
-+		break;
-+	}
++	struct ssam_tablet_sw *sw = dev_get_drvdata(dev);
++	const char *state = sw->ops.state_name(sw, sw->state);
 +
 +	return sysfs_emit(buf, "%s\n", state);
 +}
 +static DEVICE_ATTR_RO(state);
 +
-+static struct attribute *ssam_kip_sw_attrs[] = {
++static struct attribute *ssam_tablet_sw_attrs[] = {
 +	&dev_attr_state.attr,
 +	NULL,
 +};
 +
-+static const struct attribute_group ssam_kip_sw_group = {
-+	.attrs = ssam_kip_sw_attrs,
++static const struct attribute_group ssam_tablet_sw_group = {
++	.attrs = ssam_tablet_sw_attrs,
 +};
 +
-+static void ssam_kip_sw_update_workfn(struct work_struct *work)
++static void ssam_tablet_sw_update_workfn(struct work_struct *work)
 +{
-+	struct ssam_kip_sw *sw = container_of(work, struct ssam_kip_sw, update_work);
-+	enum ssam_kip_lid_state state;
++	struct ssam_tablet_sw *sw = container_of(work, struct ssam_tablet_sw, update_work);
 +	int tablet, status;
++	u32 state;
 +
-+	status = ssam_kip_get_lid_state(sw, &state);
++	status = sw->ops.get_state(sw, &state);
 +	if (status)
 +		return;
 +
@@ -1538,52 +2075,48 @@ index 000000000000..27371da71ef2
 +	sw->state = state;
 +
 +	/* Send SW_TABLET_MODE event. */
-+	tablet = state != SSAM_KIP_LID_STATE_LAPTOP;
++	tablet = sw->ops.state_is_tablet_mode(sw, state);
 +	input_report_switch(sw->mode_switch, SW_TABLET_MODE, tablet);
 +	input_sync(sw->mode_switch);
 +}
 +
-+static u32 ssam_kip_sw_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
++static int __maybe_unused ssam_tablet_sw_resume(struct device *dev)
 +{
-+	struct ssam_kip_sw *sw = container_of(nf, struct ssam_kip_sw, notif);
-+
-+	if (event->command_id != SSAM_EVENT_KIP_CID_LID_STATE)
-+		return 0;	/* Return "unhandled". */
-+
-+	if (event->length < 1) {
-+		dev_err(&sw->sdev->dev, "unexpected payload size: %u\n", event->length);
-+		return 0;
-+	}
-+
-+	schedule_work(&sw->update_work);
-+	return SSAM_NOTIF_HANDLED;
-+}
-+
-+static int __maybe_unused ssam_kip_sw_resume(struct device *dev)
-+{
-+	struct ssam_kip_sw *sw = dev_get_drvdata(dev);
++	struct ssam_tablet_sw *sw = dev_get_drvdata(dev);
 +
 +	schedule_work(&sw->update_work);
 +	return 0;
 +}
-+static SIMPLE_DEV_PM_OPS(ssam_kip_sw_pm_ops, NULL, ssam_kip_sw_resume);
++static SIMPLE_DEV_PM_OPS(ssam_tablet_sw_pm_ops, NULL, ssam_tablet_sw_resume);
 +
-+static int ssam_kip_sw_probe(struct ssam_device *sdev)
++static int ssam_tablet_sw_probe(struct ssam_device *sdev)
 +{
-+	struct ssam_kip_sw *sw;
++	const struct ssam_tablet_sw_desc *desc;
++	struct ssam_tablet_sw *sw;
 +	int tablet, status;
++
++	desc = ssam_device_get_match_data(sdev);
++	if (!desc) {
++		WARN(1, "no driver match data specified");
++		return -EINVAL;
++	}
 +
 +	sw = devm_kzalloc(&sdev->dev, sizeof(*sw), GFP_KERNEL);
 +	if (!sw)
 +		return -ENOMEM;
 +
 +	sw->sdev = sdev;
-+	INIT_WORK(&sw->update_work, ssam_kip_sw_update_workfn);
++
++	sw->ops.get_state = desc->ops.get_state;
++	sw->ops.state_name = desc->ops.state_name;
++	sw->ops.state_is_tablet_mode = desc->ops.state_is_tablet_mode;
++
++	INIT_WORK(&sw->update_work, ssam_tablet_sw_update_workfn);
 +
 +	ssam_device_set_drvdata(sdev, sw);
 +
 +	/* Get initial state. */
-+	status = ssam_kip_get_lid_state(sw, &sw->state);
++	status = sw->ops.get_state(sw, &sw->state);
 +	if (status)
 +		return status;
 +
@@ -1592,12 +2125,12 @@ index 000000000000..27371da71ef2
 +	if (!sw->mode_switch)
 +		return -ENOMEM;
 +
-+	sw->mode_switch->name = "Microsoft Surface KIP Tablet Mode Switch";
-+	sw->mode_switch->phys = "ssam/01:0e:01:00:01/input0";
++	sw->mode_switch->name = desc->dev.name;
++	sw->mode_switch->phys = desc->dev.phys;
 +	sw->mode_switch->id.bustype = BUS_HOST;
 +	sw->mode_switch->dev.parent = &sdev->dev;
 +
-+	tablet = sw->state != SSAM_KIP_LID_STATE_LAPTOP;
++	tablet = sw->ops.state_is_tablet_mode(sw, sw->state);
 +	input_set_capability(sw->mode_switch, EV_SW, SW_TABLET_MODE);
 +	input_report_switch(sw->mode_switch, SW_TABLET_MODE, tablet);
 +
@@ -1607,18 +2140,17 @@ index 000000000000..27371da71ef2
 +
 +	/* Set up notifier. */
 +	sw->notif.base.priority = 0;
-+	sw->notif.base.fn = ssam_kip_sw_notif;
-+	sw->notif.event.reg = SSAM_EVENT_REGISTRY_SAM;
-+	sw->notif.event.id.target_category = SSAM_SSH_TC_KIP,
-+	sw->notif.event.id.instance = 0,
-+	sw->notif.event.mask = SSAM_EVENT_MASK_TARGET;
++	sw->notif.base.fn = desc->ops.notify;
++	sw->notif.event.reg = desc->event.reg;
++	sw->notif.event.id = desc->event.id;
++	sw->notif.event.mask = desc->event.mask;
 +	sw->notif.event.flags = SSAM_EVENT_SEQUENCED;
 +
 +	status = ssam_device_notifier_register(sdev, &sw->notif);
 +	if (status)
 +		return status;
 +
-+	status = sysfs_create_group(&sdev->dev.kobj, &ssam_kip_sw_group);
++	status = sysfs_create_group(&sdev->dev.kobj, &ssam_tablet_sw_group);
 +	if (status)
 +		goto err;
 +
@@ -1632,41 +2164,363 @@ index 000000000000..27371da71ef2
 +	return status;
 +}
 +
-+static void ssam_kip_sw_remove(struct ssam_device *sdev)
++static void ssam_tablet_sw_remove(struct ssam_device *sdev)
 +{
-+	struct ssam_kip_sw *sw = ssam_device_get_drvdata(sdev);
++	struct ssam_tablet_sw *sw = ssam_device_get_drvdata(sdev);
 +
-+	sysfs_remove_group(&sdev->dev.kobj, &ssam_kip_sw_group);
++	sysfs_remove_group(&sdev->dev.kobj, &ssam_tablet_sw_group);
 +
 +	ssam_device_notifier_unregister(sdev, &sw->notif);
 +	cancel_work_sync(&sw->update_work);
 +}
 +
-+static const struct ssam_device_id ssam_kip_sw_match[] = {
-+	{ SSAM_SDEV(KIP, 0x01, 0x00, 0x01) },
-+	{ },
-+};
-+MODULE_DEVICE_TABLE(ssam, ssam_kip_sw_match);
 +
-+static struct ssam_device_driver ssam_kip_sw_driver = {
-+	.probe = ssam_kip_sw_probe,
-+	.remove = ssam_kip_sw_remove,
-+	.match_table = ssam_kip_sw_match,
-+	.driver = {
-+		.name = "surface_kip_tablet_mode_switch",
-+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
-+		.pm = &ssam_kip_sw_pm_ops,
++/* -- SSAM KIP tablet switch implementation. -------------------------------- */
++
++#define SSAM_EVENT_KIP_CID_COVER_STATE_CHANGED	0x1d
++
++enum ssam_kip_cover_state {
++	SSAM_KIP_COVER_STATE_DISCONNECTED  = 0x01,
++	SSAM_KIP_COVER_STATE_CLOSED        = 0x02,
++	SSAM_KIP_COVER_STATE_LAPTOP        = 0x03,
++	SSAM_KIP_COVER_STATE_FOLDED_CANVAS = 0x04,
++	SSAM_KIP_COVER_STATE_FOLDED_BACK   = 0x05,
++};
++
++static const char* ssam_kip_cover_state_name(struct ssam_tablet_sw *sw, u32 state)
++{
++	switch (state) {
++	case SSAM_KIP_COVER_STATE_DISCONNECTED:
++		return "disconnected";
++
++	case SSAM_KIP_COVER_STATE_CLOSED:
++		return "closed";
++
++	case SSAM_KIP_COVER_STATE_LAPTOP:
++		return "laptop";
++
++	case SSAM_KIP_COVER_STATE_FOLDED_CANVAS:
++		return "folded-canvas";
++
++	case SSAM_KIP_COVER_STATE_FOLDED_BACK:
++		return "folded-back";
++
++	default:
++		dev_warn(&sw->sdev->dev, "unknown KIP cover state: %u\n", state);
++		return "<unknown>";
++	}
++}
++
++static bool ssam_kip_cover_state_is_tablet_mode(struct ssam_tablet_sw *sw, u32 state)
++{
++	switch (state) {
++	case SSAM_KIP_COVER_STATE_DISCONNECTED:
++	case SSAM_KIP_COVER_STATE_FOLDED_CANVAS:
++	case SSAM_KIP_COVER_STATE_FOLDED_BACK:
++		return true;
++
++	case SSAM_KIP_COVER_STATE_CLOSED:
++	case SSAM_KIP_COVER_STATE_LAPTOP:
++		return false;
++
++	default:
++		dev_warn(&sw->sdev->dev, "unknown KIP cover state: %d\n", sw->state);
++		return true;
++	}
++}
++
++SSAM_DEFINE_SYNC_REQUEST_R(__ssam_kip_get_cover_state, u8, {
++	.target_category = SSAM_SSH_TC_KIP,
++	.target_id       = 0x01,
++	.command_id      = 0x1d,
++	.instance_id     = 0x00,
++});
++
++static int ssam_kip_get_cover_state(struct ssam_tablet_sw *sw, u32 *state)
++{
++	int status;
++	u8 raw;
++
++	status = ssam_retry(__ssam_kip_get_cover_state, sw->sdev->ctrl, &raw);
++	if (status < 0) {
++		dev_err(&sw->sdev->dev, "failed to query KIP lid state: %d\n", status);
++		return status;
++	}
++
++	*state = raw;
++	return 0;
++}
++
++static u32 ssam_kip_sw_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
++{
++	struct ssam_tablet_sw *sw = container_of(nf, struct ssam_tablet_sw, notif);
++
++	if (event->command_id != SSAM_EVENT_KIP_CID_COVER_STATE_CHANGED)
++		return 0;	/* Return "unhandled". */
++
++	if (event->length < 1) {
++		dev_warn(&sw->sdev->dev, "unexpected payload size: %u\n", event->length);
++	}
++
++	schedule_work(&sw->update_work);
++	return SSAM_NOTIF_HANDLED;
++}
++
++static const struct ssam_tablet_sw_desc ssam_kip_sw_desc = {
++	.dev = {
++		.name = "Microsoft Surface KIP Tablet Mode Switch",
++		.phys = "ssam/01:0e:01:00:01/input0",
++	},
++	.ops = {
++		.notify = ssam_kip_sw_notif,
++		.get_state = ssam_kip_get_cover_state,
++		.state_name = ssam_kip_cover_state_name,
++		.state_is_tablet_mode = ssam_kip_cover_state_is_tablet_mode,
++	},
++	.event = {
++		.reg = SSAM_EVENT_REGISTRY_SAM,
++		.id = {
++			.target_category = SSAM_SSH_TC_KIP,
++			.instance = 0,
++		},
++		.mask = SSAM_EVENT_MASK_TARGET,
 +	},
 +};
-+module_ssam_device_driver(ssam_kip_sw_driver);
++
++
++/* -- SSAM POS tablet switch implementation. -------------------------------- */
++
++static bool tablet_mode_in_slate_state = true;
++module_param(tablet_mode_in_slate_state, bool, S_IRUGO);
++MODULE_PARM_DESC(tablet_mode_in_slate_state, "Enable tablet mode in slate device posture, default is 'true'");
++
++#define SSAM_EVENT_POS_CID_POSTURE_CHANGED	0x03
++#define SSAM_POS_MAX_SOURCES 			4
++
++enum ssam_pos_state {
++	SSAM_POS_POSTURE_LID_CLOSED = 0x00,
++	SSAM_POS_POSTURE_LAPTOP     = 0x01,
++	SSAM_POS_POSTURE_SLATE      = 0x02,
++	SSAM_POS_POSTURE_TABLET     = 0x03,
++};
++
++struct ssam_sources_list {
++	__le32 count;
++	__le32 id[SSAM_POS_MAX_SOURCES];
++} __packed;
++
++static const char* ssam_pos_state_name(struct ssam_tablet_sw *sw, u32 state)
++{
++	switch (state) {
++	case SSAM_POS_POSTURE_LID_CLOSED:
++		return "closed";
++
++	case SSAM_POS_POSTURE_LAPTOP:
++		return "laptop";
++
++	case SSAM_POS_POSTURE_SLATE:
++		return "slate";
++
++	case SSAM_POS_POSTURE_TABLET:
++		return "tablet";
++
++	default:
++		dev_warn(&sw->sdev->dev, "unknown device posture: %u\n", state);
++		return "<unknown>";
++	}
++}
++
++static bool ssam_pos_state_is_tablet_mode(struct ssam_tablet_sw *sw, u32 state)
++{
++	switch (state) {
++	case SSAM_POS_POSTURE_LAPTOP:
++	case SSAM_POS_POSTURE_LID_CLOSED:
++		return false;
++
++	case SSAM_POS_POSTURE_SLATE:
++		return tablet_mode_in_slate_state;
++
++	case SSAM_POS_POSTURE_TABLET:
++		return true;
++
++	default:
++		dev_warn(&sw->sdev->dev, "unknown device posture: %u\n", state);
++		return true;
++	}
++}
++
++static int ssam_pos_get_sources_list(struct ssam_tablet_sw *sw, struct ssam_sources_list *sources)
++{
++	struct ssam_request rqst;
++	struct ssam_response rsp;
++	int status;
++
++	rqst.target_category = SSAM_SSH_TC_POS;
++	rqst.target_id = 0x01;
++	rqst.command_id = 0x01;
++	rqst.instance_id = 0x00;
++	rqst.flags = SSAM_REQUEST_HAS_RESPONSE;
++	rqst.length = 0;
++	rqst.payload = NULL;
++
++	rsp.capacity = sizeof(*sources);
++	rsp.length = 0;
++	rsp.pointer = (u8 *)sources;
++
++	status = ssam_retry(ssam_request_sync_onstack, sw->sdev->ctrl, &rqst, &rsp, 0);
++	if (status)
++		return status;
++
++	/* We need at least the 'sources->count' field. */
++	if (rsp.length < sizeof(__le32)) {
++		dev_err(&sw->sdev->dev, "received source list response is too small\n");
++		return -EPROTO;
++	}
++
++	/* Make sure 'sources->count' matches with the response length. */
++	if (get_unaligned_le32(&sources->count) * sizeof(__le32) + sizeof(__le32) != rsp.length) {
++		dev_err(&sw->sdev->dev, "mismatch between number of sources and response size\n");
++		return -EPROTO;
++	}
++
++	return 0;
++}
++
++static int ssam_pos_get_source(struct ssam_tablet_sw *sw, u32 *source_id)
++{
++	struct ssam_sources_list sources = {};
++	int status;
++
++	status = ssam_pos_get_sources_list(sw, &sources);
++	if (status)
++		return status;
++
++	if (sources.count == 0) {
++		dev_err(&sw->sdev->dev, "no posture sources found\n");
++		return -ENODEV;
++	}
++
++	/*
++	 * We currently don't know what to do with more than one posture souce.
++	 * At the moment, only one source seems to be used/provided. The
++	 * WARN_ON() here should hopefully let us know quickly once there is a
++	 * device that provides multiple sources, at which point we can then
++	 * try to figure out how to handle them.
++	 */
++	WARN_ON(sources.count > 1);
++
++	*source_id = get_unaligned_le32(&sources.id[0]);
++	return 0;
++}
++
++SSAM_DEFINE_SYNC_REQUEST_WR(__ssam_pos_get_posture_for_source, __le32, __le32, {
++	.target_category = SSAM_SSH_TC_POS,
++	.target_id       = 0x01,
++	.command_id      = 0x02,
++	.instance_id     = 0x00,
++});
++
++static int ssam_pos_get_posture_for_source(struct ssam_tablet_sw *sw, u32 source_id, u32 *posture)
++{
++	__le32 source_le = cpu_to_le32(source_id);
++	__le32 rspval_le = 0;
++	int status;
++
++	status = ssam_retry(__ssam_pos_get_posture_for_source, sw->sdev->ctrl,
++			    &source_le, &rspval_le);
++	if (status)
++		return status;
++
++	*posture = le32_to_cpu(rspval_le);
++	return 0;
++}
++
++static int ssam_pos_get_posture(struct ssam_tablet_sw *sw, u32 *state)
++{
++	u32 source_id;
++	int status;
++
++	status = ssam_pos_get_source(sw, &source_id);
++	if (status) {
++		dev_err(&sw->sdev->dev, "failed to get posture source ID: %d\n", status);
++		return status;
++	}
++
++	status = ssam_pos_get_posture_for_source(sw, source_id, state);
++	if (status) {
++		dev_err(&sw->sdev->dev, "failed to get posture value for source %u: %d\n",
++			source_id, status);
++		return status;
++	}
++
++	return 0;
++}
++
++static u32 ssam_pos_sw_notif(struct ssam_event_notifier *nf, const struct ssam_event *event)
++{
++	struct ssam_tablet_sw *sw = container_of(nf, struct ssam_tablet_sw, notif);
++
++	if (event->command_id != SSAM_EVENT_POS_CID_POSTURE_CHANGED)
++		return 0;	/* Return "unhandled". */
++
++	if (event->length != sizeof(__le32) * 3) {
++		dev_warn(&sw->sdev->dev, "unexpected payload size: %u\n", event->length);
++	}
++
++	schedule_work(&sw->update_work);
++	return SSAM_NOTIF_HANDLED;
++}
++
++static const struct ssam_tablet_sw_desc ssam_pos_sw_desc = {
++	.dev = {
++		.name = "Microsoft Surface POS Tablet Mode Switch",
++		.phys = "ssam/01:26:01:00:01/input0",
++	},
++	.ops = {
++		.notify = ssam_pos_sw_notif,
++		.get_state = ssam_pos_get_posture,
++		.state_name = ssam_pos_state_name,
++		.state_is_tablet_mode = ssam_pos_state_is_tablet_mode,
++	},
++	.event = {
++		.reg = SSAM_EVENT_REGISTRY_SAM,
++		.id = {
++			.target_category = SSAM_SSH_TC_POS,
++			.instance = 0,
++		},
++		.mask = SSAM_EVENT_MASK_TARGET,
++	},
++};
++
++
++/* -- Driver registration. -------------------------------------------------- */
++
++static const struct ssam_device_id ssam_tablet_sw_match[] = {
++	{ SSAM_SDEV(KIP, 0x01, 0x00, 0x01), (unsigned long)&ssam_kip_sw_desc },
++	{ SSAM_SDEV(POS, 0x01, 0x00, 0x01), (unsigned long)&ssam_pos_sw_desc },
++	{ },
++};
++MODULE_DEVICE_TABLE(ssam, ssam_tablet_sw_match);
++
++static struct ssam_device_driver ssam_tablet_sw_driver = {
++	.probe = ssam_tablet_sw_probe,
++	.remove = ssam_tablet_sw_remove,
++	.match_table = ssam_tablet_sw_match,
++	.driver = {
++		.name = "surface_aggregator_tablet_mode_switch",
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++		.pm = &ssam_tablet_sw_pm_ops,
++	},
++};
++module_ssam_device_driver(ssam_tablet_sw_driver);
 +
 +MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
-+MODULE_DESCRIPTION("Tablet mode switch driver for Surface devices using KIP subsystem");
++MODULE_DESCRIPTION("Tablet mode switch driver for Surface devices using the Surface Aggregator Module");
 +MODULE_LICENSE("GPL");
 -- 
 2.36.1
 
-From 847bd4c16209cabfde0f34f58af887559ec8795d Mon Sep 17 00:00:00 2001
+From b5a8577c9a5de65f6954fbd2c952a6d97933482e Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 27 Oct 2021 22:33:03 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add support for tablet
@@ -1684,7 +2538,7 @@ Patchset: surface-sam
  1 file changed, 7 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index ab69669316bd..c666392d4a9a 100644
+index bf3303f1aa71..8f249df673a4 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -77,6 +77,12 @@ static const struct software_node ssam_node_tmp_pprof = {
@@ -1716,11 +2570,55 @@ index ab69669316bd..c666392d4a9a 100644
 -- 
 2.36.1
 
-From 8603de5907a6cb137b7e0fb6faba96588fb3122c Mon Sep 17 00:00:00 2001
+From b7a5dfd805b01a1867d3637c6e6d0a490c4fc903 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Thu, 16 Jun 2022 02:30:16 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for tablet
+ mode switch on Surface Laptop Studio
+
+Add a POS subsystem tablet-mode switch device for the Surface Laptop
+Studio. The respective driver for this device provides SW_TABLET_MODE
+input events for user-space based on the posture of the screen.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 8f249df673a4..f1c5905f1c16 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -191,6 +191,12 @@ static const struct software_node ssam_node_hid_kip_iid5 = {
+ 	.parent = &ssam_node_hub_kip,
+ };
+ 
++/* Tablet-mode switch via POS subsystem. */
++static const struct software_node ssam_node_pos_tablet_switch = {
++	.name = "ssam:01:26:01:00:01",
++	.parent = &ssam_node_root,
++};
++
+ /*
+  * Devices for 5th- and 6th-generations models:
+  * - Surface Book 2,
+@@ -237,6 +243,7 @@ static const struct software_node *ssam_node_group_sls[] = {
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+ 	&ssam_node_tmp_pprof,
++	&ssam_node_pos_tablet_switch,
+ 	&ssam_node_hid_tid1_keyboard,
+ 	&ssam_node_hid_tid1_penstash,
+ 	&ssam_node_hid_tid1_touchpad,
+-- 
+2.36.1
+
+From b2d3071a17e7641ed2a87112b25927ee9582043e Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 21 May 2022 00:30:46 +0200
 Subject: [PATCH] platform/surface: aggregator: Move device registry helper
- function to core module
+ functions to core module
 
 Move helper functions for client device registration to the core module.
 This simplifies addition of future DT/OF support and also allows us to
@@ -1943,10 +2841,10 @@ index abbbb5b08b07..4bba60884bb5 100644
 -	return bus_unregister(&ssam_bus_type);
 -}
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index c666392d4a9a..3261c8141841 100644
+index f1c5905f1c16..c680792a037e 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
-@@ -279,76 +279,6 @@ static const struct software_node *ssam_node_group_sp8[] = {
+@@ -286,76 +286,6 @@ static const struct software_node *ssam_node_group_sp8[] = {
  };
  
  
@@ -2023,7 +2921,7 @@ index c666392d4a9a..3261c8141841 100644
  /* -- SSAM generic subsystem hub driver framework. -------------------------- */
  
  enum ssam_hub_state {
-@@ -378,7 +308,6 @@ struct ssam_hub {
+@@ -385,7 +315,6 @@ struct ssam_hub {
  static void ssam_hub_update_workfn(struct work_struct *work)
  {
  	struct ssam_hub *hub = container_of(work, struct ssam_hub, update_work.work);
@@ -2031,7 +2929,7 @@ index c666392d4a9a..3261c8141841 100644
  	enum ssam_hub_state state;
  	int status = 0;
  
-@@ -418,7 +347,7 @@ static void ssam_hub_update_workfn(struct work_struct *work)
+@@ -425,7 +354,7 @@ static void ssam_hub_update_workfn(struct work_struct *work)
  	hub->state = state;
  
  	if (hub->state == SSAM_HUB_CONNECTED)
@@ -2040,7 +2938,7 @@ index c666392d4a9a..3261c8141841 100644
  	else
  		ssam_remove_clients(&hub->sdev->dev);
  
-@@ -762,7 +691,7 @@ static int ssam_platform_hub_probe(struct platform_device *pdev)
+@@ -769,7 +698,7 @@ static int ssam_platform_hub_probe(struct platform_device *pdev)
  
  	set_secondary_fwnode(&pdev->dev, root);
  
@@ -2050,10 +2948,10 @@ index c666392d4a9a..3261c8141841 100644
  		set_secondary_fwnode(&pdev->dev, NULL);
  		software_node_unregister_node_group(nodes);
 diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
-index ad245c6b00d0..6ae110e830b4 100644
+index 6cf7e80312d5..6e75fb605479 100644
 --- a/include/linux/surface_aggregator/device.h
 +++ b/include/linux/surface_aggregator/device.h
-@@ -364,11 +364,48 @@ void ssam_device_driver_unregister(struct ssam_device_driver *d);
+@@ -375,11 +375,48 @@ void ssam_device_driver_unregister(struct ssam_device_driver *d);
  /* -- Helpers for controller and hub devices. ------------------------------- */
  
  #ifdef CONFIG_SURFACE_AGGREGATOR_BUS
@@ -2105,7 +3003,7 @@ index ad245c6b00d0..6ae110e830b4 100644
 -- 
 2.36.1
 
-From 9ad07ca5c065d4d5a21948ff0ab1f46b678980ba Mon Sep 17 00:00:00 2001
+From 05c3fb864633d525a61f9e11788cce689482040b Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 21 May 2022 00:39:56 +0200
 Subject: [PATCH] platform/surface: aggregator: Move subsystem hub drivers to
@@ -2120,15 +3018,33 @@ While doing so, also remove a small bit of code duplication.
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-sam
 ---
+ MAINTAINERS                                   |   6 +
  drivers/platform/surface/Kconfig              |  35 +-
  drivers/platform/surface/Makefile             |   1 +
- .../platform/surface/surface_aggregator_hub.c | 363 +++++++++++++++++
+ .../platform/surface/surface_aggregator_hub.c | 371 ++++++++++++++++++
  .../surface/surface_aggregator_registry.c     | 371 +-----------------
- 4 files changed, 396 insertions(+), 374 deletions(-)
+ 5 files changed, 410 insertions(+), 374 deletions(-)
  create mode 100644 drivers/platform/surface/surface_aggregator_hub.c
 
+diff --git a/MAINTAINERS b/MAINTAINERS
+index e8131f6d7a97..119767089831 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -13112,6 +13112,12 @@ F:	include/linux/surface_acpi_notify.h
+ F:	include/linux/surface_aggregator/
+ F:	include/uapi/linux/surface_aggregator/
+ 
++MICROSOFT SURFACE SYSTEM AGGREGATOR HUB DRIVER
++M:	Maximilian Luz <luzmaximilian@gmail.com>
++L:	platform-driver-x86@vger.kernel.org
++S:	Maintained
++F:	drivers/platform/surface/surface_aggregator_hub.c
++
+ MICROTEK X6 SCANNER
+ M:	Oliver Neukum <oliver@neukum.org>
+ S:	Maintained
 diff --git a/drivers/platform/surface/Kconfig b/drivers/platform/surface/Kconfig
-index 738d416ca4b2..27780746936d 100644
+index b152e930cc84..b629e82af97c 100644
 --- a/drivers/platform/surface/Kconfig
 +++ b/drivers/platform/surface/Kconfig
 @@ -72,18 +72,45 @@ config SURFACE_AGGREGATOR_CDEV
@@ -2182,7 +3098,7 @@ index 738d416ca4b2..27780746936d 100644
  	  Devices provided via this registry are:
  	  - Platform profile (performance-/cooling-mode) device (5th- and later
 diff --git a/drivers/platform/surface/Makefile b/drivers/platform/surface/Makefile
-index e173a95f2e8d..73124b4fcd31 100644
+index 18b27898543e..53344330939b 100644
 --- a/drivers/platform/surface/Makefile
 +++ b/drivers/platform/surface/Makefile
 @@ -9,6 +9,7 @@ obj-$(CONFIG_SURFACE_3_POWER_OPREGION)	+= surface3_power.o
@@ -2191,14 +3107,14 @@ index e173a95f2e8d..73124b4fcd31 100644
  obj-$(CONFIG_SURFACE_AGGREGATOR_CDEV)	+= surface_aggregator_cdev.o
 +obj-$(CONFIG_SURFACE_AGGREGATOR_HUB)	+= surface_aggregator_hub.o
  obj-$(CONFIG_SURFACE_AGGREGATOR_REGISTRY) += surface_aggregator_registry.o
+ obj-$(CONFIG_SURFACE_AGGREGATOR_TABLET_SWITCH) += surface_aggregator_tabletsw.o
  obj-$(CONFIG_SURFACE_DTX)		+= surface_dtx.o
- obj-$(CONFIG_SURFACE_GPE)		+= surface_gpe.o
 diff --git a/drivers/platform/surface/surface_aggregator_hub.c b/drivers/platform/surface/surface_aggregator_hub.c
 new file mode 100644
-index 000000000000..20b1c38debfe
+index 000000000000..43061514be38
 --- /dev/null
 +++ b/drivers/platform/surface/surface_aggregator_hub.c
-@@ -0,0 +1,363 @@
+@@ -0,0 +1,371 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * Driver for Surface System Aggregator Module (SSAM) subsystem device hubs.
@@ -2231,6 +3147,12 @@ index 000000000000..20b1c38debfe
 +	SSAM_HUB_HOT_REMOVED,
 +};
 +
++struct ssam_hub;
++
++struct ssam_hub_ops {
++	int (*get_state)(struct ssam_hub *hub, enum ssam_hub_state *state);
++};
++
 +struct ssam_hub {
 +	struct ssam_device *sdev;
 +
@@ -2241,20 +3163,20 @@ index 000000000000..20b1c38debfe
 +	unsigned long connect_delay;
 +
 +	struct ssam_event_notifier notif;
-+
-+	int (*get_state)(struct ssam_hub *hub, enum ssam_hub_state *state);
++	struct ssam_hub_ops ops;
 +};
 +
-+struct ssam_hub_info {
++struct ssam_hub_desc {
 +	struct {
 +		struct ssam_event_registry reg;
 +		struct ssam_event_id id;
 +		enum ssam_event_mask mask;
-+		u8 flags;
 +	} event;
 +
-+	u32 (*notify)(struct ssam_event_notifier *nf, const struct ssam_event *event);
-+	int (*get_state)(struct ssam_hub *hub, enum ssam_hub_state *state);
++	struct {
++		u32 (*notify)(struct ssam_event_notifier *nf, const struct ssam_event *event);
++		int (*get_state)(struct ssam_hub *hub, enum ssam_hub_state *state);
++	} ops;
 +
 +	unsigned long connect_delay_ms;
 +};
@@ -2265,7 +3187,7 @@ index 000000000000..20b1c38debfe
 +	enum ssam_hub_state state;
 +	int status = 0;
 +
-+	status = hub->get_state(hub, &state);
++	status = hub->ops.get_state(hub, &state);
 +	if (status)
 +		return;
 +
@@ -2349,12 +3271,12 @@ index 000000000000..20b1c38debfe
 +
 +static int ssam_hub_probe(struct ssam_device *sdev)
 +{
-+	const struct ssam_hub_info *info;
++	const struct ssam_hub_desc *desc;
 +	struct ssam_hub *hub;
 +	int status;
 +
-+	info = ssam_device_get_match_data(sdev);
-+	if (!info) {
++	desc = ssam_device_get_match_data(sdev);
++	if (!desc) {
 +		WARN(1, "no driver match data specified");
 +		return -EINVAL;
 +	}
@@ -2367,14 +3289,14 @@ index 000000000000..20b1c38debfe
 +	hub->state = SSAM_HUB_UNINITIALIZED;
 +
 +	hub->notif.base.priority = INT_MAX;  /* This notifier should run first. */
-+	hub->notif.base.fn = info->notify;
-+	hub->notif.event.reg = info->event.reg;
-+	hub->notif.event.id = info->event.id;
-+	hub->notif.event.mask = info->event.mask;
-+	hub->notif.event.flags = info->event.flags;
++	hub->notif.base.fn = desc->ops.notify;
++	hub->notif.event.reg = desc->event.reg;
++	hub->notif.event.id = desc->event.id;
++	hub->notif.event.mask = desc->event.mask;
++	hub->notif.event.flags = SSAM_EVENT_SEQUENCED;
 +
-+	hub->connect_delay = msecs_to_jiffies(info->connect_delay_ms);
-+	hub->get_state = info->get_state;
++	hub->connect_delay = msecs_to_jiffies(desc->connect_delay_ms);
++	hub->ops.get_state = desc->ops.get_state;
 +
 +	INIT_DELAYED_WORK(&hub->update_work, ssam_hub_update_workfn);
 +
@@ -2458,7 +3380,7 @@ index 000000000000..20b1c38debfe
 +	return 0;
 +}
 +
-+static const struct ssam_hub_info base_hub = {
++static const struct ssam_hub_desc base_hub = {
 +	.event = {
 +		.reg = SSAM_EVENT_REGISTRY_SAM,
 +		.id = {
@@ -2466,10 +3388,11 @@ index 000000000000..20b1c38debfe
 +			.instance = 0,
 +		},
 +		.mask = SSAM_EVENT_MASK_NONE,
-+		.flags = SSAM_EVENT_SEQUENCED,
 +	},
-+	.notify = ssam_base_hub_notif,
-+	.get_state = ssam_base_hub_query_state,
++	.ops = {
++		.notify = ssam_base_hub_notif,
++		.get_state = ssam_base_hub_query_state,
++	},
 +	.connect_delay_ms = SSAM_BASE_UPDATE_CONNECT_DELAY,
 +};
 +
@@ -2522,7 +3445,7 @@ index 000000000000..20b1c38debfe
 +	return SSAM_NOTIF_HANDLED;
 +}
 +
-+static const struct ssam_hub_info kip_hub = {
++static const struct ssam_hub_desc kip_hub = {
 +	.event = {
 +		.reg = SSAM_EVENT_REGISTRY_SAM,
 +		.id = {
@@ -2530,10 +3453,11 @@ index 000000000000..20b1c38debfe
 +			.instance = 0,
 +		},
 +		.mask = SSAM_EVENT_MASK_TARGET,
-+		.flags = SSAM_EVENT_SEQUENCED,
 +	},
-+	.notify = ssam_kip_hub_notif,
-+	.get_state = ssam_kip_hub_query_state,
++	.ops = {
++		.notify = ssam_kip_hub_notif,
++		.get_state = ssam_kip_hub_query_state,
++	},
 +	.connect_delay_ms = SSAM_KIP_UPDATE_CONNECT_DELAY,
 +};
 +
@@ -2541,8 +3465,8 @@ index 000000000000..20b1c38debfe
 +/* -- Driver registration. -------------------------------------------------- */
 +
 +static const struct ssam_device_id ssam_hub_match[] = {
-+	{ SSAM_VDEV(HUB, 0x02, SSAM_ANY_IID, 0x00), (unsigned long)&base_hub },
-+	{ SSAM_SDEV(KIP, 0x01, 0x00, 0x00),         (unsigned long)&kip_hub  },
++	{ SSAM_VDEV(HUB, 0x01, SSAM_SSH_TC_KIP, 0x00), (unsigned long)&kip_hub  },
++	{ SSAM_VDEV(HUB, 0x02, SSAM_SSH_TC_BAS, 0x00), (unsigned long)&base_hub },
 +	{ }
 +};
 +MODULE_DEVICE_TABLE(ssam, ssam_hub_match);
@@ -2563,7 +3487,7 @@ index 000000000000..20b1c38debfe
 +MODULE_DESCRIPTION("Subsystem device hub driver for Surface System Aggregator Module");
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 3261c8141841..11b51aa9ea73 100644
+index c680792a037e..0cbb7f3a6b2d 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -11,14 +11,11 @@
@@ -2581,7 +3505,7 @@ index 3261c8141841..11b51aa9ea73 100644
  #include <linux/surface_aggregator/device.h>
  
  
-@@ -279,335 +276,6 @@ static const struct software_node *ssam_node_group_sp8[] = {
+@@ -286,335 +283,6 @@ static const struct software_node *ssam_node_group_sp8[] = {
  };
  
  
@@ -2811,7 +3735,7 @@ index 3261c8141841..11b51aa9ea73 100644
 -}
 -
 -static const struct ssam_device_id ssam_base_hub_match[] = {
--	{ SSAM_VDEV(HUB, 0x02, SSAM_ANY_IID, 0x00) },
+-	{ SSAM_VDEV(HUB, 0x02, SSAM_SSH_TC_BAS, 0x00) },
 -	{ },
 -};
 -
@@ -2898,7 +3822,7 @@ index 3261c8141841..11b51aa9ea73 100644
 -}
 -
 -static const struct ssam_device_id ssam_kip_hub_match[] = {
--	{ SSAM_SDEV(KIP, 0x01, 0x00, 0x00) },
+-	{ SSAM_VDEV(HUB, 0x01, SSAM_SSH_TC_KIP, 0x00) },
 -	{ },
 -};
 -
@@ -2917,7 +3841,7 @@ index 3261c8141841..11b51aa9ea73 100644
  /* -- SSAM platform/meta-hub driver. ---------------------------------------- */
  
  static const struct acpi_device_id ssam_platform_hub_match[] = {
-@@ -720,44 +388,7 @@ static struct platform_driver ssam_platform_hub_driver = {
+@@ -727,44 +395,7 @@ static struct platform_driver ssam_platform_hub_driver = {
  		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
  	},
  };
@@ -2966,69 +3890,7 @@ index 3261c8141841..11b51aa9ea73 100644
 -- 
 2.36.1
 
-From 1a0985222c0c57bd4c0d070da95b4c7e38fe8df2 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Sat, 21 May 2022 00:51:05 +0200
-Subject: [PATCH] platform/surface: aggregator: Be consistent with hub device
- IDs
-
-Currently, we use a virtual device ID for the base (BAS) hub but an
-actual device ID for the KIP hub. Let's be consistent about the naming
-format and make all hubs virtual, with their instance ID reflecting the
-subsystem.
-
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
-Patchset: surface-sam
----
- drivers/platform/surface/surface_aggregator_hub.c    |  4 ++--
- .../platform/surface/surface_aggregator_registry.c   | 12 ++++++------
- 2 files changed, 8 insertions(+), 8 deletions(-)
-
-diff --git a/drivers/platform/surface/surface_aggregator_hub.c b/drivers/platform/surface/surface_aggregator_hub.c
-index 20b1c38debfe..c473bdebf90c 100644
---- a/drivers/platform/surface/surface_aggregator_hub.c
-+++ b/drivers/platform/surface/surface_aggregator_hub.c
-@@ -340,8 +340,8 @@ static const struct ssam_hub_info kip_hub = {
- /* -- Driver registration. -------------------------------------------------- */
- 
- static const struct ssam_device_id ssam_hub_match[] = {
--	{ SSAM_VDEV(HUB, 0x02, SSAM_ANY_IID, 0x00), (unsigned long)&base_hub },
--	{ SSAM_SDEV(KIP, 0x01, 0x00, 0x00),         (unsigned long)&kip_hub  },
-+	{ SSAM_VDEV(HUB, 0x01, SSAM_SSH_TC_KIP, 0x00), (unsigned long)&kip_hub  },
-+	{ SSAM_VDEV(HUB, 0x02, SSAM_SSH_TC_BAS, 0x00), (unsigned long)&base_hub },
- 	{ }
- };
- MODULE_DEVICE_TABLE(ssam, ssam_hub_match);
-diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 11b51aa9ea73..cee7121e7fa6 100644
---- a/drivers/platform/surface/surface_aggregator_registry.c
-+++ b/drivers/platform/surface/surface_aggregator_registry.c
-@@ -38,15 +38,15 @@ static const struct software_node ssam_node_root = {
- 	.name = "ssam_platform_hub",
- };
- 
--/* Base device hub (devices attached to Surface Book 3 base). */
--static const struct software_node ssam_node_hub_base = {
--	.name = "ssam:00:00:02:00:00",
-+/* KIP device hub (connects keyboard cover devices on Surface Pro 8). */
-+static const struct software_node ssam_node_hub_kip = {
-+	.name = "ssam:00:00:01:0e:00",
- 	.parent = &ssam_node_root,
- };
- 
--/* KIP device hub (connects keyboard cover devices on Surface Pro 8). */
--static const struct software_node ssam_node_hub_kip = {
--	.name = "ssam:01:0e:01:00:00",
-+/* Base device hub (devices attached to Surface Book 3 base). */
-+static const struct software_node ssam_node_hub_base = {
-+	.name = "ssam:00:00:02:11:00",
- 	.parent = &ssam_node_root,
- };
- 
--- 
-2.36.1
-
-From 6bf36758ee63cb97d377028cb00a162256f6db8d Mon Sep 17 00:00:00 2001
+From 8de2bf13dcbae29464f19bd544484586f3950a29 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 21 May 2022 00:57:40 +0200
 Subject: [PATCH] platform/surface: Update copyright year of various drivers
@@ -3241,7 +4103,7 @@ index 9c3cbae2d4bd..4e387a031351 100644
  
  #ifndef _SURFACE_AGGREGATOR_SSH_REQUEST_LAYER_H
 diff --git a/drivers/platform/surface/aggregator/trace.h b/drivers/platform/surface/aggregator/trace.h
-index de64cf169060..7be0bb097dea 100644
+index cc9e73fbc18e..2a2c17771d01 100644
 --- a/drivers/platform/surface/aggregator/trace.h
 +++ b/drivers/platform/surface/aggregator/trace.h
 @@ -2,7 +2,7 @@
@@ -3280,7 +4142,7 @@ index 30fb50fde450..492c82e69182 100644
  
  #include <linux/fs.h>
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index cee7121e7fa6..3f81db28a702 100644
+index 0cbb7f3a6b2d..d5655f6a4a41 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -6,7 +6,7 @@
@@ -3344,224 +4206,6 @@ index 6373d3b5eb7f..fbf2e11fd6ce 100644
   */
  
  #include <asm/unaligned.h>
--- 
-2.36.1
-
-From 10c1426f5e44a66557aee1e81a6d45a4b78b0c38 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Tue, 14 Jun 2022 13:17:49 +0200
-Subject: [PATCH] platform/surface: aggregator: Reserve more event- and
- target-categories
-
-With the introduction of the Surface Laptop Studio, more event- and
-target categories have been added. Therefore, increase the number of
-reserved events and extend the enum of know target categories.
-
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
-Patchset: surface-sam
----
- drivers/platform/surface/aggregator/trace.h   | 80 +++++++++++--------
- include/linux/surface_aggregator/serial_hub.h | 75 +++++++++--------
- 2 files changed, 85 insertions(+), 70 deletions(-)
-
-diff --git a/drivers/platform/surface/aggregator/trace.h b/drivers/platform/surface/aggregator/trace.h
-index 7be0bb097dea..2a2c17771d01 100644
---- a/drivers/platform/surface/aggregator/trace.h
-+++ b/drivers/platform/surface/aggregator/trace.h
-@@ -76,7 +76,7 @@ TRACE_DEFINE_ENUM(SSAM_SSH_TC_HID);
- TRACE_DEFINE_ENUM(SSAM_SSH_TC_TCH);
- TRACE_DEFINE_ENUM(SSAM_SSH_TC_BKL);
- TRACE_DEFINE_ENUM(SSAM_SSH_TC_TAM);
--TRACE_DEFINE_ENUM(SSAM_SSH_TC_ACC);
-+TRACE_DEFINE_ENUM(SSAM_SSH_TC_ACC0);
- TRACE_DEFINE_ENUM(SSAM_SSH_TC_UFI);
- TRACE_DEFINE_ENUM(SSAM_SSH_TC_USC);
- TRACE_DEFINE_ENUM(SSAM_SSH_TC_PEN);
-@@ -85,6 +85,11 @@ TRACE_DEFINE_ENUM(SSAM_SSH_TC_AUD);
- TRACE_DEFINE_ENUM(SSAM_SSH_TC_SMC);
- TRACE_DEFINE_ENUM(SSAM_SSH_TC_KPD);
- TRACE_DEFINE_ENUM(SSAM_SSH_TC_REG);
-+TRACE_DEFINE_ENUM(SSAM_SSH_TC_SPT);
-+TRACE_DEFINE_ENUM(SSAM_SSH_TC_SYS);
-+TRACE_DEFINE_ENUM(SSAM_SSH_TC_ACC1);
-+TRACE_DEFINE_ENUM(SSAM_SSH_TC_SHB);
-+TRACE_DEFINE_ENUM(SSAM_SSH_TC_POS);
- 
- #define SSAM_PTR_UID_LEN		9
- #define SSAM_U8_FIELD_NOT_APPLICABLE	((u16)-1)
-@@ -229,40 +234,45 @@ static inline u32 ssam_trace_get_request_tc(const struct ssh_packet *p)
- 
- #define ssam_show_ssh_tc(rqid)						\
- 	__print_symbolic(rqid,						\
--		{ SSAM_SSH_TC_NOT_APPLICABLE,		"N/A" },	\
--		{ SSAM_SSH_TC_SAM,			"SAM" },	\
--		{ SSAM_SSH_TC_BAT,			"BAT" },	\
--		{ SSAM_SSH_TC_TMP,			"TMP" },	\
--		{ SSAM_SSH_TC_PMC,			"PMC" },	\
--		{ SSAM_SSH_TC_FAN,			"FAN" },	\
--		{ SSAM_SSH_TC_PoM,			"PoM" },	\
--		{ SSAM_SSH_TC_DBG,			"DBG" },	\
--		{ SSAM_SSH_TC_KBD,			"KBD" },	\
--		{ SSAM_SSH_TC_FWU,			"FWU" },	\
--		{ SSAM_SSH_TC_UNI,			"UNI" },	\
--		{ SSAM_SSH_TC_LPC,			"LPC" },	\
--		{ SSAM_SSH_TC_TCL,			"TCL" },	\
--		{ SSAM_SSH_TC_SFL,			"SFL" },	\
--		{ SSAM_SSH_TC_KIP,			"KIP" },	\
--		{ SSAM_SSH_TC_EXT,			"EXT" },	\
--		{ SSAM_SSH_TC_BLD,			"BLD" },	\
--		{ SSAM_SSH_TC_BAS,			"BAS" },	\
--		{ SSAM_SSH_TC_SEN,			"SEN" },	\
--		{ SSAM_SSH_TC_SRQ,			"SRQ" },	\
--		{ SSAM_SSH_TC_MCU,			"MCU" },	\
--		{ SSAM_SSH_TC_HID,			"HID" },	\
--		{ SSAM_SSH_TC_TCH,			"TCH" },	\
--		{ SSAM_SSH_TC_BKL,			"BKL" },	\
--		{ SSAM_SSH_TC_TAM,			"TAM" },	\
--		{ SSAM_SSH_TC_ACC,			"ACC" },	\
--		{ SSAM_SSH_TC_UFI,			"UFI" },	\
--		{ SSAM_SSH_TC_USC,			"USC" },	\
--		{ SSAM_SSH_TC_PEN,			"PEN" },	\
--		{ SSAM_SSH_TC_VID,			"VID" },	\
--		{ SSAM_SSH_TC_AUD,			"AUD" },	\
--		{ SSAM_SSH_TC_SMC,			"SMC" },	\
--		{ SSAM_SSH_TC_KPD,			"KPD" },	\
--		{ SSAM_SSH_TC_REG,			"REG" }		\
-+		{ SSAM_SSH_TC_NOT_APPLICABLE,		"N/A"  },	\
-+		{ SSAM_SSH_TC_SAM,			"SAM"  },	\
-+		{ SSAM_SSH_TC_BAT,			"BAT"  },	\
-+		{ SSAM_SSH_TC_TMP,			"TMP"  },	\
-+		{ SSAM_SSH_TC_PMC,			"PMC"  },	\
-+		{ SSAM_SSH_TC_FAN,			"FAN"  },	\
-+		{ SSAM_SSH_TC_PoM,			"PoM"  },	\
-+		{ SSAM_SSH_TC_DBG,			"DBG"  },	\
-+		{ SSAM_SSH_TC_KBD,			"KBD"  },	\
-+		{ SSAM_SSH_TC_FWU,			"FWU"  },	\
-+		{ SSAM_SSH_TC_UNI,			"UNI"  },	\
-+		{ SSAM_SSH_TC_LPC,			"LPC"  },	\
-+		{ SSAM_SSH_TC_TCL,			"TCL"  },	\
-+		{ SSAM_SSH_TC_SFL,			"SFL"  },	\
-+		{ SSAM_SSH_TC_KIP,			"KIP"  },	\
-+		{ SSAM_SSH_TC_EXT,			"EXT"  },	\
-+		{ SSAM_SSH_TC_BLD,			"BLD"  },	\
-+		{ SSAM_SSH_TC_BAS,			"BAS"  },	\
-+		{ SSAM_SSH_TC_SEN,			"SEN"  },	\
-+		{ SSAM_SSH_TC_SRQ,			"SRQ"  },	\
-+		{ SSAM_SSH_TC_MCU,			"MCU"  },	\
-+		{ SSAM_SSH_TC_HID,			"HID"  },	\
-+		{ SSAM_SSH_TC_TCH,			"TCH"  },	\
-+		{ SSAM_SSH_TC_BKL,			"BKL"  },	\
-+		{ SSAM_SSH_TC_TAM,			"TAM"  },	\
-+		{ SSAM_SSH_TC_ACC0,			"ACC0" },	\
-+		{ SSAM_SSH_TC_UFI,			"UFI"  },	\
-+		{ SSAM_SSH_TC_USC,			"USC"  },	\
-+		{ SSAM_SSH_TC_PEN,			"PEN"  },	\
-+		{ SSAM_SSH_TC_VID,			"VID"  },	\
-+		{ SSAM_SSH_TC_AUD,			"AUD"  },	\
-+		{ SSAM_SSH_TC_SMC,			"SMC"  },	\
-+		{ SSAM_SSH_TC_KPD,			"KPD"  },	\
-+		{ SSAM_SSH_TC_REG,			"REG"  },	\
-+		{ SSAM_SSH_TC_SPT,			"SPT"  },	\
-+		{ SSAM_SSH_TC_SYS,			"SYS"  },	\
-+		{ SSAM_SSH_TC_ACC1,			"ACC1" },	\
-+		{ SSAM_SSH_TC_SHB,			"SMB"  },	\
-+		{ SSAM_SSH_TC_POS,			"POS"  }	\
- 	)
- 
- DECLARE_EVENT_CLASS(ssam_frame_class,
-diff --git a/include/linux/surface_aggregator/serial_hub.h b/include/linux/surface_aggregator/serial_hub.h
-index 26b95ec12733..45501b6e54e8 100644
---- a/include/linux/surface_aggregator/serial_hub.h
-+++ b/include/linux/surface_aggregator/serial_hub.h
-@@ -201,7 +201,7 @@ static inline u16 ssh_crc(const u8 *buf, size_t len)
-  * exception of zero, which is not an event ID. Thus, this is also the
-  * absolute maximum number of event handlers that can be registered.
-  */
--#define SSH_NUM_EVENTS		34
-+#define SSH_NUM_EVENTS		38
- 
- /*
-  * SSH_NUM_TARGETS - The number of communication targets used in the protocol.
-@@ -292,40 +292,45 @@ struct ssam_span {
-  * Windows driver.
-  */
- enum ssam_ssh_tc {
--				/* Category 0x00 is invalid for EC use. */
--	SSAM_SSH_TC_SAM = 0x01,	/* Generic system functionality, real-time clock. */
--	SSAM_SSH_TC_BAT = 0x02,	/* Battery/power subsystem. */
--	SSAM_SSH_TC_TMP = 0x03,	/* Thermal subsystem. */
--	SSAM_SSH_TC_PMC = 0x04,
--	SSAM_SSH_TC_FAN = 0x05,
--	SSAM_SSH_TC_PoM = 0x06,
--	SSAM_SSH_TC_DBG = 0x07,
--	SSAM_SSH_TC_KBD = 0x08,	/* Legacy keyboard (Laptop 1/2). */
--	SSAM_SSH_TC_FWU = 0x09,
--	SSAM_SSH_TC_UNI = 0x0a,
--	SSAM_SSH_TC_LPC = 0x0b,
--	SSAM_SSH_TC_TCL = 0x0c,
--	SSAM_SSH_TC_SFL = 0x0d,
--	SSAM_SSH_TC_KIP = 0x0e,	/* Manages detachable peripherals (Pro X/8 keyboard cover) */
--	SSAM_SSH_TC_EXT = 0x0f,
--	SSAM_SSH_TC_BLD = 0x10,
--	SSAM_SSH_TC_BAS = 0x11,	/* Detachment system (Surface Book 2/3). */
--	SSAM_SSH_TC_SEN = 0x12,
--	SSAM_SSH_TC_SRQ = 0x13,
--	SSAM_SSH_TC_MCU = 0x14,
--	SSAM_SSH_TC_HID = 0x15,	/* Generic HID input subsystem. */
--	SSAM_SSH_TC_TCH = 0x16,
--	SSAM_SSH_TC_BKL = 0x17,
--	SSAM_SSH_TC_TAM = 0x18,
--	SSAM_SSH_TC_ACC = 0x19,
--	SSAM_SSH_TC_UFI = 0x1a,
--	SSAM_SSH_TC_USC = 0x1b,
--	SSAM_SSH_TC_PEN = 0x1c,
--	SSAM_SSH_TC_VID = 0x1d,
--	SSAM_SSH_TC_AUD = 0x1e,
--	SSAM_SSH_TC_SMC = 0x1f,
--	SSAM_SSH_TC_KPD = 0x20,
--	SSAM_SSH_TC_REG = 0x21,	/* Extended event registry. */
-+				  /* Category 0x00 is invalid for EC use. */
-+	SSAM_SSH_TC_SAM  = 0x01,  /* Generic system functionality, real-time clock. */
-+	SSAM_SSH_TC_BAT  = 0x02,  /* Battery/power subsystem. */
-+	SSAM_SSH_TC_TMP  = 0x03,  /* Thermal subsystem. */
-+	SSAM_SSH_TC_PMC  = 0x04,
-+	SSAM_SSH_TC_FAN  = 0x05,
-+	SSAM_SSH_TC_PoM  = 0x06,
-+	SSAM_SSH_TC_DBG  = 0x07,
-+	SSAM_SSH_TC_KBD  = 0x08,  /* Legacy keyboard (Laptop 1/2). */
-+	SSAM_SSH_TC_FWU  = 0x09,
-+	SSAM_SSH_TC_UNI  = 0x0a,
-+	SSAM_SSH_TC_LPC  = 0x0b,
-+	SSAM_SSH_TC_TCL  = 0x0c,
-+	SSAM_SSH_TC_SFL  = 0x0d,
-+	SSAM_SSH_TC_KIP  = 0x0e,  /* Manages detachable peripherals (Pro X/8 keyboard cover) */
-+	SSAM_SSH_TC_EXT  = 0x0f,
-+	SSAM_SSH_TC_BLD  = 0x10,
-+	SSAM_SSH_TC_BAS  = 0x11,  /* Detachment system (Surface Book 2/3). */
-+	SSAM_SSH_TC_SEN  = 0x12,
-+	SSAM_SSH_TC_SRQ  = 0x13,
-+	SSAM_SSH_TC_MCU  = 0x14,
-+	SSAM_SSH_TC_HID  = 0x15,  /* Generic HID input subsystem. */
-+	SSAM_SSH_TC_TCH  = 0x16,
-+	SSAM_SSH_TC_BKL  = 0x17,
-+	SSAM_SSH_TC_TAM  = 0x18,
-+	SSAM_SSH_TC_ACC0 = 0x19,
-+	SSAM_SSH_TC_UFI  = 0x1a,
-+	SSAM_SSH_TC_USC  = 0x1b,
-+	SSAM_SSH_TC_PEN  = 0x1c,
-+	SSAM_SSH_TC_VID  = 0x1d,
-+	SSAM_SSH_TC_AUD  = 0x1e,
-+	SSAM_SSH_TC_SMC  = 0x1f,
-+	SSAM_SSH_TC_KPD  = 0x20,
-+	SSAM_SSH_TC_REG  = 0x21,  /* Extended event registry. */
-+	SSAM_SSH_TC_SPT  = 0x22,
-+	SSAM_SSH_TC_SYS  = 0x23,
-+	SSAM_SSH_TC_ACC1 = 0x24,
-+	SSAM_SSH_TC_SHB  = 0x25,
-+	SSAM_SSH_TC_POS  = 0x26,  /* For obtaining Laptop Studio screen position. */
- };
- 
- 
 -- 
 2.36.1
 
