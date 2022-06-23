@@ -20,7 +20,7 @@ Follow the instructions below to install the latest kernel.
 * Surface Laptop Studio
 * Surface Pro 3
 * Surface Pro 4
-* Surface Pro 2017
+* Surface Pro (5th Gen) / Surface Pro 2017
 * Surface Pro 6
 * Surface Pro 7
 * Surface Pro 7+
