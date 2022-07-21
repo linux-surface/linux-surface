@@ -103,8 +103,9 @@ Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam-over-hid.patch
 Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-button.patch
 Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-typecover.patch
 Patch8:     %{surface_source}/%{kernel_patches}/0009-surface-battery.patch
-Patch9:     %{surface_source}/%{kernel_patches}/0010-cameras.patch
-Patch10:    %{surface_source}/%{kernel_patches}/0011-amd-gpio.patch
+Patch9:     %{surface_source}/%{kernel_patches}/0010-surface-gpe.patch
+Patch10:    %{surface_source}/%{kernel_patches}/0011-cameras.patch
+Patch11:    %{surface_source}/%{kernel_patches}/0012-amd-gpio.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
