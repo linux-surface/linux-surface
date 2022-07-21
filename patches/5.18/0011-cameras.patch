@@ -1,4 +1,4 @@
-From 769090263aa89f16c60ff3f228515596e3112d77 Mon Sep 17 00:00:00 2001
+From 83c739bec295bc9798a5935a729b91883b32ea98 Mon Sep 17 00:00:00 2001
 From: Hans de Goede <hdegoede@redhat.com>
 Date: Sun, 10 Oct 2021 20:56:57 +0200
 Subject: [PATCH] ACPI: delay enumeration of devices with a _DEP pointing to an
@@ -72,9 +72,9 @@ index 762b61f67e6c..2c0f39a7f2a1 100644
  	 * Do not enumerate devices with enumeration_by_parent flag set as
  	 * they will be enumerated by their respective parents.
 -- 
-2.37.0
+2.37.1
 
-From 96e4c08109113dac5d15cd9d0554691faf69814a Mon Sep 17 00:00:00 2001
+From 420070f2886d69fe3a758791bb9d17c348444432 Mon Sep 17 00:00:00 2001
 From: zouxiaoh <xiaohong.zou@intel.com>
 Date: Fri, 25 Jun 2021 08:52:59 +0800
 Subject: [PATCH] iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs
@@ -100,7 +100,7 @@ Patchset: cameras
  1 file changed, 30 insertions(+)
 
 diff --git a/drivers/iommu/intel/iommu.c b/drivers/iommu/intel/iommu.c
-index 5f18ec206696..2b31e531f510 100644
+index 7f3699e19270..0ee615daadeb 100644
 --- a/drivers/iommu/intel/iommu.c
 +++ b/drivers/iommu/intel/iommu.c
 @@ -37,6 +37,12 @@
@@ -131,7 +131,7 @@ index 5f18ec206696..2b31e531f510 100644
  #define IDENTMAP_IPTS		16
  
  int intel_iommu_gfx_mapped;
-@@ -2729,6 +2737,9 @@ static int device_def_domain_type(struct device *dev)
+@@ -2705,6 +2713,9 @@ static int device_def_domain_type(struct device *dev)
  		if ((iommu_identity_mapping & IDENTMAP_GFX) && IS_GFX_DEVICE(pdev))
  			return IOMMU_DOMAIN_IDENTITY;
  
@@ -141,7 +141,7 @@ index 5f18ec206696..2b31e531f510 100644
  		if ((iommu_identity_mapping & IDENTMAP_IPTS) && IS_IPTS(pdev))
  			return IOMMU_DOMAIN_IDENTITY;
  	}
-@@ -3167,6 +3178,9 @@ static int __init init_dmars(void)
+@@ -3143,6 +3154,9 @@ static int __init init_dmars(void)
  	if (!dmar_map_gfx)
  		iommu_identity_mapping |= IDENTMAP_GFX;
  
@@ -151,7 +151,7 @@ index 5f18ec206696..2b31e531f510 100644
  	if (!dmar_map_ipts)
  		iommu_identity_mapping |= IDENTMAP_IPTS;
  
-@@ -4941,6 +4955,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
+@@ -4917,6 +4931,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
  	dmar_map_gfx = 0;
  }
  
@@ -170,7 +170,7 @@ index 5f18ec206696..2b31e531f510 100644
  static void quirk_iommu_ipts(struct pci_dev *dev)
  {
  	if (!IS_IPTS(dev))
-@@ -4952,6 +4978,7 @@ static void quirk_iommu_ipts(struct pci_dev *dev)
+@@ -4928,6 +4954,7 @@ static void quirk_iommu_ipts(struct pci_dev *dev)
  	pci_info(dev, "Passthrough IOMMU for IPTS\n");
  	dmar_map_ipts = 0;
  }
@@ -178,7 +178,7 @@ index 5f18ec206696..2b31e531f510 100644
  /* G4x/GM45 integrated gfx dmar support is totally busted. */
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2a40, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2e00, quirk_iommu_igfx);
-@@ -4987,6 +5014,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
+@@ -4963,6 +4990,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163A, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163D, quirk_iommu_igfx);
  
@@ -189,9 +189,9 @@ index 5f18ec206696..2b31e531f510 100644
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9D3E, quirk_iommu_ipts);
  
 -- 
-2.37.0
+2.37.1
 
-From 461ecec0014b5d83ae11b627f152453137ab8f86 Mon Sep 17 00:00:00 2001
+From ac3f64d2b87ab11288d536e37e42c25b894c68fa Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 10 Oct 2021 20:57:02 +0200
 Subject: [PATCH] platform/x86: int3472: Enable I2c daisy chain
@@ -226,9 +226,9 @@ index 22f61b47f9e5..e1de1ff40bba 100644
  
  	return 0;
 -- 
-2.37.0
+2.37.1
 
-From 0605ceccdfea93beb92a17a0f745e8db206fd050 Mon Sep 17 00:00:00 2001
+From c4dff89995c92d098a7f4b1a457e85ea87f417cc Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 28 Oct 2021 21:55:16 +0100
 Subject: [PATCH] media: i2c: Add driver for DW9719 VCM
@@ -247,10 +247,10 @@ Patchset: cameras
  create mode 100644 drivers/media/i2c/dw9719.c
 
 diff --git a/MAINTAINERS b/MAINTAINERS
-index 1f1625c0ac35..a34034a81926 100644
+index 26bc8bf48b7b..a5d382fca868 100644
 --- a/MAINTAINERS
 +++ b/MAINTAINERS
-@@ -6006,6 +6006,13 @@ T:	git git://linuxtv.org/media_tree.git
+@@ -6002,6 +6002,13 @@ T:	git git://linuxtv.org/media_tree.git
  F:	Documentation/devicetree/bindings/media/i2c/dongwoon,dw9714.txt
  F:	drivers/media/i2c/dw9714.c
  
@@ -732,9 +732,38 @@ index 000000000000..8451c75b696b
 +MODULE_DESCRIPTION("DW9719 VCM Driver");
 +MODULE_LICENSE("GPL");
 -- 
-2.37.0
+2.37.1
 
-From 52f3587b1a4dc3233b83e10f7804c33d07b28426 Mon Sep 17 00:00:00 2001
+From 51287063af97bd385b6606483f2d805c44923a65 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 15 Jul 2022 23:48:00 +0200
+Subject: [PATCH] drivers/media/i2c: Fix DW9719 dependencies
+
+It should depend on VIDEO_DEV instead of VIDEO_V4L2.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/Kconfig | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index 49d1c59334e3..d3f27554a1e3 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -808,7 +808,7 @@ config VIDEO_DW9714
+ 
+ config VIDEO_DW9719
+ 	tristate "DW9719 lens voice coil support"
+-	depends on I2C && VIDEO_V4L2
++	depends on I2C && VIDEO_DEV
+ 	select MEDIA_CONTROLLER
+ 	select VIDEO_V4L2_SUBDEV_API
+ 	select V4L2_ASYNC
+-- 
+2.37.1
+
+From b764bc9c859d34292cda94163cb2cb2d4761c413 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 13 Dec 2021 22:38:17 +0000
 Subject: [PATCH] media: entity: Skip non-data links in graph iteration
@@ -767,9 +796,9 @@ index 8ab0913d8d82..a8631f74dcee 100644
  	if (!(link->flags & MEDIA_LNK_FL_ENABLED)) {
  		link_top(graph) = link_top(graph)->next;
 -- 
-2.37.0
+2.37.1
 
-From fde7c3363d92db978e4d37a8191db79c30ef5e1f Mon Sep 17 00:00:00 2001
+From 2550a923d8c8b22d70539ce9f3d6a5bbc67d8e5e Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 13 Dec 2021 22:53:09 +0000
 Subject: [PATCH] media: media.h: Add new media link type
@@ -851,9 +880,9 @@ index 200fa8462b90..afbae7213d35 100644
  struct media_link_desc {
  	struct media_pad_desc source;
 -- 
-2.37.0
+2.37.1
 
-From bfd5eea69849bbf1552ab23077b7e0d385e31fc2 Mon Sep 17 00:00:00 2001
+From d3a6d0b7d8a213ebebf92581f6c4d88983baa90b Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 13 Dec 2021 22:36:31 +0000
 Subject: [PATCH] media: entity: Add link_type_name() helper
@@ -906,9 +935,9 @@ index a8631f74dcee..4bd80ce1a33d 100644
  			media_id(link->gobj1));
  		break;
 -- 
-2.37.0
+2.37.1
 
-From c8119091e44b516b63d65b34af779828e5d1d4ee Mon Sep 17 00:00:00 2001
+From ee5d85600e031b42dc570eacf6284bc94c087ab1 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Mon, 13 Dec 2021 22:54:10 +0000
 Subject: [PATCH] media: entity: Add support for ancillary links
@@ -983,9 +1012,9 @@ index 742918962d46..1d13b8939a11 100644
 +
  #endif
 -- 
-2.37.0
+2.37.1
 
-From 7bbfd78513ac61cef0d3bfd0bf65b08b1ed5ae76 Mon Sep 17 00:00:00 2001
+From 3392785a3ff8c08bb7115c1c02557687b5be10aa Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Fri, 26 Nov 2021 22:55:50 +0000
 Subject: [PATCH] media: v4l2-async: Create links during
@@ -1056,9 +1085,9 @@ index 0404267f1ae4..436bd6900fd8 100644
  	list_del(&asd->list);
  	sd->asd = asd;
 -- 
-2.37.0
+2.37.1
 
-From ff95fb2b8614d3bae3560102b94935b36c696447 Mon Sep 17 00:00:00 2001
+From 5676fe1fb34f303eb78160f321b5a9d7f9590aeb Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 4 May 2022 23:21:45 +0100
 Subject: [PATCH] media: ipu3-cio2: Move functionality from .complete() to
@@ -1171,9 +1200,9 @@ index 0e9b0503b62a..50682a7b2a07 100644
  
  static int cio2_parse_firmware(struct cio2_device *cio2)
 -- 
-2.37.0
+2.37.1
 
-From 5d2e20224115bd3ab28e68bc6cf8d2fb134cd575 Mon Sep 17 00:00:00 2001
+From 637ce5d60a1dba5fb9a015e339769409b83a484b Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 2 Jun 2022 22:15:56 +0100
 Subject: [PATCH] media: ipu3-cio2: Re-add .complete() to ipu3-cio2
@@ -1214,5 +1243,5 @@ index 50682a7b2a07..ff79582a583d 100644
  
  static int cio2_parse_firmware(struct cio2_device *cio2)
 -- 
-2.37.0
+2.37.1
 
