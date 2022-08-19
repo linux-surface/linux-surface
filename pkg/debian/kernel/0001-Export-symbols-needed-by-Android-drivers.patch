@@ -1,7 +1,8 @@
-From 42ca7cec6b266bd2a73488b175ea29487e2b22af Mon Sep 17 00:00:00 2001
+From daa418b418b849395ae6b5855c1a3fc5f027c563 Mon Sep 17 00:00:00 2001
 From: Ben Hutchings <ben@decadent.org.uk>
 Date: Mon, 7 Sep 2020 02:51:53 +0100
 Subject: [PATCH 1/2] Export symbols needed by Android drivers
+Bug-Debian: https://bugs.debian.org/901492
 
 We want to enable use of the Android ashmem and binder drivers to
 support Anbox, but they should not be built-in as that would waste
@@ -21,22 +22,22 @@ Export the currently un-exported symbols they depend on.
  8 files changed, 11 insertions(+)
 
 diff --git a/fs/file.c b/fs/file.c
-index ee9317346702..9885f25f5340 100644
+index 3bcc1ecc314a..6ff78a4c27a9 100644
 --- a/fs/file.c
 +++ b/fs/file.c
-@@ -833,6 +833,7 @@ int close_fd_get_file(unsigned int fd, struct file **res)
+@@ -813,6 +813,7 @@ struct file *close_fd_get_file(unsigned int fd)
  
- 	return ret;
+ 	return file;
  }
 +EXPORT_SYMBOL_GPL(close_fd_get_file);
  
  void do_close_on_exec(struct files_struct *files)
  {
 diff --git a/kernel/fork.c b/kernel/fork.c
-index 35a3beff140b..1e9ecaa4f5ac 100644
+index 9d44f2d46c69..d587c85f35b1 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
-@@ -1222,6 +1222,7 @@ void mmput_async(struct mm_struct *mm)
+@@ -1225,6 +1225,7 @@ void mmput_async(struct mm_struct *mm)
  		schedule_work(&mm->async_put_work);
  	}
  }
@@ -45,12 +46,12 @@ index 35a3beff140b..1e9ecaa4f5ac 100644
  
  /**
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index d58c0389eb23..b4ca294b5100 100644
+index d4af56927a4d..ebff11e343fd 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -6940,6 +6940,7 @@ int can_nice(const struct task_struct *p, const int nice)
- 	return (nice_rlim <= task_rlimit(p, RLIMIT_NICE) ||
- 		capable(CAP_SYS_NICE));
+@@ -7036,6 +7036,7 @@ int can_nice(const struct task_struct *p, const int nice)
+ {
+ 	return is_nice_reduction(p, nice) || capable(CAP_SYS_NICE);
  }
 +EXPORT_SYMBOL_GPL(can_nice);
  
@@ -69,10 +70,10 @@ index 9860bb9a847c..ad76d49bf4e1 100644
  /*
   * Note: we use "set_current_state()" _after_ the wait-queue add,
 diff --git a/kernel/task_work.c b/kernel/task_work.c
-index c59e1a49bc40..d92b8726b1d4 100644
+index dff75bcde151..5f9a42a388f1 100644
 --- a/kernel/task_work.c
 +++ b/kernel/task_work.c
-@@ -60,6 +60,7 @@ int task_work_add(struct task_struct *task, struct callback_head *work,
+@@ -73,6 +73,7 @@ int task_work_add(struct task_struct *task, struct callback_head *work,
  
  	return 0;
  }
@@ -81,10 +82,10 @@ index c59e1a49bc40..d92b8726b1d4 100644
  /**
   * task_work_cancel_match - cancel a pending work added by task_work_add()
 diff --git a/mm/memory.c b/mm/memory.c
-index 76e3af9639d9..90a8d8730876 100644
+index 1c6027adc542..75372d105b0e 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
-@@ -1671,6 +1671,7 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long start,
+@@ -1749,6 +1749,7 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long start,
  	mmu_notifier_invalidate_range_end(&range);
  	tlb_finish_mmu(&tlb);
  }
@@ -93,10 +94,10 @@ index 76e3af9639d9..90a8d8730876 100644
  /**
   * zap_page_range_single - remove user pages in a given range
 diff --git a/mm/shmem.c b/mm/shmem.c
-index 4b2fea33158e..0fcd0cfea35d 100644
+index b7f2d4a56867..3bf380f68406 100644
 --- a/mm/shmem.c
 +++ b/mm/shmem.c
-@@ -4153,6 +4153,7 @@ int shmem_zero_setup(struct vm_area_struct *vma)
+@@ -4172,6 +4172,7 @@ int shmem_zero_setup(struct vm_area_struct *vma)
  
  	return 0;
  }
@@ -105,10 +106,10 @@ index 4b2fea33158e..0fcd0cfea35d 100644
  /**
   * shmem_read_mapping_page_gfp - read into page cache, using specified page allocation flags.
 diff --git a/security/security.c b/security/security.c
-index aaf6566deb9f..f32e312ef6fc 100644
+index 188b8f782220..e5538a412f3c 100644
 --- a/security/security.c
 +++ b/security/security.c
-@@ -753,24 +753,28 @@ int security_binder_set_context_mgr(const struct cred *mgr)
+@@ -752,24 +752,28 @@ int security_binder_set_context_mgr(const struct cred *mgr)
  {
  	return call_int_hook(binder_set_context_mgr, 0, mgr);
  }
@@ -138,5 +139,5 @@ index aaf6566deb9f..f32e312ef6fc 100644
  int security_ptrace_access_check(struct task_struct *child, unsigned int mode)
  {
 -- 
-2.36.1
+2.37.2
 
