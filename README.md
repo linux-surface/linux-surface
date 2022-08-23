@@ -43,6 +43,7 @@ See the [feature matrix](https://github.com/linux-surface/linux-surface/wiki/Sup
 We provide package repositories for the patched kernel and other utilities.
 Please refer to the [detailed installation and setup guide][wiki-setup].
 There, you may also find device-specific caveats.
+In case you have disk encryption set up or plan to use it, take care to follow the respective instructions in the installation guide and have a look at the respective [wiki page][wiki-encryption].
 After installation, you may want to have a look at the [wiki][wiki] and the `contrib/` directory for useful tweaks.
 
 If you want to compile the kernel yourself (e.g. if your distribution is not supported), please have a look at the [wiki][wiki-compiling].
@@ -72,6 +73,7 @@ License texts can be obtained at https://github.com/torvalds/linux/tree/master/L
 [wiki]: https://github.com/linux-surface/linux-surface/wiki
 [wiki-setup]: https://github.com/linux-surface/linux-surface/wiki/Installation-and-Setup
 [wiki-compiling]: https://github.com/linux-surface/linux-surface/wiki/Compiling-the-Kernel-from-Source
+[wiki-encryption]: https://github.com/linux-surface/linux-surface/wiki/Disk-Encryption
 
 [matrix-space]: https://matrix.to/#/#linux-surface:matrix.org
 [matrix-support]: https://matrix.to/#/#linux-surface-support:matrix.org
