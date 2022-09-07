@@ -892,7 +892,7 @@ index d0715144bf3e..3a25dfc696b2 100644
 -- 
 2.37.3
 
-From bbf4e826699ddad5cfbb6ac819954944c2625db4 Mon Sep 17 00:00:00 2001
+From 5f9948f9d56e88e3470b9211ff907f9dd4bb863e Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 15 Jul 2022 23:48:00 +0200
 Subject: [PATCH] drivers/media/i2c: Fix DW9719 dependencies
@@ -921,78 +921,215 @@ index 5c245f642ae3..50ea62e63784 100644
 -- 
 2.37.3
 
-From dfdc9ca59f2aee9b4b6ae76e0f3ae7b51d617335 Mon Sep 17 00:00:00 2001
+From 521442f66a874ea64aaab70cdf707aa11dc270d5 Mon Sep 17 00:00:00 2001
+From: Sakari Ailus <sakari.ailus@linux.intel.com>
+Date: Thu, 25 Aug 2022 21:36:37 +0300
+Subject: [PATCH] ipu3-imgu: Fix NULL pointer dereference in active selection
+ access
+
+What the IMGU driver did was that it first acquired the pointers to active
+and try V4L2 subdev state, and only then figured out which one to use.
+
+The problem with that approach and a later patch (see Fixes: tag) is that
+as sd_state argument to v4l2_subdev_get_try_crop() et al is NULL, there is
+now an attempt to dereference that.
+
+Fix this.
+
+Also rewrap lines a little.
+
+Fixes: 0d346d2a6f54 ("media: v4l2-subdev: add subdev-wide state struct")
+Cc: stable@vger.kernel.org # for v5.14 and later
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+Reviewed-by: Bingbu Cao <bingbu.cao@intel.com>
+Patchset: cameras
+---
+ drivers/staging/media/ipu3/ipu3-v4l2.c | 31 ++++++++++++--------------
+ 1 file changed, 14 insertions(+), 17 deletions(-)
+
+diff --git a/drivers/staging/media/ipu3/ipu3-v4l2.c b/drivers/staging/media/ipu3/ipu3-v4l2.c
+index d1c539cefba8..2234bb8d48b3 100644
+--- a/drivers/staging/media/ipu3/ipu3-v4l2.c
++++ b/drivers/staging/media/ipu3/ipu3-v4l2.c
+@@ -192,33 +192,30 @@ static int imgu_subdev_get_selection(struct v4l2_subdev *sd,
+ 				     struct v4l2_subdev_state *sd_state,
+ 				     struct v4l2_subdev_selection *sel)
+ {
+-	struct v4l2_rect *try_sel, *r;
+-	struct imgu_v4l2_subdev *imgu_sd = container_of(sd,
+-							struct imgu_v4l2_subdev,
+-							subdev);
++	struct imgu_v4l2_subdev *imgu_sd =
++		container_of(sd, struct imgu_v4l2_subdev, subdev);
+ 
+ 	if (sel->pad != IMGU_NODE_IN)
+ 		return -EINVAL;
+ 
+ 	switch (sel->target) {
+ 	case V4L2_SEL_TGT_CROP:
+-		try_sel = v4l2_subdev_get_try_crop(sd, sd_state, sel->pad);
+-		r = &imgu_sd->rect.eff;
+-		break;
++		if (sel->which == V4L2_SUBDEV_FORMAT_TRY)
++			sel->r = *v4l2_subdev_get_try_crop(sd, sd_state,
++							   sel->pad);
++		else
++			sel->r = imgu_sd->rect.eff;
++		return 0;
+ 	case V4L2_SEL_TGT_COMPOSE:
+-		try_sel = v4l2_subdev_get_try_compose(sd, sd_state, sel->pad);
+-		r = &imgu_sd->rect.bds;
+-		break;
++		if (sel->which == V4L2_SUBDEV_FORMAT_TRY)
++			sel->r = *v4l2_subdev_get_try_compose(sd, sd_state,
++							      sel->pad);
++		else
++			sel->r = imgu_sd->rect.bds;
++		return 0;
+ 	default:
+ 		return -EINVAL;
+ 	}
+-
+-	if (sel->which == V4L2_SUBDEV_FORMAT_TRY)
+-		sel->r = *try_sel;
+-	else
+-		sel->r = *r;
+-
+-	return 0;
+ }
+ 
+ static int imgu_subdev_set_selection(struct v4l2_subdev *sd,
+-- 
+2.37.3
+
+From fd8017575c3e5896d2fdb30f0c6d9af49b3cf1b4 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Wed, 7 Sep 2022 12:40:24 +0200
-Subject: [PATCH] media: staging/intel-ipu3: Finalize subdev initialization to
- allcoate active state
+Date: Wed, 7 Sep 2022 15:38:08 +0200
+Subject: [PATCH] ipu3-imgu: Fix NULL pointer dereference in
+ imgu_subdev_set_selection()
 
-Commit f69952a4dc1e ("media: subdev: add active state to struct
-v4l2_subdev") introduced the active_state member to struct v4l2_subdev.
-This state needs to be allocated via v4l2_subdev_init_finalize(). The
-intel-ipu3 driver unfortunately does not do that, due to which,
-active_state is NULL and we run into an oops (NULL pointer dereference)
-when that state is accessed.
+Calling v4l2_subdev_get_try_crop() and v4l2_subdev_get_try_compose()
+with a subdev state of NULL leads to a NULL pointer dereference. This
+can currently happen in imgu_subdev_set_selection() when the state
+passed in is NULL, as this method first gets pointers to both the "try"
+and "active" states and only then decides which to use.
 
-In particular, this happens subdev in IOCTLs as commit 3cc7a4bbc381
-("media: subdev: pass also the active state to subdevs from ioctls")
-passes that state on to the subdev IOCTLs. An example scenario where
-this happens is running libcamera's qcam or cam on a device with IPU3,
-for example the Microsoft Surface Book 2. In this case, the oops is
-reproducibly in v4l2_subdev_get_try_crop(), called via
+The same issue has been addressed for imgu_subdev_get_selection() with
+commit 30d03a0de650 ("ipu3-imgu: Fix NULL pointer dereference in active
+selection access"). However the issue still persists in
 imgu_subdev_set_selection().
 
-To fix this, allocate the active_state member via
-v4l2_subdev_init_finalize().
+Therefore, apply a similar fix as done in the aforementioned commit to
+imgu_subdev_set_selection(). To keep things a bit cleaner, introduce
+helper functions for "crop" and "compose" access and use them in both
+imgu_subdev_set_selection() and imgu_subdev_get_selection().
 
-Link: https://github.com/linux-surface/linux-surface/issues/907
-Fixes: 3cc7a4bbc381 ("media: subdev: pass also the active state to subdevs from ioctls")
+Fixes: 0d346d2a6f54 ("media: v4l2-subdev: add subdev-wide state struct")
+Cc: stable@vger.kernel.org # for v5.14 and later
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: cameras
 ---
- drivers/staging/media/ipu3/ipu3-v4l2.c | 12 +++++++++++-
- 1 file changed, 11 insertions(+), 1 deletion(-)
+ drivers/staging/media/ipu3/ipu3-v4l2.c | 57 +++++++++++++++-----------
+ 1 file changed, 34 insertions(+), 23 deletions(-)
 
 diff --git a/drivers/staging/media/ipu3/ipu3-v4l2.c b/drivers/staging/media/ipu3/ipu3-v4l2.c
-index d1c539cefba8..84ab98ba9a2e 100644
+index 2234bb8d48b3..490ba0eb249b 100644
 --- a/drivers/staging/media/ipu3/ipu3-v4l2.c
 +++ b/drivers/staging/media/ipu3/ipu3-v4l2.c
-@@ -1093,10 +1093,18 @@ static int imgu_v4l2_subdev_register(struct imgu_device *imgu,
- 			"failed to create subdev v4l2 ctrl with err %d", r);
- 		goto fail_subdev;
- 	}
-+
-+	r = v4l2_subdev_init_finalize(&imgu_sd->subdev);
-+	if (r) {
-+		dev_err(&imgu->pci_dev->dev,
-+			"failed to initialize subdev (%d)\n", r);
-+		goto fail_subdev;
-+	}
-+
- 	r = v4l2_device_register_subdev(&imgu->v4l2_dev, &imgu_sd->subdev);
- 	if (r) {
- 		dev_err(&imgu->pci_dev->dev,
--			"failed initialize subdev (%d)\n", r);
-+			"failed to register subdev (%d)\n", r);
- 		goto fail_subdev;
- 	}
- 
-@@ -1104,6 +1112,7 @@ static int imgu_v4l2_subdev_register(struct imgu_device *imgu,
+@@ -188,6 +188,28 @@ static int imgu_subdev_set_fmt(struct v4l2_subdev *sd,
  	return 0;
- 
- fail_subdev:
-+	v4l2_subdev_cleanup(&imgu_sd->subdev);
- 	v4l2_ctrl_handler_free(imgu_sd->subdev.ctrl_handler);
- 	media_entity_cleanup(&imgu_sd->subdev.entity);
- 
-@@ -1275,6 +1284,7 @@ static void imgu_v4l2_subdev_cleanup(struct imgu_device *imgu, unsigned int i)
- 	struct imgu_media_pipe *imgu_pipe = &imgu->imgu_pipe[i];
- 
- 	v4l2_device_unregister_subdev(&imgu_pipe->imgu_sd.subdev);
-+	v4l2_subdev_cleanup(&imgu_pipe->imgu_sd.subdev);
- 	v4l2_ctrl_handler_free(imgu_pipe->imgu_sd.subdev.ctrl_handler);
- 	media_entity_cleanup(&imgu_pipe->imgu_sd.subdev.entity);
  }
+ 
++static struct v4l2_rect *
++imgu_subdev_get_crop(struct imgu_v4l2_subdev *sd,
++		     struct v4l2_subdev_state *sd_state, unsigned int pad,
++		     enum v4l2_subdev_format_whence which)
++{
++	if (which == V4L2_SUBDEV_FORMAT_TRY)
++		return v4l2_subdev_get_try_crop(&sd->subdev, sd_state, pad);
++	else
++		return &sd->rect.eff;
++}
++
++static struct v4l2_rect *
++imgu_subdev_get_compose(struct imgu_v4l2_subdev *sd,
++			struct v4l2_subdev_state *sd_state, unsigned int pad,
++			enum v4l2_subdev_format_whence which)
++{
++	if (which == V4L2_SUBDEV_FORMAT_TRY)
++		return v4l2_subdev_get_try_compose(&sd->subdev, sd_state, pad);
++	else
++		return &sd->rect.bds;
++}
++
+ static int imgu_subdev_get_selection(struct v4l2_subdev *sd,
+ 				     struct v4l2_subdev_state *sd_state,
+ 				     struct v4l2_subdev_selection *sel)
+@@ -200,18 +222,12 @@ static int imgu_subdev_get_selection(struct v4l2_subdev *sd,
+ 
+ 	switch (sel->target) {
+ 	case V4L2_SEL_TGT_CROP:
+-		if (sel->which == V4L2_SUBDEV_FORMAT_TRY)
+-			sel->r = *v4l2_subdev_get_try_crop(sd, sd_state,
+-							   sel->pad);
+-		else
+-			sel->r = imgu_sd->rect.eff;
++		sel->r = *imgu_subdev_get_crop(imgu_sd, sd_state, sel->pad,
++					       sel->which);
+ 		return 0;
+ 	case V4L2_SEL_TGT_COMPOSE:
+-		if (sel->which == V4L2_SUBDEV_FORMAT_TRY)
+-			sel->r = *v4l2_subdev_get_try_compose(sd, sd_state,
+-							      sel->pad);
+-		else
+-			sel->r = imgu_sd->rect.bds;
++		sel->r = *imgu_subdev_get_compose(imgu_sd, sd_state, sel->pad,
++						  sel->which);
+ 		return 0;
+ 	default:
+ 		return -EINVAL;
+@@ -223,10 +239,9 @@ static int imgu_subdev_set_selection(struct v4l2_subdev *sd,
+ 				     struct v4l2_subdev_selection *sel)
+ {
+ 	struct imgu_device *imgu = v4l2_get_subdevdata(sd);
+-	struct imgu_v4l2_subdev *imgu_sd = container_of(sd,
+-							struct imgu_v4l2_subdev,
+-							subdev);
+-	struct v4l2_rect *rect, *try_sel;
++	struct imgu_v4l2_subdev *imgu_sd =
++		container_of(sd, struct imgu_v4l2_subdev, subdev);
++	struct v4l2_rect *rect;
+ 
+ 	dev_dbg(&imgu->pci_dev->dev,
+ 		 "set subdev %u sel which %u target 0x%4x rect [%ux%u]",
+@@ -238,22 +253,18 @@ static int imgu_subdev_set_selection(struct v4l2_subdev *sd,
+ 
+ 	switch (sel->target) {
+ 	case V4L2_SEL_TGT_CROP:
+-		try_sel = v4l2_subdev_get_try_crop(sd, sd_state, sel->pad);
+-		rect = &imgu_sd->rect.eff;
++		rect = imgu_subdev_get_crop(imgu_sd, sd_state, sel->pad,
++					    sel->which);
+ 		break;
+ 	case V4L2_SEL_TGT_COMPOSE:
+-		try_sel = v4l2_subdev_get_try_compose(sd, sd_state, sel->pad);
+-		rect = &imgu_sd->rect.bds;
++		rect = imgu_subdev_get_compose(imgu_sd, sd_state, sel->pad,
++					       sel->which);
+ 		break;
+ 	default:
+ 		return -EINVAL;
+ 	}
+ 
+-	if (sel->which == V4L2_SUBDEV_FORMAT_TRY)
+-		*try_sel = sel->r;
+-	else
+-		*rect = sel->r;
+-
++	*rect = sel->r;
+ 	return 0;
+ }
+ 
 -- 
 2.37.3
 
