@@ -337,7 +337,7 @@ EOF
 %clean
 rm -rf %{buildroot}
 
-%post
+%posttrans
 /bin/kernel-install add %{kernel_name} /lib/modules/%{kernel_name}/vmlinuz || exit $?
 
 %preun
