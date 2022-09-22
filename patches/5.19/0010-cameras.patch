@@ -1,4 +1,4 @@
-From 63aeabc28778964d2ff7f33c81394d82945beae4 Mon Sep 17 00:00:00 2001
+From b15e789fd5b50d0c8e64647e833c5b74f9ad6520 Mon Sep 17 00:00:00 2001
 From: Hans de Goede <hdegoede@redhat.com>
 Date: Sun, 10 Oct 2021 20:56:57 +0200
 Subject: [PATCH] ACPI: delay enumeration of devices with a _DEP pointing to an
@@ -74,7 +74,7 @@ index 762b61f67e6c..2c0f39a7f2a1 100644
 -- 
 2.37.3
 
-From 0a1366c998d0bbd976995ddedb3c1fca8665db6c Mon Sep 17 00:00:00 2001
+From 608949a8da76d664b0ee84e8e053c3129eb5231d Mon Sep 17 00:00:00 2001
 From: zouxiaoh <xiaohong.zou@intel.com>
 Date: Fri, 25 Jun 2021 08:52:59 +0800
 Subject: [PATCH] iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs
@@ -100,7 +100,7 @@ Patchset: cameras
  1 file changed, 30 insertions(+)
 
 diff --git a/drivers/iommu/intel/iommu.c b/drivers/iommu/intel/iommu.c
-index 825b524e81f3..095d566c058f 100644
+index fa4f675ffeda..9bf47eb74c9f 100644
 --- a/drivers/iommu/intel/iommu.c
 +++ b/drivers/iommu/intel/iommu.c
 @@ -37,6 +37,12 @@
@@ -116,7 +116,7 @@ index 825b524e81f3..095d566c058f 100644
  #define IS_IPTS(pdev) ((pdev)->vendor == PCI_VENDOR_ID_INTEL &&	\
  			    ((pdev)->device == 0x9d3e))
  #define IS_AZALIA(pdev) ((pdev)->vendor == 0x8086 && (pdev)->device == 0x3a3e)
-@@ -310,12 +316,14 @@ EXPORT_SYMBOL_GPL(intel_iommu_enabled);
+@@ -298,12 +304,14 @@ EXPORT_SYMBOL_GPL(intel_iommu_enabled);
  
  static int dmar_map_gfx = 1;
  static int dmar_map_ipts = 1;
@@ -131,7 +131,7 @@ index 825b524e81f3..095d566c058f 100644
  #define IDENTMAP_IPTS		16
  
  int intel_iommu_gfx_mapped;
-@@ -2664,6 +2672,9 @@ static int device_def_domain_type(struct device *dev)
+@@ -2688,6 +2696,9 @@ static int device_def_domain_type(struct device *dev)
  		if ((iommu_identity_mapping & IDENTMAP_GFX) && IS_GFX_DEVICE(pdev))
  			return IOMMU_DOMAIN_IDENTITY;
  
@@ -141,7 +141,7 @@ index 825b524e81f3..095d566c058f 100644
  		if ((iommu_identity_mapping & IDENTMAP_IPTS) && IS_IPTS(pdev))
  			return IOMMU_DOMAIN_IDENTITY;
  	}
-@@ -3102,6 +3113,9 @@ static int __init init_dmars(void)
+@@ -3112,6 +3123,9 @@ static int __init init_dmars(void)
  	if (!dmar_map_gfx)
  		iommu_identity_mapping |= IDENTMAP_GFX;
  
@@ -151,7 +151,7 @@ index 825b524e81f3..095d566c058f 100644
  	if (!dmar_map_ipts)
  		iommu_identity_mapping |= IDENTMAP_IPTS;
  
-@@ -4933,6 +4947,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
+@@ -4920,6 +4934,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
  	dmar_map_gfx = 0;
  }
  
@@ -170,7 +170,7 @@ index 825b524e81f3..095d566c058f 100644
  static void quirk_iommu_ipts(struct pci_dev *dev)
  {
  	if (!IS_IPTS(dev))
-@@ -4944,6 +4970,7 @@ static void quirk_iommu_ipts(struct pci_dev *dev)
+@@ -4931,6 +4957,7 @@ static void quirk_iommu_ipts(struct pci_dev *dev)
  	pci_info(dev, "Passthrough IOMMU for IPTS\n");
  	dmar_map_ipts = 0;
  }
@@ -178,7 +178,7 @@ index 825b524e81f3..095d566c058f 100644
  /* G4x/GM45 integrated gfx dmar support is totally busted. */
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2a40, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2e00, quirk_iommu_igfx);
-@@ -4979,6 +5006,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
+@@ -4966,6 +4993,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163A, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163D, quirk_iommu_igfx);
  
@@ -191,7 +191,7 @@ index 825b524e81f3..095d566c058f 100644
 -- 
 2.37.3
 
-From 23350bbaa1baea7694766c9aeeeecacd67d5a877 Mon Sep 17 00:00:00 2001
+From ee8081e45bd1644c436ea55be8606e6959f6a416 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 10 Oct 2021 20:57:02 +0200
 Subject: [PATCH] platform/x86: int3472: Enable I2c daisy chain
@@ -228,7 +228,7 @@ index 22f61b47f9e5..e1de1ff40bba 100644
 -- 
 2.37.3
 
-From 247beedc634caa1a965f462451641d7f37f07d74 Mon Sep 17 00:00:00 2001
+From cb1a1e6fe44f6ae53ff43a6c0aedcd2a44b04f4e Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 28 Oct 2021 21:55:16 +0100
 Subject: [PATCH] media: i2c: Add driver for DW9719 VCM
@@ -734,7 +734,7 @@ index 000000000000..8451c75b696b
 -- 
 2.37.3
 
-From 131a1b6b516582eeeba78853894a168c0a4604fd Mon Sep 17 00:00:00 2001
+From 1ab2b91a4920c108eebcd68c3962b4a91e538294 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 4 May 2022 23:21:45 +0100
 Subject: [PATCH] media: ipu3-cio2: Move functionality from .complete() to
@@ -849,7 +849,7 @@ index dbdbdb648a0d..d0715144bf3e 100644
 -- 
 2.37.3
 
-From 82abd409bf7173da2ed6b76d95410f1f60e714fa Mon Sep 17 00:00:00 2001
+From 8255d1840bd305be053d7c3b004bfe050ee6124f Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 2 Jun 2022 22:15:56 +0100
 Subject: [PATCH] media: ipu3-cio2: Re-add .complete() to ipu3-cio2
@@ -892,7 +892,7 @@ index d0715144bf3e..3a25dfc696b2 100644
 -- 
 2.37.3
 
-From 1abd24d4d11a1842c20c2d7feed35b39c4061745 Mon Sep 17 00:00:00 2001
+From 3f8353cc39389ebc36146883e458b791e69a1c54 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 15 Jul 2022 23:48:00 +0200
 Subject: [PATCH] drivers/media/i2c: Fix DW9719 dependencies
@@ -921,7 +921,7 @@ index 5c245f642ae3..50ea62e63784 100644
 -- 
 2.37.3
 
-From 86f47552d0d743f3100b07c6f859033c031db588 Mon Sep 17 00:00:00 2001
+From a2b8d46b1eda63338cdefe6fa7ac2ef4f75da10f Mon Sep 17 00:00:00 2001
 From: Sakari Ailus <sakari.ailus@linux.intel.com>
 Date: Thu, 25 Aug 2022 21:36:37 +0300
 Subject: [PATCH] ipu3-imgu: Fix NULL pointer dereference in active selection
@@ -1002,7 +1002,7 @@ index d1c539cefba8..2234bb8d48b3 100644
 -- 
 2.37.3
 
-From 90d952acdd44a833c8131cd63df69a43453763fe Mon Sep 17 00:00:00 2001
+From 7c4ee6d2e714c2e9d03e84d53cd8248086ecef17 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 7 Sep 2022 15:38:08 +0200
 Subject: [PATCH] ipu3-imgu: Fix NULL pointer dereference in
