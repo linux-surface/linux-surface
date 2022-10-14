@@ -1,4 +1,4 @@
-From 26b723079391b268d79612ae4bcca0a9e613ea9d Mon Sep 17 00:00:00 2001
+From 26b30d0e613aa61df7cb5105c52a68f254b52c01 Mon Sep 17 00:00:00 2001
 From: Ben Hutchings <ben@decadent.org.uk>
 Date: Mon, 7 Sep 2020 02:51:53 +0100
 Subject: [PATCH 1/2] Export symbols needed by Android drivers
@@ -32,17 +32,17 @@ index 3bcc1ecc314a..6ff78a4c27a9 100644
  void do_close_on_exec(struct files_struct *files)
  {
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index d4af56927a4d..ebff11e343fd 100644
+index ee28253c9ac0..37667d4aaac7 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -7036,6 +7036,7 @@ int can_nice(const struct task_struct *p, const int nice)
- {
- 	return is_nice_reduction(p, nice) || capable(CAP_SYS_NICE);
+@@ -7052,6 +7052,7 @@ static bool is_nice_reduction(const struct task_struct *p, const int nice)
+ 
+ 	return (nice_rlim <= task_rlimit(p, RLIMIT_NICE));
  }
 +EXPORT_SYMBOL_GPL(can_nice);
  
- #ifdef __ARCH_WANT_SYS_NICE
- 
+ /*
+  * can_nice - check if a task can reduce its nice value
 diff --git a/kernel/sched/wait.c b/kernel/sched/wait.c
 index 9860bb9a847c..ad76d49bf4e1 100644
 --- a/kernel/sched/wait.c
@@ -68,10 +68,10 @@ index dff75bcde151..5f9a42a388f1 100644
  /**
   * task_work_cancel_match - cancel a pending work added by task_work_add()
 diff --git a/mm/memory.c b/mm/memory.c
-index 1c6027adc542..75372d105b0e 100644
+index a78814413ac0..c48cca22b9f4 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
-@@ -1749,6 +1749,7 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long start,
+@@ -1757,6 +1757,7 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long start,
  	mmu_notifier_invalidate_range_end(&range);
  	tlb_finish_mmu(&tlb);
  }
@@ -80,10 +80,10 @@ index 1c6027adc542..75372d105b0e 100644
  /**
   * zap_page_range_single - remove user pages in a given range
 diff --git a/mm/shmem.c b/mm/shmem.c
-index f152375e770b..ccc1633695fe 100644
+index 42e5888bf84d..afa1c0999644 100644
 --- a/mm/shmem.c
 +++ b/mm/shmem.c
-@@ -4173,6 +4173,7 @@ int shmem_zero_setup(struct vm_area_struct *vma)
+@@ -4245,6 +4245,7 @@ int shmem_zero_setup(struct vm_area_struct *vma)
  
  	return 0;
  }
@@ -92,7 +92,7 @@ index f152375e770b..ccc1633695fe 100644
  /**
   * shmem_read_mapping_page_gfp - read into page cache, using specified page allocation flags.
 diff --git a/security/security.c b/security/security.c
-index 8b62654ff3f9..67670e24fcbc 100644
+index 4b95de24bc8d..515d9509c001 100644
 --- a/security/security.c
 +++ b/security/security.c
 @@ -752,24 +752,28 @@ int security_binder_set_context_mgr(const struct cred *mgr)
@@ -125,5 +125,5 @@ index 8b62654ff3f9..67670e24fcbc 100644
  int security_ptrace_access_check(struct task_struct *child, unsigned int mode)
  {
 -- 
-2.37.3
+2.38.0
 
