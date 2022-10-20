@@ -14,4 +14,4 @@ Both XML files (`thermal-conf.xml` and `thermal-cpu-cdev-order-xml`) need to be 
 
 Newer thermald versions attempt to automatically load the configuration from ACPI.
 If you want to use a manual configuration with such a version, you may need to remove the `--adaptive` option from the systemd service `ExecStart` line.
-You can do so by running `sudo systemctl edit thermald.service`.
+You can do so by overwriting `thermald.service`. This file is present in `/lib/systemd/system/` (it may also be in `/usr/lib/systemd/system/`).
