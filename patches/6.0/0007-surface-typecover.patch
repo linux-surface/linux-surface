@@ -1,4 +1,4 @@
-From 5c5216af99f81e518ee91b08f7fd0d90399d2dac Mon Sep 17 00:00:00 2001
+From 1ffe7e9746dba16ca1936198703166d8c27e1649 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 5 Nov 2020 13:09:45 +0100
 Subject: [PATCH] hid/multitouch: Turn off Type Cover keyboard backlight when
@@ -34,7 +34,7 @@ Patchset: surface-typecover
  1 file changed, 98 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 2e72922e36f5..15f5f11c4b85 100644
+index 91a4d3fc30e0..458537bf4a8e 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -34,7 +34,10 @@
@@ -107,7 +107,7 @@ index 2e72922e36f5..15f5f11c4b85 100644
  };
  
 @@ -1706,6 +1726,69 @@ static void mt_expired_timeout(struct timer_list *t)
- 	clear_bit(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
+ 	clear_bit_unlock(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
  }
  
 +static void get_type_cover_backlight_field(struct hid_device *hdev,
@@ -231,7 +231,7 @@ index 2e72922e36f5..15f5f11c4b85 100644
 -- 
 2.38.0
 
-From b60b26903d04c5ab836dc68644c052cbf2cb8208 Mon Sep 17 00:00:00 2001
+From 7f0b06e3e5b7df1ddcb954906f651f727f10717d Mon Sep 17 00:00:00 2001
 From: PJungkamp <p.jungkamp@gmail.com>
 Date: Fri, 25 Feb 2022 12:04:25 +0100
 Subject: [PATCH] hid/multitouch: Add support for surface pro type cover tablet
@@ -260,7 +260,7 @@ Patchset: surface-typecover
  1 file changed, 122 insertions(+), 26 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 15f5f11c4b85..69202575ce19 100644
+index 458537bf4a8e..3d7d002a662f 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -76,6 +76,7 @@ MODULE_LICENSE("GPL");
@@ -428,7 +428,7 @@ index 15f5f11c4b85..69202575ce19 100644
  		suffix = "UNKNOWN";
  		break;
 @@ -1726,30 +1815,6 @@ static void mt_expired_timeout(struct timer_list *t)
- 	clear_bit(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
+ 	clear_bit_unlock(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
  }
  
 -static void get_type_cover_backlight_field(struct hid_device *hdev,
