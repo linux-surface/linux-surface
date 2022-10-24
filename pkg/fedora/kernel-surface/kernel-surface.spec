@@ -2,9 +2,9 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc37 kernel-5.19.15-301.fc37
-%global kernel_tag_fc36 kernel-5.19.15-201.fc36
-%global kernel_tag_fc35 kernel-5.19.15-101.fc35
+%global kernel_tag_fc37 kernel-5.19.16-301.fc37
+%global kernel_tag_fc36 kernel-5.19.16-201.fc36
+%global kernel_tag_fc35 kernel-5.19.16-101.fc35
 
 %global kernel_release_fc37 1
 %global kernel_release_fc36 1
@@ -17,7 +17,7 @@
 %global fedora_title_fc36 36 (Thirty Six)
 %global fedora_title_fc35 35 (Thirty Five)
 
-%global ls_patches_commit ecaea8b979eb1d0552c557306d00354b80fa8acd
+%global ls_patches_commit edd7251c3ff21233d612a48555ec8061a61b7523
 
 %global sb_crt surface.crt
 %global sb_key surface.key
