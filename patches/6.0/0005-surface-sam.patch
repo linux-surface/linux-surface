@@ -975,7 +975,7 @@ index 46c45d1b6368..4da20b7a0ee5 100644
 -- 
 2.38.1
 
-From ca7f5b648d77cf1954568710b1dbc4833efa6ad0 Mon Sep 17 00:00:00 2001
+From 9f563eff0aa1d005b1dec0f6f3166640f5922fe4 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 5 Nov 2022 21:46:37 +0100
 Subject: [PATCH] platform/surface: aggregator_registry: Fix target-ID of
@@ -1018,6 +1018,67 @@ index 585911020cea..3afe293ac114 100644
 +	.name = "ssam:00:00:01:11:00",
  	.parent = &ssam_node_root,
  };
+ 
+-- 
+2.38.1
+
+From aa2d91ef777bfb1b39581241db0827ccec864690 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Wed, 9 Nov 2022 13:13:12 +0100
+Subject: [PATCH] wip! platform/surface: ggregator_registry: Add preliminary
+ support for Surface Pro 9
+
+Adds support for battery and charger status, as well as platform profile
+and internal HID devices. Support for type-cover HID devices is still
+missing, requiring validation.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c       | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 3afe293ac114..443fe7647315 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -268,6 +268,7 @@ static const struct software_node *ssam_node_group_sp7[] = {
+ 	NULL,
+ };
+ 
++/* Devices for Surface Pro 8 */
+ static const struct software_node *ssam_node_group_sp8[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_hub_kip,
+@@ -284,6 +285,19 @@ static const struct software_node *ssam_node_group_sp8[] = {
+ 	NULL,
+ };
+ 
++/* Devices for Surface Pro 9 */
++static const struct software_node *ssam_node_group_sp9[] = {
++	&ssam_node_root,
++	&ssam_node_hub_kip,
++	&ssam_node_bat_ac,
++	&ssam_node_bat_main,
++	&ssam_node_tmp_pprof,
++	/* TODO: typecover/KIP devices, we can likely reuse the SP8 node but need validation */
++	&ssam_node_hid_sam_sensors,
++	&ssam_node_hid_sam_ucm_ucsi,
++	NULL,
++};
++
+ 
+ /* -- SSAM platform/meta-hub driver. ---------------------------------------- */
+ 
+@@ -303,6 +317,9 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
+ 	/* Surface Pro 8 */
+ 	{ "MSHW0263", (unsigned long)ssam_node_group_sp8 },
+ 
++	/* Surface Pro 9 */
++	{ "MSHW0343", (unsigned long)ssam_node_group_sp9 },
++
+ 	/* Surface Book 2 */
+ 	{ "MSHW0107", (unsigned long)ssam_node_group_gen5 },
  
 -- 
 2.38.1
