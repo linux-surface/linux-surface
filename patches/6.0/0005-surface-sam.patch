@@ -1022,10 +1022,10 @@ index 585911020cea..3afe293ac114 100644
 -- 
 2.38.1
 
-From 633430779fbfd06713f6907fdcb6a8be4da98279 Mon Sep 17 00:00:00 2001
+From f1274adec1f3f91fad86eaed1566c9d043faa685 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 9 Nov 2022 13:13:12 +0100
-Subject: [PATCH] wip! platform/surface: ggregator_registry: Add preliminary
+Subject: [PATCH] wip! platform/surface: aggregator_registry: Add preliminary
  support for Surface Pro 9
 
 Adds support for battery and charger status, as well as platform profile
@@ -1083,10 +1083,10 @@ index 3afe293ac114..443fe7647315 100644
 -- 
 2.38.1
 
-From 31a1be4047c7c774f466048a02915ff83ef2a245 Mon Sep 17 00:00:00 2001
+From 86721e97861259dadbbd998549bbc3339f4973bf Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 12 Nov 2022 22:51:26 +0100
-Subject: [PATCH] wip! platform/surface: ggregator_registry: Add preliminary
+Subject: [PATCH] wip! platform/surface: aggregator_registry: Add preliminary
  typecover support for Surface Pro 9
 
 Still missing: Tablet mode switch.
@@ -1114,6 +1114,79 @@ index 443fe7647315..58ad4cad445c 100644
  	&ssam_node_hid_sam_sensors,
  	&ssam_node_hid_sam_ucm_ucsi,
  	NULL,
+-- 
+2.38.1
+
+From e585a9fde47a9f2418d160f5da97e274f3319482 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 13 Nov 2022 11:38:58 +0100
+Subject: [PATCH] wip! platform/surface: aggregator: Do not check for repeated
+ unsequenced packets
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/aggregator/ssh_packet_layer.c     | 25 ++++++++++++++++---
+ 1 file changed, 21 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/platform/surface/aggregator/ssh_packet_layer.c b/drivers/platform/surface/aggregator/ssh_packet_layer.c
+index 6748fe4ac5d5..e0d5b18ade0b 100644
+--- a/drivers/platform/surface/aggregator/ssh_packet_layer.c
++++ b/drivers/platform/surface/aggregator/ssh_packet_layer.c
+@@ -1596,16 +1596,33 @@ static void ssh_ptl_timeout_reap(struct work_struct *work)
+ 		ssh_ptl_tx_wakeup_packet(ptl);
+ }
+ 
+-static bool ssh_ptl_rx_retransmit_check(struct ssh_ptl *ptl, u8 seq)
++static bool ssh_ptl_rx_retransmit_check(struct ssh_ptl *ptl,
++					const struct ssh_frame *frame)
+ {
+ 	int i;
+ 
++	/*
++	 * Ignore unsequenced packets. On some devices (notably Surface Pro 9),
++	 * unsequenced events will always be sent with SEQ=0x00. Attempting to
++	 * detect re-transmission would thus just block all events.
++	 * 
++	 * While sequence numbers would also allow detection of re-transmitted
++	 * packets in unsequenced communication, they have only ever been used
++	 * to cover edge-cases in sequenced transmission. In particular, the
++	 * only instance of packets being retransmitted (that we are aware of)
++	 * is due to an ACK timeout. As this does not happen in unsequenced
++	 * communication, skip the re-transmission check for those packets
++	 * entirely. 
++	 */
++	if (frame->type == SSH_FRAME_TYPE_DATA_NSQ)
++		return false;
++
+ 	/*
+ 	 * Check if SEQ has been seen recently (i.e. packet was
+ 	 * re-transmitted and we should ignore it).
+ 	 */
+ 	for (i = 0; i < ARRAY_SIZE(ptl->rx.blocked.seqs); i++) {
+-		if (likely(ptl->rx.blocked.seqs[i] != seq))
++		if (likely(ptl->rx.blocked.seqs[i] != frame->seq))
+ 			continue;
+ 
+ 		ptl_dbg(ptl, "ptl: ignoring repeated data packet\n");
+@@ -1613,7 +1630,7 @@ static bool ssh_ptl_rx_retransmit_check(struct ssh_ptl *ptl, u8 seq)
+ 	}
+ 
+ 	/* Update list of blocked sequence IDs. */
+-	ptl->rx.blocked.seqs[ptl->rx.blocked.offset] = seq;
++	ptl->rx.blocked.seqs[ptl->rx.blocked.offset] = frame->seq;
+ 	ptl->rx.blocked.offset = (ptl->rx.blocked.offset + 1)
+ 				  % ARRAY_SIZE(ptl->rx.blocked.seqs);
+ 
+@@ -1624,7 +1641,7 @@ static void ssh_ptl_rx_dataframe(struct ssh_ptl *ptl,
+ 				 const struct ssh_frame *frame,
+ 				 const struct ssam_span *payload)
+ {
+-	if (ssh_ptl_rx_retransmit_check(ptl, frame->seq))
++	if (ssh_ptl_rx_retransmit_check(ptl, frame))
+ 		return;
+ 
+ 	ptl->ops.data_received(ptl, payload);
 -- 
 2.38.1
 
