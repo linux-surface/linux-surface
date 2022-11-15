@@ -3,6 +3,9 @@
 Linux running on the Microsoft Surface devices.
 Follow the instructions below to install the latest kernel.
 
+[Announcements and Updates](https://github.com/linux-surface/linux-surface/issues/96) | [Upstream Status](https://github.com/linux-surface/linux-surface/issues/205)
+
+
 ### Supported Devices
 
 * Surface Book
