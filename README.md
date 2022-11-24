@@ -19,6 +19,7 @@ Follow the instructions below to install the latest kernel.
 * Surface Laptop 2
 * Surface Laptop 3
 * Surface Laptop 4
+* Surface Laptop 5
 * Surface Laptop Go
 * Surface Laptop Go 2
 * Surface Laptop Studio
@@ -29,6 +30,7 @@ Follow the instructions below to install the latest kernel.
 * Surface Pro 7
 * Surface Pro 7+
 * Surface Pro 8
+* Surface Pro 9
 * Surface Studio
 
 ### Features / What's Working
