@@ -67,12 +67,13 @@ jobs:
       run: |
         cd pkg/debian/kernel/linux
 
+        # generate base config
+        ./debian/scripts/misc/annotations --arch amd64 --flavour generic --export > ../base.config
+
         # merge configs
-        ./scripts/kconfig/merge_config.sh                     \
-          debian.master/config/config.common.ubuntu           \
-          debian.master/config/amd64/config.common.amd64      \
-          debian.master/config/amd64/config.flavour.generic   \
-          ../ubuntu.config                                    \
+        ./scripts/kconfig/merge_config.sh                         \
+          ../base.config                                          \
+          ../ubuntu.config                                        \
           ../../../../configs/surface-${KERNEL_VERSION%.*}.config
 
         # set revision
