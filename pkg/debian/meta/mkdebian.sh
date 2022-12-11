@@ -60,6 +60,11 @@ cat <<EOF > "debian/rules"
 #!/usr/bin/make -f
 export DH_VERBOSE = 1
 
+# The DPKG in Ubuntu 22.04 defaults to using ZSTD, which is not yet supported
+# by the DPKG in Debian 11
+override_dh_builddeb:
+	dh_builddeb -- -Zxz
+
 %:
 	dh \$@
 EOF
