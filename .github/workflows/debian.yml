@@ -76,9 +76,6 @@ jobs:
           ../ubuntu.config                                        \
           ../../../../configs/surface-${KERNEL_VERSION%.*}.config
 
-        # set revision
-        echo "$KERNEL_REVISION" > .version
-
     - name: Setup secureboot certificate
       env:
         SB_KEY: ${{ secrets.SURFACE_SB_KEY }}
@@ -98,6 +95,11 @@ jobs:
         KDEB_COMPRESS: xz
       run: |
         cd pkg/debian/kernel/linux
+
+        # Explicitly set package version, including revision. This is picked up
+        # by 'make bindeb-pkg'.
+        export KDEB_PKGVERSION="${KERNEL_VERSION}${LOCALVERSION}-${KERNEL_REVISION}"
+
         make bindeb-pkg -j2
 
     - name: Build meta-package
