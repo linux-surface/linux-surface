@@ -1,4 +1,4 @@
-From 8d02f91fc93d904e5946efec6cd45238d9a4457b Mon Sep 17 00:00:00 2001
+From 172e2d4a0907bdf22b8bc6d7468c96481a7f355a Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 5 Nov 2020 13:09:45 +0100
 Subject: [PATCH] hid/multitouch: Turn off Type Cover keyboard backlight when
@@ -34,7 +34,7 @@ Patchset: surface-typecover
  1 file changed, 98 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 91a4d3fc30e0..458537bf4a8e 100644
+index 372cbdd223e0..fe849df6a948 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -34,7 +34,10 @@
@@ -216,7 +216,7 @@ index 91a4d3fc30e0..458537bf4a8e 100644
  	del_timer_sync(&td->release_timer);
  
  	sysfs_remove_group(&hdev->dev.kobj, &mt_attribute_group);
-@@ -2191,6 +2282,11 @@ static const struct hid_device_id mt_devices[] = {
+@@ -2195,6 +2286,11 @@ static const struct hid_device_id mt_devices[] = {
  		MT_USB_DEVICE(USB_VENDOR_ID_XIROKU,
  			USB_DEVICE_ID_XIROKU_CSR2) },
  
@@ -231,7 +231,7 @@ index 91a4d3fc30e0..458537bf4a8e 100644
 -- 
 2.39.0
 
-From 14d1755e52b01dc3385ed28e1597468d1630e0ef Mon Sep 17 00:00:00 2001
+From 0a6239b736a59c94c1039d2c1fc553e450b3f721 Mon Sep 17 00:00:00 2001
 From: PJungkamp <p.jungkamp@gmail.com>
 Date: Fri, 25 Feb 2022 12:04:25 +0100
 Subject: [PATCH] hid/multitouch: Add support for surface pro type cover tablet
@@ -260,7 +260,7 @@ Patchset: surface-typecover
  1 file changed, 122 insertions(+), 26 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 458537bf4a8e..3d7d002a662f 100644
+index fe849df6a948..3a7a43eb9fbe 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -76,6 +76,7 @@ MODULE_LICENSE("GPL");
