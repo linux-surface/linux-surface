@@ -1,0 +1,291 @@
+# Maintainer: Guy Godfroy <guy.godfroy@gugod.fr>
+
+_flavor=surface
+pkgname=linux-${_flavor}
+pkgver=6.1.2
+case $pkgver in
+	*.*.*)	_kernver=${pkgver%.*};;
+	*.*) _kernver=$pkgver;;
+esac
+pkgrel=0
+pkgdesc="Linux latest stable kernel with patches for Microsoft Surface hardware"
+url="https://github.com/linux-surface/linux-surface"
+depends="initramfs-generator"
+_depends_dev="perl gmp-dev elfutils-dev bash flex bison"
+makedepends="$_depends_dev sed installkernel bc linux-headers linux-firmware-any
+	openssl-dev diffutils findutils xz"
+options="!strip !check" # no tests
+_config=${config:-config-surface.${CARCH}}
+install=
+arch="x86_64 aarch64"
+
+subpackages="$pkgname-dev:_dev:$CBUILD_ARCH $pkgname-doc:_doc"
+source="https://cdn.kernel.org/pub/linux/kernel/v${pkgver%%.*}.x/linux-$_kernver.tar.xz"
+case $pkgver in
+	*.*.0)	source="$source";;
+	*.*.*)	source="$source
+	https://cdn.kernel.org/pub/linux/kernel/v${pkgver%%.*}.x/patch-$pkgver.xz" ;;
+esac
+
+	source="$source
+	config-surface.x86_64
+	0001-surface3-oemb.patch
+	0002-mwifiex.patch
+	0003-ath10k.patch
+	0004-ipts.patch
+	0005-surface-sam.patch
+	0006-surface-sam-over-hid.patch
+	0007-surface-button.patch
+	0008-surface-typecover.patch
+	0009-cameras.patch
+	0010-amd-gpio.patch
+	0011-rtc.patch
+	surface-$_kernver.config
+	"
+
+builddir="$srcdir/linux-${_kernver}"
+arch="armv7 aarch64 x86_64 riscv64"
+license="GPL-2.0"
+
+_flavors=
+for _i in $source; do
+	case $_i in
+	config-*.$CARCH)
+		_f=${_i%.$CARCH}
+		_f=${_f#config-}
+		_flavors="$_flavors ${_f}"
+		if [ "linux-$_f" != "$pkgname" ]; then
+			subpackages="$subpackages linux-${_f}::$CBUILD_ARCH linux-${_f}-dev:_dev:$CBUILD_ARCH"
+		fi
+		;;
+	esac
+done
+
+_carch=${CARCH}
+case "$_carch" in
+aarch64*) _carch="arm64" ;;
+esac
+
+prepare() {
+	local _patch_failed=
+	cd $builddir
+	case $pkgver in
+		*.*.0);;
+		*)
+		msg "Applying patch-$pkgver.xz"
+		unxz -c < "$srcdir"/patch-$pkgver.xz | patch -p1 -N ;;
+	esac
+
+	# first apply patches in specified order
+	for i in $source; do
+		case $i in
+		*.patch)
+			msg "Applying $i..."
+			if ! patch -s -p1 -N -i "$srcdir"/$i; then
+				echo $i >>failed
+				_patch_failed=1
+			fi
+			;;
+		esac
+	done
+
+	if ! [ -z "$_patch_failed" ]; then
+		error "The following patches failed:"
+		cat failed
+		return 1
+	fi
+
+	# remove localversion from patch if any
+	rm -f localversion*
+	oldconfig
+}
+
+oldconfig() {
+	for i in $_flavors; do
+		local _config=config-$i.${CARCH}
+		mkdir -p "$builddir"
+		echo "-$pkgrel-$i" > "$builddir"/localversion-alpine \
+			|| return 1
+
+		#cp "$srcdir"/$_config "$builddir"/.config
+		./scripts/kconfig/merge_config.sh -m "$srcdir"/$_config "$srcdir"/surface-$_kernver.config
+		make -C $builddir \
+			O="$builddir" \
+			ARCH="$_carch" \
+			listnewconfig olddefconfig
+	done
+}
+
+build() {
+	unset LDFLAGS
+	export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EPOCH})"
+	for i in $_flavors; do
+		cd "$builddir"
+		make ARCH="$_carch" CC="${CC:-gcc}" \
+			KBUILD_BUILD_VERSION="$((pkgrel + 1 ))-Alpine"
+	done
+}
+
+_package() {
+	local _buildflavor="$1" _outdir="$2"
+	local _abi_release=${pkgver}-${pkgrel}-${_buildflavor}
+	export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EPOCH})"
+
+	cd "$builddir"
+	# modules_install seems to regenerate a defect Modules.symvers on s390x. Work
+	# around it by backing it up and restore it after modules_install
+	cp Module.symvers Module.symvers.backup
+
+	mkdir -p "$_outdir"/boot "$_outdir"/lib/modules
+
+	local _install
+	case "$CARCH" in
+		arm*|aarch64) _install="zinstall dtbs_install";;
+		riscv64) _install="install dtbs_install";;
+		*) _install=install;;
+	esac
+
+	make -j1 modules_install $_install \
+		ARCH="$_carch" \
+		INSTALL_MOD_PATH="$_outdir" \
+		INSTALL_PATH="$_outdir"/boot \
+		INSTALL_DTBS_PATH="$_outdir/boot/dtbs-$_buildflavor"
+
+	cp Module.symvers.backup Module.symvers
+
+	rm -f "$_outdir"/lib/modules/${_abi_release}/build \
+		"$_outdir"/lib/modules/${_abi_release}/source
+	rm -rf "$_outdir"/lib/firmware
+
+	install -D -m644 include/config/kernel.release \
+		"$_outdir"/usr/share/kernel/$_buildflavor/kernel.release
+}
+
+# main flavor installs in $pkgdir
+package() {
+	depends="$depends linux-firmware-any"
+
+	_package surface "$pkgdir"
+}
+
+_dev() {
+	local _flavor=$(echo $subpkgname | sed -E 's/(^linux-|-dev$)//g')
+	local _abi_release=${pkgver}-${pkgrel}-$_flavor
+	# copy the only the parts that we really need for build 3rd party
+	# kernel modules and install those as /usr/src/linux-headers,
+	# simlar to what ubuntu does
+	#
+	# this way you dont need to install the 300-400 kernel sources to
+	# build a tiny kernel module
+	#
+	pkgdesc="Headers and script for third party modules for $_flavor kernel"
+	depends="$_depends_dev"
+	local dir="$subpkgdir"/usr/src/linux-headers-${_abi_release}
+	export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EPOCH})"
+
+	# first we import config, run prepare to set up for building
+	# external modules, and create the scripts
+	mkdir -p "$dir"
+	cp "$srcdir"/config-$_flavor.${CARCH} "$dir"/.config
+	echo "-$pkgrel-$_flavor" > "$dir"/localversion-alpine
+	cd $builddir
+
+  echo "Installing headers..."
+	case "$_carch" in
+	x86_64)
+		_carch="x86"
+		install -Dt "${dir}/tools/objtool" $builddir/tools/objtool/objtool
+		;;
+	esac
+  cp -t "$dir" -a $builddir/include
+
+  install -Dt "${dir}" -m644 $builddir/Makefile
+  install -Dt "${dir}" -m644 $builddir/Module.symvers
+  install -Dt "${dir}" -m644 $builddir/System.map
+	cp -t "$dir" -a $builddir/scripts
+
+
+  install -Dt "${dir}/arch/${_carch}" -m644 $builddir/arch/${_carch}/Makefile
+  install -Dt "${dir}/arch/${_carch}/kernel" -m644 $builddir/arch/${_carch}/kernel/asm-offsets.s
+  cp -t "${dir}/arch/${_carch}" -a $builddir/arch/${_carch}/include
+
+  install -Dt "$dir/drivers/md" -m644 drivers/md/*.h
+  install -Dt "$dir/net/mac80211" -m644 net/mac80211/*.h
+
+  # https://bugs.archlinux.org/task/13146
+  install -Dt "$dir/drivers/media/i2c" -m644 drivers/media/i2c/msp3400-driver.h
+
+  # https://bugs.archlinux.org/task/20402
+  install -Dt "$dir/drivers/media/usb/dvb-usb" -m644 drivers/media/usb/dvb-usb/*.h
+  install -Dt "$dir/drivers/media/dvb-frontends" -m644 drivers/media/dvb-frontends/*.h
+  install -Dt "$dir/drivers/media/tuners" -m644 drivers/media/tuners/*.h
+
+  # https://bugs.archlinux.org/task/71392
+  install -Dt "$dir/drivers/iio/common/hid-sensors" -m644 drivers/iio/common/hid-sensors/*.h
+
+  echo "Installing KConfig files..."
+  find . -name 'Kconfig*' -exec install -Dm644 {} "$builddir/{}" \;
+
+  echo "Removing unneeded architectures..."
+  local arch
+  for arch in "$dir"/arch/*/; do
+		case $(basename "$arch") in $_carch) continue ;; esac
+    echo "Removing $(basename "$arch")"
+    rm -r "$arch"
+  done
+
+  echo "Removing broken symlinks..."
+  find -L "$builddir" -type l -printf 'Removing %P\n' -delete
+
+  echo "Removing loose objects..."
+  find "$builddir" -type f -name '*.o' -printf 'Removing %P\n' -delete
+
+  echo "Stripping build tools..."
+  local file
+  while read -rd '' file; do
+    case "$(file -bi "$file")" in
+      application/x-sharedlib\;*)      # Libraries (.so)
+        strip -v $STRIP_SHARED "$file" ;;
+      application/x-archive\;*)        # Libraries (.a)
+        strip -v $STRIP_STATIC "$file" ;;
+      application/x-executable\;*)     # Binaries
+        strip -v $STRIP_BINARIES "$file" ;;
+      application/x-pie-executable\;*) # Relocatable binaries
+        strip -v $STRIP_SHARED "$file" ;;
+    esac
+  done < <(find "$builddir" -type f -perm -u+x ! -name vmlinux -print0)
+
+  echo "Stripping vmlinux..."
+  strip -v $STRIP_STATIC "$builddir/vmlinux"
+
+  echo "Adding symlink..."
+	mkdir -p "$subpkgdir"/lib/modules/${_abi_release}
+	ln -sf /usr/src/linux-headers-${_abi_release} \
+		"$subpkgdir"/lib/modules/${_abi_release}/build
+}
+
+_doc() {
+	pkgdesc="documentation for $_flavor kernel"
+	mkdir -p "$subpkgdir"/usr/share/doc/linux-surface-doc
+	cp -r "$builddir"/Documentation \
+		"$subpkgdir"/usr/share/doc/linux-surface-doc/
+
+}
+
+sha512sums="
+6ed2a73c2699d0810e54753715635736fc370288ad5ce95c594f2379959b0e418665cd71bc512a0273fe226fe90074d8b10d14c209080a6466498417a4fdda68  linux-6.1.tar.xz
+f2463224fa59022b56a30ed601c64a25c60b28f29db28fc94c66dd9d82f94a177de0d47c7a4b26822bc8541f6e230053431b1c8884996cd0ddaa7c9ea4f3a9f6  patch-6.1.2.xz
+3ad9883d54cf6b90d93066636d8ad60e0831e15ff1dcb4bf1cb42c38798ba448cf1e6df7f88dc0457ecfa9bae9d5d466d2e6d302b04cf3db9b3513df6db2d042  config-surface.x86_64
+9911ad23fc51b32e6b2ceda643eff19962581e8568f9a4cb8d93fb840d8867be99e97e1ad3fc20d0e51ec582a6a473486f1bc9484367d6ed8ae8f1f435ffbf70  0001-surface3-oemb.patch
+dbcf8d487c31a2256ebfd5771c6f2c17cf2c1c504b5b851bf53cd6f25d1cc41349976655f427c47dc72ba4fb82296b7d17856152112fa888f0dba702d292a9fa  0002-mwifiex.patch
+c3e4e74a4af62e18643580aec967ee0848af2b901db7b20765f1ae809e84370d71b5796240cef9c47dc72ed396e01d3ff3fae3cf0dc4dce0ebe38239753a8d59  0003-ath10k.patch
+cb1fe3eb179620f7848f18b78a032a8516bc3c90d919efcac9112f1c43baab3df99098afb26bf0574d44f482ae4e1c89c743228667bc5a7c1a52e573c089c4c8  0004-ipts.patch
+cff3bbe7661c92c77ce5a796cec6995a53838a1e7618b1f721d2840d4b6561c4dda856470ac5cbaf1707745a738048cb785c18864a96e0321bf122db79e94948  0005-surface-sam.patch
+e3e1b1661ad03dde09ce3334c01c100facd41d51ee80f6227c3f8b69d82dffe550b8e075defe23dfde9d61a2988d769e78e8df277cd50fc537229aaa9ba5b3a7  0006-surface-sam-over-hid.patch
+d1e84b27444c59293ace2bfc94a9224dee0192404c49cd5c69fb437c2ac6311cebf221e18e06225336dd26b083af5d598cf36ac793a3e7fba7cb1c5703d35694  0007-surface-button.patch
+c3d7dee19436267a0a352c7145809cf5c30bd40574f25a85421ea71262488b5a0d9f8a8708cd29aee8dcf78e49952117f9db95f5f6994e044a74175928cdcaae  0008-surface-typecover.patch
+fa11cc31a96b2a69b5b0ced4d045cbca38f320208042ccbe65d45342c5ccbd1fbf5a19cd67e1e64027a4f3c4df5ab2f4a0c2e5b1721d810a9a8bbfb584afbd88  0009-cameras.patch
+221a8483cbe2a47140c6e6be43d39ceb0ec20333a086586bb668569ac9b1d5dc71f6f9be88651bd809f0d9fdc97ab087172ad68c8f3804b9ae0e8e2ce2449f4f  0010-amd-gpio.patch
+541e450c2ae18148da934fe0d7345218227231ced56496a6cb980d669c779f67d13f92eec5d2b9b032f8e63d445a2e9ba7eed10933ddfcf906b128cbf4cd9645  0011-rtc.patch
+29deacd2eb71e7479b2e2e71e1539a32167fc033cf0231fd9922ffb3c99506caa44060e71e31d034aff24591a69941391597ecd365fb550883385e9682b97d65  surface-6.1.config
+"
