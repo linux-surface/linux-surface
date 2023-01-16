@@ -1,4 +1,4 @@
-From dd4e87b9c7f4930a07b93c73b4d85de6282c9910 Mon Sep 17 00:00:00 2001
+From d7034b752abab1bc8bbeae6bec214434a59e9a43 Mon Sep 17 00:00:00 2001
 From: Hans de Goede <hdegoede@redhat.com>
 Date: Sun, 10 Oct 2021 20:56:57 +0200
 Subject: [PATCH] ACPI: delay enumeration of devices with a _DEP pointing to an
@@ -74,7 +74,7 @@ index b47e93a24a9a..22c921886cbe 100644
 -- 
 2.39.0
 
-From 04d727b390677c247ce35cd3c459a9706c92149b Mon Sep 17 00:00:00 2001
+From b7ae48c658abca801fb92cc6c734a3e3726ede8a Mon Sep 17 00:00:00 2001
 From: zouxiaoh <xiaohong.zou@intel.com>
 Date: Fri, 25 Jun 2021 08:52:59 +0800
 Subject: [PATCH] iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs
@@ -191,7 +191,7 @@ index 408c321b929a..6e58effbe12b 100644
 -- 
 2.39.0
 
-From aab7172afbd549a758e01f936b9a6683ba59b474 Mon Sep 17 00:00:00 2001
+From b8246f77d572fe16b5cd53acf2473cb6eddcaddc Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 10 Oct 2021 20:57:02 +0200
 Subject: [PATCH] platform/x86: int3472: Enable I2c daisy chain
@@ -228,7 +228,7 @@ index 5b8d1a9620a5..6a0ff035cf20 100644
 -- 
 2.39.0
 
-From c429d67a19c8860fd3b7f7b0a4f95fa465028fe6 Mon Sep 17 00:00:00 2001
+From 75d54e3be5ceb01b46d74e3e9d3af3f88d7a2669 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 28 Oct 2021 21:55:16 +0100
 Subject: [PATCH] media: i2c: Add driver for DW9719 VCM
@@ -732,7 +732,7 @@ index 000000000000..180b04d2a6b3
 -- 
 2.39.0
 
-From dec3b71065ccf948d1d4830e46adad41ac134195 Mon Sep 17 00:00:00 2001
+From 0611d5aa6bb68362b37dc6dc310050ed2d16bd64 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 4 May 2022 23:21:45 +0100
 Subject: [PATCH] media: ipu3-cio2: Move functionality from .complete() to
@@ -847,7 +847,7 @@ index 390bd5ea3472..76339fb842bf 100644
 -- 
 2.39.0
 
-From 1020ddb552417b2af335b0ad73efafad56cdd039 Mon Sep 17 00:00:00 2001
+From 65a24c651f437949aaa6cd640bf8318d747a92ce Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 2 Jun 2022 22:15:56 +0100
 Subject: [PATCH] media: ipu3-cio2: Re-add .complete() to ipu3-cio2
@@ -890,7 +890,7 @@ index 76339fb842bf..eb7aa269ec2b 100644
 -- 
 2.39.0
 
-From f27e3ae91e4d86ceb751029090de793847022949 Mon Sep 17 00:00:00 2001
+From c07d00b78e9792663f36a8f57444fc9b4e66a0d8 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 15 Jul 2022 23:48:00 +0200
 Subject: [PATCH] drivers/media/i2c: Fix DW9719 dependencies
@@ -916,137 +916,6 @@ index 98d081efeef7..c67966cafe10 100644
  	select MEDIA_CONTROLLER
  	select VIDEO_V4L2_SUBDEV_API
  	select V4L2_ASYNC
--- 
-2.39.0
-
-From b5235eb7d37be79d8e6d50e02bba67a48dae90f0 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Wed, 7 Sep 2022 15:38:08 +0200
-Subject: [PATCH] ipu3-imgu: Fix NULL pointer dereference in
- imgu_subdev_set_selection()
-
-Calling v4l2_subdev_get_try_crop() and v4l2_subdev_get_try_compose()
-with a subdev state of NULL leads to a NULL pointer dereference. This
-can currently happen in imgu_subdev_set_selection() when the state
-passed in is NULL, as this method first gets pointers to both the "try"
-and "active" states and only then decides which to use.
-
-The same issue has been addressed for imgu_subdev_get_selection() with
-commit 30d03a0de650 ("ipu3-imgu: Fix NULL pointer dereference in active
-selection access"). However the issue still persists in
-imgu_subdev_set_selection().
-
-Therefore, apply a similar fix as done in the aforementioned commit to
-imgu_subdev_set_selection(). To keep things a bit cleaner, introduce
-helper functions for "crop" and "compose" access and use them in both
-imgu_subdev_set_selection() and imgu_subdev_get_selection().
-
-Fixes: 0d346d2a6f54 ("media: v4l2-subdev: add subdev-wide state struct")
-Cc: stable@vger.kernel.org # for v5.14 and later
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
-Patchset: cameras
----
- drivers/staging/media/ipu3/ipu3-v4l2.c | 57 +++++++++++++++-----------
- 1 file changed, 34 insertions(+), 23 deletions(-)
-
-diff --git a/drivers/staging/media/ipu3/ipu3-v4l2.c b/drivers/staging/media/ipu3/ipu3-v4l2.c
-index ce13e746c15f..e530767e80a5 100644
---- a/drivers/staging/media/ipu3/ipu3-v4l2.c
-+++ b/drivers/staging/media/ipu3/ipu3-v4l2.c
-@@ -188,6 +188,28 @@ static int imgu_subdev_set_fmt(struct v4l2_subdev *sd,
- 	return 0;
- }
- 
-+static struct v4l2_rect *
-+imgu_subdev_get_crop(struct imgu_v4l2_subdev *sd,
-+		     struct v4l2_subdev_state *sd_state, unsigned int pad,
-+		     enum v4l2_subdev_format_whence which)
-+{
-+	if (which == V4L2_SUBDEV_FORMAT_TRY)
-+		return v4l2_subdev_get_try_crop(&sd->subdev, sd_state, pad);
-+	else
-+		return &sd->rect.eff;
-+}
-+
-+static struct v4l2_rect *
-+imgu_subdev_get_compose(struct imgu_v4l2_subdev *sd,
-+			struct v4l2_subdev_state *sd_state, unsigned int pad,
-+			enum v4l2_subdev_format_whence which)
-+{
-+	if (which == V4L2_SUBDEV_FORMAT_TRY)
-+		return v4l2_subdev_get_try_compose(&sd->subdev, sd_state, pad);
-+	else
-+		return &sd->rect.bds;
-+}
-+
- static int imgu_subdev_get_selection(struct v4l2_subdev *sd,
- 				     struct v4l2_subdev_state *sd_state,
- 				     struct v4l2_subdev_selection *sel)
-@@ -200,18 +222,12 @@ static int imgu_subdev_get_selection(struct v4l2_subdev *sd,
- 
- 	switch (sel->target) {
- 	case V4L2_SEL_TGT_CROP:
--		if (sel->which == V4L2_SUBDEV_FORMAT_TRY)
--			sel->r = *v4l2_subdev_get_try_crop(sd, sd_state,
--							   sel->pad);
--		else
--			sel->r = imgu_sd->rect.eff;
-+		sel->r = *imgu_subdev_get_crop(imgu_sd, sd_state, sel->pad,
-+					       sel->which);
- 		return 0;
- 	case V4L2_SEL_TGT_COMPOSE:
--		if (sel->which == V4L2_SUBDEV_FORMAT_TRY)
--			sel->r = *v4l2_subdev_get_try_compose(sd, sd_state,
--							      sel->pad);
--		else
--			sel->r = imgu_sd->rect.bds;
-+		sel->r = *imgu_subdev_get_compose(imgu_sd, sd_state, sel->pad,
-+						  sel->which);
- 		return 0;
- 	default:
- 		return -EINVAL;
-@@ -223,10 +239,9 @@ static int imgu_subdev_set_selection(struct v4l2_subdev *sd,
- 				     struct v4l2_subdev_selection *sel)
- {
- 	struct imgu_device *imgu = v4l2_get_subdevdata(sd);
--	struct imgu_v4l2_subdev *imgu_sd = container_of(sd,
--							struct imgu_v4l2_subdev,
--							subdev);
--	struct v4l2_rect *rect, *try_sel;
-+	struct imgu_v4l2_subdev *imgu_sd =
-+		container_of(sd, struct imgu_v4l2_subdev, subdev);
-+	struct v4l2_rect *rect;
- 
- 	dev_dbg(&imgu->pci_dev->dev,
- 		 "set subdev %u sel which %u target 0x%4x rect [%ux%u]",
-@@ -238,22 +253,18 @@ static int imgu_subdev_set_selection(struct v4l2_subdev *sd,
- 
- 	switch (sel->target) {
- 	case V4L2_SEL_TGT_CROP:
--		try_sel = v4l2_subdev_get_try_crop(sd, sd_state, sel->pad);
--		rect = &imgu_sd->rect.eff;
-+		rect = imgu_subdev_get_crop(imgu_sd, sd_state, sel->pad,
-+					    sel->which);
- 		break;
- 	case V4L2_SEL_TGT_COMPOSE:
--		try_sel = v4l2_subdev_get_try_compose(sd, sd_state, sel->pad);
--		rect = &imgu_sd->rect.bds;
-+		rect = imgu_subdev_get_compose(imgu_sd, sd_state, sel->pad,
-+					       sel->which);
- 		break;
- 	default:
- 		return -EINVAL;
- 	}
- 
--	if (sel->which == V4L2_SUBDEV_FORMAT_TRY)
--		*try_sel = sel->r;
--	else
--		*rect = sel->r;
--
-+	*rect = sel->r;
- 	return 0;
- }
- 
 -- 
 2.39.0
 
