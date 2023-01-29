@@ -1,4 +1,4 @@
-From 9e44cdad03a46c1f08f3be86173c118c6db561c6 Mon Sep 17 00:00:00 2001
+From 49d4e0f3885582fbc2a49dd6cb858ccd2d16a1bc Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 5 Nov 2022 21:23:53 +0100
 Subject: [PATCH] platform/surface: aggregator: Improve documentation and
@@ -111,7 +111,7 @@ index bf007d6c9873..18fd0f0aee84 100644
  
  Limitations and Observations
 diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
-index 43e765199137..54bfb1f3d2dc 100644
+index c6537a1b3a2e..2c99f51ccd4e 100644
 --- a/drivers/platform/surface/aggregator/controller.c
 +++ b/drivers/platform/surface/aggregator/controller.c
 @@ -994,7 +994,7 @@ static void ssam_handle_event(struct ssh_rtl *rtl,
@@ -123,7 +123,7 @@ index 43e765199137..54bfb1f3d2dc 100644
  	item->event.command_id = cmd->cid;
  	item->event.instance_id = cmd->iid;
  	memcpy(&item->event.data[0], data->ptr, data->len);
-@@ -1777,35 +1777,35 @@ EXPORT_SYMBOL_GPL(ssam_request_sync_with_buffer);
+@@ -1779,35 +1779,35 @@ EXPORT_SYMBOL_GPL(ssam_request_sync_with_buffer);
  
  SSAM_DEFINE_SYNC_REQUEST_R(ssam_ssh_get_firmware_version, __le32, {
  	.target_category = SSAM_SSH_TC_SAM,
@@ -259,82 +259,9 @@ index 45501b6e54e8..5c4ae1a26183 100644
   * Known SSH/EC target categories.
   *
 -- 
-2.39.0
+2.39.1
 
-From 29ac02c869e3070532fa9f6a947dbde5125afe2d Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Sat, 5 Nov 2022 21:30:58 +0100
-Subject: [PATCH] platform/surface: aggregator: Ignore command messages not
- intended for us
-
-It is possible that we (the host/kernel driver) receive command messages
-that are not intended for us. Ignore those for now.
-
-The whole story is a bit more complicated: It is possible to enable
-debug output on SAM, which is sent via SSH command messages. By default
-this output is sent to a debug connector, with its own target ID
-(TID=0x03). It is possible to override the target of the debug output
-and set it to the host/kernel driver. This, however, does not change the
-original target ID of the message. Meaning, we receive messages with
-TID=0x03 (debug) but expect to only receive messages with TID=0x00
-(host).
-
-The problem is that the different target ID also comes with a different
-scope of request IDs. In particular, these do not follow the standard
-event rules (i.e. do not fall into a set of small reserved values).
-Therefore, current message handling interprets them as responses to
-pending requests and tries to match them up via the request ID. However,
-these debug output messages are not in fact responses, and therefore
-this will at best fail to find the request and at worst pass on the
-wrong data as response for a request.
-
-Therefore ignore any command messages not intended for us (host) for
-now. We can implement support for the debug messages once we have a
-better understanding of them.
-
-Note that this may also provide a bit more stability and avoid some
-driver confusion in case any other targets want to talk to us in the
-future, since we don't yet know what to do with those as well. A warning
-for the dropped messages should suffice for now and also give us a
-chance of discovering new targets if they come along without any
-potential for bugs/instabilities.
-
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
-Patchset: surface-sam
----
- .../surface/aggregator/ssh_request_layer.c        | 15 +++++++++++++++
- 1 file changed, 15 insertions(+)
-
-diff --git a/drivers/platform/surface/aggregator/ssh_request_layer.c b/drivers/platform/surface/aggregator/ssh_request_layer.c
-index f5565570f16c..90634dcacabf 100644
---- a/drivers/platform/surface/aggregator/ssh_request_layer.c
-+++ b/drivers/platform/surface/aggregator/ssh_request_layer.c
-@@ -916,6 +916,21 @@ static void ssh_rtl_rx_command(struct ssh_ptl *p, const struct ssam_span *data)
- 	if (sshp_parse_command(dev, data, &command, &command_data))
- 		return;
- 
-+	/*
-+	 * Check if the message was intended for us. If not, drop it.
-+	 *
-+	 * Note: We will need to change this to handle debug messages. On newer
-+	 * generation devices, these seem to be sent to SSAM_SSH_TID_DEBUG. We
-+	 * as host can still receive them as they can be forwarded via an
-+	 * override option on SAM, but doing so does not change the target ID
-+	 * to SSAM_SSH_TID_HOST.
-+	 */
-+	if (command->tid != SSAM_SSH_TID_HOST) {
-+		rtl_warn(rtl, "rtl: dropping message not intended for us (tid = %#04x)\n",
-+			 command->tid);
-+		return;
-+	}
-+
- 	if (ssh_rqid_is_event(get_unaligned_le16(&command->rqid)))
- 		ssh_rtl_rx_event(rtl, command, &command_data);
- 	else
--- 
-2.39.0
-
-From 7b80425cbcee6aeac0cf312367c1f98df72f2093 Mon Sep 17 00:00:00 2001
+From 7bbedf41c6dc00352b90d84bddc951b2ff429b27 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 5 Nov 2022 21:42:19 +0100
 Subject: [PATCH] platform/surface: aggregator: Add target and source IDs to
@@ -526,9 +453,9 @@ index 2a2c17771d01..55cc61bba1da 100644
  		ssam_show_generic_u8_field(__entry->cid),
  		ssam_show_generic_u8_field(__entry->iid),
 -- 
-2.39.0
+2.39.1
 
-From 28f119067bd5982c043f3822b01a864e60d6ec54 Mon Sep 17 00:00:00 2001
+From bdeb5fd1669c2f2235aae296a2ec15d73cd6d160 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 5 Nov 2022 21:32:16 +0100
 Subject: [PATCH] platform/surface: aggregator_hub: Use target-ID enum instead
@@ -566,9 +493,9 @@ index 43061514be38..62f27cdb6ca8 100644
  	.instance_id     = 0x00,
  });
 -- 
-2.39.0
+2.39.1
 
-From e9cc6b4179e0e913d5203273742b0ad40f9da048 Mon Sep 17 00:00:00 2001
+From 9b8a09ae48a87958a28d941bc5a3424d93e5ac88 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 5 Nov 2022 21:33:26 +0100
 Subject: [PATCH] platform/surface: aggregator_tabletsw: Use target-ID enum
@@ -615,9 +542,9 @@ index 27d95a6a7851..bd8cd453c393 100644
  	.instance_id     = 0x00,
  });
 -- 
-2.39.0
+2.39.1
 
-From 118efac5894275e2910b1e6a7764da49ef78a017 Mon Sep 17 00:00:00 2001
+From 9b0a4cdd3f96e6004dc34bba3c6ffbdc6bcb746d Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 5 Nov 2022 21:34:06 +0100
 Subject: [PATCH] platform/surface: dtx: Use target-ID enum instead of
@@ -710,9 +637,9 @@ index ed36944467f9..0de76a784a35 100644
  	.instance_id     = 0x00,
  });
 -- 
-2.39.0
+2.39.1
 
-From 1bf091f4db2f290dc82252ae0479f92e37dc87b0 Mon Sep 17 00:00:00 2001
+From 9cc6a8de04a496870726ff69726c004a198530b2 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 5 Nov 2022 21:40:06 +0100
 Subject: [PATCH] HID: surface-hid: Use target-ID enum instead of hard-coding
@@ -741,9 +668,9 @@ index 0635341bc517..42933bf3e925 100644
  	shid->uid.function = 0;
  
 -- 
-2.39.0
+2.39.1
 
-From 9530d700f41edbddd880d2bec9e3b6547de811f3 Mon Sep 17 00:00:00 2001
+From 54e9685da6a18f97a58838547ad07e3baaa01ebf Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 5 Nov 2022 21:45:28 +0100
 Subject: [PATCH] platform/surface: aggregator: Enforce use of target-ID enum
@@ -973,9 +900,9 @@ index 46c45d1b6368..4da20b7a0ee5 100644
  /*
   * enum ssam_device_flags - Flags for SSAM client devices.
 -- 
-2.39.0
+2.39.1
 
-From f905337cf4c31e3cc429b94ab9586b370b882c23 Mon Sep 17 00:00:00 2001
+From 795b4ddb4d3dad38b5123e354b25b327632e0ce5 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 5 Nov 2022 21:46:37 +0100
 Subject: [PATCH] platform/surface: aggregator_registry: Fix target-ID of
@@ -1020,5 +947,5 @@ index 023f126121d7..296f72d52e6a 100644
  };
  
 -- 
-2.39.0
+2.39.1
 
