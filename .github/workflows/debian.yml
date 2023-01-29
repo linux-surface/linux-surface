@@ -8,7 +8,7 @@ name: Debian
 env:
   GPG_KEY_ID: 56C464BAAC421453
   KERNEL_VERSION: 6.1.6
-  KERNEL_REVISION: 1
+  KERNEL_REVISION: 2
   LOCALVERSION: -surface
   MAINLINE_REPO: git://git.launchpad.net/~ubuntu-kernel-test/ubuntu/+source/linux/+git/mainline-crack
   MAINLINE_BRANCH: cod/mainline
@@ -18,7 +18,7 @@ jobs:
   build:
     name: Build Kernel
     runs-on: ubuntu-latest
-    container: ubuntu:22.04
+    container: ubuntu:20.04
     steps:
     - name: Checkout code
       uses: actions/checkout@v2
@@ -29,9 +29,17 @@ jobs:
         ln -snf /usr/share/zoneinfo/$TZ /etc/localtime
         echo $TZ > /etc/timezone
         apt-get -y update
-        apt-get -y install build-essential fakeroot rsync git wget python3-debian python-is-python3 \
+        apt-get -y install build-essential fakeroot rsync git wget software-properties-common \
             zstd lz4 sbsigntool debhelper dpkg-dev dpkg-sig
         apt-get -y build-dep linux
+
+        # install python 3.11, required for configuring the kernel via Ubuntu's annotation format
+        add-apt-repository -y ppa:deadsnakes
+        apt-get -y update
+        apt-get -y install python3.11
+        ln -s /usr/bin/python3.11 /usr/bin/python
+
+        apt-get -y upgrade
 
     - name: Prepare kernel source
       run: |
