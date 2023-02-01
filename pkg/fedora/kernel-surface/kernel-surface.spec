@@ -5,8 +5,8 @@
 %global kernel_tag_fc37 kernel-6.1.8-200.fc37
 %global kernel_tag_fc36 kernel-6.1.8-100.fc36
 
-%global kernel_release_fc37 1
-%global kernel_release_fc36 1
+%global kernel_release_fc37 2
+%global kernel_release_fc36 2
 
 # This is what is printed in the GRUB menu. These cannot be fetched from the
 # buildhost, because in a container this will also say container. To get the
@@ -14,7 +14,7 @@
 %global fedora_title_fc37 37 (Thirty Seven)
 %global fedora_title_fc36 36 (Thirty Six)
 
-%global ls_patches_commit 346cf6f9a14fc18ed601fa95e1d3ddfcab23f059
+%global ls_patches_commit a33c303ba5c49bb8f72396273a57b40fd84f7a0f
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -98,13 +98,14 @@ Patch0:     %{surface_source}/%{kernel_patches}/0001-surface3-oemb.patch
 Patch1:     %{surface_source}/%{kernel_patches}/0002-mwifiex.patch
 Patch2:     %{surface_source}/%{kernel_patches}/0003-ath10k.patch
 Patch3:     %{surface_source}/%{kernel_patches}/0004-ipts.patch
-Patch4:     %{surface_source}/%{kernel_patches}/0005-surface-sam.patch
-Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam-over-hid.patch
-Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-button.patch
-Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-typecover.patch
-Patch8:     %{surface_source}/%{kernel_patches}/0009-cameras.patch
-Patch9:     %{surface_source}/%{kernel_patches}/0010-amd-gpio.patch
-Patch10:    %{surface_source}/%{kernel_patches}/0011-rtc.patch
+Patch4:     %{surface_source}/%{kernel_patches}/0005-ithc.patch
+Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam.patch
+Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-sam-over-hid.patch
+Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-button.patch
+Patch8:     %{surface_source}/%{kernel_patches}/0009-surface-typecover.patch
+Patch9:     %{surface_source}/%{kernel_patches}/0010-cameras.patch
+Patch10:    %{surface_source}/%{kernel_patches}/0011-amd-gpio.patch
+Patch11:    %{surface_source}/%{kernel_patches}/0012-rtc.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
