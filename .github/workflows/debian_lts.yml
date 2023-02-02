@@ -21,7 +21,7 @@ jobs:
     container: ubuntu:20.04
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Install build dependencies
       run: |
@@ -120,7 +120,7 @@ jobs:
         dpkg-sig -g "--batch --no-tty" --sign builder -k $GPG_KEY_ID release/*.deb
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v3
       with:
         name: debian-latest
         path: release
@@ -131,12 +131,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Download artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v3
       with:
         name: debian-latest
+        path: debian-latest
 
     - name: Upload assets
-      uses: svenstaro/upload-release-action@v1-release
+      uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_BOT_TOKEN }}
         file: ./*-latest/*
@@ -156,9 +157,10 @@ jobs:
         apt-get install -y reprepro git
 
     - name: Download artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v3
       with:
         name: debian-latest
+        path: debian-latest
 
     - name: Update repository
       env:

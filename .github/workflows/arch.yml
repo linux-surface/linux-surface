@@ -15,7 +15,7 @@ jobs:
     container: archlinux
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Install build dependencies
       run: |
@@ -68,7 +68,7 @@ jobs:
         ls *.pkg.tar.zst | xargs -L1 gpg --detach-sign --batch --no-tty -u $GPG_KEY_ID
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v3
       with:
         name: arch-latest
         path: release
@@ -79,12 +79,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Download artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v3
       with:
         name: arch-latest
+        path: arch-latest
 
     - name: Upload assets
-      uses: svenstaro/upload-release-action@v1-release
+      uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_BOT_TOKEN }}
         file: ./*-latest/*
@@ -104,9 +105,10 @@ jobs:
         pacman -S --noconfirm base-devel git
 
     - name: Download artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v3
       with:
         name: arch-latest
+        path: arch-latest
 
     - name: Update repository
       env:

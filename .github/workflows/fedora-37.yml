@@ -17,7 +17,7 @@ jobs:
       options: --security-opt seccomp=unconfined
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Install build dependencies
       run: |
@@ -55,7 +55,7 @@ jobs:
         rpm --resign *.rpm --define "_gpg_name $GPG_KEY_ID"
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v3
       with:
         name: fedora-37-latest
         path: pkg/fedora/kernel-surface/out/x86_64
@@ -66,12 +66,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Download artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v3
       with:
         name: fedora-37-latest
+        path: fedora-37-latest
 
     - name: Upload assets
-      uses: svenstaro/upload-release-action@v1-release
+      uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_BOT_TOKEN }}
         file: ./*-latest/*
@@ -92,9 +93,10 @@ jobs:
         dnf install -y git findutils
 
     - name: Download artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v3
       with:
         name: fedora-37-latest
+        path: fedora-37-latest
 
     - name: Update repository
       env:
