@@ -2,11 +2,11 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc37 kernel-6.1.8-200.fc37
-%global kernel_tag_fc36 kernel-6.1.8-100.fc36
+%global kernel_tag_fc37 kernel-6.1.11-200.fc37
+%global kernel_tag_fc36 kernel-6.1.11-100.fc36
 
-%global kernel_release_fc37 2
-%global kernel_release_fc36 2
+%global kernel_release_fc37 1
+%global kernel_release_fc36 1
 
 # This is what is printed in the GRUB menu. These cannot be fetched from the
 # buildhost, because in a container this will also say container. To get the
@@ -14,7 +14,7 @@
 %global fedora_title_fc37 37 (Thirty Seven)
 %global fedora_title_fc36 36 (Thirty Six)
 
-%global ls_patches_commit a33c303ba5c49bb8f72396273a57b40fd84f7a0f
+%global ls_patches_commit 326ae0fdcc347ecf34f13a971b80a71bd6202b48
 
 %global sb_crt surface.crt
 %global sb_key surface.key
