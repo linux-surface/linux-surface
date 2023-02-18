@@ -1,4 +1,45 @@
-From 10c82d4230dcb3ceb09d947a8d8d1b9f864bc35e Mon Sep 17 00:00:00 2001
+From c419d751a284a6489ad4a8478e69b1e370819231 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sat, 18 Feb 2023 01:02:49 +0100
+Subject: [PATCH] USB: quirks: Add USB_QUIRK_DELAY_INIT for Surface Go 3
+ Type-Cover
+
+The touchpad on the Type-Cover of the Surface Go 3 is sometimes not
+being initialized properly. Apply USB_QUIRK_DELAY_INIT to fix this
+issue.
+
+More specifically, the device in question is a fairly standard modern
+touchpad with pointer and touchpad input modes. During setup, the device
+needs to be switched from pointer- to touchpad-mode (which is done in
+hid-multitouch) to fully utilize it as intended. Unfortunately, however,
+this seems to occasionally fail silently, leaving the device in
+pointer-mode. Applying USB_QUIRK_DELAY_INIT seems to fix this.
+
+Link: https://github.com/linux-surface/linux-surface/issues/1059
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-typecover
+---
+ drivers/usb/core/quirks.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/usb/core/quirks.c b/drivers/usb/core/quirks.c
+index 934b3d997702..2c6604c6e8e1 100644
+--- a/drivers/usb/core/quirks.c
++++ b/drivers/usb/core/quirks.c
+@@ -220,6 +220,9 @@ static const struct usb_device_id usb_quirk_list[] = {
+ 	/* Microsoft Surface Dock Ethernet (RTL8153 GigE) */
+ 	{ USB_DEVICE(0x045e, 0x07c6), .driver_info = USB_QUIRK_NO_LPM },
+ 
++	/* Microsoft Surface Go 3 Type-Cover */
++	{ USB_DEVICE(0x045e, 0x09b5), .driver_info = USB_QUIRK_DELAY_INIT },
++
+ 	/* Cherry Stream G230 2.0 (G85-231) and 3.0 (G85-232) */
+ 	{ USB_DEVICE(0x046a, 0x0023), .driver_info = USB_QUIRK_RESET_RESUME },
+ 
+-- 
+2.39.2
+
+From e1455f50b19da079f428bae9ae24eec25c9996f8 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 5 Nov 2020 13:09:45 +0100
 Subject: [PATCH] hid/multitouch: Turn off Type Cover keyboard backlight when
@@ -229,9 +270,9 @@ index 372cbdd223e0..fe849df6a948 100644
  	{ .driver_data = MT_CLS_GOOGLE,
  		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY, USB_VENDOR_ID_GOOGLE,
 -- 
-2.39.1
+2.39.2
 
-From 64602aaa410c328f7fd60d431541f766c4465985 Mon Sep 17 00:00:00 2001
+From d26b30c213dd92d7aa7e2a8026b1ac50da165534 Mon Sep 17 00:00:00 2001
 From: PJungkamp <p.jungkamp@gmail.com>
 Date: Fri, 25 Feb 2022 12:04:25 +0100
 Subject: [PATCH] hid/multitouch: Add support for surface pro type cover tablet
@@ -529,5 +570,5 @@ index fe849df6a948..3a7a43eb9fbe 100644
  	unregister_pm_notifier(&td->pm_notifier);
  	del_timer_sync(&td->release_timer);
 -- 
-2.39.1
+2.39.2
 
