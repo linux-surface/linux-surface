@@ -5,8 +5,8 @@
 %global kernel_tag_fc37 kernel-6.1.12-200.fc37
 %global kernel_tag_fc36 kernel-6.1.12-100.fc36
 
-%global kernel_release_fc37 1
-%global kernel_release_fc36 1
+%global kernel_release_fc37 2
+%global kernel_release_fc36 2
 
 # This is what is printed in the GRUB menu. These cannot be fetched from the
 # buildhost, because in a container this will also say container. To get the
@@ -14,7 +14,7 @@
 %global fedora_title_fc37 37 (Thirty Seven)
 %global fedora_title_fc36 36 (Thirty Six)
 
-%global ls_patches_commit 0ee6e0d694a85817c7cbe56482cf6bd55a9253f3
+%global ls_patches_commit 90f0d914260faf094ab488945e2654279be999a1
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -103,9 +103,10 @@ Patch5:     %{surface_source}/%{kernel_patches}/0006-surface-sam.patch
 Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-sam-over-hid.patch
 Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-button.patch
 Patch8:     %{surface_source}/%{kernel_patches}/0009-surface-typecover.patch
-Patch9:     %{surface_source}/%{kernel_patches}/0010-cameras.patch
-Patch10:    %{surface_source}/%{kernel_patches}/0011-amd-gpio.patch
-Patch11:    %{surface_source}/%{kernel_patches}/0012-rtc.patch
+Patch9:     %{surface_source}/%{kernel_patches}/0010-surface-shutdown.patch
+Patch10:    %{surface_source}/%{kernel_patches}/0011-cameras.patch
+Patch11:    %{surface_source}/%{kernel_patches}/0012-amd-gpio.patch
+Patch12:    %{surface_source}/%{kernel_patches}/0013-rtc.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
