@@ -1,4 +1,4 @@
-From 7dd556a6570b366084aa07918ac864d10f6f9982 Mon Sep 17 00:00:00 2001
+From ff971c76a02ccf8b17525094d207126dad975826 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 19 Feb 2023 22:12:24 +0100
 Subject: [PATCH] PCI: Add quirk to prevent calling shutdown mehtod
@@ -18,9 +18,9 @@ Not-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-shutdown
 ---
  drivers/pci/pci-driver.c |  3 +++
- drivers/pci/quirks.c     | 28 ++++++++++++++++++++++++++++
+ drivers/pci/quirks.c     | 36 ++++++++++++++++++++++++++++++++++++
  include/linux/pci.h      |  1 +
- 3 files changed, 32 insertions(+)
+ 3 files changed, 40 insertions(+)
 
 diff --git a/drivers/pci/pci-driver.c b/drivers/pci/pci-driver.c
 index 107d77f3c846..4c64424a794f 100644
@@ -37,10 +37,10 @@ index 107d77f3c846..4c64424a794f 100644
  
  	if (drv && drv->shutdown)
 diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
-index 285acc4aaccc..c562fdeaf7f0 100644
+index 285acc4aaccc..7c8a5e8ef6b5 100644
 --- a/drivers/pci/quirks.c
 +++ b/drivers/pci/quirks.c
-@@ -5992,3 +5992,31 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9a2d, dpc_log_size);
+@@ -5992,3 +5992,39 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9a2d, dpc_log_size);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9a2f, dpc_log_size);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9a31, dpc_log_size);
  #endif
@@ -56,6 +56,13 @@ index 285acc4aaccc..c562fdeaf7f0 100644
 +			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 9"),
 +		},
 +	},
++	{
++		.ident = "Microsoft Surface Laptop 5",
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Laptop 5"),
++		},
++	},
 +	{}
 +};
 +
@@ -68,10 +75,11 @@ index 285acc4aaccc..c562fdeaf7f0 100644
 +	pci_info(dev, "disabling shutdown ops for [%04x:%04x]\n",
 +		 dev->vendor, dev->device);
 +}
-+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x46a8, quirk_no_shutdown);  // GPU
-+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x462f, quirk_no_shutdown);  // Thunderbolt 4 PCI Express Root Port
-+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x461f, quirk_no_shutdown);  // Thunderbolt 4 PCI Express Root Port
 +DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x461e, quirk_no_shutdown);  // Thunderbolt 4 USB Controller
++DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x461f, quirk_no_shutdown);  // Thunderbolt 4 PCI Express Root Port
++DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x462f, quirk_no_shutdown);  // Thunderbolt 4 PCI Express Root Port
++DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x466d, quirk_no_shutdown);  // Thunderbolt 4 NHI
++DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x46a8, quirk_no_shutdown);  // GPU
 diff --git a/include/linux/pci.h b/include/linux/pci.h
 index 2bda4a4e47e8..1186210ae007 100644
 --- a/include/linux/pci.h
