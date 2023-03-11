@@ -1,4 +1,4 @@
-From 4d11a4ad1e59569bce215bee05450bc177b2aaa0 Mon Sep 17 00:00:00 2001
+From 168a3030d8ac53dd617b67a899b69535802a238c Mon Sep 17 00:00:00 2001
 From: Hans de Goede <hdegoede@redhat.com>
 Date: Sun, 10 Oct 2021 20:56:57 +0200
 Subject: [PATCH] ACPI: delay enumeration of devices with a _DEP pointing to an
@@ -74,7 +74,7 @@ index 0c6f06abe3f4..4fc320f424e8 100644
 -- 
 2.39.2
 
-From d36d18637e2c58b70b926e9ff77573b9bafa2b9f Mon Sep 17 00:00:00 2001
+From e31f36e2c4db1ee74632682394d5dc98ddcc7b31 Mon Sep 17 00:00:00 2001
 From: zouxiaoh <xiaohong.zou@intel.com>
 Date: Fri, 25 Jun 2021 08:52:59 +0800
 Subject: [PATCH] iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs
@@ -100,7 +100,7 @@ Patchset: cameras
  1 file changed, 30 insertions(+)
 
 diff --git a/drivers/iommu/intel/iommu.c b/drivers/iommu/intel/iommu.c
-index af91ed003861..15581d157ba5 100644
+index 08e35f9e67a6..a8f20384dfd4 100644
 --- a/drivers/iommu/intel/iommu.c
 +++ b/drivers/iommu/intel/iommu.c
 @@ -37,6 +37,12 @@
@@ -151,7 +151,7 @@ index af91ed003861..15581d157ba5 100644
  	if (!dmar_map_ipts)
  		iommu_identity_mapping |= IDENTMAP_IPTS;
  
-@@ -4809,6 +4823,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
+@@ -4823,6 +4837,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
  	dmar_map_gfx = 0;
  }
  
@@ -170,7 +170,7 @@ index af91ed003861..15581d157ba5 100644
  static void quirk_iommu_ipts(struct pci_dev *dev)
  {
  	if (!IS_IPTS(dev))
-@@ -4820,6 +4846,7 @@ static void quirk_iommu_ipts(struct pci_dev *dev)
+@@ -4834,6 +4860,7 @@ static void quirk_iommu_ipts(struct pci_dev *dev)
  	pci_info(dev, "Passthrough IOMMU for IPTS\n");
  	dmar_map_ipts = 0;
  }
@@ -178,7 +178,7 @@ index af91ed003861..15581d157ba5 100644
  /* G4x/GM45 integrated gfx dmar support is totally busted. */
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2a40, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2e00, quirk_iommu_igfx);
-@@ -4855,6 +4882,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
+@@ -4869,6 +4896,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163A, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163D, quirk_iommu_igfx);
  
@@ -191,7 +191,7 @@ index af91ed003861..15581d157ba5 100644
 -- 
 2.39.2
 
-From 6d2122823557a34bba702d52e778c0f24cb1d4b2 Mon Sep 17 00:00:00 2001
+From 022dcee7d835176b00123b5a646d2b48133224e7 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 10 Oct 2021 20:57:02 +0200
 Subject: [PATCH] platform/x86: int3472: Enable I2c daisy chain
@@ -228,7 +228,7 @@ index 5b8d1a9620a5..6a0ff035cf20 100644
 -- 
 2.39.2
 
-From 0110a563d8161cbe5c9ac3fa8fb076bf65e54dcd Mon Sep 17 00:00:00 2001
+From 1e16008ab38769ce41a65f67b1d3d714d91ea367 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 28 Oct 2021 21:55:16 +0100
 Subject: [PATCH] media: i2c: Add driver for DW9719 VCM
@@ -732,7 +732,7 @@ index 000000000000..180b04d2a6b3
 -- 
 2.39.2
 
-From c15ba1204432ab33ae88a289f290f55a587cae7a Mon Sep 17 00:00:00 2001
+From 9bd7404947619277c163f727cf243e2579d223dd Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Wed, 4 May 2022 23:21:45 +0100
 Subject: [PATCH] media: ipu3-cio2: Move functionality from .complete() to
@@ -751,7 +751,7 @@ Patchset: cameras
  1 file changed, 23 insertions(+), 42 deletions(-)
 
 diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c b/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
-index 390bd5ea3472..76339fb842bf 100644
+index 3b76a9d0383a..38f9f4da1922 100644
 --- a/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
 +++ b/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
 @@ -1383,7 +1383,10 @@ static int cio2_notifier_bound(struct v4l2_async_notifier *notifier,
@@ -847,7 +847,7 @@ index 390bd5ea3472..76339fb842bf 100644
 -- 
 2.39.2
 
-From 5fbd91cda1f36caf6b2fbf090bddb25087d5a239 Mon Sep 17 00:00:00 2001
+From 0dbd5b986ea3d300e249ff645ccc2505b0835a15 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Thu, 2 Jun 2022 22:15:56 +0100
 Subject: [PATCH] media: ipu3-cio2: Re-add .complete() to ipu3-cio2
@@ -865,7 +865,7 @@ Patchset: cameras
  1 file changed, 9 insertions(+)
 
 diff --git a/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c b/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
-index 76339fb842bf..eb7aa269ec2b 100644
+index 38f9f4da1922..82681df7d794 100644
 --- a/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
 +++ b/drivers/media/pci/intel/ipu3/ipu3-cio2-main.c
 @@ -1430,9 +1430,18 @@ static void cio2_notifier_unbind(struct v4l2_async_notifier *notifier,
@@ -890,7 +890,7 @@ index 76339fb842bf..eb7aa269ec2b 100644
 -- 
 2.39.2
 
-From d4984b77071d3afb8c618df1ea49dbef4a174e2b Mon Sep 17 00:00:00 2001
+From ced5644c462693f215e1e41224be18dd4cbed8d1 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 15 Jul 2022 23:48:00 +0200
 Subject: [PATCH] drivers/media/i2c: Fix DW9719 dependencies
@@ -919,7 +919,7 @@ index 8cfd7b6c4bf5..11b8acd7cc5f 100644
 -- 
 2.39.2
 
-From f946541887a90e8e240ff51be4d80e461420e0d9 Mon Sep 17 00:00:00 2001
+From cd23dc7f6bf1668d228ff496e135a216ebddede4 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <dan.scally@ideasonboard.com>
 Date: Fri, 24 Feb 2023 14:03:41 +0000
 Subject: [PATCH] platform/x86: int3472: Add GPIOs to Surface Go 3 Board data
@@ -951,6 +951,62 @@ index 309eab9c0558..322237e056f3 100644
  	},
  };
  
+-- 
+2.39.2
+
+From 0250db07e4b0b96a083dc604ae13c5a8e8845c8a Mon Sep 17 00:00:00 2001
+From: Daniel Scally <dan.scally@ideasonboard.com>
+Date: Thu, 2 Mar 2023 12:59:39 +0000
+Subject: [PATCH] platform/x86: int3472: Remap reset GPIO for INT347E
+
+ACPI _HID INT347E represents the OmniVision 7251 camera sensor. The
+driver for this sensor expects a single pin named "enable", but on
+some Microsoft Surface platforms the sensor is assigned a single
+GPIO who's type flag is INT3472_GPIO_TYPE_RESET.
+
+Remap the GPIO pin's function from "reset" to "enable". This is done
+outside of the existing remap table since it is a more widespread
+discrepancy than that method is designed for. Additionally swap the
+polarity of the pin to match the driver's expectation.
+
+Signed-off-by: Daniel Scally <dan.scally@ideasonboard.com>
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/discrete.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
+index c42c3faa2c32..6f4b8e24eb56 100644
+--- a/drivers/platform/x86/intel/int3472/discrete.c
++++ b/drivers/platform/x86/intel/int3472/discrete.c
+@@ -108,6 +108,9 @@ static int skl_int3472_map_gpio_to_sensor(struct int3472_discrete_device *int347
+ {
+ 	const struct int3472_sensor_config *sensor_config;
+ 	char *path = agpio->resource_source.string_ptr;
++	const struct acpi_device_id ov7251_ids[] = {
++		{ "INT347E" },
++	};
+ 	struct gpiod_lookup *table_entry;
+ 	struct acpi_device *adev;
+ 	acpi_handle handle;
+@@ -130,6 +133,17 @@ static int skl_int3472_map_gpio_to_sensor(struct int3472_discrete_device *int347
+ 		}
+ 	}
+ 
++	/*
++	 * In addition to the function remap table we need to bulk remap the
++	 * "reset" GPIO for the OmniVision 7251 sensor, as the driver for that
++	 * expects its only GPIO pin to be called "enable" (and to have the
++	 * opposite polarity).
++	 */
++	if (!strcmp(func, "reset") && !acpi_match_device_ids(int3472->sensor, ov7251_ids)) {
++		func = "enable";
++		polarity = GPIO_ACTIVE_HIGH;
++	}
++
+ 	/* Functions mapped to NULL should not be mapped to the sensor */
+ 	if (!func)
+ 		return 0;
 -- 
 2.39.2
 
