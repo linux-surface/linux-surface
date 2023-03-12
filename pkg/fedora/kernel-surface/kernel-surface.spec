@@ -2,11 +2,11 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc37 kernel-6.1.15-200.fc37
-%global kernel_tag_fc36 kernel-6.1.15-100.fc36
+%global kernel_tag_fc37 kernel-6.1.18-200.fc37
+%global kernel_tag_fc36 kernel-6.1.18-100.fc36
 
-%global kernel_release_fc37 2
-%global kernel_release_fc36 2
+%global kernel_release_fc37 1
+%global kernel_release_fc36 1
 
 # This is what is printed in the GRUB menu. These cannot be fetched from the
 # buildhost, because in a container this will also say container. To get the
@@ -14,7 +14,7 @@
 %global fedora_title_fc37 37 (Thirty Seven)
 %global fedora_title_fc36 36 (Thirty Six)
 
-%global ls_patches_commit ca2ddd30a1b40f6b1453343837a807fb14c0f316
+%global ls_patches_commit ea58be8579fef410ce9c10a0650073fac1a02d90
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -104,10 +104,11 @@ Patch6:     %{surface_source}/%{kernel_patches}/0007-surface-sam-over-hid.patch
 Patch7:     %{surface_source}/%{kernel_patches}/0008-surface-button.patch
 Patch8:     %{surface_source}/%{kernel_patches}/0009-surface-typecover.patch
 Patch9:     %{surface_source}/%{kernel_patches}/0010-surface-shutdown.patch
-Patch10:    %{surface_source}/%{kernel_patches}/0011-cameras.patch
-Patch11:    %{surface_source}/%{kernel_patches}/0012-amd-gpio.patch
-Patch12:    %{surface_source}/%{kernel_patches}/0013-rtc.patch
-Patch13:    %{surface_source}/%{kernel_patches}/0014-intel-thread-director.patch
+Patch10:    %{surface_source}/%{kernel_patches}/0011-surface-gpe.patch
+Patch11:    %{surface_source}/%{kernel_patches}/0012-cameras.patch
+Patch12:    %{surface_source}/%{kernel_patches}/0013-amd-gpio.patch
+Patch13:    %{surface_source}/%{kernel_patches}/0014-rtc.patch
+Patch14:    %{surface_source}/%{kernel_patches}/0015-intel-thread-director.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
