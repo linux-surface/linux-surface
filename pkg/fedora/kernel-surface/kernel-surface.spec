@@ -2,15 +2,18 @@
 # Definitions to configure the kernel we want to build
 #
 
+%global kernel_tag_fc38 kernel-6.2.10-300.fc38
 %global kernel_tag_fc37 kernel-6.2.10-200.fc37
 %global kernel_tag_fc36 kernel-6.2.10-100.fc36
 
+%global kernel_release_fc38 1
 %global kernel_release_fc37 1
 %global kernel_release_fc36 1
 
 # This is what is printed in the GRUB menu. These cannot be fetched from the
 # buildhost, because in a container this will also say container. To get the
 # same text as the default kernels, just hardcode it. Hey, this is important!
+%global fedora_title_fc37 38 (Thirty Eight)
 %global fedora_title_fc37 37 (Thirty Seven)
 %global fedora_title_fc36 36 (Thirty Six)
 
