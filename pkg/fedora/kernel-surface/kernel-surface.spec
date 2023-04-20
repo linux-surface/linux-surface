@@ -2,9 +2,9 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc38 kernel-6.2.10-300.fc38
-%global kernel_tag_fc37 kernel-6.2.10-200.fc37
-%global kernel_tag_fc36 kernel-6.2.10-100.fc36
+%global kernel_tag_fc38 kernel-6.2.11-300.fc38
+%global kernel_tag_fc37 kernel-6.2.11-200.fc37
+%global kernel_tag_fc36 kernel-6.2.11-100.fc36
 
 %global kernel_release_fc38 1
 %global kernel_release_fc37 1
@@ -17,7 +17,7 @@
 %global fedora_title_fc37 37 (Thirty Seven)
 %global fedora_title_fc36 36 (Thirty Six)
 
-%global ls_patches_commit 12a2215c4c1ef3ebb4b38613f601856e436ff268
+%global ls_patches_commit 549edd8e69400eb1a1816221b2eb680f821b32f2
 
 %global sb_crt surface.crt
 %global sb_key surface.key
@@ -111,7 +111,6 @@ Patch10:    %{surface_source}/%{kernel_patches}/0011-surface-gpe.patch
 Patch11:    %{surface_source}/%{kernel_patches}/0012-cameras.patch
 Patch12:    %{surface_source}/%{kernel_patches}/0013-amd-gpio.patch
 Patch13:    %{surface_source}/%{kernel_patches}/0014-rtc.patch
-Patch14:    %{surface_source}/%{kernel_patches}/0015-intel-thread-director.patch
 
 Patch100:   0001-Add-secureboot-pre-signing-to-the-kernel.patch
 
