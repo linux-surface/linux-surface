@@ -1,0 +1,516 @@
+From be49ab3e208f09d7f32008508670f9596de8cae0 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sat, 4 Mar 2023 20:09:36 +0100
+Subject: [PATCH] platform/surface: aggregator_tabletsw: Properly handle
+ different posture source IDs
+
+The device posture subsystem (POS) can provide different posture
+sources. Different sources can provide different posture states and
+sources can be identified by their ID.
+
+For example, screen posture of the Surface Laptop Studio (SLS), which is
+currently the only supported source, uses a source ID of 0x03. The
+Surface Pro 9 uses the same subsystem for its Type-Cover, however,
+provides different states for that under the ID 0x00.
+
+To eventually support the Surface Pro 9 and potential future devices, we
+need to properly disambiguate between source IDs. Therefore, add the
+source ID to the state we carry and determine the tablet-mode state (as
+well as state names) based on that.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_tabletsw.c     | 123 ++++++++++++------
+ 1 file changed, 84 insertions(+), 39 deletions(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_tabletsw.c b/drivers/platform/surface/surface_aggregator_tabletsw.c
+index 9fed800c7cc09..e8682f52558f3 100644
+--- a/drivers/platform/surface/surface_aggregator_tabletsw.c
++++ b/drivers/platform/surface/surface_aggregator_tabletsw.c
+@@ -20,16 +20,23 @@
+ 
+ struct ssam_tablet_sw;
+ 
++struct ssam_tablet_sw_state {
++	u32 source;
++	u32 state;
++};
++
+ struct ssam_tablet_sw_ops {
+-	int (*get_state)(struct ssam_tablet_sw *sw, u32 *state);
+-	const char *(*state_name)(struct ssam_tablet_sw *sw, u32 state);
+-	bool (*state_is_tablet_mode)(struct ssam_tablet_sw *sw, u32 state);
++	int (*get_state)(struct ssam_tablet_sw *sw, struct ssam_tablet_sw_state *state);
++	const char *(*state_name)(struct ssam_tablet_sw *sw,
++				  const struct ssam_tablet_sw_state *state);
++	bool (*state_is_tablet_mode)(struct ssam_tablet_sw *sw,
++				     const struct ssam_tablet_sw_state *state);
+ };
+ 
+ struct ssam_tablet_sw {
+ 	struct ssam_device *sdev;
+ 
+-	u32 state;
++	struct ssam_tablet_sw_state state;
+ 	struct work_struct update_work;
+ 	struct input_dev *mode_switch;
+ 
+@@ -45,9 +52,11 @@ struct ssam_tablet_sw_desc {
+ 
+ 	struct {
+ 		u32 (*notify)(struct ssam_event_notifier *nf, const struct ssam_event *event);
+-		int (*get_state)(struct ssam_tablet_sw *sw, u32 *state);
+-		const char *(*state_name)(struct ssam_tablet_sw *sw, u32 state);
+-		bool (*state_is_tablet_mode)(struct ssam_tablet_sw *sw, u32 state);
++		int (*get_state)(struct ssam_tablet_sw *sw, struct ssam_tablet_sw_state *state);
++		const char *(*state_name)(struct ssam_tablet_sw *sw,
++					  const struct ssam_tablet_sw_state *state);
++		bool (*state_is_tablet_mode)(struct ssam_tablet_sw *sw,
++					     const struct ssam_tablet_sw_state *state);
+ 	} ops;
+ 
+ 	struct {
+@@ -61,7 +70,7 @@ struct ssam_tablet_sw_desc {
+ static ssize_t state_show(struct device *dev, struct device_attribute *attr, char *buf)
+ {
+ 	struct ssam_tablet_sw *sw = dev_get_drvdata(dev);
+-	const char *state = sw->ops.state_name(sw, sw->state);
++	const char *state = sw->ops.state_name(sw, &sw->state);
+ 
+ 	return sysfs_emit(buf, "%s\n", state);
+ }
+@@ -79,19 +88,19 @@ static const struct attribute_group ssam_tablet_sw_group = {
+ static void ssam_tablet_sw_update_workfn(struct work_struct *work)
+ {
+ 	struct ssam_tablet_sw *sw = container_of(work, struct ssam_tablet_sw, update_work);
++	struct ssam_tablet_sw_state state;
+ 	int tablet, status;
+-	u32 state;
+ 
+ 	status = sw->ops.get_state(sw, &state);
+ 	if (status)
+ 		return;
+ 
+-	if (sw->state == state)
++	if (sw->state.source == state.source && sw->state.state == state.state)
+ 		return;
+ 	sw->state = state;
+ 
+ 	/* Send SW_TABLET_MODE event. */
+-	tablet = sw->ops.state_is_tablet_mode(sw, state);
++	tablet = sw->ops.state_is_tablet_mode(sw, &state);
+ 	input_report_switch(sw->mode_switch, SW_TABLET_MODE, tablet);
+ 	input_sync(sw->mode_switch);
+ }
+@@ -146,7 +155,7 @@ static int ssam_tablet_sw_probe(struct ssam_device *sdev)
+ 	sw->mode_switch->id.bustype = BUS_HOST;
+ 	sw->mode_switch->dev.parent = &sdev->dev;
+ 
+-	tablet = sw->ops.state_is_tablet_mode(sw, sw->state);
++	tablet = sw->ops.state_is_tablet_mode(sw, &sw->state);
+ 	input_set_capability(sw->mode_switch, EV_SW, SW_TABLET_MODE);
+ 	input_report_switch(sw->mode_switch, SW_TABLET_MODE, tablet);
+ 
+@@ -203,9 +212,10 @@ enum ssam_kip_cover_state {
+ 	SSAM_KIP_COVER_STATE_FOLDED_BACK   = 0x05,
+ };
+ 
+-static const char *ssam_kip_cover_state_name(struct ssam_tablet_sw *sw, u32 state)
++static const char *ssam_kip_cover_state_name(struct ssam_tablet_sw *sw,
++					     const struct ssam_tablet_sw_state *state)
+ {
+-	switch (state) {
++	switch (state->state) {
+ 	case SSAM_KIP_COVER_STATE_DISCONNECTED:
+ 		return "disconnected";
+ 
+@@ -222,14 +232,15 @@ static const char *ssam_kip_cover_state_name(struct ssam_tablet_sw *sw, u32 stat
+ 		return "folded-back";
+ 
+ 	default:
+-		dev_warn(&sw->sdev->dev, "unknown KIP cover state: %u\n", state);
++		dev_warn(&sw->sdev->dev, "unknown KIP cover state: %u\n", state->state);
+ 		return "<unknown>";
+ 	}
+ }
+ 
+-static bool ssam_kip_cover_state_is_tablet_mode(struct ssam_tablet_sw *sw, u32 state)
++static bool ssam_kip_cover_state_is_tablet_mode(struct ssam_tablet_sw *sw,
++						const struct ssam_tablet_sw_state *state)
+ {
+-	switch (state) {
++	switch (state->state) {
+ 	case SSAM_KIP_COVER_STATE_DISCONNECTED:
+ 	case SSAM_KIP_COVER_STATE_FOLDED_CANVAS:
+ 	case SSAM_KIP_COVER_STATE_FOLDED_BACK:
+@@ -240,7 +251,7 @@ static bool ssam_kip_cover_state_is_tablet_mode(struct ssam_tablet_sw *sw, u32 s
+ 		return false;
+ 
+ 	default:
+-		dev_warn(&sw->sdev->dev, "unknown KIP cover state: %d\n", sw->state);
++		dev_warn(&sw->sdev->dev, "unknown KIP cover state: %d\n", state->state);
+ 		return true;
+ 	}
+ }
+@@ -252,7 +263,7 @@ SSAM_DEFINE_SYNC_REQUEST_R(__ssam_kip_get_cover_state, u8, {
+ 	.instance_id     = 0x00,
+ });
+ 
+-static int ssam_kip_get_cover_state(struct ssam_tablet_sw *sw, u32 *state)
++static int ssam_kip_get_cover_state(struct ssam_tablet_sw *sw, struct ssam_tablet_sw_state *state)
+ {
+ 	int status;
+ 	u8 raw;
+@@ -263,7 +274,8 @@ static int ssam_kip_get_cover_state(struct ssam_tablet_sw *sw, u32 *state)
+ 		return status;
+ 	}
+ 
+-	*state = raw;
++	state->source = 0;	/* Unused for KIP switch. */
++	state->state = raw;
+ 	return 0;
+ }
+ 
+@@ -312,11 +324,15 @@ MODULE_PARM_DESC(tablet_mode_in_slate_state, "Enable tablet mode in slate device
+ #define SSAM_EVENT_POS_CID_POSTURE_CHANGED	0x03
+ #define SSAM_POS_MAX_SOURCES			4
+ 
+-enum ssam_pos_state {
+-	SSAM_POS_POSTURE_LID_CLOSED = 0x00,
+-	SSAM_POS_POSTURE_LAPTOP     = 0x01,
+-	SSAM_POS_POSTURE_SLATE      = 0x02,
+-	SSAM_POS_POSTURE_TABLET     = 0x03,
++enum ssam_pos_source_id {
++	SSAM_POS_SOURCE_SLS   = 0x03,
++};
++
++enum ssam_pos_state_sls {
++	SSAM_POS_SLS_LID_CLOSED = 0x00,
++	SSAM_POS_SLS_LAPTOP     = 0x01,
++	SSAM_POS_SLS_SLATE      = 0x02,
++	SSAM_POS_SLS_TABLET     = 0x03,
+ };
+ 
+ struct ssam_sources_list {
+@@ -324,42 +340,68 @@ struct ssam_sources_list {
+ 	__le32 id[SSAM_POS_MAX_SOURCES];
+ } __packed;
+ 
+-static const char *ssam_pos_state_name(struct ssam_tablet_sw *sw, u32 state)
++static const char *ssam_pos_state_name_sls(struct ssam_tablet_sw *sw, u32 state)
+ {
+ 	switch (state) {
+-	case SSAM_POS_POSTURE_LID_CLOSED:
++	case SSAM_POS_SLS_LID_CLOSED:
+ 		return "closed";
+ 
+-	case SSAM_POS_POSTURE_LAPTOP:
++	case SSAM_POS_SLS_LAPTOP:
+ 		return "laptop";
+ 
+-	case SSAM_POS_POSTURE_SLATE:
++	case SSAM_POS_SLS_SLATE:
+ 		return "slate";
+ 
+-	case SSAM_POS_POSTURE_TABLET:
++	case SSAM_POS_SLS_TABLET:
+ 		return "tablet";
+ 
+ 	default:
+-		dev_warn(&sw->sdev->dev, "unknown device posture: %u\n", state);
++		dev_warn(&sw->sdev->dev, "unknown device posture for SLS: %u\n", state);
+ 		return "<unknown>";
+ 	}
+ }
+ 
+-static bool ssam_pos_state_is_tablet_mode(struct ssam_tablet_sw *sw, u32 state)
++static const char *ssam_pos_state_name(struct ssam_tablet_sw *sw,
++				       const struct ssam_tablet_sw_state *state)
++{
++	switch (state->source) {
++	case SSAM_POS_SOURCE_SLS:
++		return ssam_pos_state_name_sls(sw, state->state);
++
++	default:
++		dev_warn(&sw->sdev->dev, "unknown device posture source: %u\n", state->source);
++		return "<unknown>";
++	}
++}
++
++static bool ssam_pos_state_is_tablet_mode_sls(struct ssam_tablet_sw *sw, u32 state)
+ {
+ 	switch (state) {
+-	case SSAM_POS_POSTURE_LAPTOP:
+-	case SSAM_POS_POSTURE_LID_CLOSED:
++	case SSAM_POS_SLS_LAPTOP:
++	case SSAM_POS_SLS_LID_CLOSED:
+ 		return false;
+ 
+-	case SSAM_POS_POSTURE_SLATE:
++	case SSAM_POS_SLS_SLATE:
+ 		return tablet_mode_in_slate_state;
+ 
+-	case SSAM_POS_POSTURE_TABLET:
++	case SSAM_POS_SLS_TABLET:
+ 		return true;
+ 
+ 	default:
+-		dev_warn(&sw->sdev->dev, "unknown device posture: %u\n", state);
++		dev_warn(&sw->sdev->dev, "unknown device posture for SLS: %u\n", state);
++		return true;
++	}
++}
++
++static bool ssam_pos_state_is_tablet_mode(struct ssam_tablet_sw *sw,
++					  const struct ssam_tablet_sw_state *state)
++{
++	switch (state->source) {
++	case SSAM_POS_SOURCE_SLS:
++		return ssam_pos_state_is_tablet_mode_sls(sw, state->state);
++
++	default:
++		dev_warn(&sw->sdev->dev, "unknown device posture source: %u\n", state->source);
+ 		return true;
+ 	}
+ }
+@@ -450,9 +492,10 @@ static int ssam_pos_get_posture_for_source(struct ssam_tablet_sw *sw, u32 source
+ 	return 0;
+ }
+ 
+-static int ssam_pos_get_posture(struct ssam_tablet_sw *sw, u32 *state)
++static int ssam_pos_get_posture(struct ssam_tablet_sw *sw, struct ssam_tablet_sw_state *state)
+ {
+ 	u32 source_id;
++	u32 source_state;
+ 	int status;
+ 
+ 	status = ssam_pos_get_source(sw, &source_id);
+@@ -461,13 +504,15 @@ static int ssam_pos_get_posture(struct ssam_tablet_sw *sw, u32 *state)
+ 		return status;
+ 	}
+ 
+-	status = ssam_pos_get_posture_for_source(sw, source_id, state);
++	status = ssam_pos_get_posture_for_source(sw, source_id, &source_state);
+ 	if (status) {
+ 		dev_err(&sw->sdev->dev, "failed to get posture value for source %u: %d\n",
+ 			source_id, status);
+ 		return status;
+ 	}
+ 
++	state->source = source_id;
++	state->state = source_state;
+ 	return 0;
+ }
+ 
+-- 
+2.40.1
+
+From 77b69c72a305ea44069a4f63d80212c2cf59ca5c Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 19 Feb 2023 23:33:43 +0100
+Subject: [PATCH] platform/surface: aggregator_tabletsw: Add support for
+ Type-Cover posture source
+
+Implement support for the Type-Cover posture source (ID 0x00), found on
+the Surface Pro 9.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_tabletsw.c     | 57 +++++++++++++++++++
+ 1 file changed, 57 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_tabletsw.c b/drivers/platform/surface/surface_aggregator_tabletsw.c
+index e8682f52558f3..8f52b62d1c195 100644
+--- a/drivers/platform/surface/surface_aggregator_tabletsw.c
++++ b/drivers/platform/surface/surface_aggregator_tabletsw.c
+@@ -325,9 +325,18 @@ MODULE_PARM_DESC(tablet_mode_in_slate_state, "Enable tablet mode in slate device
+ #define SSAM_POS_MAX_SOURCES			4
+ 
+ enum ssam_pos_source_id {
++	SSAM_POS_SOURCE_COVER = 0x00,
+ 	SSAM_POS_SOURCE_SLS   = 0x03,
+ };
+ 
++enum ssam_pos_state_cover {
++	SSAM_POS_COVER_DISCONNECTED  = 0x01,
++	SSAM_POS_COVER_CLOSED        = 0x02,
++	SSAM_POS_COVER_LAPTOP        = 0x03,
++	SSAM_POS_COVER_FOLDED_CANVAS = 0x04,
++	SSAM_POS_COVER_FOLDED_BACK   = 0x05,
++};
++
+ enum ssam_pos_state_sls {
+ 	SSAM_POS_SLS_LID_CLOSED = 0x00,
+ 	SSAM_POS_SLS_LAPTOP     = 0x01,
+@@ -340,6 +349,30 @@ struct ssam_sources_list {
+ 	__le32 id[SSAM_POS_MAX_SOURCES];
+ } __packed;
+ 
++static const char *ssam_pos_state_name_cover(struct ssam_tablet_sw *sw, u32 state)
++{
++	switch (state) {
++	case SSAM_POS_COVER_DISCONNECTED:
++		return "disconnected";
++
++	case SSAM_POS_COVER_CLOSED:
++		return "closed";
++
++	case SSAM_POS_COVER_LAPTOP:
++		return "laptop";
++
++	case SSAM_POS_COVER_FOLDED_CANVAS:
++		return "folded-canvas";
++
++	case SSAM_POS_COVER_FOLDED_BACK:
++		return "folded-back";
++
++	default:
++		dev_warn(&sw->sdev->dev, "unknown device posture for type-cover: %u\n", state);
++		return "<unknown>";
++	}
++}
++
+ static const char *ssam_pos_state_name_sls(struct ssam_tablet_sw *sw, u32 state)
+ {
+ 	switch (state) {
+@@ -365,6 +398,9 @@ static const char *ssam_pos_state_name(struct ssam_tablet_sw *sw,
+ 				       const struct ssam_tablet_sw_state *state)
+ {
+ 	switch (state->source) {
++	case SSAM_POS_SOURCE_COVER:
++		return ssam_pos_state_name_cover(sw, state->state);
++
+ 	case SSAM_POS_SOURCE_SLS:
+ 		return ssam_pos_state_name_sls(sw, state->state);
+ 
+@@ -374,6 +410,24 @@ static const char *ssam_pos_state_name(struct ssam_tablet_sw *sw,
+ 	}
+ }
+ 
++static bool ssam_pos_state_is_tablet_mode_cover(struct ssam_tablet_sw *sw, u32 state)
++{
++	switch (state) {
++	case SSAM_POS_COVER_DISCONNECTED:
++	case SSAM_POS_COVER_FOLDED_CANVAS:
++	case SSAM_POS_COVER_FOLDED_BACK:
++		return true;
++
++	case SSAM_POS_COVER_CLOSED:
++	case SSAM_POS_COVER_LAPTOP:
++		return false;
++
++	default:
++		dev_warn(&sw->sdev->dev, "unknown device posture for type-cover: %u\n", state);
++		return true;
++	}
++}
++
+ static bool ssam_pos_state_is_tablet_mode_sls(struct ssam_tablet_sw *sw, u32 state)
+ {
+ 	switch (state) {
+@@ -397,6 +451,9 @@ static bool ssam_pos_state_is_tablet_mode(struct ssam_tablet_sw *sw,
+ 					  const struct ssam_tablet_sw_state *state)
+ {
+ 	switch (state->source) {
++	case SSAM_POS_SOURCE_COVER:
++		return ssam_pos_state_is_tablet_mode_cover(sw, state->state);
++
+ 	case SSAM_POS_SOURCE_SLS:
+ 		return ssam_pos_state_is_tablet_mode_sls(sw, state->state);
+ 
+-- 
+2.40.1
+
+From e53ce174685174d204dd3c2487988cbd61bf6dd9 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 19 Feb 2023 23:41:18 +0100
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for
+ tablet-mode switch on Surface Pro 9
+
+Add support for the POS-subsystem tablet-mode switch used on the Surface
+Pro 9.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 296f72d52e6a6..0fe5be5396525 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -305,7 +305,7 @@ static const struct software_node *ssam_node_group_sp9[] = {
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+ 	&ssam_node_tmp_pprof,
+-	/* TODO: Tablet mode switch (via POS subsystem) */
++	&ssam_node_pos_tablet_switch,
+ 	&ssam_node_hid_kip_keyboard,
+ 	&ssam_node_hid_kip_penstash,
+ 	&ssam_node_hid_kip_touchpad,
+-- 
+2.40.1
+
+From 9c1d424aa6910045981fe08724b049807cdab0ed Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Wed, 3 May 2023 02:02:21 +0200
+Subject: [PATCH] platform/surface: aggregator: Allow completion work-items to
+ be executed in parallel
+
+Currently, event completion work-items are restricted to be run strictly
+in non-parallel fashion by the respective workqueue. However, this has
+lead to some problems:
+
+In some instances, the event notifier function called inside this
+completion workqueue takes a non-negligible amount of time to execute.
+One such example is the battery event handling code (surface_battery.c),
+which can result in a full battery information refresh, involving
+further synchronous communication with the EC inside the event handler.
+This is made worse if the communication fails spuriously, generally
+incurring a multi-second timeout.
+
+Since the event completions are run strictly non-parallel, this blocks
+other events from being propagated to the respective subsystems. This
+becomes especially noticeable for keyboard and touchpad input, which
+also funnel their events through this system. Here, users have reported
+occasional multi-second "freezes".
+
+Note, however, that the event handling system was never intended to run
+purely sequentially. Instead, we have one work struct per EC/SAM
+subsystem, processing the event queue for that subsystem. These work
+structs were intended to run in parallel, allowing sequential processing
+of work items for each subsystem but parallel processing of work items
+across subsystems.
+
+The only restriction to this is the way the workqueue is created.
+Therefore, replace create_workqueue() with alloc_workqueue() and do not
+restrict the maximum number of parallel work items to be executed on
+that queue, resolving any cross-subsystem blockage.
+
+Fixes: c167b9c7e3d6 ("platform/surface: Add Surface Aggregator subsystem")
+Link: https://github.com/linux-surface/linux-surface/issues/1026
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/aggregator/controller.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
+index 535581c0471c5..545e6628c695f 100644
+--- a/drivers/platform/surface/aggregator/controller.c
++++ b/drivers/platform/surface/aggregator/controller.c
+@@ -825,7 +825,7 @@ static int ssam_cplt_init(struct ssam_cplt *cplt, struct device *dev)
+ 
+ 	cplt->dev = dev;
+ 
+-	cplt->wq = create_workqueue(SSAM_CPLT_WQ_NAME);
++	cplt->wq = alloc_workqueue(SSAM_CPLT_WQ_NAME, WQ_UNBOUND, WQ_MEM_RECLAIM, 0);
+ 	if (!cplt->wq)
+ 		return -ENOMEM;
+ 
+-- 
+2.40.1
+
