@@ -1,4 +1,4 @@
-From 26b30d0e613aa61df7cb5105c52a68f254b52c01 Mon Sep 17 00:00:00 2001
+From 2cd850987436405547384feb707200c7dad4a675 Mon Sep 17 00:00:00 2001
 From: Ben Hutchings <ben@decadent.org.uk>
 Date: Mon, 7 Sep 2020 02:51:53 +0100
 Subject: [PATCH 1/2] Export symbols needed by Android drivers
@@ -20,10 +20,10 @@ Export the currently un-exported symbols they depend on.
  7 files changed, 10 insertions(+)
 
 diff --git a/fs/file.c b/fs/file.c
-index 3bcc1ecc314a..6ff78a4c27a9 100644
+index 7893ea161d770..066f90a4f572f 100644
 --- a/fs/file.c
 +++ b/fs/file.c
-@@ -813,6 +813,7 @@ struct file *close_fd_get_file(unsigned int fd)
+@@ -814,6 +814,7 @@ struct file *close_fd_get_file(unsigned int fd)
  
  	return file;
  }
@@ -32,10 +32,10 @@ index 3bcc1ecc314a..6ff78a4c27a9 100644
  void do_close_on_exec(struct files_struct *files)
  {
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index ee28253c9ac0..37667d4aaac7 100644
+index 0d18c3969f904..d1e20b1aad9c3 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
-@@ -7052,6 +7052,7 @@ static bool is_nice_reduction(const struct task_struct *p, const int nice)
+@@ -7183,6 +7183,7 @@ static bool is_nice_reduction(const struct task_struct *p, const int nice)
  
  	return (nice_rlim <= task_rlimit(p, RLIMIT_NICE));
  }
@@ -44,10 +44,10 @@ index ee28253c9ac0..37667d4aaac7 100644
  /*
   * can_nice - check if a task can reduce its nice value
 diff --git a/kernel/sched/wait.c b/kernel/sched/wait.c
-index 9860bb9a847c..ad76d49bf4e1 100644
+index 133b74730738b..a2a3381ede737 100644
 --- a/kernel/sched/wait.c
 +++ b/kernel/sched/wait.c
-@@ -243,6 +243,7 @@ void __wake_up_pollfree(struct wait_queue_head *wq_head)
+@@ -247,6 +247,7 @@ void __wake_up_pollfree(struct wait_queue_head *wq_head)
  	/* POLLFREE must have cleared the queue. */
  	WARN_ON_ONCE(waitqueue_active(wq_head));
  }
@@ -56,7 +56,7 @@ index 9860bb9a847c..ad76d49bf4e1 100644
  /*
   * Note: we use "set_current_state()" _after_ the wait-queue add,
 diff --git a/kernel/task_work.c b/kernel/task_work.c
-index dff75bcde151..5f9a42a388f1 100644
+index 065e1ef8fc8d7..7d06ea82a53e4 100644
 --- a/kernel/task_work.c
 +++ b/kernel/task_work.c
 @@ -73,6 +73,7 @@ int task_work_add(struct task_struct *task, struct callback_head *work,
@@ -68,34 +68,34 @@ index dff75bcde151..5f9a42a388f1 100644
  /**
   * task_work_cancel_match - cancel a pending work added by task_work_add()
 diff --git a/mm/memory.c b/mm/memory.c
-index a78814413ac0..c48cca22b9f4 100644
+index 01a23ad48a042..8762b48854243 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
-@@ -1757,6 +1757,7 @@ void zap_page_range(struct vm_area_struct *vma, unsigned long start,
+@@ -1728,6 +1728,7 @@ void zap_page_range_single(struct vm_area_struct *vma, unsigned long address,
  	mmu_notifier_invalidate_range_end(&range);
  	tlb_finish_mmu(&tlb);
  }
-+EXPORT_SYMBOL_GPL(zap_page_range);
++EXPORT_SYMBOL_GPL(zap_page_range_single);
  
  /**
-  * zap_page_range_single - remove user pages in a given range
+  * zap_vma_ptes - remove ptes mapping the vma
 diff --git a/mm/shmem.c b/mm/shmem.c
-index 42e5888bf84d..afa1c0999644 100644
+index 448f393d8ab2b..b14ac0867f27d 100644
 --- a/mm/shmem.c
 +++ b/mm/shmem.c
-@@ -4245,6 +4245,7 @@ int shmem_zero_setup(struct vm_area_struct *vma)
+@@ -4318,6 +4318,7 @@ int shmem_zero_setup(struct vm_area_struct *vma)
  
  	return 0;
  }
 +EXPORT_SYMBOL_GPL(shmem_zero_setup);
  
  /**
-  * shmem_read_mapping_page_gfp - read into page cache, using specified page allocation flags.
+  * shmem_read_folio_gfp - read into page cache, using specified page allocation flags.
 diff --git a/security/security.c b/security/security.c
-index 4b95de24bc8d..515d9509c001 100644
+index cf6cc576736f3..5401a0c5a1472 100644
 --- a/security/security.c
 +++ b/security/security.c
-@@ -752,24 +752,28 @@ int security_binder_set_context_mgr(const struct cred *mgr)
+@@ -782,24 +782,28 @@ int security_binder_set_context_mgr(const struct cred *mgr)
  {
  	return call_int_hook(binder_set_context_mgr, 0, mgr);
  }
@@ -125,5 +125,5 @@ index 4b95de24bc8d..515d9509c001 100644
  int security_ptrace_access_check(struct task_struct *child, unsigned int mode)
  {
 -- 
-2.38.0
+2.40.1
 
