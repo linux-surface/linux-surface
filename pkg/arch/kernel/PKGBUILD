@@ -13,11 +13,17 @@ url="https://github.com/archlinux/linux/commits/$_srctag"
 arch=(x86_64)
 license=(GPL2)
 makedepends=(
-  bc libelf cpio perl tar xz
+  bc
+  cpio
+  gettext
+  git
+  libelf
+  perl
+  tar
+  xz
   python
   # we don't need `pahole` as deps because we disable `CONFIG_DEBUG_INFO`
   # ignoring deps for docs because we don't build docs package
-  git
 )
 optdepends=('iptsd: Touchscreen support'
             'linux-firmware: Firmware files for Linux'
@@ -78,13 +84,20 @@ export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EP
 _mok_crt="$PWD/MOK.crt"
 _mok_key="$PWD/MOK.key"
 
+_make() {
+  test -s version
+  make KERNELRELEASE="$(<version)" "$@"
+}
+
 prepare() {
   cd $_srcname
 
   echo "Setting version..."
-  scripts/setlocalversion --save-scmversion
   echo "-$pkgrel" > localversion.10-pkgrel
   echo "${pkgbase#linux}" > localversion.20-pkgname
+  make defconfig
+  make -s kernelrelease > version
+  make mrproper
 
   # setup git
   git config --local user.email "surfacebot@users.noreply.github.com"
@@ -103,29 +116,41 @@ prepare() {
   # cp ../config .config
   # merge the two configs together
   ./scripts/kconfig/merge_config.sh -m ../config ../surface.config ../arch.config
-  make olddefconfig
+  _make olddefconfig
 
-  make -s kernelrelease > version
   echo "Prepared $pkgbase version $(<version)"
 }
 
 build() {
   cd $_srcname
-  make all
+  _make all
 }
 
 _package() {
   pkgdesc="The $pkgdesc kernel and modules"
-  depends=(coreutils kmod initramfs)
-  optdepends=('wireless-regdb: to set the correct wireless channels of your country'
-              'linux-firmware: firmware images needed for some devices')
-  provides=(VIRTUALBOX-GUEST-MODULES WIREGUARD-MODULE KSMBD-MODULE linux=${_shortver})
-  replaces=(virtualbox-guest-modules-arch wireguard-arch)
+  depends=(
+    coreutils
+    initramfs
+    kmod
+  )
+  optdepends=(
+    'wireless-regdb: to set the correct wireless channels of your country'
+    'linux-firmware: firmware images needed for some devices'
+  )
+  provides=(
+    linux=${_shortver}
+    KSMBD-MODULE
+    VIRTUALBOX-GUEST-MODULES
+    WIREGUARD-MODULE
+  )
+  replaces=(
+    virtualbox-guest-modules-arch
+    wireguard-arch
+  )
 
   cd $_srcname
-  local kernver="$(<version)"
-  local modulesdir="$pkgdir/usr/lib/modules/$kernver"
-  local image_name="$(make -s image_name)"
+  local modulesdir="$pkgdir/usr/lib/modules/$(<version)"
+  local image_name="$(_make -s image_name)"
 
   # sign boot image if the prequisites are available
   if [[ -f "$_mok_crt" ]] && [[ -f "$_mok_key" ]] && [[ -x "$(command -v sbsign)" ]]; then
@@ -142,7 +167,7 @@ _package() {
   echo "$pkgbase" | install -Dm644 /dev/stdin "$modulesdir/pkgbase"
 
   echo "Installing modules..."
-  make INSTALL_MOD_PATH="$pkgdir/usr" INSTALL_MOD_STRIP=1 \
+  _make INSTALL_MOD_PATH="$pkgdir/usr" INSTALL_MOD_STRIP=1 \
     DEPMOD=/doesnt/exist modules_install  # Suppress depmod
 
   # remove build and source links
