@@ -29,17 +29,25 @@ jobs:
         ln -snf /usr/share/zoneinfo/$TZ /etc/localtime
         echo $TZ > /etc/timezone
         apt-get -y update
+        apt-get -y upgrade
         apt-get -y install build-essential fakeroot rsync git wget software-properties-common \
             zstd lz4 sbsigntool debhelper dpkg-dev dpkg-sig
         apt-get -y build-dep linux
 
+    - name: Install Python 3.11
+      run: |
         # install python 3.11, required for configuring the kernel via Ubuntu's annotation format
         add-apt-repository -y ppa:deadsnakes
-        apt-get -y update
-        apt-get -y install python3.11
-        ln -s /usr/bin/python3.11 /usr/bin/python
 
+        apt-get -y update
         apt-get -y upgrade
+
+        apt-get -y install python3.11
+
+        rm -f /usr/bin/python
+        rm -f /usr/bin/python3
+        ln -s /usr/bin/python3.11 /usr/bin/python
+        ln -s /usr/bin/python3.11 /usr/bin/python3
 
     - name: Prepare kernel source
       run: |
