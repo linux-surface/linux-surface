@@ -12,9 +12,7 @@ jobs:
   build:
     name: Build Kernel
     runs-on: ubuntu-latest
-    container:
-      image: registry.fedoraproject.org/fedora:37
-      options: --security-opt seccomp=unconfined
+    container: registry.fedoraproject.org/fedora:37
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
@@ -22,25 +20,33 @@ jobs:
     - name: Install build dependencies
       run: |
         dnf distro-sync -y
+        dnf install -y git make gcc flex bison bzip2 rpm-build
         dnf install -y rpmdevtools rpm-sign 'dnf-command(builddep)'
-        dnf builddep -y pkg/fedora/kernel-surface/kernel-surface.spec
+
+        # Install build dependencies
+        dnf builddep -y kernel
+
+        # Install additional build dependencies
+        dnf install -y sbsigntools
 
     - name: Setup secureboot certificate
       env:
         SB_KEY: ${{ secrets.SURFACE_SB_KEY }}
       run: |
-        cd pkg
-
         # Install the surface secureboot certificate
-        echo "$SB_KEY" | base64 -d > fedora/kernel-surface/surface.key
-        cp keys/surface.crt fedora/kernel-surface/surface.crt
+        echo "$SB_KEY" | base64 -d > pkg/fedora/kernel-surface/secureboot/MOK.key
+        cp pkg/keys/surface.crt pkg/fedora/kernel-surface/secureboot/MOK.crt
 
     - name: Build packages
       run: |
         cd pkg/fedora/kernel-surface
 
+        # setup git
+        git config --global user.email "surfacebot@users.noreply.github.com"
+        git config --global user.name "surfacebot"
+
         # Build the .rpm packages
-        ../makerpm -- --with=signkernel -ba
+        python3 build-linux-surface.py
 
     - name: Sign packages
       env:
@@ -84,9 +90,7 @@ jobs:
     name: Update package repository
     needs: [release]
     runs-on: ubuntu-latest
-    container:
-      image: fedora:37
-      options: --security-opt seccomp=unconfined
+    container: registry.fedoraproject.org/fedora:37
     steps:
     - name: Install dependencies
       run: |
