@@ -1,4 +1,4 @@
-From eeb1adb412207da63766136af6f5d89808101b29 Mon Sep 17 00:00:00 2001
+From 28a501ccd9cc4e7fd424b79b32ecab9e79dea137 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 4 Mar 2023 20:09:36 +0100
 Subject: [PATCH] platform/surface: aggregator_tabletsw: Properly handle
@@ -306,7 +306,7 @@ index 9fed800c7cc09..e8682f52558f3 100644
 -- 
 2.40.1
 
-From 50d4f96f8acaabf7b8a58f0dc75de713b73cc84e Mon Sep 17 00:00:00 2001
+From 254309b7f226893d432dec3f247185fd182c5192 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 19 Feb 2023 23:33:43 +0100
 Subject: [PATCH] platform/surface: aggregator_tabletsw: Add support for
@@ -423,7 +423,7 @@ index e8682f52558f3..8f52b62d1c195 100644
 -- 
 2.40.1
 
-From cd05d2742eae39ac24876011b2855a5aaff8ff7c Mon Sep 17 00:00:00 2001
+From 7b641bef1a47526a82353571a0694a41881ff69d Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 19 Feb 2023 23:41:18 +0100
 Subject: [PATCH] platform/surface: aggregator_registry: Add support for
@@ -454,7 +454,7 @@ index 296f72d52e6a6..0fe5be5396525 100644
 -- 
 2.40.1
 
-From 1e7598acdaabca7b0827bd00ff10ad96b2130d0c Mon Sep 17 00:00:00 2001
+From 980183aeae06a1b46c4dee929d642854b3c24c89 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 3 May 2023 02:02:21 +0200
 Subject: [PATCH] platform/surface: aggregator: Allow completion work-items to
@@ -511,6 +511,150 @@ index 535581c0471c5..7fc602e01487d 100644
  	if (!cplt->wq)
  		return -ENOMEM;
  
+-- 
+2.40.1
+
+From 54c72fc01264aface4345f5d70eb7d194d471210 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Thu, 18 May 2023 22:33:55 +0200
+Subject: [PATCH] platform/surface: aggregator: Make to_ssam_device_driver()
+ respect const-ness
+
+Make to_ssam_device_driver() a bit safer by replacing container_of()
+with container_of_const() to respect the const-ness of the passed in
+pointer, instead of silently discarding any const specifications.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ include/linux/surface_aggregator/device.h | 6 +-----
+ 1 file changed, 1 insertion(+), 5 deletions(-)
+
+diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
+index df81043b9e718..42b249b4c24b1 100644
+--- a/include/linux/surface_aggregator/device.h
++++ b/include/linux/surface_aggregator/device.h
+@@ -243,11 +243,7 @@ static inline bool is_ssam_device(struct device *d)
+  * Return: Returns the pointer to the &struct ssam_device_driver wrapping the
+  * given device driver @d.
+  */
+-static inline
+-struct ssam_device_driver *to_ssam_device_driver(struct device_driver *d)
+-{
+-	return container_of(d, struct ssam_device_driver, driver);
+-}
++#define to_ssam_device_driver(d)	container_of_const(d, struct ssam_device_driver, driver)
+ 
+ const struct ssam_device_id *ssam_device_id_match(const struct ssam_device_id *table,
+ 						  const struct ssam_device_uid uid);
+-- 
+2.40.1
+
+From 61df3fe89021926391458b9e2b334c4ca0263449 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Thu, 18 May 2023 22:53:12 +0200
+Subject: [PATCH] platform/surface: aggregator_tabletsw: Add support for book
+ mode in KIP subsystem
+
+Devices with a type-cover have an additional "book" mode, deactivating
+type-cover input and turning off its backlight. This is currently
+unsupported, leading to the warning
+
+  surface_aggregator_tablet_mode_switch 01:03:01:00:01: unknown KIP cover state: 6
+
+Therefore, add support for this state and map it to enable tablet-mode.
+
+Fixes: 9f794056db5b ("platform/surface: Add KIP/POS tablet-mode switch driver")
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_tabletsw.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_tabletsw.c b/drivers/platform/surface/surface_aggregator_tabletsw.c
+index 8f52b62d1c195..4a029f5db20a9 100644
+--- a/drivers/platform/surface/surface_aggregator_tabletsw.c
++++ b/drivers/platform/surface/surface_aggregator_tabletsw.c
+@@ -210,6 +210,7 @@ enum ssam_kip_cover_state {
+ 	SSAM_KIP_COVER_STATE_LAPTOP        = 0x03,
+ 	SSAM_KIP_COVER_STATE_FOLDED_CANVAS = 0x04,
+ 	SSAM_KIP_COVER_STATE_FOLDED_BACK   = 0x05,
++	SSAM_KIP_COVER_STATE_BOOK          = 0x06,
+ };
+ 
+ static const char *ssam_kip_cover_state_name(struct ssam_tablet_sw *sw,
+@@ -231,6 +232,9 @@ static const char *ssam_kip_cover_state_name(struct ssam_tablet_sw *sw,
+ 	case SSAM_KIP_COVER_STATE_FOLDED_BACK:
+ 		return "folded-back";
+ 
++	case SSAM_KIP_COVER_STATE_BOOK:
++		return "book";
++
+ 	default:
+ 		dev_warn(&sw->sdev->dev, "unknown KIP cover state: %u\n", state->state);
+ 		return "<unknown>";
+@@ -244,6 +248,7 @@ static bool ssam_kip_cover_state_is_tablet_mode(struct ssam_tablet_sw *sw,
+ 	case SSAM_KIP_COVER_STATE_DISCONNECTED:
+ 	case SSAM_KIP_COVER_STATE_FOLDED_CANVAS:
+ 	case SSAM_KIP_COVER_STATE_FOLDED_BACK:
++	case SSAM_KIP_COVER_STATE_BOOK:
+ 		return true;
+ 
+ 	case SSAM_KIP_COVER_STATE_CLOSED:
+-- 
+2.40.1
+
+From bac3a83ede3421c7d625c5b901be2f37fcde9af2 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Thu, 18 May 2023 22:57:17 +0200
+Subject: [PATCH] platform/surface: aggregator_tabletsw: Add support for book
+ mode in POS subsystem
+
+Devices with a type-cover have an additional "book" mode, deactivating
+type-cover input and turning off its backlight. This is currently
+unsupported, leading to the warning
+
+  surface_aggregator_tablet_mode_switch 01:26:01:00:01: unknown device posture for type-cover: 6
+
+Therefore, add support for this state and map it to enable tablet-mode.
+
+Fixes: 37ff64cd81ff ("platform/surface: aggregator_tabletsw: Add support for Type-Cover posture source")
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_tabletsw.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_tabletsw.c b/drivers/platform/surface/surface_aggregator_tabletsw.c
+index 4a029f5db20a9..c0a1a5869246e 100644
+--- a/drivers/platform/surface/surface_aggregator_tabletsw.c
++++ b/drivers/platform/surface/surface_aggregator_tabletsw.c
+@@ -340,6 +340,7 @@ enum ssam_pos_state_cover {
+ 	SSAM_POS_COVER_LAPTOP        = 0x03,
+ 	SSAM_POS_COVER_FOLDED_CANVAS = 0x04,
+ 	SSAM_POS_COVER_FOLDED_BACK   = 0x05,
++	SSAM_POS_COVER_BOOK          = 0x06,
+ };
+ 
+ enum ssam_pos_state_sls {
+@@ -372,6 +373,9 @@ static const char *ssam_pos_state_name_cover(struct ssam_tablet_sw *sw, u32 stat
+ 	case SSAM_POS_COVER_FOLDED_BACK:
+ 		return "folded-back";
+ 
++	case SSAM_POS_COVER_BOOK:
++		return "book";
++
+ 	default:
+ 		dev_warn(&sw->sdev->dev, "unknown device posture for type-cover: %u\n", state);
+ 		return "<unknown>";
+@@ -421,6 +425,7 @@ static bool ssam_pos_state_is_tablet_mode_cover(struct ssam_tablet_sw *sw, u32 s
+ 	case SSAM_POS_COVER_DISCONNECTED:
+ 	case SSAM_POS_COVER_FOLDED_CANVAS:
+ 	case SSAM_POS_COVER_FOLDED_BACK:
++	case SSAM_POS_COVER_BOOK:
+ 		return true;
+ 
+ 	case SSAM_POS_COVER_CLOSED:
 -- 
 2.40.1
 
