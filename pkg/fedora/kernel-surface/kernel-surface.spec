@@ -2,8 +2,8 @@
 # Definitions to configure the kernel we want to build
 #
 
-%global kernel_tag_fc38 kernel-6.3.3-200.fc38
-%global kernel_tag_fc37 kernel-6.3.3-100.fc37
+%global kernel_tag_fc38 kernel-6.3.5-200.fc38
+%global kernel_tag_fc37 kernel-6.3.5-100.fc37
 
 %global kernel_release_fc38 1
 %global kernel_release_fc37 1
@@ -14,7 +14,7 @@
 %global fedora_title_fc37 38 (Thirty Eight)
 %global fedora_title_fc37 37 (Thirty Seven)
 
-%global ls_patches_commit b430b5b5ba835089f6af7a07d556670c3aa55ae2
+%global ls_patches_commit f6d9315b8a3ecaee9f1575d8860a46cf44e79607
 
 %global sb_crt surface.crt
 %global sb_key surface.key
