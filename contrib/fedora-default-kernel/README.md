@@ -12,6 +12,8 @@ selection every time.
 ```bash
 $ sudo dnf install /usr/sbin/grubby
 $ sudo cp default-kernel.{path,service} /etc/systemd/system/
+$ sudo cp default-kernel.sh /usr/local/bin/default-kernel
+$ sudo chmod 755 /usr/local/bin/default-kernel
 $ sudo systemctl daemon-reload
 $ sudo systemctl enable --now default-kernel.path
 ```
