@@ -1,4 +1,4 @@
-From 7e22a422fcc90fdbe45ae59f341fe7210b854d93 Mon Sep 17 00:00:00 2001
+From dff6b432e197606aba7cdb3ccf4a301621be14ae Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 2 Dec 2022 23:33:20 +0100
 Subject: [PATCH] platform/surface: aggregator: Improve documentation and
@@ -29,7 +29,7 @@ Patchset: surface-sam
  7 files changed, 64 insertions(+), 47 deletions(-)
 
 diff --git a/Documentation/driver-api/surface_aggregator/client.rst b/Documentation/driver-api/surface_aggregator/client.rst
-index 27f95abdbe997..9d7411223a848 100644
+index 27f95abdbe99..9d7411223a84 100644
 --- a/Documentation/driver-api/surface_aggregator/client.rst
 +++ b/Documentation/driver-api/surface_aggregator/client.rst
 @@ -191,7 +191,7 @@ data received from it is converted from little-endian to host endianness.
@@ -51,7 +51,7 @@ index 27f95abdbe997..9d7411223a848 100644
             .instance_id     = 0x00,
     });
 diff --git a/Documentation/driver-api/surface_aggregator/ssh.rst b/Documentation/driver-api/surface_aggregator/ssh.rst
-index bf007d6c98732..18fd0f0aee84b 100644
+index bf007d6c9873..18fd0f0aee84 100644
 --- a/Documentation/driver-api/surface_aggregator/ssh.rst
 +++ b/Documentation/driver-api/surface_aggregator/ssh.rst
 @@ -13,6 +13,7 @@
@@ -115,7 +115,7 @@ index bf007d6c98732..18fd0f0aee84b 100644
  
  Limitations and Observations
 diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
-index c6537a1b3a2ec..2c99f51ccd4ec 100644
+index c6537a1b3a2e..2c99f51ccd4e 100644
 --- a/drivers/platform/surface/aggregator/controller.c
 +++ b/drivers/platform/surface/aggregator/controller.c
 @@ -994,7 +994,7 @@ static void ssam_handle_event(struct ssh_rtl *rtl,
@@ -169,7 +169,7 @@ index c6537a1b3a2ec..2c99f51ccd4ec 100644
  	.instance_id     = 0x00,
  });
 diff --git a/drivers/platform/surface/aggregator/ssh_msgb.h b/drivers/platform/surface/aggregator/ssh_msgb.h
-index f3ecad92eefd8..438873e060986 100644
+index f3ecad92eefd..438873e06098 100644
 --- a/drivers/platform/surface/aggregator/ssh_msgb.h
 +++ b/drivers/platform/surface/aggregator/ssh_msgb.h
 @@ -189,8 +189,8 @@ static inline void msgb_push_cmd(struct msgbuf *msgb, u8 seq, u16 rqid,
@@ -184,7 +184,7 @@ index f3ecad92eefd8..438873e060986 100644
  	__msgb_push_u16(msgb, rqid);			/* Request ID. */
  	__msgb_push_u8(msgb, rqst->command_id);		/* Command ID. */
 diff --git a/drivers/platform/surface/aggregator/ssh_request_layer.c b/drivers/platform/surface/aggregator/ssh_request_layer.c
-index 69132976d297e..90634dcacabf2 100644
+index 69132976d297..90634dcacabf 100644
 --- a/drivers/platform/surface/aggregator/ssh_request_layer.c
 +++ b/drivers/platform/surface/aggregator/ssh_request_layer.c
 @@ -920,13 +920,14 @@ static void ssh_rtl_rx_command(struct ssh_ptl *p, const struct ssam_span *data)
@@ -208,7 +208,7 @@ index 69132976d297e..90634dcacabf2 100644
  	}
  
 diff --git a/include/linux/surface_aggregator/controller.h b/include/linux/surface_aggregator/controller.h
-index d11a1c6e3186a..8932bc0bae187 100644
+index d11a1c6e3186..8932bc0bae18 100644
 --- a/include/linux/surface_aggregator/controller.h
 +++ b/include/linux/surface_aggregator/controller.h
 @@ -912,10 +912,10 @@ enum ssam_event_mask {
@@ -225,7 +225,7 @@ index d11a1c6e3186a..8932bc0bae187 100644
  #define SSAM_EVENT_REGISTRY_REG(tid)\
  	SSAM_EVENT_REGISTRY(SSAM_SSH_TC_REG, tid, 0x01, 0x02)
 diff --git a/include/linux/surface_aggregator/serial_hub.h b/include/linux/surface_aggregator/serial_hub.h
-index 45501b6e54e8a..5c4ae1a261831 100644
+index 45501b6e54e8..5c4ae1a26183 100644
 --- a/include/linux/surface_aggregator/serial_hub.h
 +++ b/include/linux/surface_aggregator/serial_hub.h
 @@ -83,23 +83,21 @@ enum ssh_payload_type {
@@ -289,7 +289,7 @@ index 45501b6e54e8a..5c4ae1a261831 100644
 -- 
 2.40.1
 
-From e3c9b579d14240284659f9007e2ffd1f8eead49e Mon Sep 17 00:00:00 2001
+From 3a9db4941d9e4bca45ae4f8176961c4b80fd0726 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 2 Dec 2022 23:33:21 +0100
 Subject: [PATCH] platform/surface: aggregator: Add target and source IDs to
@@ -314,7 +314,7 @@ Patchset: surface-sam
  1 file changed, 67 insertions(+), 6 deletions(-)
 
 diff --git a/drivers/platform/surface/aggregator/trace.h b/drivers/platform/surface/aggregator/trace.h
-index 2a2c17771d014..55cc61bba1da6 100644
+index 2a2c17771d01..55cc61bba1da 100644
 --- a/drivers/platform/surface/aggregator/trace.h
 +++ b/drivers/platform/surface/aggregator/trace.h
 @@ -96,6 +96,7 @@ TRACE_DEFINE_ENUM(SSAM_SSH_TC_POS);
@@ -486,7 +486,7 @@ index 2a2c17771d014..55cc61bba1da6 100644
 -- 
 2.40.1
 
-From f9ee74f0c2ec3d2d4759d60c81c0deadc7bdcc74 Mon Sep 17 00:00:00 2001
+From df6ce87d6d357a6cee359b4b02b49e7566f0ab43 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 2 Dec 2022 23:33:22 +0100
 Subject: [PATCH] platform/surface: aggregator_hub: Use target-ID enum instead
@@ -505,7 +505,7 @@ Patchset: surface-sam
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_hub.c b/drivers/platform/surface/surface_aggregator_hub.c
-index 43061514be382..62f27cdb6ca8f 100644
+index 43061514be38..62f27cdb6ca8 100644
 --- a/drivers/platform/surface/surface_aggregator_hub.c
 +++ b/drivers/platform/surface/surface_aggregator_hub.c
 @@ -214,7 +214,7 @@ static void ssam_hub_remove(struct ssam_device *sdev)
@@ -529,7 +529,7 @@ index 43061514be382..62f27cdb6ca8f 100644
 -- 
 2.40.1
 
-From dfd37dd09ee90bf02b6c61ba0cb8eac492855054 Mon Sep 17 00:00:00 2001
+From f018b06c9d315e558d6d56ad8400134491ff369f Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 2 Dec 2022 23:33:23 +0100
 Subject: [PATCH] platform/surface: aggregator_tabletsw: Use target-ID enum
@@ -548,7 +548,7 @@ Patchset: surface-sam
  1 file changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_tabletsw.c b/drivers/platform/surface/surface_aggregator_tabletsw.c
-index 27d95a6a78513..bd8cd453c393a 100644
+index 27d95a6a7851..bd8cd453c393 100644
 --- a/drivers/platform/surface/surface_aggregator_tabletsw.c
 +++ b/drivers/platform/surface/surface_aggregator_tabletsw.c
 @@ -247,7 +247,7 @@ static bool ssam_kip_cover_state_is_tablet_mode(struct ssam_tablet_sw *sw, u32 s
@@ -581,7 +581,7 @@ index 27d95a6a78513..bd8cd453c393a 100644
 -- 
 2.40.1
 
-From 3a6d3b3baf07034a966fcdf38ef4d8b74bb7a0c8 Mon Sep 17 00:00:00 2001
+From 0d2cd5004e318a315360e4215f45bf4f6bd273a2 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 2 Dec 2022 23:33:24 +0100
 Subject: [PATCH] platform/surface: dtx: Use target-ID enum instead of
@@ -600,7 +600,7 @@ Patchset: surface-sam
  1 file changed, 9 insertions(+), 9 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_dtx.c b/drivers/platform/surface/surface_dtx.c
-index ed36944467f9f..0de76a784a35f 100644
+index ed36944467f9..0de76a784a35 100644
 --- a/drivers/platform/surface/surface_dtx.c
 +++ b/drivers/platform/surface/surface_dtx.c
 @@ -71,63 +71,63 @@ static_assert(sizeof(struct ssam_bas_base_info) == 2);
@@ -679,7 +679,7 @@ index ed36944467f9f..0de76a784a35f 100644
 -- 
 2.40.1
 
-From 24a096b898dffc0bd93f966ccb62fd7a00fa0b48 Mon Sep 17 00:00:00 2001
+From bf7bfdc6185eb316e309d3c7ee28f2528bd351e5 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 2 Dec 2022 23:33:25 +0100
 Subject: [PATCH] HID: surface-hid: Use target-ID enum instead of hard-coding
@@ -698,7 +698,7 @@ Patchset: surface-sam
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/drivers/hid/surface-hid/surface_kbd.c b/drivers/hid/surface-hid/surface_kbd.c
-index 0635341bc5174..42933bf3e925f 100644
+index 0635341bc517..42933bf3e925 100644
 --- a/drivers/hid/surface-hid/surface_kbd.c
 +++ b/drivers/hid/surface-hid/surface_kbd.c
 @@ -250,7 +250,7 @@ static int surface_kbd_probe(struct platform_device *pdev)
@@ -713,7 +713,7 @@ index 0635341bc5174..42933bf3e925f 100644
 -- 
 2.40.1
 
-From eb5b8a2165e5dc9cd8d0b87373cdc60c32ec77e7 Mon Sep 17 00:00:00 2001
+From cd0ed86db9090b9eeab3ea08a2bc1db209f4a790 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 2 Dec 2022 23:33:26 +0100
 Subject: [PATCH] platform/surface: aggregator: Enforce use of target-ID enum
@@ -747,7 +747,7 @@ Patchset: surface-sam
  8 files changed, 35 insertions(+), 35 deletions(-)
 
 diff --git a/drivers/hid/surface-hid/surface_hid.c b/drivers/hid/surface-hid/surface_hid.c
-index d4aa8c81903ae..aa80d83a83d1b 100644
+index d4aa8c81903a..aa80d83a83d1 100644
 --- a/drivers/hid/surface-hid/surface_hid.c
 +++ b/drivers/hid/surface-hid/surface_hid.c
 @@ -230,7 +230,7 @@ static void surface_hid_remove(struct ssam_device *sdev)
@@ -760,7 +760,7 @@ index d4aa8c81903ae..aa80d83a83d1b 100644
  };
  MODULE_DEVICE_TABLE(ssam, surface_hid_match);
 diff --git a/drivers/platform/surface/surface_aggregator_hub.c b/drivers/platform/surface/surface_aggregator_hub.c
-index 62f27cdb6ca8f..6abd1efe20883 100644
+index 62f27cdb6ca8..6abd1efe2088 100644
 --- a/drivers/platform/surface/surface_aggregator_hub.c
 +++ b/drivers/platform/surface/surface_aggregator_hub.c
 @@ -348,8 +348,8 @@ static const struct ssam_hub_desc kip_hub = {
@@ -775,7 +775,7 @@ index 62f27cdb6ca8f..6abd1efe20883 100644
  };
  MODULE_DEVICE_TABLE(ssam, ssam_hub_match);
 diff --git a/drivers/platform/surface/surface_aggregator_tabletsw.c b/drivers/platform/surface/surface_aggregator_tabletsw.c
-index bd8cd453c393a..6147aa8879391 100644
+index bd8cd453c393..6147aa887939 100644
 --- a/drivers/platform/surface/surface_aggregator_tabletsw.c
 +++ b/drivers/platform/surface/surface_aggregator_tabletsw.c
 @@ -510,8 +510,8 @@ static const struct ssam_tablet_sw_desc ssam_pos_sw_desc = {
@@ -790,7 +790,7 @@ index bd8cd453c393a..6147aa8879391 100644
  };
  MODULE_DEVICE_TABLE(ssam, ssam_tablet_sw_match);
 diff --git a/drivers/platform/surface/surface_dtx.c b/drivers/platform/surface/surface_dtx.c
-index 0de76a784a35f..30cbde278c599 100644
+index 0de76a784a35..30cbde278c59 100644
 --- a/drivers/platform/surface/surface_dtx.c
 +++ b/drivers/platform/surface/surface_dtx.c
 @@ -1214,7 +1214,7 @@ static void surface_dtx_ssam_remove(struct ssam_device *sdev)
@@ -803,7 +803,7 @@ index 0de76a784a35f..30cbde278c599 100644
  };
  MODULE_DEVICE_TABLE(ssam, surface_dtx_ssam_match);
 diff --git a/drivers/platform/surface/surface_platform_profile.c b/drivers/platform/surface/surface_platform_profile.c
-index fbf2e11fd6ce7..f433a13c3689a 100644
+index fbf2e11fd6ce..f433a13c3689 100644
 --- a/drivers/platform/surface/surface_platform_profile.c
 +++ b/drivers/platform/surface/surface_platform_profile.c
 @@ -169,7 +169,7 @@ static void surface_platform_profile_remove(struct ssam_device *sdev)
@@ -816,7 +816,7 @@ index fbf2e11fd6ce7..f433a13c3689a 100644
  };
  MODULE_DEVICE_TABLE(ssam, ssam_platform_profile_match);
 diff --git a/drivers/power/supply/surface_battery.c b/drivers/power/supply/surface_battery.c
-index 540707882bb0a..19d2f8834e56d 100644
+index 540707882bb0..19d2f8834e56 100644
 --- a/drivers/power/supply/surface_battery.c
 +++ b/drivers/power/supply/surface_battery.c
 @@ -852,8 +852,8 @@ static const struct spwr_psy_properties spwr_psy_props_bat2_sb3 = {
@@ -831,7 +831,7 @@ index 540707882bb0a..19d2f8834e56d 100644
  };
  MODULE_DEVICE_TABLE(ssam, surface_battery_match);
 diff --git a/drivers/power/supply/surface_charger.c b/drivers/power/supply/surface_charger.c
-index 59182d55742d0..cabdd8da12d08 100644
+index 59182d55742d..cabdd8da12d0 100644
 --- a/drivers/power/supply/surface_charger.c
 +++ b/drivers/power/supply/surface_charger.c
 @@ -260,7 +260,7 @@ static const struct spwr_psy_properties spwr_psy_props_adp1 = {
@@ -844,7 +844,7 @@ index 59182d55742d0..cabdd8da12d08 100644
  };
  MODULE_DEVICE_TABLE(ssam, surface_ac_match);
 diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
-index 46c45d1b63682..4da20b7a0ee5e 100644
+index 46c45d1b6368..4da20b7a0ee5 100644
 --- a/include/linux/surface_aggregator/device.h
 +++ b/include/linux/surface_aggregator/device.h
 @@ -68,9 +68,9 @@ struct ssam_device_uid {
@@ -949,7 +949,7 @@ index 46c45d1b63682..4da20b7a0ee5e 100644
 -- 
 2.40.1
 
-From ed1cdab50327d6b4b4ba40bcfb2772b9ca3984bd Mon Sep 17 00:00:00 2001
+From 637cfbc3fa26dd8f2e9cf2ecd89120d296f1d22a Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 2 Dec 2022 23:33:27 +0100
 Subject: [PATCH] platform/surface: aggregator_registry: Fix target-ID of
@@ -976,7 +976,7 @@ Patchset: surface-sam
  2 files changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_hub.c b/drivers/platform/surface/surface_aggregator_hub.c
-index 6abd1efe20883..8b8b80228c147 100644
+index 6abd1efe2088..8b8b80228c14 100644
 --- a/drivers/platform/surface/surface_aggregator_hub.c
 +++ b/drivers/platform/surface/surface_aggregator_hub.c
 @@ -349,7 +349,7 @@ static const struct ssam_hub_desc kip_hub = {
@@ -989,7 +989,7 @@ index 6abd1efe20883..8b8b80228c147 100644
  };
  MODULE_DEVICE_TABLE(ssam, ssam_hub_match);
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 023f126121d7d..296f72d52e6a6 100644
+index 023f126121d7..296f72d52e6a 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -46,7 +46,7 @@ static const struct software_node ssam_node_hub_kip = {
@@ -1004,7 +1004,7 @@ index 023f126121d7d..296f72d52e6a6 100644
 -- 
 2.40.1
 
-From d664a31296df14c3385d6d162ce8e1e7352a3935 Mon Sep 17 00:00:00 2001
+From c8063be2d5332cbe2e212e8772030d2704da4a7b Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Tue, 20 Dec 2022 18:56:08 +0100
 Subject: [PATCH] platform/surface: aggregator: Rename top-level request
@@ -1060,7 +1060,7 @@ Patchset: surface-sam
  10 files changed, 66 insertions(+), 66 deletions(-)
 
 diff --git a/Documentation/driver-api/surface_aggregator/client.rst b/Documentation/driver-api/surface_aggregator/client.rst
-index 9d7411223a848..e100ab0a24cc4 100644
+index 9d7411223a84..e100ab0a24cc 100644
 --- a/Documentation/driver-api/surface_aggregator/client.rst
 +++ b/Documentation/driver-api/surface_aggregator/client.rst
 @@ -19,7 +19,7 @@
@@ -1097,7 +1097,7 @@ index 9d7411223a848..e100ab0a24cc4 100644
  implementation and documentation for more details.
  
 diff --git a/drivers/hid/surface-hid/surface_hid.c b/drivers/hid/surface-hid/surface_hid.c
-index aa80d83a83d1b..61e5814b0ad7d 100644
+index aa80d83a83d1..61e5814b0ad7 100644
 --- a/drivers/hid/surface-hid/surface_hid.c
 +++ b/drivers/hid/surface-hid/surface_hid.c
 @@ -80,7 +80,7 @@ static int ssam_hid_get_descriptor(struct surface_hid_device *shid, u8 entry, u8
@@ -1128,7 +1128,7 @@ index aa80d83a83d1b..61e5814b0ad7d 100644
  
  static u32 ssam_hid_event_fn(struct ssam_event_notifier *nf, const struct ssam_event *event)
 diff --git a/drivers/hid/surface-hid/surface_kbd.c b/drivers/hid/surface-hid/surface_kbd.c
-index 42933bf3e925f..4fbce201db6a1 100644
+index 42933bf3e925..4fbce201db6a 100644
 --- a/drivers/hid/surface-hid/surface_kbd.c
 +++ b/drivers/hid/surface-hid/surface_kbd.c
 @@ -49,7 +49,7 @@ static int ssam_kbd_get_descriptor(struct surface_hid_device *shid, u8 entry, u8
@@ -1159,7 +1159,7 @@ index 42933bf3e925f..4fbce201db6a1 100644
  		return status;
  
 diff --git a/drivers/platform/surface/aggregator/bus.c b/drivers/platform/surface/aggregator/bus.c
-index b501a79f2a08a..da0baba5ed51f 100644
+index b501a79f2a08..da0baba5ed51 100644
 --- a/drivers/platform/surface/aggregator/bus.c
 +++ b/drivers/platform/surface/aggregator/bus.c
 @@ -136,9 +136,9 @@ int ssam_device_add(struct ssam_device *sdev)
@@ -1176,7 +1176,7 @@ index b501a79f2a08a..da0baba5ed51f 100644
  	 * Note that for this to work, the controller has to be a parent device.
  	 * If it is not a direct parent, care has to be taken that the device is
 diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
-index 2c99f51ccd4ec..535581c0471c5 100644
+index 2c99f51ccd4e..535581c0471c 100644
 --- a/drivers/platform/surface/aggregator/controller.c
 +++ b/drivers/platform/surface/aggregator/controller.c
 @@ -1674,7 +1674,7 @@ int ssam_request_sync_submit(struct ssam_controller *ctrl,
@@ -1259,7 +1259,7 @@ index 2c99f51ccd4ec..535581c0471c5 100644
  
  	return status < 0 ? status : buf;
 diff --git a/drivers/platform/surface/surface_acpi_notify.c b/drivers/platform/surface/surface_acpi_notify.c
-index 50500e562963d..897cdd9c3aae8 100644
+index 50500e562963..897cdd9c3aae 100644
 --- a/drivers/platform/surface/surface_acpi_notify.c
 +++ b/drivers/platform/surface/surface_acpi_notify.c
 @@ -590,7 +590,7 @@ static acpi_status san_rqst(struct san_data *d, struct gsb_buffer *buffer)
@@ -1272,7 +1272,7 @@ index 50500e562963d..897cdd9c3aae8 100644
  
  	if (!status) {
 diff --git a/drivers/platform/surface/surface_aggregator_cdev.c b/drivers/platform/surface/surface_aggregator_cdev.c
-index 492c82e691827..07f0ed658369b 100644
+index 492c82e69182..07f0ed658369 100644
 --- a/drivers/platform/surface/surface_aggregator_cdev.c
 +++ b/drivers/platform/surface/surface_aggregator_cdev.c
 @@ -302,8 +302,8 @@ static long ssam_cdev_request(struct ssam_cdev_client *client, struct ssam_cdev_
@@ -1296,7 +1296,7 @@ index 492c82e691827..07f0ed658369b 100644
  		goto out;
  
 diff --git a/drivers/platform/surface/surface_aggregator_tabletsw.c b/drivers/platform/surface/surface_aggregator_tabletsw.c
-index 6147aa8879391..9fed800c7cc09 100644
+index 6147aa887939..9fed800c7cc0 100644
 --- a/drivers/platform/surface/surface_aggregator_tabletsw.c
 +++ b/drivers/platform/surface/surface_aggregator_tabletsw.c
 @@ -382,7 +382,7 @@ static int ssam_pos_get_sources_list(struct ssam_tablet_sw *sw, struct ssam_sour
@@ -1309,7 +1309,7 @@ index 6147aa8879391..9fed800c7cc09 100644
  		return status;
  
 diff --git a/include/linux/surface_aggregator/controller.h b/include/linux/surface_aggregator/controller.h
-index 8932bc0bae187..cb7980805920a 100644
+index 8932bc0bae18..cb7980805920 100644
 --- a/include/linux/surface_aggregator/controller.h
 +++ b/include/linux/surface_aggregator/controller.h
 @@ -207,17 +207,17 @@ static inline int ssam_request_sync_wait(struct ssam_request_sync *rqst)
@@ -1509,7 +1509,7 @@ index 8932bc0bae187..cb7980805920a 100644
  			return status;						\
  										\
 diff --git a/include/linux/surface_aggregator/device.h b/include/linux/surface_aggregator/device.h
-index 4da20b7a0ee5e..1545e5567b152 100644
+index 4da20b7a0ee5..1545e5567b15 100644
 --- a/include/linux/surface_aggregator/device.h
 +++ b/include/linux/surface_aggregator/device.h
 @@ -456,7 +456,7 @@ static inline int ssam_device_register_clients(struct ssam_device *sdev)
@@ -1551,7 +1551,7 @@ index 4da20b7a0ee5e..1545e5567b152 100644
 -- 
 2.40.1
 
-From 34f0427c5cef627c74d28c90ab7be819d606851a Mon Sep 17 00:00:00 2001
+From 5bf0577ccb7c7906daa47f2e6f1d76852ea6ca11 Mon Sep 17 00:00:00 2001
 From: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 Date: Wed, 18 Jan 2023 11:38:23 +0200
 Subject: [PATCH] platform/surface: Switch to use acpi_evaluate_dsm_typed()
@@ -1570,7 +1570,7 @@ Patchset: surface-sam
  1 file changed, 3 insertions(+), 10 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_hotplug.c b/drivers/platform/surface/surface_hotplug.c
-index f004a24952013..7b6d887dccdbf 100644
+index f004a2495201..7b6d887dccdb 100644
 --- a/drivers/platform/surface/surface_hotplug.c
 +++ b/drivers/platform/surface/surface_hotplug.c
 @@ -101,18 +101,12 @@ static void shps_dsm_notify_irq(struct platform_device *pdev, enum shps_irq_type
@@ -1607,7 +1607,7 @@ index f004a24952013..7b6d887dccdbf 100644
 -- 
 2.40.1
 
-From 4f89a89a5fb6103e02c7ce5e91b1307f03918b0a Mon Sep 17 00:00:00 2001
+From 39e34980281618fd5e2b3fb430b9757e8e3ad2f4 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 4 Mar 2023 20:09:36 +0100
 Subject: [PATCH] platform/surface: aggregator_tabletsw: Properly handle
@@ -1634,7 +1634,7 @@ Patchset: surface-sam
  1 file changed, 84 insertions(+), 39 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_tabletsw.c b/drivers/platform/surface/surface_aggregator_tabletsw.c
-index 9fed800c7cc09..e8682f52558f3 100644
+index 9fed800c7cc0..e8682f52558f 100644
 --- a/drivers/platform/surface/surface_aggregator_tabletsw.c
 +++ b/drivers/platform/surface/surface_aggregator_tabletsw.c
 @@ -20,16 +20,23 @@
@@ -1915,7 +1915,7 @@ index 9fed800c7cc09..e8682f52558f3 100644
 -- 
 2.40.1
 
-From ee46ef7a758c3241decb5d3d8ce8834ba67ead8d Mon Sep 17 00:00:00 2001
+From fdfc3220abedc75d4ff64900d366ca4b2a0ec4fe Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 19 Feb 2023 23:33:43 +0100
 Subject: [PATCH] platform/surface: aggregator_tabletsw: Add support for
@@ -1931,7 +1931,7 @@ Patchset: surface-sam
  1 file changed, 57 insertions(+)
 
 diff --git a/drivers/platform/surface/surface_aggregator_tabletsw.c b/drivers/platform/surface/surface_aggregator_tabletsw.c
-index e8682f52558f3..8f52b62d1c195 100644
+index e8682f52558f..8f52b62d1c19 100644
 --- a/drivers/platform/surface/surface_aggregator_tabletsw.c
 +++ b/drivers/platform/surface/surface_aggregator_tabletsw.c
 @@ -325,9 +325,18 @@ MODULE_PARM_DESC(tablet_mode_in_slate_state, "Enable tablet mode in slate device
@@ -2032,7 +2032,7 @@ index e8682f52558f3..8f52b62d1c195 100644
 -- 
 2.40.1
 
-From 6ef1eea82ca977da17d29210146fdd9ced15297e Mon Sep 17 00:00:00 2001
+From 2f28e34fa6715ae3b4e4e35afc09bbe73d4dd24f Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 19 Feb 2023 23:41:18 +0100
 Subject: [PATCH] platform/surface: aggregator_registry: Add support for
@@ -2048,7 +2048,7 @@ Patchset: surface-sam
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 296f72d52e6a6..0fe5be5396525 100644
+index 296f72d52e6a..0fe5be539652 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -305,7 +305,7 @@ static const struct software_node *ssam_node_group_sp9[] = {
@@ -2063,7 +2063,7 @@ index 296f72d52e6a6..0fe5be5396525 100644
 -- 
 2.40.1
 
-From 6f3127a0922f7138ced9c31235a29594ffa202d7 Mon Sep 17 00:00:00 2001
+From b94c7207a430d250cb344a45f90f94b3f20c5478 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Wed, 3 May 2023 02:02:21 +0200
 Subject: [PATCH] platform/surface: aggregator: Allow completion work-items to
@@ -2108,7 +2108,7 @@ Patchset: surface-sam
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
-index 535581c0471c5..7fc602e01487d 100644
+index 535581c0471c..7fc602e01487 100644
 --- a/drivers/platform/surface/aggregator/controller.c
 +++ b/drivers/platform/surface/aggregator/controller.c
 @@ -825,7 +825,7 @@ static int ssam_cplt_init(struct ssam_cplt *cplt, struct device *dev)
@@ -2123,7 +2123,7 @@ index 535581c0471c5..7fc602e01487d 100644
 -- 
 2.40.1
 
-From 5aa232816ebdc68be4247adfbad7fd6734ec2284 Mon Sep 17 00:00:00 2001
+From 448e566463e65c9f3cf6ae5c09d06dcb29f878dd Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 18 May 2023 22:53:12 +0200
 Subject: [PATCH] platform/surface: aggregator_tabletsw: Add support for book
@@ -2145,7 +2145,7 @@ Patchset: surface-sam
  1 file changed, 5 insertions(+)
 
 diff --git a/drivers/platform/surface/surface_aggregator_tabletsw.c b/drivers/platform/surface/surface_aggregator_tabletsw.c
-index 8f52b62d1c195..4a029f5db20a9 100644
+index 8f52b62d1c19..4a029f5db20a 100644
 --- a/drivers/platform/surface/surface_aggregator_tabletsw.c
 +++ b/drivers/platform/surface/surface_aggregator_tabletsw.c
 @@ -210,6 +210,7 @@ enum ssam_kip_cover_state {
@@ -2177,7 +2177,7 @@ index 8f52b62d1c195..4a029f5db20a9 100644
 -- 
 2.40.1
 
-From 8a5a9e00b948eb354013c5b1933ae6be9ff0309c Mon Sep 17 00:00:00 2001
+From c8771f84f3b49e4a1f56653cf7feb4818831dc86 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Thu, 18 May 2023 22:57:17 +0200
 Subject: [PATCH] platform/surface: aggregator_tabletsw: Add support for book
@@ -2199,7 +2199,7 @@ Patchset: surface-sam
  1 file changed, 5 insertions(+)
 
 diff --git a/drivers/platform/surface/surface_aggregator_tabletsw.c b/drivers/platform/surface/surface_aggregator_tabletsw.c
-index 4a029f5db20a9..c0a1a5869246e 100644
+index 4a029f5db20a..c0a1a5869246 100644
 --- a/drivers/platform/surface/surface_aggregator_tabletsw.c
 +++ b/drivers/platform/surface/surface_aggregator_tabletsw.c
 @@ -340,6 +340,7 @@ enum ssam_pos_state_cover {
