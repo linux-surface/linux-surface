@@ -1,0 +1,50 @@
+From 5d16b0aca7c07c1e3df5c47c61f5b6f402dd987b Mon Sep 17 00:00:00 2001
+From: Dorian Stoll <dorian.stoll@tmsp.io>
+Date: Sat, 3 Jun 2023 11:47:02 +0200
+Subject: [PATCH] Install scripts and service files for keeping the surface
+ kernel the default
+
+Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
+---
+ redhat/kernel.spec.template | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
+index 9ad0c720d467..5a367c936e05 100644
+--- a/redhat/kernel.spec.template
++++ b/redhat/kernel.spec.template
+@@ -911,6 +911,10 @@ Source4000: README.rst
+ Source4001: rpminspect.yaml
+ Source4002: gating.yaml
+ 
++Source4100: linux-surface-default-kernel.path
++Source4101: linux-surface-default-kernel.service
++Source4102: linux-surface-default-kernel.sh
++
+ ## Patches needed for building this package
+ 
+ %if !%{nopatches}
+@@ -2674,6 +2678,10 @@ find Documentation -type d | xargs chmod u+w
+ 
+ cd linux-%{KVERREL}
+ 
++install -D -m644 "%{SOURCE4100}" -t "%{buildroot}%{_unitdir}"
++install -D -m644 "%{SOURCE4101}" -t "%{buildroot}%{_unitdir}"
++install -D -m755 "%{SOURCE4102}" -t "%{buildroot}%{_bindir}"
++
+ %if %{with_doc}
+ docdir=$RPM_BUILD_ROOT%{_datadir}/doc/kernel-doc-%{specversion}-%{pkgrelease}
+ 
+@@ -3331,6 +3339,9 @@ fi
+ %ghost %attr(0600, root, root) /boot/symvers-%{KVERREL}%{?3:+%{3}}.gz\
+ %ghost %attr(0600, root, root) /boot/initramfs-%{KVERREL}%{?3:+%{3}}.img\
+ %ghost %attr(0644, root, root) /boot/config-%{KVERREL}%{?3:+%{3}}\
++%{_bindir}/linux-surface-default-kernel.sh\
++%{_unitdir}/linux-surface-default-kernel.path\
++%{_unitdir}/linux-surface-default-kernel.service\
+ %{expand:%%files -f kernel-%{?3:%{3}-}modules-core.list %{?3:%{3}-}modules-core}\
+ %dir /lib/modules\
+ %dir /lib/modules/%{KVERREL}%{?3:+%{3}}\
+-- 
+2.40.1
+
