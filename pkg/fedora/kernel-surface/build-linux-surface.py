@@ -72,7 +72,7 @@ if not sb_avail:
     input("Press any key to continue")
 
 # Expand globs
-surface_patches = list(patches.glob("*.patch"))
+surface_patches = sorted(patches.glob("*.patch"))
 
 cmd = []
 cmd += [script / "build-ark.py"]
@@ -83,9 +83,9 @@ cmd += ["--patch"] + surface_patches
 cmd += ["--config", config]
 cmd += ["--buildopts", KERNEL_BUILDOPTS]
 
-local_patches = list((script / "patches").glob("*.patch"))
-local_configs = list((script / "configs").glob("*.config"))
-local_files = list((script / "files").glob("*"))
+local_patches = sorted((script / "patches").glob("*.patch"))
+local_configs = sorted((script / "configs").glob("*.config"))
+local_files = sorted((script / "files").glob("*"))
 
 if len(local_patches) > 0:
     cmd += ["--patch"] + local_patches
@@ -97,8 +97,8 @@ if len(local_files) > 0:
     cmd += ["--file"] + local_files
 
 if sb_avail:
-    sb_patches = list((script / "secureboot").glob("*.patch"))
-    sb_configs = list((script / "secureboot").glob("*.config"))
+    sb_patches = sorted((script / "secureboot").glob("*.patch"))
+    sb_configs = sorted((script / "secureboot").glob("*.config"))
 
     if len(sb_patches) > 0:
         cmd += ["--patch"] + sb_patches
