@@ -74,6 +74,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--mode",
+    help="Whether to build a source RPM or binary RPMs.",
+    choices=["rpms", "srpm"],
+    default="rpms",
+)
+
+parser.add_argument(
     "--outdir",
     help="The directory where the built RPM files will be saved.",
     default="out",
@@ -153,9 +160,13 @@ for config in configs:
 system("git add redhat/configs/custom-overrides/generic")
 system("git commit -m 'Merge %s config'" % args.package_name)
 
-cmd = []
-cmd.append("make")
-cmd.append("dist-rpms")
+cmd = ["make"]
+
+if args.mode == "rpms":
+    cmd.append("dist-rpms")
+else:
+    cmd.append("dist-srpm")
+
 cmd.append("SPECPACKAGE_NAME='kernel-%s'" % args.package_name)
 cmd.append("DISTLOCALVERSION='.%s'" % args.package_name)
 cmd.append("BUILD='%s'" % args.package_release)
@@ -166,6 +177,11 @@ if len(buildopts) > 0:
 # Build RPMS
 system(" ".join(cmd))
 
+if args.mode == "rpms":
+    rpmdir = "RPMS"
+else:
+    rpmdir = "SRPMS"
+
 # Copy built RPMS to output directory
 os.makedirs(outdir, exist_ok=True)
-system("cp -r redhat/rpm/RPMS/* '%s'" % outdir)
+system("cp -r redhat/rpm/%s/* '%s'" % (rpmdir, outdir))

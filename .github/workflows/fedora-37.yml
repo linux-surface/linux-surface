@@ -46,8 +46,14 @@ jobs:
         git config --global user.email "surfacebot@users.noreply.github.com"
         git config --global user.name "surfacebot"
 
-        # Build the .rpm packages
-        python3 build-linux-surface.py
+        # Build source RPM packages
+        python3 build-linux-surface.py --mode srpm --ark-dir kernel-ark --outdir srpm
+
+        # Remove the kernel-ark tree to get as much free disk space as possible
+        rm -rf kernel-ark
+
+        # Build binary RPM packages
+        rpmbuild -rb --define "_rpmdir $PWD/out" srpm/*.src.rpm
 
     - name: Sign packages
       env:

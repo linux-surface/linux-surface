@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import subprocess
 import sys
 from pathlib import Path
@@ -36,6 +37,35 @@ PACKAGE_RELEASE = "1"
 KERNEL_BUILDOPTS = "+up +baseonly -debuginfo -doc -headers -efiuki"
 
 #####################################################################
+
+parser = argparse.ArgumentParser(usage="Build a Fedora kernel with linux-surface patches")
+
+parser.add_argument(
+    "--ark-dir",
+    help="The local path to the kernel-ark repository.",
+    default="kernel-ark",
+)
+
+parser.add_argument(
+    "--ark-url",
+    help="The remote path to the kernel-ark repository.",
+    default="https://gitlab.com/cki-project/kernel-ark",
+)
+
+parser.add_argument(
+    "--mode",
+    help="Whether to build a source RPM or binary RPMs.",
+    choices=["rpms", "srpm"],
+    default="rpms",
+)
+
+parser.add_argument(
+    "--outdir",
+    help="The directory where the built RPM files will be saved.",
+    default="out",
+)
+
+args = parser.parse_args()
 
 # The directory where this script is saved.
 script = Path(sys.argv[0]).resolve().parent
@@ -74,8 +104,11 @@ if not sb_avail:
 # Expand globs
 surface_patches = sorted(patches.glob("*.patch"))
 
-cmd = []
-cmd += [script / "build-ark.py"]
+cmd = [script / "build-ark.py"]
+cmd += ["--ark-dir", args.ark_dir]
+cmd += ["--ark-url", args.ark_url]
+cmd += ["--mode", args.mode]
+cmd += ["--outdir", args.outdir]
 cmd += ["--package-name", PACKAGE_NAME]
 cmd += ["--package-tag", PACKAGE_TAG]
 cmd += ["--package-release", PACKAGE_RELEASE]
