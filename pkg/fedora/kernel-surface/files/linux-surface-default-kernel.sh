@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # get list of surface kernels with timestamp
-kernels=$(find /boot -maxdepth 1 -name "vmlinuz-*.surface.*" -printf '%T@\t%p\n')
+kernels=$(find /boot -maxdepth 1 -name "vmlinuz-*.surface.*" -printf '%B@\t%p\n')
 
 # sort by timestamp
 kernels=$(echo "${kernels}" | sort -n)
