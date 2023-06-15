@@ -1,4 +1,4 @@
-From 5d16b0aca7c07c1e3df5c47c61f5b6f402dd987b Mon Sep 17 00:00:00 2001
+From a45b4c3fcb7d364f236a25e03378a6b03a9cc627 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Sat, 3 Jun 2023 11:47:02 +0200
 Subject: [PATCH] Install scripts and service files for keeping the surface
@@ -6,45 +6,89 @@ Subject: [PATCH] Install scripts and service files for keeping the surface
 
 Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
 ---
- redhat/kernel.spec.template | 11 +++++++++++
- 1 file changed, 11 insertions(+)
+ redhat/kernel.spec.template | 34 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
 
 diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
-index 9ad0c720d467..5a367c936e05 100644
+index dc95736a227e..4d6504ca721b 100644
 --- a/redhat/kernel.spec.template
 +++ b/redhat/kernel.spec.template
-@@ -911,6 +911,10 @@ Source4000: README.rst
+@@ -911,6 +911,11 @@ Source4000: README.rst
  Source4001: rpminspect.yaml
  Source4002: gating.yaml
  
-+Source4100: linux-surface-default-kernel.path
-+Source4101: linux-surface-default-kernel.service
-+Source4102: linux-surface-default-kernel.sh
++Source4100: linux-surface-default-watchdog.path
++Source4101: linux-surface-default-watchdog.service
++Source4102: linux-surface-default-watchdog.sh
++Source4103: 90-linux-surface-default-watchdog.preset
 +
  ## Patches needed for building this package
  
  %if !%{nopatches}
-@@ -2674,6 +2678,10 @@ find Documentation -type d | xargs chmod u+w
+@@ -944,6 +949,7 @@ Requires(pre): %{initrd_prereq}\
+ Requires(pre): ((linux-firmware >= 20150904-56.git6ebf5d57) if linux-firmware)\
+ Recommends: linux-firmware\
+ Recommends: iptsd\
++Recommends: %{package_name}-default-watchdog\
+ Requires(preun): systemd >= 200\
+ Conflicts: xfsprogs < 4.3.0-1\
+ Conflicts: xorg-x11-drv-vmmouse < 13.0.99\
+@@ -958,6 +964,14 @@ AutoProv: yes\
+ %{nil}
+ 
+ 
++%package default-watchdog
++Summary: Watchdog service ensuring that the surface kernel stays the default kernel.
++%description default-watchdog
++This package provides a systemd service that will automatically keep
++the surface kernel as the default kernel in GRUB, even if a newer stock
++kernel has been installed.
++
++
+ %package doc
+ Summary: Various documentation bits found in the kernel source
+ Group: Documentation
+@@ -2691,6 +2705,11 @@ find Documentation -type d | xargs chmod u+w
  
  cd linux-%{KVERREL}
  
 +install -D -m644 "%{SOURCE4100}" -t "%{buildroot}%{_unitdir}"
 +install -D -m644 "%{SOURCE4101}" -t "%{buildroot}%{_unitdir}"
 +install -D -m755 "%{SOURCE4102}" -t "%{buildroot}%{_bindir}"
++install -D -m755 "%{SOURCE4103}" -t "%{buildroot}%{_presetdir}"
 +
  %if %{with_doc}
  docdir=$RPM_BUILD_ROOT%{_datadir}/doc/kernel-doc-%{specversion}-%{pkgrelease}
  
-@@ -3331,6 +3339,9 @@ fi
- %ghost %attr(0600, root, root) /boot/symvers-%{KVERREL}%{?3:+%{3}}.gz\
- %ghost %attr(0600, root, root) /boot/initramfs-%{KVERREL}%{?3:+%{3}}.img\
- %ghost %attr(0644, root, root) /boot/config-%{KVERREL}%{?3:+%{3}}\
-+%{_bindir}/linux-surface-default-kernel.sh\
-+%{_unitdir}/linux-surface-default-kernel.path\
-+%{_unitdir}/linux-surface-default-kernel.service\
- %{expand:%%files -f kernel-%{?3:%{3}-}modules-core.list %{?3:%{3}-}modules-core}\
- %dir /lib/modules\
- %dir /lib/modules/%{KVERREL}%{?3:+%{3}}\
+@@ -2938,6 +2957,15 @@ popd
+ ### scripts
+ ###
+ 
++%post default-watchdog
++%systemd_post linux-surface-default-watchdog.path
++
++%preun default-watchdog
++%systemd_preun linux-surface-default-watchdog.path
++
++%postun default-watchdog
++%systemd_postun_with_restart linux-surface-default-watchdog.path
++
+ %if %{with_tools}
+ %post -n %{package_name}-tools-libs
+ /sbin/ldconfig
+@@ -3313,6 +3341,12 @@ fi
+ %{_libexecdir}/kselftests
+ %endif
+ 
++%files default-watchdog
++%{_bindir}/linux-surface-default-watchdog.sh
++%{_unitdir}/linux-surface-default-watchdog.path
++%{_unitdir}/linux-surface-default-watchdog.service
++%{_presetdir}/90-linux-surface-default-watchdog.preset
++
+ # empty meta-package
+ %ifnarch %nobuildarches noarch
+ %files
 -- 
 2.40.1
 
