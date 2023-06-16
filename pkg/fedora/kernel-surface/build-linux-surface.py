@@ -99,7 +99,7 @@ if not sb_avail:
     print("The compiled kernel will not boot with Secure Boot enabled!")
     print("")
 
-    input("Press any key to continue")
+    input("Press enter to continue: ")
 
 # Expand globs
 surface_patches = sorted(patches.glob("*.patch"))
