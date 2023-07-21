@@ -1,4 +1,4 @@
-From da61f0e02b93d0495ce8563c51b7480f35a6bafd Mon Sep 17 00:00:00 2001
+From 3ec62f7bde89e3c84aae8eac58e5e9a173383d35 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Thu, 30 Jul 2020 13:21:53 +0200
 Subject: [PATCH] misc: mei: Add missing IPTS device IDs
@@ -36,7 +36,7 @@ index 676d566f38dd..6b37dd1f8b2a 100644
 -- 
 2.41.0
 
-From fd9081bd15f1a9daa1d7256112501378ee499321 Mon Sep 17 00:00:00 2001
+From 5969d31250c82992b3e5982bf73723dc685099e4 Mon Sep 17 00:00:00 2001
 From: Liban Hannan <liban.p@gmail.com>
 Date: Tue, 12 Apr 2022 23:31:12 +0100
 Subject: [PATCH] iommu: ipts: use IOMMU passthrough mode for IPTS
@@ -136,7 +136,7 @@ index b871a6afd803..0d4542b7365d 100644
 -- 
 2.41.0
 
-From ea8c3ec733d9726343e164157404b5b1b2a0619a Mon Sep 17 00:00:00 2001
+From 5570234ede6474477c2e8445c063f7cfac08c45a Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Sun, 11 Dec 2022 12:00:59 +0100
 Subject: [PATCH] hid: Add support for Intel Precise Touch and Stylus
@@ -195,7 +195,7 @@ Patchset: ipts
  create mode 100644 drivers/hid/ipts/thread.h
 
 diff --git a/drivers/hid/Kconfig b/drivers/hid/Kconfig
-index 4ce012f83253..7945cb57f531 100644
+index b977450cac75..dcedd5b90f35 100644
 --- a/drivers/hid/Kconfig
 +++ b/drivers/hid/Kconfig
 @@ -1316,4 +1316,6 @@ source "drivers/hid/amd-sfh-hid/Kconfig"
@@ -2986,7 +2986,7 @@ index 000000000000..a314843599fc
 -- 
 2.41.0
 
-From ebc87e019cb5901338b8db8ec6f191deb9995619 Mon Sep 17 00:00:00 2001
+From e52a30a8f4812f8af1ec6cc5b70e70123be609f1 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Fri, 28 Apr 2023 15:41:12 +0200
 Subject: [PATCH] Update IPTS from module repo
@@ -3175,6 +3175,1261 @@ index 6cbb24a8a054..e0c400f420b9 100644
  };
  
  int ipts_resources_init(struct ipts_resources *res, struct device *dev, size_t ds, size_t fs);
+-- 
+2.41.0
+
+From 35874dc856b04e0be4fc6e9a18e978640272a46e Mon Sep 17 00:00:00 2001
+From: Dorian Stoll <dorian.stoll@tmsp.io>
+Date: Mon, 17 Jul 2023 18:10:43 +0200
+Subject: [PATCH] Update IPTS from module repo
+
+Changes:
+* Remove usages of C11 for compatibility with older (Android) kernels
+* Remove sensor reset during shutdown
+* Fix compiling resources.c on Android-x86 kernel
+* Split out HID behaviour for different EDS versions into different files
+* Fix kernel-doc comments
+* Add missing docs for members of the device info struct
+* Drop Intel copyright
+* Rename doorbell mode to poll mode
+* Disable the HID interface when the hardware is shutting down.
+
+Based on https://github.com/linux-surface/intel-precise-touch/commit/56765da3f87d87c5e5cf09e928abe0f579525e5e
+
+Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
+Patchset: ipts
+---
+ drivers/hid/ipts/Makefile      |   2 +
+ drivers/hid/ipts/cmd.c         |   1 -
+ drivers/hid/ipts/cmd.h         |   7 +-
+ drivers/hid/ipts/context.h     |   3 +-
+ drivers/hid/ipts/control.c     |  25 ++---
+ drivers/hid/ipts/control.h     |  25 +++--
+ drivers/hid/ipts/desc.h        |   1 -
+ drivers/hid/ipts/eds1.c        | 103 ++++++++++++++++++
+ drivers/hid/ipts/eds1.h        |  35 +++++++
+ drivers/hid/ipts/eds2.c        | 144 ++++++++++++++++++++++++++
+ drivers/hid/ipts/eds2.h        |  35 +++++++
+ drivers/hid/ipts/hid.c         | 184 ++++++---------------------------
+ drivers/hid/ipts/hid.h         |   4 +-
+ drivers/hid/ipts/main.c        |   1 -
+ drivers/hid/ipts/mei.c         |   1 -
+ drivers/hid/ipts/mei.h         |   7 +-
+ drivers/hid/ipts/receiver.c    |  15 +--
+ drivers/hid/ipts/receiver.h    |   1 -
+ drivers/hid/ipts/resources.c   |   6 +-
+ drivers/hid/ipts/resources.h   |   1 -
+ drivers/hid/ipts/spec-device.h |  31 +++---
+ drivers/hid/ipts/spec-hid.h    |   1 -
+ drivers/hid/ipts/thread.c      |   1 -
+ drivers/hid/ipts/thread.h      |   7 +-
+ 24 files changed, 413 insertions(+), 228 deletions(-)
+ create mode 100644 drivers/hid/ipts/eds1.c
+ create mode 100644 drivers/hid/ipts/eds1.h
+ create mode 100644 drivers/hid/ipts/eds2.c
+ create mode 100644 drivers/hid/ipts/eds2.h
+
+diff --git a/drivers/hid/ipts/Makefile b/drivers/hid/ipts/Makefile
+index 0fe655bccdc0..883896f68e6a 100644
+--- a/drivers/hid/ipts/Makefile
++++ b/drivers/hid/ipts/Makefile
+@@ -6,6 +6,8 @@
+ obj-$(CONFIG_HID_IPTS) += ipts.o
+ ipts-objs := cmd.o
+ ipts-objs += control.o
++ipts-objs += eds1.o
++ipts-objs += eds2.o
+ ipts-objs += hid.o
+ ipts-objs += main.o
+ ipts-objs += mei.o
+diff --git a/drivers/hid/ipts/cmd.c b/drivers/hid/ipts/cmd.c
+index 7fd69271ccd5..63a4934bbc5f 100644
+--- a/drivers/hid/ipts/cmd.c
++++ b/drivers/hid/ipts/cmd.c
+@@ -1,6 +1,5 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2020-2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+diff --git a/drivers/hid/ipts/cmd.h b/drivers/hid/ipts/cmd.h
+index 924758ffee67..2b4079075b64 100644
+--- a/drivers/hid/ipts/cmd.h
++++ b/drivers/hid/ipts/cmd.h
+@@ -1,6 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0-or-later */
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2020-2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+@@ -19,7 +18,7 @@
+  */
+ #define IPTS_CMD_DEFAULT_TIMEOUT 1000
+ 
+-/*
++/**
+  * ipts_cmd_recv_timeout() - Receives a response to a command.
+  * @ipts: The IPTS driver context.
+  * @code: The type of the command / response.
+@@ -33,7 +32,7 @@
+ int ipts_cmd_recv_timeout(struct ipts_context *ipts, enum ipts_command_code code,
+ 			  struct ipts_response *rsp, u64 timeout);
+ 
+-/*
++/**
+  * ipts_cmd_recv() - Receives a response to a command.
+  * @ipts: The IPTS driver context.
+  * @code: The type of the command / response.
+@@ -47,7 +46,7 @@ static inline int ipts_cmd_recv(struct ipts_context *ipts, enum ipts_command_cod
+ 	return ipts_cmd_recv_timeout(ipts, code, rsp, IPTS_CMD_DEFAULT_TIMEOUT);
+ }
+ 
+-/*
++/**
+  * ipts_cmd_send() - Executes a command on the device.
+  * @ipts: The IPTS driver context.
+  * @code: The type of the command to execute.
+diff --git a/drivers/hid/ipts/context.h b/drivers/hid/ipts/context.h
+index 3450a95e66ee..ba33259f1f7c 100644
+--- a/drivers/hid/ipts/context.h
++++ b/drivers/hid/ipts/context.h
+@@ -1,6 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0-or-later */
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2020-2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+@@ -41,7 +40,9 @@ struct ipts_context {
+ 	struct ipts_buffer feature_report;
+ 	struct ipts_buffer descriptor;
+ 
++	bool hid_active;
+ 	struct hid_device *hid;
++
+ 	struct ipts_device_info info;
+ 	struct ipts_resources resources;
+ 
+diff --git a/drivers/hid/ipts/control.c b/drivers/hid/ipts/control.c
+index 2f61500b5119..5360842d260b 100644
+--- a/drivers/hid/ipts/control.c
++++ b/drivers/hid/ipts/control.c
+@@ -1,6 +1,5 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2020-2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+@@ -88,6 +87,7 @@ static int ipts_control_set_mode(struct ipts_context *ipts, enum ipts_mode mode)
+ 
+ static int ipts_control_set_mem_window(struct ipts_context *ipts, struct ipts_resources *res)
+ {
++	int i = 0;
+ 	int ret = 0;
+ 	struct ipts_mem_window cmd = { 0 };
+ 	struct ipts_response rsp = { 0 };
+@@ -98,7 +98,7 @@ static int ipts_control_set_mem_window(struct ipts_context *ipts, struct ipts_re
+ 	if (!res)
+ 		return -EFAULT;
+ 
+-	for (int i = 0; i < IPTS_BUFFERS; i++) {
++	for (i = 0; i < IPTS_BUFFERS; i++) {
+ 		cmd.data_addr_lower[i] = lower_32_bits(res->data[i].dma_address);
+ 		cmd.data_addr_upper[i] = upper_32_bits(res->data[i].dma_address);
+ 		cmd.feedback_addr_lower[i] = lower_32_bits(res->feedback[i].dma_address);
+@@ -342,12 +342,6 @@ int ipts_control_hid2me_feedback(struct ipts_context *ipts, enum ipts_feedback_c
+ 	return ipts_control_send_feedback(ipts, IPTS_HID2ME_BUFFER);
+ }
+ 
+-static inline int ipts_control_reset_sensor(struct ipts_context *ipts)
+-{
+-	return ipts_control_hid2me_feedback(ipts, IPTS_FEEDBACK_CMD_TYPE_SOFT_RESET,
+-					    IPTS_FEEDBACK_DATA_TYPE_VENDOR, NULL, 0);
+-}
+-
+ int ipts_control_start(struct ipts_context *ipts)
+ {
+ 	int ret = 0;
+@@ -389,9 +383,9 @@ int ipts_control_start(struct ipts_context *ipts)
+ 		}
+ 
+ 		/*
+-		 * Newer devices can be directly initialized in doorbell mode.
++		 * Newer devices can be directly initialized in polling mode.
+ 		 */
+-		ipts->mode = IPTS_MODE_DOORBELL;
++		ipts->mode = IPTS_MODE_POLL;
+ 	}
+ 
+ 	ret = ipts_control_set_mode(ipts, ipts->mode);
+@@ -418,6 +412,8 @@ int ipts_control_start(struct ipts_context *ipts)
+ 		return ret;
+ 	}
+ 
++	ipts_hid_enable(ipts);
++
+ 	ret = ipts_hid_init(ipts, info);
+ 	if (ret) {
+ 		dev_err(ipts->dev, "Failed to initialize HID device: %d\n", ret);
+@@ -434,6 +430,7 @@ static int _ipts_control_stop(struct ipts_context *ipts)
+ 	if (!ipts)
+ 		return -EFAULT;
+ 
++	ipts_hid_disable(ipts);
+ 	dev_info(ipts->dev, "Stopping IPTS\n");
+ 
+ 	ret = ipts_receiver_stop(ipts);
+@@ -442,12 +439,6 @@ static int _ipts_control_stop(struct ipts_context *ipts)
+ 		return ret;
+ 	}
+ 
+-	ret = ipts_control_reset_sensor(ipts);
+-	if (ret) {
+-		dev_err(ipts->dev, "Failed to reset sensor: %d\n", ret);
+-		return ret;
+-	}
+-
+ 	ret = ipts_resources_free(&ipts->resources);
+ 	if (ret) {
+ 		dev_err(ipts->dev, "Failed to free resources: %d\n", ret);
+@@ -483,7 +474,7 @@ int ipts_control_restart(struct ipts_context *ipts)
+ 		return ret;
+ 
+ 	/*
+-	 * Give the sensor some time to come back from resetting
++	 * Wait a second to give the sensor time to fully shut down.
+ 	 */
+ 	msleep(1000);
+ 
+diff --git a/drivers/hid/ipts/control.h b/drivers/hid/ipts/control.h
+index 744bb92d682a..26629c5144ed 100644
+--- a/drivers/hid/ipts/control.h
++++ b/drivers/hid/ipts/control.h
+@@ -1,6 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0-or-later */
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2020-2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+@@ -15,7 +14,7 @@
+ #include "spec-data.h"
+ #include "spec-device.h"
+ 
+-/*
++/**
+  * ipts_control_request_flush() - Stop the data flow.
+  * @ipts: The IPTS driver context.
+  *
+@@ -26,7 +25,7 @@
+  */
+ int ipts_control_request_flush(struct ipts_context *ipts);
+ 
+-/*
++/**
+  * ipts_control_wait_flush() - Wait until data flow has been stopped.
+  * @ipts: The IPTS driver context.
+  *
+@@ -34,7 +33,7 @@ int ipts_control_request_flush(struct ipts_context *ipts);
+  */
+ int ipts_control_wait_flush(struct ipts_context *ipts);
+ 
+-/*
++/**
+  * ipts_control_wait_flush() - Notify the device that the driver can receive new data.
+  * @ipts: The IPTS driver context.
+  *
+@@ -42,19 +41,19 @@ int ipts_control_wait_flush(struct ipts_context *ipts);
+  */
+ int ipts_control_request_data(struct ipts_context *ipts);
+ 
+-/*
++/**
+  * ipts_control_wait_data() - Wait until new data is available.
+  * @ipts: The IPTS driver context.
+  * @block: Whether to block execution until data is available.
+  *
+- * In doorbell mode, this function will never return while the data flow is active. Instead,
+- * the doorbell will be incremented when new data is available.
++ * In poll mode, this function will never return while the data flow is active. Instead,
++ * the poll will be incremented when new data is available.
+  *
+  * Returns: 0 on success, <0 on error, -EAGAIN if no data is available.
+  */
+ int ipts_control_wait_data(struct ipts_context *ipts, bool block);
+ 
+-/*
++/**
+  * ipts_control_send_feedback() - Submits a feedback buffer to the device.
+  * @ipts: The IPTS driver context.
+  * @buffer: The ID of the buffer containing feedback data.
+@@ -63,7 +62,7 @@ int ipts_control_wait_data(struct ipts_context *ipts, bool block);
+  */
+ int ipts_control_send_feedback(struct ipts_context *ipts, u32 buffer);
+ 
+-/*
++/**
+  * ipts_control_hid2me_feedback() - Sends HID2ME feedback, a special type of feedback.
+  * @ipts: The IPTS driver context.
+  * @cmd: The command that will be run on the device.
+@@ -80,7 +79,7 @@ int ipts_control_send_feedback(struct ipts_context *ipts, u32 buffer);
+ int ipts_control_hid2me_feedback(struct ipts_context *ipts, enum ipts_feedback_cmd_type cmd,
+ 				 enum ipts_feedback_data_type type, void *data, size_t size);
+ 
+-/*
++/**
+  * ipts_control_refill_buffer() - Acknowledges that data in a buffer has been processed.
+  * @ipts: The IPTS driver context.
+  * @buffer: The buffer that has been processed and can be refilled.
+@@ -100,7 +99,7 @@ static inline int ipts_control_refill_buffer(struct ipts_context *ipts, u32 buff
+ 	return ipts_control_send_feedback(ipts, buffer);
+ }
+ 
+-/*
++/**
+  * ipts_control_start() - Initialized the device and starts the data flow.
+  * @ipts: The IPTS driver context.
+  *
+@@ -108,7 +107,7 @@ static inline int ipts_control_refill_buffer(struct ipts_context *ipts, u32 buff
+  */
+ int ipts_control_start(struct ipts_context *ipts);
+ 
+-/*
++/**
+  * ipts_control_stop() - Stops the data flow and resets the device.
+  * @ipts: The IPTS driver context.
+  *
+@@ -116,7 +115,7 @@ int ipts_control_start(struct ipts_context *ipts);
+  */
+ int ipts_control_stop(struct ipts_context *ipts);
+ 
+-/*
++/**
+  * ipts_control_restart() - Stops the device and starts it again.
+  * @ipts: The IPTS driver context.
+  *
+diff --git a/drivers/hid/ipts/desc.h b/drivers/hid/ipts/desc.h
+index c058974a03a1..307438c7c80c 100644
+--- a/drivers/hid/ipts/desc.h
++++ b/drivers/hid/ipts/desc.h
+@@ -1,6 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0-or-later */
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2022-2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+diff --git a/drivers/hid/ipts/eds1.c b/drivers/hid/ipts/eds1.c
+new file mode 100644
+index 000000000000..ecbb3a8bdaf6
+--- /dev/null
++++ b/drivers/hid/ipts/eds1.c
+@@ -0,0 +1,103 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * Copyright (c) 2023 Dorian Stoll
++ *
++ * Linux driver for Intel Precise Touch & Stylus
++ */
++
++#include <linux/err.h>
++#include <linux/gfp.h>
++#include <linux/hid.h>
++#include <linux/slab.h>
++#include <linux/types.h>
++
++#include "context.h"
++#include "control.h"
++#include "desc.h"
++#include "spec-device.h"
++
++int ipts_eds1_get_descriptor(struct ipts_context *ipts, u8 **desc_buffer, size_t *desc_size)
++{
++	size_t size = 0;
++	u8 *buffer = NULL;
++
++	if (!ipts)
++		return -EFAULT;
++
++	if (!desc_buffer)
++		return -EFAULT;
++
++	if (!desc_size)
++		return -EFAULT;
++
++	size = sizeof(ipts_singletouch_descriptor) + sizeof(ipts_fallback_descriptor);
++
++	buffer = kzalloc(size, GFP_KERNEL);
++	if (!buffer)
++		return -ENOMEM;
++
++	memcpy(buffer, ipts_singletouch_descriptor, sizeof(ipts_singletouch_descriptor));
++	memcpy(&buffer[sizeof(ipts_singletouch_descriptor)], ipts_fallback_descriptor,
++	       sizeof(ipts_fallback_descriptor));
++
++	*desc_size = size;
++	*desc_buffer = buffer;
++
++	return 0;
++}
++
++static int ipts_eds1_switch_mode(struct ipts_context *ipts, enum ipts_mode mode)
++{
++	int ret = 0;
++
++	if (!ipts)
++		return -EFAULT;
++
++	if (ipts->mode == mode)
++		return 0;
++
++	ipts->mode = mode;
++
++	ret = ipts_control_restart(ipts);
++	if (ret)
++		dev_err(ipts->dev, "Failed to switch modes: %d\n", ret);
++
++	return ret;
++}
++
++int ipts_eds1_raw_request(struct ipts_context *ipts, u8 *buffer, size_t size, u8 report_id,
++			  enum hid_report_type report_type, enum hid_class_request request_type)
++{
++	int ret = 0;
++
++	if (!ipts)
++		return -EFAULT;
++
++	if (!buffer)
++		return -EFAULT;
++
++	if (report_id != IPTS_HID_REPORT_SET_MODE)
++		return -EIO;
++
++	if (report_type != HID_FEATURE_REPORT)
++		return -EIO;
++
++	if (size != 2)
++		return -EINVAL;
++
++	/*
++	 * Implement mode switching report for older devices without native HID support.
++	 */
++
++	if (request_type == HID_REQ_GET_REPORT) {
++		memset(buffer, 0, size);
++		buffer[0] = report_id;
++		buffer[1] = ipts->mode;
++	} else if (request_type == HID_REQ_SET_REPORT) {
++		return ipts_eds1_switch_mode(ipts, buffer[1]);
++	} else {
++		return -EIO;
++	}
++
++	return ret;
++}
+diff --git a/drivers/hid/ipts/eds1.h b/drivers/hid/ipts/eds1.h
+new file mode 100644
+index 000000000000..eeeb6575e3e8
+--- /dev/null
++++ b/drivers/hid/ipts/eds1.h
+@@ -0,0 +1,35 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * Copyright (c) 2023 Dorian Stoll
++ *
++ * Linux driver for Intel Precise Touch & Stylus
++ */
++
++#include <linux/hid.h>
++#include <linux/types.h>
++
++#include "context.h"
++
++/**
++ * ipts_eds1_get_descriptor() - Assembles the HID descriptor of the device.
++ * @ipts: The IPTS driver context.
++ * @desc_buffer: A pointer to the location where the address of the allocated buffer is stored.
++ * @desc_size: A pointer to the location where the size of the allocated buffer is stored.
++ *
++ * Returns: 0 on success, <0 on error.
++ */
++int ipts_eds1_get_descriptor(struct ipts_context *ipts, u8 **desc_buffer, size_t *desc_size);
++
++/**
++ * ipts_eds1_raw_request() - Executes an output or feature report on the device.
++ * @ipts: The IPTS driver context.
++ * @buffer: The buffer containing the report.
++ * @size: The size of the buffer.
++ * @report_id: The HID report ID.
++ * @report_type: Whether this report is an output or a feature report.
++ * @request_type: Whether this report requests or sends data.
++ *
++ * Returns: 0 on success, <0 on error.
++ */
++int ipts_eds1_raw_request(struct ipts_context *ipts, u8 *buffer, size_t size, u8 report_id,
++			  enum hid_report_type report_type, enum hid_class_request request_type);
+diff --git a/drivers/hid/ipts/eds2.c b/drivers/hid/ipts/eds2.c
+new file mode 100644
+index 000000000000..e835b460aa79
+--- /dev/null
++++ b/drivers/hid/ipts/eds2.c
+@@ -0,0 +1,144 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * Copyright (c) 2023 Dorian Stoll
++ *
++ * Linux driver for Intel Precise Touch & Stylus
++ */
++
++#include <linux/completion.h>
++#include <linux/err.h>
++#include <linux/gfp.h>
++#include <linux/mutex.h>
++#include <linux/slab.h>
++#include <linux/types.h>
++
++#include "context.h"
++#include "control.h"
++#include "desc.h"
++#include "spec-data.h"
++
++int ipts_eds2_get_descriptor(struct ipts_context *ipts, u8 **desc_buffer, size_t *desc_size)
++{
++	size_t size = 0;
++	u8 *buffer = NULL;
++
++	if (!ipts)
++		return -EFAULT;
++
++	if (!desc_buffer)
++		return -EFAULT;
++
++	if (!desc_size)
++		return -EFAULT;
++
++	size = sizeof(ipts_singletouch_descriptor) + ipts->descriptor.size;
++
++	buffer = kzalloc(size, GFP_KERNEL);
++	if (!*buffer)
++		return -ENOMEM;
++
++	memcpy(buffer, ipts_singletouch_descriptor, sizeof(ipts_singletouch_descriptor));
++	memcpy(&buffer[sizeof(ipts_singletouch_descriptor)], ipts->descriptor.address,
++	       ipts->descriptor.size);
++
++	*desc_size = size;
++	*desc_buffer = buffer;
++
++	return 0;
++}
++
++static int ipts_eds2_get_feature(struct ipts_context *ipts, u8 *buffer, size_t size, u8 report_id,
++				 enum ipts_feedback_data_type type)
++{
++	int ret = 0;
++
++	if (!ipts)
++		return -EFAULT;
++
++	if (!buffer)
++		return -EFAULT;
++
++	mutex_lock(&ipts->feature_lock);
++
++	memset(buffer, 0, size);
++	buffer[0] = report_id;
++
++	memset(&ipts->feature_report, 0, sizeof(ipts->feature_report));
++	reinit_completion(&ipts->feature_event);
++
++	ret = ipts_control_hid2me_feedback(ipts, IPTS_FEEDBACK_CMD_TYPE_NONE, type, buffer, size);
++	if (ret) {
++		dev_err(ipts->dev, "Failed to send hid2me feedback: %d\n", ret);
++		goto out;
++	}
++
++	ret = wait_for_completion_timeout(&ipts->feature_event, msecs_to_jiffies(5000));
++	if (ret == 0) {
++		dev_warn(ipts->dev, "GET_FEATURES timed out!\n");
++		ret = -EIO;
++		goto out;
++	}
++
++	if (!ipts->feature_report.address) {
++		ret = -EFAULT;
++		goto out;
++	}
++
++	if (ipts->feature_report.size > size) {
++		ret = -ETOOSMALL;
++		goto out;
++	}
++
++	ret = ipts->feature_report.size;
++	memcpy(buffer, ipts->feature_report.address, ipts->feature_report.size);
++
++out:
++	mutex_unlock(&ipts->feature_lock);
++	return ret;
++}
++
++static int ipts_eds2_set_feature(struct ipts_context *ipts, u8 *buffer, size_t size, u8 report_id,
++				 enum ipts_feedback_data_type type)
++{
++	int ret = 0;
++
++	if (!ipts)
++		return -EFAULT;
++
++	if (!buffer)
++		return -EFAULT;
++
++	buffer[0] = report_id;
++
++	ret = ipts_control_hid2me_feedback(ipts, IPTS_FEEDBACK_CMD_TYPE_NONE, type, buffer, size);
++	if (ret)
++		dev_err(ipts->dev, "Failed to send hid2me feedback: %d\n", ret);
++
++	return ret;
++}
++
++int ipts_eds2_raw_request(struct ipts_context *ipts, u8 *buffer, size_t size, u8 report_id,
++			  enum hid_report_type report_type, enum hid_class_request request_type)
++{
++	enum ipts_feedback_data_type feedback_type = IPTS_FEEDBACK_DATA_TYPE_VENDOR;
++
++	if (!ipts)
++		return -EFAULT;
++
++	if (!buffer)
++		return -EFAULT;
++
++	if (report_type == HID_OUTPUT_REPORT && request_type == HID_REQ_SET_REPORT)
++		feedback_type = IPTS_FEEDBACK_DATA_TYPE_OUTPUT_REPORT;
++	else if (report_type == HID_FEATURE_REPORT && request_type == HID_REQ_GET_REPORT)
++		feedback_type = IPTS_FEEDBACK_DATA_TYPE_GET_FEATURES;
++	else if (report_type == HID_FEATURE_REPORT && request_type == HID_REQ_SET_REPORT)
++		feedback_type = IPTS_FEEDBACK_DATA_TYPE_SET_FEATURES;
++	else
++		return -EIO;
++
++	if (request_type == HID_REQ_GET_REPORT)
++		return ipts_eds2_get_feature(ipts, buffer, report_id, size, feedback_type);
++	else
++		return ipts_eds2_set_feature(ipts, buffer, report_id, size, feedback_type);
++}
+diff --git a/drivers/hid/ipts/eds2.h b/drivers/hid/ipts/eds2.h
+new file mode 100644
+index 000000000000..064e3716907a
+--- /dev/null
++++ b/drivers/hid/ipts/eds2.h
+@@ -0,0 +1,35 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * Copyright (c) 2023 Dorian Stoll
++ *
++ * Linux driver for Intel Precise Touch & Stylus
++ */
++
++#include <linux/hid.h>
++#include <linux/types.h>
++
++#include "context.h"
++
++/**
++ * ipts_eds2_get_descriptor() - Assembles the HID descriptor of the device.
++ * @ipts: The IPTS driver context.
++ * @desc_buffer: A pointer to the location where the address of the allocated buffer is stored.
++ * @desc_size: A pointer to the location where the size of the allocated buffer is stored.
++ *
++ * Returns: 0 on success, <0 on error.
++ */
++int ipts_eds2_get_descriptor(struct ipts_context *ipts, u8 **desc_buffer, size_t *desc_size);
++
++/**
++ * ipts_eds2_raw_request() - Executes an output or feature report on the device.
++ * @ipts: The IPTS driver context.
++ * @buffer: The buffer containing the report.
++ * @size: The size of the buffer.
++ * @report_id: The HID report ID.
++ * @report_type: Whether this report is an output or a feature report.
++ * @request_type: Whether this report requests or sends data.
++ *
++ * Returns: 0 on success, <0 on error.
++ */
++int ipts_eds2_raw_request(struct ipts_context *ipts, u8 *buffer, size_t size, u8 report_id,
++			  enum hid_report_type report_type, enum hid_class_request request_type);
+diff --git a/drivers/hid/ipts/hid.c b/drivers/hid/ipts/hid.c
+index a2471219615b..e34a1a4f9fa7 100644
+--- a/drivers/hid/ipts/hid.c
++++ b/drivers/hid/ipts/hid.c
+@@ -1,12 +1,12 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2022-2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+  */
+ 
+ #include <linux/completion.h>
++#include <linux/err.h>
+ #include <linux/gfp.h>
+ #include <linux/hid.h>
+ #include <linux/mutex.h>
+@@ -14,38 +14,30 @@
+ #include <linux/types.h>
+ 
+ #include "context.h"
+-#include "control.h"
+ #include "desc.h"
++#include "eds1.h"
++#include "eds2.h"
+ #include "hid.h"
+ #include "spec-data.h"
+-#include "spec-device.h"
+ #include "spec-hid.h"
+ 
+-static int ipts_hid_start(struct hid_device *hid)
++void ipts_hid_enable(struct ipts_context *ipts)
+ {
+-	return 0;
++	WRITE_ONCE(ipts->hid_active, true);
+ }
+ 
+-static void ipts_hid_stop(struct hid_device *hid)
++void ipts_hid_disable(struct ipts_context *ipts)
+ {
++	WRITE_ONCE(ipts->hid_active, false);
+ }
+ 
+-static int ipts_hid_switch_mode(struct ipts_context *ipts, enum ipts_mode mode)
++static int ipts_hid_start(struct hid_device *hid)
+ {
+-	if (!ipts)
+-		return -EFAULT;
+-
+-	if (ipts->mode == mode)
+-		return 0;
+-
+-	/*
+-	 * This is only allowed on older devices.
+-	 */
+-	if (ipts->info.intf_eds > 1)
+-		return 0;
++	return 0;
++}
+ 
+-	ipts->mode = mode;
+-	return ipts_control_restart(ipts);
++static void ipts_hid_stop(struct hid_device *hid)
++{
+ }
+ 
+ static int ipts_hid_parse(struct hid_device *hid)
+@@ -53,8 +45,6 @@ static int ipts_hid_parse(struct hid_device *hid)
+ 	int ret = 0;
+ 	struct ipts_context *ipts = NULL;
+ 
+-	bool has_native_descriptor = false;
+-
+ 	u8 *buffer = NULL;
+ 	size_t size = 0;
+ 
+@@ -66,26 +56,17 @@ static int ipts_hid_parse(struct hid_device *hid)
+ 	if (!ipts)
+ 		return -EFAULT;
+ 
+-	size = sizeof(ipts_singletouch_descriptor);
+-	has_native_descriptor = ipts->descriptor.address && ipts->descriptor.size > 0;
++	if (!READ_ONCE(ipts->hid_active))
++		return -ENODEV;
+ 
+-	if (has_native_descriptor)
+-		size += ipts->descriptor.size;
++	if (ipts->info.intf_eds == 1)
++		ret = ipts_eds1_get_descriptor(ipts, &buffer, &size);
+ 	else
+-		size += sizeof(ipts_fallback_descriptor);
+-
+-	buffer = kzalloc(size, GFP_KERNEL);
+-	if (!buffer)
+-		return -ENOMEM;
+-
+-	memcpy(buffer, ipts_singletouch_descriptor, sizeof(ipts_singletouch_descriptor));
++		ret = ipts_eds2_get_descriptor(ipts, &buffer, &size);
+ 
+-	if (has_native_descriptor) {
+-		memcpy(&buffer[sizeof(ipts_singletouch_descriptor)], ipts->descriptor.address,
+-		       ipts->descriptor.size);
+-	} else {
+-		memcpy(&buffer[sizeof(ipts_singletouch_descriptor)], ipts_fallback_descriptor,
+-		       sizeof(ipts_fallback_descriptor));
++	if (ret) {
++		dev_err(ipts->dev, "Failed to allocate HID descriptor: %d\n", ret);
++		return ret;
+ 	}
+ 
+ 	ret = hid_parse_report(hid, buffer, size);
+@@ -99,84 +80,11 @@ static int ipts_hid_parse(struct hid_device *hid)
+ 	return 0;
+ }
+ 
+-static int ipts_hid_get_feature(struct ipts_context *ipts, unsigned char reportnum, __u8 *buf,
+-				size_t size, enum ipts_feedback_data_type type)
+-{
+-	int ret = 0;
+-
+-	if (!ipts)
+-		return -EFAULT;
+-
+-	if (!buf)
+-		return -EFAULT;
+-
+-	mutex_lock(&ipts->feature_lock);
+-
+-	memset(buf, 0, size);
+-	buf[0] = reportnum;
+-
+-	memset(&ipts->feature_report, 0, sizeof(ipts->feature_report));
+-	reinit_completion(&ipts->feature_event);
+-
+-	ret = ipts_control_hid2me_feedback(ipts, IPTS_FEEDBACK_CMD_TYPE_NONE, type, buf, size);
+-	if (ret) {
+-		dev_err(ipts->dev, "Failed to send hid2me feedback: %d\n", ret);
+-		goto out;
+-	}
+-
+-	ret = wait_for_completion_timeout(&ipts->feature_event, msecs_to_jiffies(5000));
+-	if (ret == 0) {
+-		dev_warn(ipts->dev, "GET_FEATURES timed out!\n");
+-		ret = -EIO;
+-		goto out;
+-	}
+-
+-	if (!ipts->feature_report.address) {
+-		ret = -EFAULT;
+-		goto out;
+-	}
+-
+-	if (ipts->feature_report.size > size) {
+-		ret = -ETOOSMALL;
+-		goto out;
+-	}
+-
+-	ret = ipts->feature_report.size;
+-	memcpy(buf, ipts->feature_report.address, ipts->feature_report.size);
+-
+-out:
+-	mutex_unlock(&ipts->feature_lock);
+-	return ret;
+-}
+-
+-static int ipts_hid_set_feature(struct ipts_context *ipts, unsigned char reportnum, __u8 *buf,
+-				size_t size, enum ipts_feedback_data_type type)
+-{
+-	int ret = 0;
+-
+-	if (!ipts)
+-		return -EFAULT;
+-
+-	if (!buf)
+-		return -EFAULT;
+-
+-	buf[0] = reportnum;
+-
+-	ret = ipts_control_hid2me_feedback(ipts, IPTS_FEEDBACK_CMD_TYPE_NONE, type, buf, size);
+-	if (ret)
+-		dev_err(ipts->dev, "Failed to send hid2me feedback: %d\n", ret);
+-
+-	return ret;
+-}
+-
+-static int ipts_hid_raw_request(struct hid_device *hid, unsigned char reportnum, __u8 *buf,
+-				size_t size, unsigned char rtype, int reqtype)
++static int ipts_hid_raw_request(struct hid_device *hid, unsigned char report_id, __u8 *buffer,
++				size_t size, unsigned char report_type, int request_type)
+ {
+-	int ret = 0;
+ 	struct ipts_context *ipts = NULL;
+ 
+-	enum ipts_feedback_data_type type = IPTS_FEEDBACK_DATA_TYPE_VENDOR;
+-
+ 	if (!hid)
+ 		return -ENODEV;
+ 
+@@ -185,44 +93,16 @@ static int ipts_hid_raw_request(struct hid_device *hid, unsigned char reportnum,
+ 	if (!ipts)
+ 		return -EFAULT;
+ 
+-	if (!buf)
+-		return -EFAULT;
+-
+-	if (rtype == HID_OUTPUT_REPORT && reqtype == HID_REQ_SET_REPORT)
+-		type = IPTS_FEEDBACK_DATA_TYPE_OUTPUT_REPORT;
+-	else if (rtype == HID_FEATURE_REPORT && reqtype == HID_REQ_GET_REPORT)
+-		type = IPTS_FEEDBACK_DATA_TYPE_GET_FEATURES;
+-	else if (rtype == HID_FEATURE_REPORT && reqtype == HID_REQ_SET_REPORT)
+-		type = IPTS_FEEDBACK_DATA_TYPE_SET_FEATURES;
+-	else
+-		return -EIO;
+-
+-	// Implemente mode switching report for older devices without native HID support
+-	if (type == IPTS_FEEDBACK_DATA_TYPE_SET_FEATURES && reportnum == IPTS_HID_REPORT_SET_MODE) {
+-		ret = ipts_hid_switch_mode(ipts, buf[1]);
+-		if (ret) {
+-			dev_err(ipts->dev, "Failed to switch modes: %d\n", ret);
+-			return ret;
+-		}
+-	}
+-
+-	if (reqtype == HID_REQ_GET_REPORT)
+-		return ipts_hid_get_feature(ipts, reportnum, buf, size, type);
+-	else
+-		return ipts_hid_set_feature(ipts, reportnum, buf, size, type);
+-}
+-
+-static int ipts_hid_output_report(struct hid_device *hid, __u8 *data, size_t size)
+-{
+-	struct ipts_context *ipts = NULL;
+-
+-	if (!hid)
++	if (!READ_ONCE(ipts->hid_active))
+ 		return -ENODEV;
+ 
+-	ipts = hid->driver_data;
+-
+-	return ipts_control_hid2me_feedback(ipts, IPTS_FEEDBACK_CMD_TYPE_NONE,
+-					    IPTS_FEEDBACK_DATA_TYPE_OUTPUT_REPORT, data, size);
++	if (ipts->info.intf_eds == 1) {
++		return ipts_eds1_raw_request(ipts, buffer, size, report_id, report_type,
++					     request_type);
++	} else {
++		return ipts_eds2_raw_request(ipts, buffer, size, report_id, report_type,
++					     request_type);
++	}
+ }
+ 
+ static struct hid_ll_driver ipts_hid_driver = {
+@@ -232,7 +112,6 @@ static struct hid_ll_driver ipts_hid_driver = {
+ 	.close = ipts_hid_stop,
+ 	.parse = ipts_hid_parse,
+ 	.raw_request = ipts_hid_raw_request,
+-	.output_report = ipts_hid_output_report,
+ };
+ 
+ int ipts_hid_input_data(struct ipts_context *ipts, u32 buffer)
+@@ -247,6 +126,9 @@ int ipts_hid_input_data(struct ipts_context *ipts, u32 buffer)
+ 	if (!ipts->hid)
+ 		return -ENODEV;
+ 
++	if (!READ_ONCE(ipts->hid_active))
++		return -ENODEV;
++
+ 	header = (struct ipts_data_header *)ipts->resources.data[buffer].address;
+ 
+ 	temp = ipts->resources.report.address;
+diff --git a/drivers/hid/ipts/hid.h b/drivers/hid/ipts/hid.h
+index 62bf3cd48608..1ebe77447903 100644
+--- a/drivers/hid/ipts/hid.h
++++ b/drivers/hid/ipts/hid.h
+@@ -1,6 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0-or-later */
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2022-2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+@@ -14,6 +13,9 @@
+ #include "context.h"
+ #include "spec-device.h"
+ 
++void ipts_hid_enable(struct ipts_context *ipts);
++void ipts_hid_disable(struct ipts_context *ipts);
++
+ int ipts_hid_input_data(struct ipts_context *ipts, u32 buffer);
+ 
+ int ipts_hid_init(struct ipts_context *ipts, struct ipts_device_info info);
+diff --git a/drivers/hid/ipts/main.c b/drivers/hid/ipts/main.c
+index 0f20c6c08c38..fb5b5c13ee3e 100644
+--- a/drivers/hid/ipts/main.c
++++ b/drivers/hid/ipts/main.c
+@@ -1,6 +1,5 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2020-2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+diff --git a/drivers/hid/ipts/mei.c b/drivers/hid/ipts/mei.c
+index 26666fd99b0c..1e0395ceae4a 100644
+--- a/drivers/hid/ipts/mei.c
++++ b/drivers/hid/ipts/mei.c
+@@ -1,6 +1,5 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+diff --git a/drivers/hid/ipts/mei.h b/drivers/hid/ipts/mei.h
+index eadacae54c40..973bade6b0fd 100644
+--- a/drivers/hid/ipts/mei.h
++++ b/drivers/hid/ipts/mei.h
+@@ -1,6 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0-or-later */
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+@@ -31,7 +30,7 @@ struct ipts_mei {
+ 	struct rw_semaphore message_lock;
+ };
+ 
+-/*
++/**
+  * ipts_mei_recv() - Receive data from a MEI device.
+  * @mei: The IPTS MEI device context.
+  * @code: The IPTS command code to look for.
+@@ -45,7 +44,7 @@ struct ipts_mei {
+ int ipts_mei_recv(struct ipts_mei *mei, enum ipts_command_code code, struct ipts_response *rsp,
+ 		  u64 timeout);
+ 
+-/*
++/**
+  * ipts_mei_send() - Send data to a MEI device.
+  * @ipts: The IPTS MEI device context.
+  * @data: The data to send.
+@@ -55,7 +54,7 @@ int ipts_mei_recv(struct ipts_mei *mei, enum ipts_command_code code, struct ipts
+  */
+ int ipts_mei_send(struct ipts_mei *mei, void *data, size_t length);
+ 
+-/*
++/**
+  * ipts_mei_init() - Initialize the MEI device context.
+  * @mei: The MEI device context to initialize.
+  * @cldev: The MEI device the context will be bound to.
+diff --git a/drivers/hid/ipts/receiver.c b/drivers/hid/ipts/receiver.c
+index f56e9ed32d57..ef66c3c9db80 100644
+--- a/drivers/hid/ipts/receiver.c
++++ b/drivers/hid/ipts/receiver.c
+@@ -1,6 +1,5 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2020-2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+@@ -66,7 +65,9 @@ static int ipts_receiver_event_loop(struct ipts_thread *thread)
+ 	dev_info(ipts->dev, "IPTS running in event mode\n");
+ 
+ 	while (!ipts_thread_should_stop(thread)) {
+-		for (int i = 0; i < IPTS_BUFFERS; i++) {
++		int i = 0;
++
++		for (i = 0; i < IPTS_BUFFERS; i++) {
+ 			ret = ipts_control_wait_data(ipts, false);
+ 			if (ret == -EAGAIN)
+ 				break;
+@@ -126,7 +127,7 @@ static int ipts_receiver_event_loop(struct ipts_thread *thread)
+ 	return 0;
+ }
+ 
+-static int ipts_receiver_doorbell_loop(struct ipts_thread *thread)
++static int ipts_receiver_poll_loop(struct ipts_thread *thread)
+ {
+ 	int ret = 0;
+ 	u32 buffer = 0;
+@@ -145,7 +146,7 @@ static int ipts_receiver_doorbell_loop(struct ipts_thread *thread)
+ 	if (!ipts)
+ 		return -EFAULT;
+ 
+-	dev_info(ipts->dev, "IPTS running in doorbell mode\n");
++	dev_info(ipts->dev, "IPTS running in poll mode\n");
+ 
+ 	while (true) {
+ 		if (ipts_thread_should_stop(thread)) {
+@@ -217,9 +218,9 @@ int ipts_receiver_start(struct ipts_context *ipts)
+ 	if (ipts->mode == IPTS_MODE_EVENT) {
+ 		ret = ipts_thread_start(&ipts->receiver_loop, ipts_receiver_event_loop, ipts,
+ 					"ipts_event");
+-	} else if (ipts->mode == IPTS_MODE_DOORBELL) {
+-		ret = ipts_thread_start(&ipts->receiver_loop, ipts_receiver_doorbell_loop, ipts,
+-					"ipts_doorbell");
++	} else if (ipts->mode == IPTS_MODE_POLL) {
++		ret = ipts_thread_start(&ipts->receiver_loop, ipts_receiver_poll_loop, ipts,
++					"ipts_poll");
+ 	} else {
+ 		ret = -EINVAL;
+ 	}
+diff --git a/drivers/hid/ipts/receiver.h b/drivers/hid/ipts/receiver.h
+index 96070f34fbca..3de7da62d40c 100644
+--- a/drivers/hid/ipts/receiver.h
++++ b/drivers/hid/ipts/receiver.h
+@@ -1,6 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0-or-later */
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2020-2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+diff --git a/drivers/hid/ipts/resources.c b/drivers/hid/ipts/resources.c
+index 5e924d58c488..cc14653b2a9f 100644
+--- a/drivers/hid/ipts/resources.c
++++ b/drivers/hid/ipts/resources.c
+@@ -1,12 +1,12 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2020-2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+  */
+ 
+ #include <linux/dma-mapping.h>
++#include <linux/slab.h>
+ #include <linux/types.h>
+ 
+ #include "desc.h"
+@@ -107,10 +107,6 @@ int ipts_resources_init(struct ipts_resources *res, struct device *dev, size_t d
+ 
+ int ipts_resources_free(struct ipts_resources *res)
+ {
+-	/*
+-	 * Some compilers (AOSP clang) complain about a redefined
+-	 * variable when this is declared inside of the for loop.
+-	 */
+ 	int i = 0;
+ 
+ 	if (!res)
+diff --git a/drivers/hid/ipts/resources.h b/drivers/hid/ipts/resources.h
+index e0c400f420b9..2068e13285f0 100644
+--- a/drivers/hid/ipts/resources.h
++++ b/drivers/hid/ipts/resources.h
+@@ -1,6 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0-or-later */
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2020-2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+diff --git a/drivers/hid/ipts/spec-device.h b/drivers/hid/ipts/spec-device.h
+index 93f673d981f7..41845f9d9025 100644
+--- a/drivers/hid/ipts/spec-device.h
++++ b/drivers/hid/ipts/spec-device.h
+@@ -109,14 +109,14 @@ static_assert(sizeof(struct ipts_command) == 324);
+ 
+ /**
+  * enum ipts_mode - Configures what data the device produces and how its sent.
+- * @IPTS_MODE_EVENT:    The device will send an event once a buffer was filled.
+- *                      Older devices will return singletouch data in this mode.
+- * @IPTS_MODE_DOORBELL: The device will notify the driver by incrementing the doorbell value.
+- *                      Older devices will return multitouch data in this mode.
++ * @IPTS_MODE_EVENT: The device will send an event once a buffer was filled.
++ *                   Older devices will return singletouch data in this mode.
++ * @IPTS_MODE_POLL:  The device will notify the driver by incrementing the doorbell value.
++ *                   Older devices will return multitouch data in this mode.
+  */
+ enum ipts_mode {
+ 	IPTS_MODE_EVENT = 0x00,
+-	IPTS_MODE_DOORBELL = 0x01,
++	IPTS_MODE_POLL = 0x01,
+ };
+ 
+ /**
+@@ -253,14 +253,19 @@ static_assert(sizeof(struct ipts_response) == 88);
+ 
+ /**
+  * struct ipts_device_info - Vendor information of the IPTS device.
+- * @vendor:        Vendor ID of this device.
+- * @product:       Product ID of this device.
+- * @hw_version:    Hardware revision of this device.
+- * @fw_version:    Firmware revision of this device.
+- * @data_size:     Requested size for a data buffer.
+- * @feedback_size: Requested size for a feedback buffer.
+- * @mode:          Mode that the device currently operates in.
+- * @max_contacts:  Maximum amount of concurrent touches the sensor can process.
++ * @vendor:         Vendor ID of this device.
++ * @product:        Product ID of this device.
++ * @hw_version:     Hardware revision of this device.
++ * @fw_version:     Firmware revision of this device.
++ * @data_size:      Requested size for a data buffer.
++ * @feedback_size:  Requested size for a feedback buffer.
++ * @mode:           Mode that the device currently operates in.
++ * @max_contacts:   Maximum amount of concurrent touches the sensor can process.
++ * @sensor_min_eds: The minimum EDS version supported by the sensor.
++ * @sensor_max_eds: The maximum EDS version supported by the sensor.
++ * @me_min_eds:     The minimum EDS version supported by the ME for communicating with the sensor.
++ * @me_max_eds:     The maximum EDS version supported by the ME for communicating with the sensor.
++ * @intf_eds:       The EDS version implemented by the interface between ME and host.
+  */
+ struct ipts_device_info {
+ 	u16 vendor;
+diff --git a/drivers/hid/ipts/spec-hid.h b/drivers/hid/ipts/spec-hid.h
+index ea70f29ff00c..5a58d4a0a610 100644
+--- a/drivers/hid/ipts/spec-hid.h
++++ b/drivers/hid/ipts/spec-hid.h
+@@ -1,6 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0-or-later */
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2020-2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+diff --git a/drivers/hid/ipts/thread.c b/drivers/hid/ipts/thread.c
+index 8b46f775c107..355e92bea26f 100644
+--- a/drivers/hid/ipts/thread.c
++++ b/drivers/hid/ipts/thread.c
+@@ -1,6 +1,5 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+diff --git a/drivers/hid/ipts/thread.h b/drivers/hid/ipts/thread.h
+index a314843599fc..1f966b8b32c4 100644
+--- a/drivers/hid/ipts/thread.h
++++ b/drivers/hid/ipts/thread.h
+@@ -1,6 +1,5 @@
+ /* SPDX-License-Identifier: GPL-2.0-or-later */
+ /*
+- * Copyright (c) 2016 Intel Corporation
+  * Copyright (c) 2023 Dorian Stoll
+  *
+  * Linux driver for Intel Precise Touch & Stylus
+@@ -29,7 +28,7 @@ struct ipts_thread {
+ 	int (*threadfn)(struct ipts_thread *thread);
+ };
+ 
+-/*
++/**
+  * ipts_thread_should_stop() - Returns true if the thread is asked to terminate.
+  * @thread: The current thread.
+  *
+@@ -37,7 +36,7 @@ struct ipts_thread {
+  */
+ bool ipts_thread_should_stop(struct ipts_thread *thread);
+ 
+-/*
++/**
+  * ipts_thread_start() - Starts an IPTS thread.
+  * @thread: The thread to initialize and start.
+  * @threadfn: The function to execute.
+@@ -49,7 +48,7 @@ bool ipts_thread_should_stop(struct ipts_thread *thread);
+ int ipts_thread_start(struct ipts_thread *thread, int (*threadfn)(struct ipts_thread *thread),
+ 		      void *data, const char name[]);
+ 
+-/*
++/**
+  * ipts_thread_stop() - Asks the thread to terminate and waits until it has finished.
+  * @thread: The thread that should stop.
+  *
 -- 
 2.41.0
 
