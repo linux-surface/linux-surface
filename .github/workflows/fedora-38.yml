@@ -1,144 +1,121 @@
+name: Fedora 38
+
+env:
+  FEDORA: 38
+  GPG_KEY_ID: 56C464BAAC421453
+
 on:
   push:
     tags:
       - 'fedora-38-*'
 
-name: Fedora 38
-
-env:
-  GPG_KEY_ID: 56C464BAAC421453
-
 jobs:
   build:
     name: Build Kernel
     runs-on: ubuntu-latest
-    container: registry.fedoraproject.org/fedora:38
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Maximize disk space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 5120
+          remove-dotnet: true
+          remove-android: true
+          remove-docker-images: true
 
-    - name: Install build dependencies
-      run: |
-        dnf distro-sync -y
-        dnf install -y git make gcc flex bison bzip2 rpm-build
-        dnf install -y rpmdevtools rpm-sign 'dnf-command(builddep)'
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-        # Install build dependencies
-        dnf builddep -y kernel
+      - name: Initialize containers
+        run: |
+          bash ./.github/scripts/container/create.sh \
+            registry.fedoraproject.org/fedora:${{ env.FEDORA }}
 
-        # Install additional build dependencies
-        dnf install -y sbsigntools
+      - name: Install build dependencies
+        run: |
+          bash ./.github/scripts/container/exec.sh \
+            -- \
+            bash ./.github/scripts/package/fedora.sh setup-builddeps
 
-    - name: Setup secureboot certificate
-      env:
-        SB_KEY: ${{ secrets.SURFACE_SB_KEY }}
-      run: |
-        # Install the surface secureboot certificate
-        echo "$SB_KEY" | base64 -d > pkg/fedora/kernel-surface/secureboot/MOK.key
-        cp pkg/keys/surface.crt pkg/fedora/kernel-surface/secureboot/MOK.crt
+      - name: Setup secureboot certificate
+        env:
+          SB_KEY: ${{ secrets.SURFACE_SB_KEY }}
+        run: |
+          bash ./.github/scripts/container/exec.sh \
+            -e SB_KEY \
+            -- \
+            bash ./.github/scripts/package/fedora.sh setup-secureboot
 
-    - name: Build packages
-      run: |
-        cd pkg/fedora/kernel-surface
+      - name: Build packages
+        run: |
+          bash ./.github/scripts/container/exec.sh \
+            -- \
+            bash ./.github/scripts/package/fedora.sh build-packages
 
-        # setup git
-        git config --global user.email "surfacebot@users.noreply.github.com"
-        git config --global user.name "surfacebot"
+      - name: Sign packages
+        env:
+          GPG_KEY: ${{ secrets.LINUX_SURFACE_GPG_KEY }}
+        run: |
+          bash ./.github/scripts/container/exec.sh \
+            -e GPG_KEY \
+            -e GPG_KEY_ID \
+            -- \
+            bash ./.github/scripts/package/fedora.sh sign-packages
 
-        # Build source RPM packages
-        python3 build-linux-surface.py --mode srpm --ark-dir kernel-ark --outdir srpm
-
-        # Remove the kernel-ark tree to get as much free disk space as possible
-        rm -rf kernel-ark
-
-        # Build binary RPM packages
-        rpmbuild -rb --define "_rpmdir $PWD/out" srpm/*.src.rpm
-
-    - name: Sign packages
-      env:
-        GPG_KEY: ${{ secrets.LINUX_SURFACE_GPG_KEY }}
-      run: |
-        cd pkg/fedora/kernel-surface/out/x86_64
-
-        # import GPG key
-        echo "$GPG_KEY" | base64 -d | gpg --import --no-tty --batch --yes
-
-        # sign packages
-        rpm --resign *.rpm --define "_gpg_name $GPG_KEY_ID"
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: fedora-38-latest
-        path: pkg/fedora/kernel-surface/out/x86_64
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: fedora-${{ env.FEDORA }}-latest
+          path: pkg/fedora/kernel-surface/out/x86_64
 
   release:
     name: Publish release
     needs: [build]
     runs-on: ubuntu-latest
     steps:
-    - name: Download artifacts
-      uses: actions/download-artifact@v3
-      with:
-        name: fedora-38-latest
-        path: fedora-38-latest
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: fedora-${{ env.FEDORA }}-latest
+          path: fedora-${{ env.FEDORA }}-latest
 
-    - name: Upload assets
-      uses: svenstaro/upload-release-action@v2
-      with:
-        repo_token: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
-        file: ./*-latest/*
-        tag: ${{ github.ref }}
-        overwrite: true
-        file_glob: true
+      - name: Upload assets
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+          file: ./*-latest/*
+          tag: ${{ github.ref }}
+          overwrite: true
+          file_glob: true
 
   repo:
     name: Update package repository
     needs: [release]
     runs-on: ubuntu-latest
-    container: registry.fedoraproject.org/fedora:38
     steps:
-    - name: Install dependencies
-      run: |
-        dnf install -y git findutils
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Download artifacts
-      uses: actions/download-artifact@v3
-      with:
-        name: fedora-38-latest
-        path: fedora-38-latest
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: fedora-${{ env.FEDORA }}-latest
+          path: fedora-${{ env.FEDORA }}-latest
 
-    - name: Update repository
-      env:
-        SURFACEBOT_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
-        BRANCH_STAGING: u/staging
-        GIT_REF: ${{ github.ref }}
-      run: |
-        repo="https://surfacebot:${SURFACEBOT_TOKEN}@github.com/linux-surface/repo.git"
+      - name: Initialize containers
+        run: |
+          bash ./.github/scripts/container/create.sh \
+            registry.fedoraproject.org/fedora:${{ env.FEDORA }}
 
-        # clone package repository
-        git clone -b "${BRANCH_STAGING}" "${repo}" repo
-
-        # copy packages
-        cp fedora-38-latest/* repo/fedora/f38
-        cd repo/fedora/f38
-
-        # parse git tag from ref
-        GIT_TAG=$(echo $GIT_REF | sed 's|^refs/tags/||g')
-
-        # convert packages into references
-        for pkg in $(find . -name '*.rpm'); do
-          echo "linux-surface:$GIT_TAG/$(basename $pkg)" > $pkg.blob
-          rm $pkg
-        done
-
-        # set git identity
-        git config --global user.email "surfacebot@users.noreply.github.com"
-        git config --global user.name "surfacebot"
-
-        # commit and push
-        update_branch="${BRANCH_STAGING}-$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)"
-        git checkout -b "${update_branch}"
-        git add .
-        git commit -m "Update Fedora 38 kernel"
-        git push --set-upstream origin "${update_branch}"
+      - name: Update repository
+        env:
+          SURFACEBOT_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+          GIT_REF: ${{ github.ref }}
+          BRANCH_STAGING: u/staging
+        run: |
+          bash ./.github/scripts/container/exec.sh \
+            -e SURFACEBOT_TOKEN \
+            -e GIT_REF \
+            -e BRANCH_STAGING \
+            -e GITHUB_REPOSITORY \
+            -- \
+            bash ./.github/scripts/repository/fedora.sh ${{ env.FEDORA }}
