@@ -1,6 +1,6 @@
-From a45b4c3fcb7d364f236a25e03378a6b03a9cc627 Mon Sep 17 00:00:00 2001
+From 81141a454f41cbc5fd41b778f85b10552c8676e8 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
-Date: Sat, 3 Jun 2023 11:47:02 +0200
+Date: Sat, 22 Jul 2023 10:41:11 +0200
 Subject: [PATCH] Install scripts and service files for keeping the surface
  kernel the default
 
@@ -10,10 +10,10 @@ Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
  1 file changed, 34 insertions(+)
 
 diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
-index dc95736a227e..4d6504ca721b 100644
+index 43dce82a9d36..28df94e561d4 100644
 --- a/redhat/kernel.spec.template
 +++ b/redhat/kernel.spec.template
-@@ -911,6 +911,11 @@ Source4000: README.rst
+@@ -1025,6 +1025,11 @@ Source4000: README.rst
  Source4001: rpminspect.yaml
  Source4002: gating.yaml
  
@@ -25,7 +25,7 @@ index dc95736a227e..4d6504ca721b 100644
  ## Patches needed for building this package
  
  %if !%{nopatches}
-@@ -944,6 +949,7 @@ Requires(pre): %{initrd_prereq}\
+@@ -1058,6 +1063,7 @@ Requires(pre): %{initrd_prereq}\
  Requires(pre): ((linux-firmware >= 20150904-56.git6ebf5d57) if linux-firmware)\
  Recommends: linux-firmware\
  Recommends: iptsd\
@@ -33,7 +33,7 @@ index dc95736a227e..4d6504ca721b 100644
  Requires(preun): systemd >= 200\
  Conflicts: xfsprogs < 4.3.0-1\
  Conflicts: xorg-x11-drv-vmmouse < 13.0.99\
-@@ -958,6 +964,14 @@ AutoProv: yes\
+@@ -1072,6 +1078,14 @@ AutoProv: yes\
  %{nil}
  
  
@@ -48,7 +48,7 @@ index dc95736a227e..4d6504ca721b 100644
  %package doc
  Summary: Various documentation bits found in the kernel source
  Group: Documentation
-@@ -2691,6 +2705,11 @@ find Documentation -type d | xargs chmod u+w
+@@ -2945,6 +2959,11 @@ find Documentation -type d | xargs chmod u+w
  
  cd linux-%{KVERREL}
  
@@ -60,7 +60,7 @@ index dc95736a227e..4d6504ca721b 100644
  %if %{with_doc}
  docdir=$RPM_BUILD_ROOT%{_datadir}/doc/kernel-doc-%{specversion}-%{pkgrelease}
  
-@@ -2938,6 +2957,15 @@ popd
+@@ -3197,6 +3216,15 @@ popd
  ### scripts
  ###
  
@@ -76,7 +76,7 @@ index dc95736a227e..4d6504ca721b 100644
  %if %{with_tools}
  %post -n %{package_name}-tools-libs
  /sbin/ldconfig
-@@ -3313,6 +3341,12 @@ fi
+@@ -3609,6 +3637,12 @@ fi\
  %{_libexecdir}/kselftests
  %endif
  
@@ -87,8 +87,8 @@ index dc95736a227e..4d6504ca721b 100644
 +%{_presetdir}/90-linux-surface-default-watchdog.preset
 +
  # empty meta-package
+ %if %{with_up_base}
  %ifnarch %nobuildarches noarch
- %files
 -- 
-2.40.1
+2.41.0
 
