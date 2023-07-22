@@ -1,6 +1,6 @@
-From 71133b4337411ddd550d5e5ef68a12c510740b2c Mon Sep 17 00:00:00 2001
+From 67f8052f553191686b1224b5598d00ff33d38608 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
-Date: Sat, 22 Jul 2023 10:45:33 +0200
+Date: Sat, 13 May 2023 16:39:50 +0200
 Subject: [PATCH] Use a custom key and certificate for Secure Boot signing
 
 Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
@@ -9,10 +9,10 @@ Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
  1 file changed, 9 insertions(+), 6 deletions(-)
 
 diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
-index 28df94e561d4..fd44abc4118a 100644
+index 51f43b21b018..76d1ad8e2818 100644
 --- a/redhat/kernel.spec.template
 +++ b/redhat/kernel.spec.template
-@@ -805,6 +805,7 @@ BuildRequires: system-sb-certs
+@@ -703,6 +703,7 @@ BuildRequires: system-sb-certs
  %ifarch x86_64 aarch64
  BuildRequires: nss-tools
  BuildRequires: pesign >= 0.10-4
@@ -20,7 +20,7 @@ index 28df94e561d4..fd44abc4118a 100644
  %endif
  %endif
  %endif
-@@ -864,6 +865,13 @@ Source1: Makefile.rhelver
+@@ -762,6 +763,13 @@ Source1: Makefile.rhelver
  %define signing_key_filename kernel-signing-s390.cer
  %endif
  
@@ -34,8 +34,8 @@ index 28df94e561d4..fd44abc4118a 100644
  %if %{?released_kernel}
  
  Source10: redhatsecurebootca5.cer
-@@ -2096,9 +2104,7 @@ BuildKernel() {
-     SignImage=$KernelImage
+@@ -1860,9 +1868,7 @@ BuildKernel() {
+     fi
  
      %ifarch x86_64 aarch64
 -    %pesign -s -i $SignImage -o vmlinuz.tmp -a %{secureboot_ca_0} -c %{secureboot_key_0} -n %{pesign_name_0}
@@ -45,7 +45,7 @@ index 28df94e561d4..fd44abc4118a 100644
      %endif
      %ifarch s390x ppc64le
      if [ -x /usr/bin/rpm-sign ]; then
-@@ -2650,9 +2656,6 @@ BuildKernel() {
+@@ -2393,9 +2399,6 @@ BuildKernel() {
      # Red Hat UEFI Secure Boot CA cert, which can be used to authenticate the kernel
      mkdir -p $RPM_BUILD_ROOT%{_datadir}/doc/kernel-keys/$KernelVer
      %ifarch x86_64 aarch64
@@ -56,5 +56,5 @@ index 28df94e561d4..fd44abc4118a 100644
         install -m 0644 %{secureboot_ca_0} $RPM_BUILD_ROOT%{_datadir}/doc/kernel-keys/$KernelVer/kernel-signing-ca.cer
      %endif
 -- 
-2.41.0
+2.40.1
 
