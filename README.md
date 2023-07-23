@@ -5,6 +5,34 @@ Follow the instructions below to install the latest kernel.
 
 [Announcements and Updates](https://github.com/linux-surface/linux-surface/issues/96) | [Upstream Status](https://github.com/linux-surface/linux-surface/issues/205)
 
+### Why / About this Project
+
+These days, Linux supports a lot of devices out-of-the-box.
+As a matter of fact, this includes a good portion of the Microsoft Surface devices—for most parts at least.
+So why would you need a special kernel for Surface devices?
+In short, for the parts that are not supported upstream yet.
+
+Unfortunately, Surface devices tend to be a bit special.
+This is mostly because some hardware choices Microsoft made are rarely (if at all) used by other, more "standard", devices.
+For example:
+- Surface devices (4th generation and later) use their own embedded controller (the Surface Aggregator Module, or SAM).
+  In contrast to other devices, however, some newer Surface devices route their keyboard and touchpad input via this controller.
+  Unfortunately, every new Surface device requires some (usually small) patch to enable support for it, since devices managed by SAM are generally not auto-discoverable.
+- Surface devices (4th generation and later, excluding the Go series) use a rather special system for touch and pen input.
+  In short, this requires user-space processing of touch and pen data to enable multitouch support and has not been upstreamed yet.
+- Surface devices rely on Intel's ISP for camera image processing.
+  This means that the webcam also requires some user-space processing.
+  While patches are being upstreamed, not all devices are supported (even with this project), and more work remains to be done.
+
+We aim to send all the changes we make here upstream, but this may take time.
+This kernel allows us to ship new features faster, as we do not have to adhere to the upstream release schedule (and, for better or worse, code standards).
+We also rely on it to test and prototype patches before sending them upstream, which is crucial because we maintainers cannot test on all Surface devices (which also means we may break things along the way).
+
+_So should you install this custom kernel and the associated packages?_
+It depends: We generally recommend you try your standard distribution kernel first.
+If that works well for you, great!
+But if you're missing any features or experiencing issues, take a look at our [feature matrix](https://github.com/linux-surface/linux-surface/wiki/Supported-Devices-and-Features#feature-matrix) and give our kernel and packages a try.
+If your device is not listed as supported yet, feel free to open an issue.
 
 ### Supported Devices
 
