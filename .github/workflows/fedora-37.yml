@@ -9,6 +9,9 @@ on:
     tags:
       - 'fedora-37-*'
 
+  repository_dispatch:
+  workflow_dispatch:
+
 jobs:
   build:
     name: Build Kernel
@@ -69,6 +72,7 @@ jobs:
 
   release:
     name: Publish release
+    if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/')
     needs: [build]
     runs-on: ubuntu-latest
     steps:
