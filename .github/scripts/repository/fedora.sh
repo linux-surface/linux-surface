@@ -41,7 +41,7 @@ REPO="https://surfacebot:${SURFACEBOT_TOKEN}@github.com/linux-surface/repo.git"
 GIT_TAG="${GIT_REF#refs/tags/}"
 
 # Install dependencies
-dnf install git findutils
+dnf install git findutils openssl
 
 # clone package repository
 git clone -b "${BRANCH_STAGING}" "${REPO}" repo
@@ -56,7 +56,7 @@ while read -rd $'\n' FILE; do
     rm "${FILE}"
 done <<< "$(find . -name '*.rpm' -type f)"
 
-RAND="$(tr -dc 'a-zA-Z0-9' < /dev/urandom | fold -w 32 | head -n 1)"
+RAND="$(openssl rand -hex 16)"
 BRANCH="${BRANCH_STAGING}-${RAND}"
 
 # set git identity
