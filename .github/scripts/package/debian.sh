@@ -105,7 +105,7 @@ build-packages)
     # The DPKG in Ubuntu 22.04 defaults to using ZSTD, which is not yet supported by the DPKG in Debian 11
     export KDEB_COMPRESS="xz"
 
-    make bindeb-pkg -j "$(nproc)"
+    make bindeb-pkg -j "$(nproc)" LOCALVERSION="${KERNEL_LOCALVERSION}"
 
     popd || exit 1
     popd || exit 1
