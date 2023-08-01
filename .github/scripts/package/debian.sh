@@ -76,16 +76,17 @@ build-packages)
     pushd linux || exit 1
 
     # apply surface build/packaging patches
-    find .. -name '*.patch' -type f -print0 | xargs -0 -I '{}' \
+    find .. -name '*.patch' -type f -print0 | sort -z | xargs -0 -I '{}' \
         git apply --index --reject {}
 
     git add .
     git commit --allow-empty -m "Apply linux-surface packaging patches"
 
     KERNEL_MAJORVER="${KERNEL_VERSION%.*}"
+    PATCHES="../../../../patches/${KERNEL_MAJORVER}"
 
     # apply surface patches
-    find "../../../../patches/${KERNEL_MAJORVER}" -name '*.patch' -type f -print0 | xargs -0 -I '{}' \
+    find "${PATCHES}" -name '*.patch' -type f -print0 | sort -z | xargs -0 -I '{}' \
         git apply --index --reject {}
 
     git add .
