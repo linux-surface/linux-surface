@@ -53,7 +53,7 @@ build-packages)
 
     # Prepare release
     mkdir release
-    find . -name '*.pkg.tar.zst' -type f -exec mv {} release \;
+    find . -name '*.pkg.tar.zst' -type f -print0 | xargs -0 -I '{}' mv {} release
 
     popd || exit 1
     ;;
@@ -69,8 +69,8 @@ sign-packages)
     echo "${GPG_KEY}" | base64 -d | gpg --import --no-tty --batch --yes
 
     # sign packages
-    find . -name '*.pkg.tar.zst' -type f -exec \
-        gpg --detach-sign --batch --no-tty -u "${GPG_KEY_ID}" {} \;
+    find . -name '*.pkg.tar.zst' -type f -print0 | xargs -0 -I '{}' \
+        gpg --detach-sign --batch --no-tty -u "${GPG_KEY_ID}" {}
 
     popd || exit 1
     ;;

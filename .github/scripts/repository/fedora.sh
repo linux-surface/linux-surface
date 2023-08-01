@@ -47,7 +47,7 @@ dnf install git findutils openssl
 git clone -b "${BRANCH_STAGING}" "${REPO}" repo
 
 # copy packages
-find "fedora-${FEDORA}-latest" -type f -exec cp {} "repo/fedora/f${FEDORA}" \;
+find "fedora-${FEDORA}-latest" -type f -print0 | xargs -0 -I '{}' cp {} "repo/fedora/f${FEDORA}"
 pushd "repo/fedora/f${FEDORA}" || exit 1
 
 # convert packages into references

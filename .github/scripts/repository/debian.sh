@@ -41,7 +41,7 @@ apt-get install git openssl
 git clone -b "${BRANCH_STAGING}" "${REPO}" repo
 
 # copy packages
-find debian-latest -type f -exec cp {} repo/debian \;
+find debian-latest -type f -print0 | xargs -0 -I '{}' cp {} repo/debian
 pushd repo/debian || exit 1
 
 # convert packages into references

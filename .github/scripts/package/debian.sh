@@ -76,7 +76,8 @@ build-packages)
     pushd linux || exit 1
 
     # apply surface build/packaging patches
-    find .. -name '*.patch' -type f -exec git apply --index --reject {} \;
+    find .. -name '*.patch' -type f -print0 | xargs -0 -I '{}' \
+        git apply --index --reject {}
 
     git add .
     git commit --allow-empty -m "Apply linux-surface packaging patches"
@@ -84,8 +85,8 @@ build-packages)
     KERNEL_MAJORVER="${KERNEL_VERSION%.*}"
 
     # apply surface patches
-    find "../../../../patches/${KERNEL_MAJORVER}" -name '*.patch' -type f -exec \
-        git apply --index --reject {} \;
+    find "../../../../patches/${KERNEL_MAJORVER}" -name '*.patch' -type f -print0 | xargs -0 -I '{}' \
+        git apply --index --reject {}
 
     git add .
     git commit --allow-empty -m "Apply linux-surface patches"
@@ -124,8 +125,8 @@ build-packages)
 
     mkdir release
 
-    find . -name 'linux-libc-dev*.deb' -type f -exec rm {} \;
-    find . -name '*.deb' -type f -exec cp {} release \;
+    find . -name 'linux-libc-dev*.deb' -type f -print0 | xargs -0 -I '{}' rm {}
+    find . -name '*.deb' -type f -print0 | xargs -0 -I '{}' cp {} release
 
     popd || exit 1
     ;;
@@ -141,8 +142,8 @@ sign-packages)
     echo "${GPG_KEY}" | base64 -d | gpg --import --no-tty --batch --yes
 
     # sign packages
-    find . -name '*.deb' -type f -exec \
-        dpkg-sig -g "--batch --no-tty" --sign builder -k "${GPG_KEY_ID}" {} \;
+    find . -name '*.deb' -type f -print0 | xargs -0 -I '{}' \
+        dpkg-sig -g "--batch --no-tty" --sign builder -k "${GPG_KEY_ID}" {}
 
     popd || exit 1
     ;;

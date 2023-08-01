@@ -51,8 +51,8 @@ build-packages)
     rm -rf kernel-ark
 
     # Build binary RPM packages
-    find srpm -name '*.src.rpm' -type f -exec rpmbuild -rb \
-        --define "_topdir ${PWD}/rpmbuild" --define "_rpmdir ${PWD}/out" {} \;
+    find srpm -name '*.src.rpm' -type f -print0 | xargs -0 -I '{}' \
+        rpmbuild -rb --define "_topdir ${PWD}/rpmbuild" --define "_rpmdir ${PWD}/out" {}
 
     popd || exit 1
     ;;
@@ -68,8 +68,8 @@ sign-packages)
     echo "${GPG_KEY}" | base64 -d | gpg --import --no-tty --batch --yes
 
     # sign packages
-    find . -name '*.rpm' -type f -exec \
-        rpm --resign {} --define "_gpg_name ${GPG_KEY_ID}" \;
+    find . -name '*.rpm' -type f -print0 | xargs -0 -I '{}' \
+        rpm --resign {} --define "_gpg_name ${GPG_KEY_ID}"
 
     popd || exit 1
     ;;

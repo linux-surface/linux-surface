@@ -41,7 +41,7 @@ pacman -S base-devel git openssl
 git clone -b "${BRANCH_STAGING}" "${REPO}" repo
 
 # copy packages
-find arch-latest -type f -exec cp {} repo/arch \;
+find arch-latest -type f -print0 | xargs -0 -I '{}' cp {} repo/arch
 pushd repo/arch || exit 1
 
 # convert packages into references
