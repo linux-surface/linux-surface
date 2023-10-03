@@ -1,0 +1,49 @@
+From b81f708b2a9b753fbd5f785be2a30c71befec1a9 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Tue, 3 Oct 2023 02:15:04 +0200
+Subject: [PATCH] wip! serial: core: Disable runtime-suspend by default
+
+Commit 84a9582fd203 ("serial: core: Start managing serial controllers to
+enable runtime PM"), broke suspend on various Microsoft Surface devices.
+In particular, devices with the Surface Aggregator Module (SAM) EC
+connected via the Surface Serial Hub (SSH), a UART device.
+
+The core issue is that any UART communication is blocked when the UART
+port is in runtime suspend. Data sent during that time will be cached
+and transferred only after the device has been runtime-resumed.
+Unfortunately, any runtime PM transitions are blocked right before
+entering normal suspend and only unblocked after resuming. This means,
+that if we enter normal suspend when the port is runtime suspended, any
+communication will be blocked until the device resumes.
+
+Unfortunately, however, we need to tell the SAM EC when we are
+suspending and resuming to quiesce / re-enable events, turn off the
+keyboard backlight, and transition it to a lower power mode. This is
+currently done in prepare()/complete() and suspend()/resume(). With the
+commit mentioned above, these operations now time out, causing suspend
+to fail.
+
+As a temporary workaround: Disable runtime PM on the UART ports.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/tty/serial/serial_port.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/tty/serial/serial_port.c b/drivers/tty/serial/serial_port.c
+index 862423237007..6ceacea5e790 100644
+--- a/drivers/tty/serial/serial_port.c
++++ b/drivers/tty/serial/serial_port.c
+@@ -55,6 +55,8 @@ static int serial_port_probe(struct device *dev)
+ 	pm_runtime_set_autosuspend_delay(dev, SERIAL_PORT_AUTOSUSPEND_DELAY_MS);
+ 	pm_runtime_use_autosuspend(dev);
+ 
++	pm_runtime_forbid(dev);
++
+ 	return 0;
+ }
+ 
+-- 
+2.42.0
+
