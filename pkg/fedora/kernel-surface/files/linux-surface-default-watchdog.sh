@@ -16,7 +16,7 @@ VMLINUX="$(echo "${KERNELS}" | tail -n1 | cut -d' ' -f2)"
 echo "${VMLINUX}"
 
 # update GRUB config
-grubby --set-default "$(grub2-mkrelpath "${BOOTPATH}")"
+grubby --set-default "$(grub2-mkrelpath "${VMLINUX}")"
 
 # Update timestamp for rEFInd
 # Ensure it's marked as latest across all kernels, not just surface ones
