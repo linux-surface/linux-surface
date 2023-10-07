@@ -1,49 +1,54 @@
-From b81f708b2a9b753fbd5f785be2a30c71befec1a9 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Tue, 3 Oct 2023 02:15:04 +0200
-Subject: [PATCH] wip! serial: core: Disable runtime-suspend by default
+From 89b8b8c121fe201862929709d451fecb24947676 Mon Sep 17 00:00:00 2001
+From: Tony Lindgren <tony@atomide.com>
+Date: Thu, 5 Oct 2023 10:56:42 +0300
+Subject: [PATCH] serial: core: Fix checks for tx runtime PM state
 
-Commit 84a9582fd203 ("serial: core: Start managing serial controllers to
-enable runtime PM"), broke suspend on various Microsoft Surface devices.
-In particular, devices with the Surface Aggregator Module (SAM) EC
-connected via the Surface Serial Hub (SSH), a UART device.
+Maximilian reported that surface_serial_hub serdev tx does not work during
+system suspend. During system suspend, runtime PM gets disabled in
+__device_suspend_late(), and tx is unable to wake-up the serial core port
+device that we use to check if tx is safe to start. Johan summarized the
+regression noting that serdev tx no longer always works as earlier when the
+serdev device is runtime PM active.
 
-The core issue is that any UART communication is blocked when the UART
-port is in runtime suspend. Data sent during that time will be cached
-and transferred only after the device has been runtime-resumed.
-Unfortunately, any runtime PM transitions are blocked right before
-entering normal suspend and only unblocked after resuming. This means,
-that if we enter normal suspend when the port is runtime suspended, any
-communication will be blocked until the device resumes.
+The serdev device and the serial core controller devices are siblings of
+the serial port hardware device. The runtime PM usage count from serdev
+device does not propagate to the serial core device siblings, it only
+propagates to the parent.
 
-Unfortunately, however, we need to tell the SAM EC when we are
-suspending and resuming to quiesce / re-enable events, turn off the
-keyboard backlight, and transition it to a lower power mode. This is
-currently done in prepare()/complete() and suspend()/resume(). With the
-commit mentioned above, these operations now time out, causing suspend
-to fail.
+In addition to the tx issue for suspend, testing for the serial core port
+device can cause an unnecessary delay in enabling tx while waiting for the
+serial core port device to wake-up. The serial core port device wake-up is
+only needed to flush pending tx when the serial port hardware device was
+in runtime PM suspended state.
 
-As a temporary workaround: Disable runtime PM on the UART ports.
+To fix the regression, we need to check the runtime PM state of the parent
+serial port hardware device for tx instead of the serial core port device.
 
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+As the serial port device drivers may or may not implement runtime PM, we
+need to also add a check for pm_runtime_enabled().
+
+Reported-by: Maximilian Luz <luzmaximilian@gmail.com>
+Fixes: 84a9582fd203 ("serial: core: Start managing serial controllers to enable runtime PM")
+Signed-off-by: Tony Lindgren <tony@atomide.com>
+Reviewed-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 Patchset: surface-sam
 ---
- drivers/tty/serial/serial_port.c | 2 ++
- 1 file changed, 2 insertions(+)
+ drivers/tty/serial/serial_core.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
 
-diff --git a/drivers/tty/serial/serial_port.c b/drivers/tty/serial/serial_port.c
-index 862423237007..6ceacea5e790 100644
---- a/drivers/tty/serial/serial_port.c
-+++ b/drivers/tty/serial/serial_port.c
-@@ -55,6 +55,8 @@ static int serial_port_probe(struct device *dev)
- 	pm_runtime_set_autosuspend_delay(dev, SERIAL_PORT_AUTOSUSPEND_DELAY_MS);
- 	pm_runtime_use_autosuspend(dev);
- 
-+	pm_runtime_forbid(dev);
-+
- 	return 0;
- }
- 
+diff --git a/drivers/tty/serial/serial_core.c b/drivers/tty/serial/serial_core.c
+index 831d033611e6..e429ac42a12e 100644
+--- a/drivers/tty/serial/serial_core.c
++++ b/drivers/tty/serial/serial_core.c
+@@ -157,7 +157,7 @@ static void __uart_start(struct tty_struct *tty)
+ 	 * enabled, serial_port_runtime_resume() calls start_tx() again
+ 	 * after enabling the device.
+ 	 */
+-	if (pm_runtime_active(&port_dev->dev))
++	if (!pm_runtime_enabled(port->dev) || pm_runtime_active(port->dev))
+ 		port->ops->start_tx(port);
+ 	pm_runtime_mark_last_busy(&port_dev->dev);
+ 	pm_runtime_put_autosuspend(&port_dev->dev);
 -- 
 2.42.0
 
