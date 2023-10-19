@@ -51,6 +51,7 @@ If your device is not listed as supported yet, feel free to open an issue.
 * Surface Laptop Go
 * Surface Laptop Go 2
 * Surface Laptop Studio
+* Surface Pro 1
 * Surface Pro 3
 * Surface Pro 4
 * Surface Pro (5th Gen) / Surface Pro 2017
