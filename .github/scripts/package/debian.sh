@@ -108,7 +108,7 @@ build-packages)
     export KDEB_COMPRESS="xz"
 
     # Set kernel localversion
-    export LOCALVERSION="${KERNEL_LOCALVERSION}"
+    export LOCALVERSION="${KERNEL_LOCALVERSION}-${KERNEL_REVISION}"
 
     make bindeb-pkg -j "$(nproc)"
 
