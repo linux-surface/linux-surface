@@ -117,7 +117,7 @@ build-packages)
 
     pushd pkg/debian/meta || exit 1
 
-    ./mkdebian.sh "$(make -C ../kernel/linux -s kernelrelease)" "${KERNEL_REVISION}"
+    ./mkdebian.sh "$(make -C ../kernel/linux -s kernelrelease)"
     dpkg-buildpackage -b -Zxz
 
     popd || exit 1
