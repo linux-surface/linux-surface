@@ -1,0 +1,152 @@
+From 4f36af65d29a342b96aaf4b3702442fd1ba473b2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Timoth=C3=A9e=20Ravier?= <tim@siosm.fr>
+Date: Tue, 10 Oct 2023 12:35:10 +0200
+Subject: [PATCH] kernel.spec: Skip posttrans when running under rpm-ostree
+
+Do not run dracut, depmod or other install script in scriptlets when
+installing/uninstalling/updating during an rpm-ostree compose as it will
+not work. This is instead managed by rpm-ostree and ostree themselves.
+
+rpm-ostree has been manually skipping post/posttrans scriptlets from the
+kernel as a workaround in [1].
+
+Skip those steps in the scriptlet directly when running under rpm-ostree
+so that we don't have to extend the skiplist indefinitely for third
+party packages.
+
+See: https://github.com/coreos/rpm-ostree/pull/4526
+See: https://github.com/coreos/rpm-ostree/pull/4386
+See: https://github.com/coreos/rpm-ostree/pull/4344
+See: https://github.com/coreos/rpm-ostree/pull/4310
+See: https://github.com/coreos/rpm-ostree/pull/3721
+See: https://github.com/coreos/rpm-ostree/pull/3533
+See: https://github.com/coreos/rpm-ostree/pull/3419
+
+[1] https://github.com/coreos/rpm-ostree/blob/0bdd4f247b7a62255460354820470e4e6332547d/rust/src/scripts.rs#L18
+---
+ redhat/kernel.spec.template | 48 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 48 insertions(+)
+
+diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
+index 8dc15780534fe..c3feb87a06e4f 100644
+--- a/redhat/kernel.spec.template
++++ b/redhat/kernel.spec.template
+@@ -3195,9 +3195,17 @@ fi\
+ #
+ %define kernel_modules_extra_post() \
+ %{expand:%%post %{?1:%{1}-}modules-extra}\
++if [ -f /run/ostree-booted ]; then\
++	# rpm-ostree takes care of rerunning depmod\
++	return 0\
++fi\
+ /sbin/depmod -a %{KVERREL}%{?1:+%{1}}\
+ %{nil}\
+ %{expand:%%postun %{?1:%{1}-}modules-extra}\
++if [ -f /run/ostree-booted ]; then\
++	# rpm-ostree takes care of rerunning depmod\
++	return 0\
++fi\
+ /sbin/depmod -a %{KVERREL}%{?1:+%{1}}\
+ %{nil}
+ 
+@@ -3208,9 +3216,17 @@ fi\
+ #
+ %define kernel_modules_internal_post() \
+ %{expand:%%post %{?1:%{1}-}modules-internal}\
++if [ -f /run/ostree-booted ]; then\
++	# rpm-ostree takes care of rerunning depmod\
++	return 0\
++fi\
+ /sbin/depmod -a %{KVERREL}%{?1:+%{1}}\
+ %{nil}\
+ %{expand:%%postun %{?1:%{1}-}modules-internal}\
++if [ -f /run/ostree-booted ]; then\
++	# rpm-ostree takes care of rerunning depmod\
++	return 0\
++fi\
+ /sbin/depmod -a %{KVERREL}%{?1:+%{1}}\
+ %{nil}
+ 
+@@ -3221,9 +3237,17 @@ fi\
+ #
+ %define kernel_modules_partner_post() \
+ %{expand:%%post %{?1:%{1}-}modules-partner}\
++if [ -f /run/ostree-booted ]; then\
++	# rpm-ostree takes care of rerunning depmod\
++	return 0\
++fi\
+ /sbin/depmod -a %{KVERREL}%{?1:+%{1}}\
+ %{nil}\
+ %{expand:%%postun %{?1:%{1}-}modules-partner}\
++if [ -f /run/ostree-booted ]; then\
++	# rpm-ostree takes care of rerunning depmod\
++	return 0\
++fi\
+ /sbin/depmod -a %{KVERREL}%{?1:+%{1}}\
+ %{nil}
+ 
+@@ -3235,9 +3259,17 @@ fi\
+ #
+ %define kernel_kvm_post() \
+ %{expand:%%post %{?1:%{1}-}kvm}\
++if [ -f /run/ostree-booted ]; then\
++	# rpm-ostree takes care of rerunning depmod\
++	return 0\
++fi\
+ /sbin/depmod -a %{KVERREL}%{?1:+%{1}}\
+ %{nil}\
+ %{expand:%%postun %{?1:%{1}-}kvm}\
++if [ -f /run/ostree-booted ]; then\
++	# rpm-ostree takes care of rerunning depmod\
++	return 0\
++fi\
+ /sbin/depmod -a %{KVERREL}%{?1:+%{1}}\
+ %{nil}
+ %endif
+@@ -3249,6 +3281,10 @@ fi\
+ #
+ %define kernel_modules_post() \
+ %{expand:%%post %{?1:%{1}-}modules}\
++if [ -f /run/ostree-booted ]; then\
++	# rpm-ostree takes care of rerunning depmod\
++	return 0\
++fi\
+ /sbin/depmod -a %{KVERREL}%{?1:+%{1}}\
+ if [ ! -f %{_localstatedir}/lib/rpm-state/%{name}/installing_core_%{KVERREL}%{?1:+%{1}} ]; then\
+ 	mkdir -p %{_localstatedir}/lib/rpm-state/%{name}\
+@@ -3259,6 +3295,10 @@ fi\
+ /sbin/depmod -a %{KVERREL}%{?1:+%{1}}\
+ %{nil}\
+ %{expand:%%posttrans %{?1:%{1}-}modules}\
++if [ -f /run/ostree-booted ]; then\
++	# rpm-ostree takes care of rerunning dracut\
++	return 0\
++fi\
+ if [ -f %{_localstatedir}/lib/rpm-state/%{name}/need_to_run_dracut_%{KVERREL}%{?1:+%{1}} ]; then\
+ 	rm -f %{_localstatedir}/lib/rpm-state/%{name}/need_to_run_dracut_%{KVERREL}%{?1:+%{1}}\
+ 	echo "Running: dracut -f --kver %{KVERREL}%{?1:+%{1}}"\
+@@ -3272,6 +3312,10 @@ fi\
+ #
+ %define kernel_modules_core_post() \
+ %{expand:%%posttrans %{?1:%{1}-}modules-core}\
++if [ -f /run/ostree-booted ]; then\
++	# rpm-ostree takes care of running depmod\
++	return 0\
++fi\
+ /sbin/depmod -a %{KVERREL}%{?1:+%{1}}\
+ %{nil}
+ 
+@@ -3281,6 +3325,10 @@ fi\
+ #
+ %define kernel_variant_posttrans(v:u:) \
+ %{expand:%%posttrans %{?-v:%{-v*}-}%{!?-u*:core}%{?-u*:uki-%{-u*}}}\
++if [ -f /run/ostree-booted ]; then\
++	# Skip this scriptlet on rpm-ostree based systems\
++	return 0\
++fi\
+ %if 0%{!?fedora:1}\
+ if [ -x %{_sbindir}/weak-modules ]\
+ then\
+-- 
+GitLab
+
