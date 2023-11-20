@@ -1,4 +1,4 @@
-From c9aed26b8f46ee570b5b76912c288c6340ee7121 Mon Sep 17 00:00:00 2001
+From 4dcd74ed69260bbcdb2bdb63b1ec3151601096cc Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 18 Feb 2023 01:02:49 +0100
 Subject: [PATCH] USB: quirks: Add USB_QUIRK_DELAY_INIT for Surface Go 3
@@ -23,7 +23,7 @@ Patchset: surface-typecover
  1 file changed, 3 insertions(+)
 
 diff --git a/drivers/usb/core/quirks.c b/drivers/usb/core/quirks.c
-index 15e9bd180a1d..0d70461d01e1 100644
+index 15e9bd180a1d2..0d70461d01e16 100644
 --- a/drivers/usb/core/quirks.c
 +++ b/drivers/usb/core/quirks.c
 @@ -220,6 +220,9 @@ static const struct usb_device_id usb_quirk_list[] = {
@@ -37,9 +37,9 @@ index 15e9bd180a1d..0d70461d01e1 100644
  	{ USB_DEVICE(0x046a, 0x0023), .driver_info = USB_QUIRK_RESET_RESUME },
  
 -- 
-2.42.0
+2.42.1
 
-From bde20e67508ff86d50f53918e90e58642acb5fc1 Mon Sep 17 00:00:00 2001
+From 7c82ff63029474fd933e6e2e7cd3ef2579348380 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 5 Nov 2020 13:09:45 +0100
 Subject: [PATCH] hid/multitouch: Turn off Type Cover keyboard backlight when
@@ -75,7 +75,7 @@ Patchset: surface-typecover
  1 file changed, 98 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 521b2ffb4244..c8f3d05c8866 100644
+index 8db4ae05febc8..99a5efef45258 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -34,7 +34,10 @@
@@ -257,7 +257,7 @@ index 521b2ffb4244..c8f3d05c8866 100644
  	del_timer_sync(&td->release_timer);
  
  	sysfs_remove_group(&hdev->dev.kobj, &mt_attribute_group);
-@@ -2219,6 +2310,11 @@ static const struct hid_device_id mt_devices[] = {
+@@ -2223,6 +2314,11 @@ static const struct hid_device_id mt_devices[] = {
  		MT_USB_DEVICE(USB_VENDOR_ID_XIROKU,
  			USB_DEVICE_ID_XIROKU_CSR2) },
  
@@ -270,9 +270,9 @@ index 521b2ffb4244..c8f3d05c8866 100644
  	{ .driver_data = MT_CLS_GOOGLE,
  		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY, USB_VENDOR_ID_GOOGLE,
 -- 
-2.42.0
+2.42.1
 
-From 30849651b4c66e2b904e5b7ccd3a973f7f91c96a Mon Sep 17 00:00:00 2001
+From 58c4dae1eedf71fc401fb68c4572916def72e889 Mon Sep 17 00:00:00 2001
 From: PJungkamp <p.jungkamp@gmail.com>
 Date: Fri, 25 Feb 2022 12:04:25 +0100
 Subject: [PATCH] hid/multitouch: Add support for surface pro type cover tablet
@@ -301,7 +301,7 @@ Patchset: surface-typecover
  1 file changed, 122 insertions(+), 26 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index c8f3d05c8866..1c6e4d66e762 100644
+index 99a5efef45258..6ae43ea90bcd5 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -77,6 +77,7 @@ MODULE_LICENSE("GPL");
@@ -570,5 +570,5 @@ index c8f3d05c8866..1c6e4d66e762 100644
  	unregister_pm_notifier(&td->pm_notifier);
  	del_timer_sync(&td->release_timer);
 -- 
-2.42.0
+2.42.1
 
