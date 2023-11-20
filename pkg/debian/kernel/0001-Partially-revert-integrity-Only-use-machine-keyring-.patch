@@ -1,0 +1,41 @@
+From fbfaff58fe821fa93ceeb17e034886a6d8447207 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Mon, 20 Nov 2023 22:54:05 +0100
+Subject: [PATCH] Partially revert "integrity: Only use machine keyring when
+ uefi_check_trust_mok_keys is true"
+
+This partially reverts commit 3d6ae1a5d0c2019d274284859f556dcb64aa98a7.
+
+MokListTrustedRT doesn't seem to be set by the Shim version used by
+Ubuntu and Debian. Therefore, these systems don't trust the MOK keys on
+newer kernels. While pre-5.19 kernels silently disregard the untrusted
+keys and (without signature enforcement enabled) still load external
+modules (tainting the kernel), on 5.19 kernels, this breaks module
+loading. Therefore, revert this change.
+---
+ security/integrity/platform_certs/machine_keyring.c | 9 +--------
+ 1 file changed, 1 insertion(+), 8 deletions(-)
+
+diff --git a/security/integrity/platform_certs/machine_keyring.c b/security/integrity/platform_certs/machine_keyring.c
+index a401640a63cd1..a1ad244cbf86d 100644
+--- a/security/integrity/platform_certs/machine_keyring.c
++++ b/security/integrity/platform_certs/machine_keyring.c
+@@ -51,14 +51,7 @@ void __init add_to_machine_keyring(const char *source, const void *data, size_t
+  */
+ static __init bool uefi_check_trust_mok_keys(void)
+ {
+-	struct efi_mokvar_table_entry *mokvar_entry;
+-
+-	mokvar_entry = efi_mokvar_entry_find("MokListTrustedRT");
+-
+-	if (mokvar_entry)
+-		return true;
+-
+-	return false;
++	return true;
+ }
+ 
+ static bool __init trust_moklist(void)
+-- 
+2.42.1
+
