@@ -1,4 +1,4 @@
-From 033de13abc9653b2d773f06182465e03d5d6463b Mon Sep 17 00:00:00 2001
+From 49abc1a1091bedc6007faa962d0cbeb17a4db9a5 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Sun, 11 Dec 2022 12:03:38 +0100
 Subject: [PATCH] iommu: intel: Disable source id verification for ITHC
@@ -10,7 +10,7 @@ Patchset: ithc
  1 file changed, 16 insertions(+)
 
 diff --git a/drivers/iommu/intel/irq_remapping.c b/drivers/iommu/intel/irq_remapping.c
-index 29b9e55dcf26c..986e91c813ae1 100644
+index 29b9e55dcf26..986e91c813ae 100644
 --- a/drivers/iommu/intel/irq_remapping.c
 +++ b/drivers/iommu/intel/irq_remapping.c
 @@ -386,6 +386,22 @@ static int set_msi_sid(struct irte *irte, struct pci_dev *dev)
@@ -37,9 +37,9 @@ index 29b9e55dcf26c..986e91c813ae1 100644
  	 * DMA alias provides us with a PCI device and alias.  The only case
  	 * where the it will return an alias on a different bus than the
 -- 
-2.42.0
+2.43.0
 
-From 0dd32bcfb70f9e36cfa009d94cd6c86a4839cff3 Mon Sep 17 00:00:00 2001
+From 2e168eedc0529a087d4fad1c076797a2ac9d5d6d Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Sun, 11 Dec 2022 12:10:54 +0100
 Subject: [PATCH] hid: Add support for Intel Touch Host Controller
@@ -72,7 +72,7 @@ Patchset: ithc
  create mode 100644 drivers/hid/ithc/ithc.h
 
 diff --git a/drivers/hid/Kconfig b/drivers/hid/Kconfig
-index 0b9d245d10e54..8ba1c309228be 100644
+index 0b9d245d10e5..8ba1c309228b 100644
 --- a/drivers/hid/Kconfig
 +++ b/drivers/hid/Kconfig
 @@ -1347,4 +1347,6 @@ source "drivers/hid/surface-hid/Kconfig"
@@ -83,7 +83,7 @@ index 0b9d245d10e54..8ba1c309228be 100644
 +
  endif # HID_SUPPORT
 diff --git a/drivers/hid/Makefile b/drivers/hid/Makefile
-index 2ef21b257d0b5..e94b79727b489 100644
+index 2ef21b257d0b..e94b79727b48 100644
 --- a/drivers/hid/Makefile
 +++ b/drivers/hid/Makefile
 @@ -171,3 +171,4 @@ obj-$(CONFIG_AMD_SFH_HID)       += amd-sfh-hid/
@@ -93,7 +93,7 @@ index 2ef21b257d0b5..e94b79727b489 100644
 +obj-$(CONFIG_HID_ITHC)          += ithc/
 diff --git a/drivers/hid/ithc/Kbuild b/drivers/hid/ithc/Kbuild
 new file mode 100644
-index 0000000000000..aea83f2ac07b4
+index 000000000000..aea83f2ac07b
 --- /dev/null
 +++ b/drivers/hid/ithc/Kbuild
 @@ -0,0 +1,6 @@
@@ -105,7 +105,7 @@ index 0000000000000..aea83f2ac07b4
 +
 diff --git a/drivers/hid/ithc/Kconfig b/drivers/hid/ithc/Kconfig
 new file mode 100644
-index 0000000000000..ede7130236096
+index 000000000000..ede713023609
 --- /dev/null
 +++ b/drivers/hid/ithc/Kconfig
 @@ -0,0 +1,12 @@
@@ -123,7 +123,7 @@ index 0000000000000..ede7130236096
 +	  module will be called ithc.
 diff --git a/drivers/hid/ithc/ithc-debug.c b/drivers/hid/ithc/ithc-debug.c
 new file mode 100644
-index 0000000000000..57bf125c45bd5
+index 000000000000..57bf125c45bd
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-debug.c
 @@ -0,0 +1,96 @@
@@ -225,7 +225,7 @@ index 0000000000000..57bf125c45bd5
 +
 diff --git a/drivers/hid/ithc/ithc-dma.c b/drivers/hid/ithc/ithc-dma.c
 new file mode 100644
-index 0000000000000..7e89b3496918d
+index 000000000000..7e89b3496918
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-dma.c
 @@ -0,0 +1,258 @@
@@ -489,7 +489,7 @@ index 0000000000000..7e89b3496918d
 +
 diff --git a/drivers/hid/ithc/ithc-dma.h b/drivers/hid/ithc/ithc-dma.h
 new file mode 100644
-index 0000000000000..d9f2c19a13f3a
+index 000000000000..d9f2c19a13f3
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-dma.h
 @@ -0,0 +1,67 @@
@@ -562,7 +562,7 @@ index 0000000000000..d9f2c19a13f3a
 +
 diff --git a/drivers/hid/ithc/ithc-main.c b/drivers/hid/ithc/ithc-main.c
 new file mode 100644
-index 0000000000000..09512b9cb4d31
+index 000000000000..09512b9cb4d3
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-main.c
 @@ -0,0 +1,534 @@
@@ -1102,7 +1102,7 @@ index 0000000000000..09512b9cb4d31
 +
 diff --git a/drivers/hid/ithc/ithc-regs.c b/drivers/hid/ithc/ithc-regs.c
 new file mode 100644
-index 0000000000000..85d567b05761f
+index 000000000000..85d567b05761
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-regs.c
 @@ -0,0 +1,64 @@
@@ -1172,7 +1172,7 @@ index 0000000000000..85d567b05761f
 +
 diff --git a/drivers/hid/ithc/ithc-regs.h b/drivers/hid/ithc/ithc-regs.h
 new file mode 100644
-index 0000000000000..1a96092ed7eed
+index 000000000000..1a96092ed7ee
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-regs.h
 @@ -0,0 +1,186 @@
@@ -1364,7 +1364,7 @@ index 0000000000000..1a96092ed7eed
 +
 diff --git a/drivers/hid/ithc/ithc.h b/drivers/hid/ithc/ithc.h
 new file mode 100644
-index 0000000000000..6a9b0d480bc15
+index 000000000000..6a9b0d480bc1
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc.h
 @@ -0,0 +1,60 @@
@@ -1429,9 +1429,9 @@ index 0000000000000..6a9b0d480bc15
 +void ithc_log_regs(struct ithc *ithc);
 +
 -- 
-2.42.0
+2.43.0
 
-From 9f8d2a0f4012644f56ed8dfd322e575b57e1c208 Mon Sep 17 00:00:00 2001
+From a2eab92216bc3d33e881bbe72a1c9ff1b6c591b0 Mon Sep 17 00:00:00 2001
 From: quo <tuple@list.ru>
 Date: Mon, 23 Oct 2023 10:15:29 +0200
 Subject: [PATCH] Update ITHC from module repo
@@ -1456,7 +1456,7 @@ Patchset: ithc
  7 files changed, 623 insertions(+), 236 deletions(-)
 
 diff --git a/drivers/hid/ithc/ithc-debug.c b/drivers/hid/ithc/ithc-debug.c
-index 57bf125c45bd5..1f1f1e33f2e5a 100644
+index 57bf125c45bd..1f1f1e33f2e5 100644
 --- a/drivers/hid/ithc/ithc-debug.c
 +++ b/drivers/hid/ithc/ithc-debug.c
 @@ -1,10 +1,14 @@
@@ -1613,7 +1613,7 @@ index 57bf125c45bd5..1f1f1e33f2e5a 100644
  	return 0;
  }
 diff --git a/drivers/hid/ithc/ithc-dma.c b/drivers/hid/ithc/ithc-dma.c
-index 7e89b3496918d..ffb8689b8a780 100644
+index 7e89b3496918..ffb8689b8a78 100644
 --- a/drivers/hid/ithc/ithc-dma.c
 +++ b/drivers/hid/ithc/ithc-dma.c
 @@ -1,59 +1,91 @@
@@ -2031,7 +2031,7 @@ index 7e89b3496918d..ffb8689b8a780 100644
  	int ret = ithc_dma_tx_unlocked(ithc, cmdcode, datasize, data);
  	mutex_unlock(&ithc->dma_tx.mutex);
 diff --git a/drivers/hid/ithc/ithc-dma.h b/drivers/hid/ithc/ithc-dma.h
-index d9f2c19a13f3a..93652e4476bf8 100644
+index d9f2c19a13f3..93652e4476bf 100644
 --- a/drivers/hid/ithc/ithc-dma.h
 +++ b/drivers/hid/ithc/ithc-dma.h
 @@ -1,3 +1,5 @@
@@ -2050,7 +2050,7 @@ index d9f2c19a13f3a..93652e4476bf8 100644
  int ithc_dma_tx_init(struct ithc *ithc);
  int ithc_dma_rx(struct ithc *ithc, u8 channel);
 diff --git a/drivers/hid/ithc/ithc-main.c b/drivers/hid/ithc/ithc-main.c
-index 09512b9cb4d31..87ed4aa70fda0 100644
+index 09512b9cb4d3..87ed4aa70fda 100644
 --- a/drivers/hid/ithc/ithc-main.c
 +++ b/drivers/hid/ithc/ithc-main.c
 @@ -1,3 +1,5 @@
@@ -2799,7 +2799,7 @@ index 09512b9cb4d31..87ed4aa70fda0 100644
  }
  
 diff --git a/drivers/hid/ithc/ithc-regs.c b/drivers/hid/ithc/ithc-regs.c
-index 85d567b05761f..e058721886e37 100644
+index 85d567b05761..e058721886e3 100644
 --- a/drivers/hid/ithc/ithc-regs.c
 +++ b/drivers/hid/ithc/ithc-regs.c
 @@ -1,63 +1,95 @@
@@ -2917,7 +2917,7 @@ index 85d567b05761f..e058721886e37 100644
  	return 0;
  }
 diff --git a/drivers/hid/ithc/ithc-regs.h b/drivers/hid/ithc/ithc-regs.h
-index 1a96092ed7eed..d4007d9e2bacc 100644
+index 1a96092ed7ee..d4007d9e2bac 100644
 --- a/drivers/hid/ithc/ithc-regs.h
 +++ b/drivers/hid/ithc/ithc-regs.h
 @@ -1,3 +1,5 @@
@@ -2977,7 +2977,7 @@ index 1a96092ed7eed..d4007d9e2bacc 100644
  	u32 _unknown_34;      // 34 = 0x0404035e (u8,u8,u8,u8 = version?)
  	u32 _unknown_38;      // 38 = 0x000001c0 (0x000001c1 after DMA_RX_CODE_RESET)
 diff --git a/drivers/hid/ithc/ithc.h b/drivers/hid/ithc/ithc.h
-index 6a9b0d480bc15..028e55a4ec53e 100644
+index 6a9b0d480bc1..028e55a4ec53 100644
 --- a/drivers/hid/ithc/ithc.h
 +++ b/drivers/hid/ithc/ithc.h
 @@ -1,3 +1,5 @@
@@ -3020,5 +3020,5 @@ index 6a9b0d480bc15..028e55a4ec53e 100644
  void ithc_log_regs(struct ithc *ithc);
  
 -- 
-2.42.0
+2.43.0
 
