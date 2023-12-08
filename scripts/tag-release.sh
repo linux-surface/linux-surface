@@ -88,6 +88,5 @@ getfedora()
 
 tag 'arch' "$(getarch)"
 tag 'debian' "$(getdebian)"
-tag 'fedora-37' "$(getfedora)"
 tag 'fedora-38' "$(getfedora)"
 tag 'fedora-39' "$(getfedora)"
