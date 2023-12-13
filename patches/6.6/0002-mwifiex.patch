@@ -1,4 +1,4 @@
-From e8ff8d20a233b83d1d0208066541540ecc45440e Mon Sep 17 00:00:00 2001
+From 8e709b1c6a7cc946e73b476204f42b7a83f2a643 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Tue, 3 Nov 2020 13:28:04 +0100
 Subject: [PATCH] mwifiex: Add quirk resetting the PCI bridge on MS Surface
@@ -32,7 +32,7 @@ Patchset: mwifiex
  3 files changed, 31 insertions(+), 8 deletions(-)
 
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
-index 6697132ecc97..f06b4ebc5bd8 100644
+index 6697132ecc977..f06b4ebc5bd8e 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie.c
 +++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
 @@ -1771,9 +1771,21 @@ mwifiex_pcie_send_boot_cmd(struct mwifiex_adapter *adapter, struct sk_buff *skb)
@@ -58,7 +58,7 @@ index 6697132ecc97..f06b4ebc5bd8 100644
  	if (mwifiex_write_reg(adapter, reg->rx_rdptr, card->rxbd_rdptr |
  			      tx_wrap)) {
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
-index dd6d21f1dbfd..f46b06f8d643 100644
+index dd6d21f1dbfd7..f46b06f8d6435 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
 +++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
 @@ -13,7 +13,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
@@ -151,7 +151,7 @@ index dd6d21f1dbfd..f46b06f8d643 100644
  
  static void mwifiex_pcie_set_power_d3cold(struct pci_dev *pdev)
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
-index d6ff964aec5b..5d30ae39d65e 100644
+index d6ff964aec5bf..5d30ae39d65ec 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
 +++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
 @@ -4,6 +4,7 @@
@@ -165,7 +165,7 @@ index d6ff964aec5b..5d30ae39d65e 100644
 -- 
 2.43.0
 
-From cbff64180991cafaecd26aecb5d064aadf0e0375 Mon Sep 17 00:00:00 2001
+From d1410ffc4af3dcf34174cfddc955dd47a46d95fe Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Sun, 4 Oct 2020 00:11:49 +0900
 Subject: [PATCH] mwifiex: pcie: disable bridge_d3 for Surface gen4+
@@ -187,7 +187,7 @@ Patchset: mwifiex
  3 files changed, 27 insertions(+), 8 deletions(-)
 
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
-index f06b4ebc5bd8..07f13b52ddb9 100644
+index f06b4ebc5bd8e..07f13b52ddb92 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie.c
 +++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
 @@ -370,6 +370,7 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
@@ -212,7 +212,7 @@ index f06b4ebc5bd8..07f13b52ddb9 100644
  }
  
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
-index f46b06f8d643..99b024ecbade 100644
+index f46b06f8d6435..99b024ecbadea 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
 +++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.c
 @@ -14,7 +14,8 @@ static const struct dmi_system_id mwifiex_quirk_table[] = {
@@ -306,7 +306,7 @@ index f46b06f8d643..99b024ecbade 100644
  
  static void mwifiex_pcie_set_power_d3cold(struct pci_dev *pdev)
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
-index 5d30ae39d65e..c14eb56eb911 100644
+index 5d30ae39d65ec..c14eb56eb9118 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
 +++ b/drivers/net/wireless/marvell/mwifiex/pcie_quirks.h
 @@ -5,6 +5,7 @@
@@ -320,7 +320,7 @@ index 5d30ae39d65e..c14eb56eb911 100644
 -- 
 2.43.0
 
-From d5c8772ed54c587013caec8b58db5b27ef626762 Mon Sep 17 00:00:00 2001
+From 84a5cae97936af531bddd8f8210077d67f62edbb Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 25 Mar 2021 11:33:02 +0100
 Subject: [PATCH] Bluetooth: btusb: Lower passive lescan interval on Marvell
@@ -356,7 +356,7 @@ Patchset: mwifiex
  1 file changed, 15 insertions(+)
 
 diff --git a/drivers/bluetooth/btusb.c b/drivers/bluetooth/btusb.c
-index 66080fae072f..68e2f2976a51 100644
+index 66080fae072f2..68e2f2976a519 100644
 --- a/drivers/bluetooth/btusb.c
 +++ b/drivers/bluetooth/btusb.c
 @@ -65,6 +65,7 @@ static struct usb_driver btusb_driver;
