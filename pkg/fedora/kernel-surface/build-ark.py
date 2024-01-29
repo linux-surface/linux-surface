@@ -158,7 +158,7 @@ for config in configs:
             f.write(line)
 
 system("git add redhat/configs/custom-overrides/generic")
-system("git commit -m 'Merge %s config'" % args.package_name)
+system("git commit --allow-empty -m 'Merge %s config'" % args.package_name)
 
 cmd = ["make"]
 
