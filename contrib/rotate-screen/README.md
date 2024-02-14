@@ -1,6 +1,6 @@
 # One-shot automatic screen rotation
 
-There are many scripts around (you can find some [here](https://gist.github.com/mildmojo/48e9025070a2ba40795c, where this script was published first)), which rotate the screen automatically. Many desktop environment have this feature built in, but if you like a one-shot automatic rotation facility, this is for you.
+There are many scripts around (you can find some [here](https://gist.github.com/mildmojo/48e9025070a2ba40795c), where this script was published first), which rotate the screen automatically. Many desktop environment have this feature built in, but if you like a one-shot automatic rotation facility, this is for you.
 
 
 ## Motivation
