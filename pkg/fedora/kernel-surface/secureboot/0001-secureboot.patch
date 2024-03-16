@@ -1,4 +1,4 @@
-From 71133b4337411ddd550d5e5ef68a12c510740b2c Mon Sep 17 00:00:00 2001
+From d4bbfbfee98f8b117885cf88a48f686ac889d73e Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Sat, 22 Jul 2023 10:45:33 +0200
 Subject: [PATCH] Use a custom key and certificate for Secure Boot signing
@@ -9,10 +9,10 @@ Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
  1 file changed, 9 insertions(+), 6 deletions(-)
 
 diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
-index 28df94e561d4..fd44abc4118a 100644
+index 0fb19cc23041..d7bd6013423c 100644
 --- a/redhat/kernel.spec.template
 +++ b/redhat/kernel.spec.template
-@@ -805,6 +805,7 @@ BuildRequires: system-sb-certs
+@@ -762,6 +762,7 @@ BuildRequires: system-sb-certs
  %ifarch x86_64 aarch64
  BuildRequires: nss-tools
  BuildRequires: pesign >= 0.10-4
@@ -20,7 +20,7 @@ index 28df94e561d4..fd44abc4118a 100644
  %endif
  %endif
  %endif
-@@ -864,6 +865,13 @@ Source1: Makefile.rhelver
+@@ -821,6 +822,13 @@ Source2: kernel.changelog
  %define signing_key_filename kernel-signing-s390.cer
  %endif
  
@@ -34,10 +34,10 @@ index 28df94e561d4..fd44abc4118a 100644
  %if %{?released_kernel}
  
  Source10: redhatsecurebootca5.cer
-@@ -2096,9 +2104,7 @@ BuildKernel() {
-     SignImage=$KernelImage
+@@ -2201,9 +2209,7 @@ BuildKernel() {
  
      %ifarch x86_64 aarch64
+     %{log_msg "Sign kernel image"}
 -    %pesign -s -i $SignImage -o vmlinuz.tmp -a %{secureboot_ca_0} -c %{secureboot_key_0} -n %{pesign_name_0}
 -    %pesign -s -i vmlinuz.tmp -o vmlinuz.signed -a %{secureboot_ca_1} -c %{secureboot_key_1} -n %{pesign_name_1}
 -    rm vmlinuz.tmp
@@ -45,8 +45,8 @@ index 28df94e561d4..fd44abc4118a 100644
      %endif
      %ifarch s390x ppc64le
      if [ -x /usr/bin/rpm-sign ]; then
-@@ -2650,9 +2656,6 @@ BuildKernel() {
-     # Red Hat UEFI Secure Boot CA cert, which can be used to authenticate the kernel
+@@ -2783,9 +2789,6 @@ BuildKernel() {
+     %{log_msg "Install certs"}
      mkdir -p $RPM_BUILD_ROOT%{_datadir}/doc/kernel-keys/$KernelVer
      %ifarch x86_64 aarch64
 -       install -m 0644 %{secureboot_ca_0} $RPM_BUILD_ROOT%{_datadir}/doc/kernel-keys/$KernelVer/kernel-signing-ca-20200609.cer
@@ -56,5 +56,5 @@ index 28df94e561d4..fd44abc4118a 100644
         install -m 0644 %{secureboot_ca_0} $RPM_BUILD_ROOT%{_datadir}/doc/kernel-keys/$KernelVer/kernel-signing-ca.cer
      %endif
 -- 
-2.41.0
+2.44.0
 

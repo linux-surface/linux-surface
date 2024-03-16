@@ -24,9 +24,6 @@ setup-builddeps)
     # Install build dependencies
     dnf builddep kernel
 
-    # TODO: remove with 6.8
-    dnf install bpftool
-
     # Install additional build dependencies
     dnf install sbsigntools
     ;;
