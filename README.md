@@ -96,7 +96,6 @@ If you have questions or need support, please join our [Matrix Space][matrix-spa
 This space contains
 - a [support channel][matrix-support] for general support and
 - a [development channel][matrix-development] for all development related questions and discussions.
-  If you prefer IRC, you can also join in via our channel at [`libera.chat/#linux-surface`][liberachat], to which the matrix room is bridged to.
 
 ## License
 This repository contains patches, which are either derivative work targeting a specific already licensed source, i.e. parts of the Linux kernel, or introduce new parts to the Linux kernel.
@@ -112,7 +111,6 @@ License texts can be obtained at https://github.com/torvalds/linux/tree/master/L
 [matrix-space]: https://matrix.to/#/#linux-surface:matrix.org
 [matrix-support]: https://matrix.to/#/#linux-surface-support:matrix.org
 [matrix-development]: https://matrix.to/#/#linux-surface-development:matrix.org
-[liberachat]: https://web.libera.chat/#linux-surface
 
 [hibernate-setup]: https://fitzcarraldoblog.wordpress.com/2018/07/14/configuring-lubuntu-18-04-to-enable-hibernation-using-a-swap-file
 [releases]: https://github.com/linux-surface/linux-surface/releases
