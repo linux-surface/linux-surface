@@ -1216,3 +1216,149 @@ index 7fc602e01487..7e89f547999b 100644
 -- 
 2.44.0
 
+From 9a219fa8d6c0beb0725a90bd32c7687aa5805fdc Mon Sep 17 00:00:00 2001
+From: Weifeng Liu <weifeng.liu.z@gmail.com>
+Date: Mon, 22 Apr 2024 20:45:34 +0800
+Subject: [PATCH] platform/surface: aggregator: Defer probing when serdev is
+ not ready
+
+This is an attempt to alleviate race conditions in the SAM driver where
+essential resources like serial device and GPIO pins are not ready at
+the time ssam_serial_hub_probe() is called.  Instead of giving up
+probing, a better way would be to defer the probing by returning
+-EPROBE_DEFER, allowing the kernel try again later.
+
+However, there is no way of identifying all such cases from other real
+errors in a few days.  So let's take a gradual approach identify and
+address these cases as they arise.  This commit marks the initial step
+in this process.
+
+Signed-off-by: Weifeng Liu <weifeng.liu.z@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/aggregator/core.c | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/platform/surface/aggregator/core.c b/drivers/platform/surface/aggregator/core.c
+index 9591a28bc38a9..72a521dd729c3 100644
+--- a/drivers/platform/surface/aggregator/core.c
++++ b/drivers/platform/surface/aggregator/core.c
+@@ -645,9 +645,20 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 	/* Set up serdev device. */
+ 	serdev_device_set_drvdata(serdev, ctrl);
+ 	serdev_device_set_client_ops(serdev, &ssam_serdev_ops);
++
++	/* The following step can fail when it's called too early before the
++	 * underlying uart device is ready (in this case -ENXIO is returned).
++	 * Instead of simply giving up and losing everything, we can defer
++	 * the probing by returning -EPROBE_DEFER so that the kernel would be
++	 * able to retry later. */
+ 	status = serdev_device_open(serdev);
+-	if (status)
++	if (status == -ENXIO)
++		status = -EPROBE_DEFER;
++	if (status) {
++		dev_err_probe(&serdev->dev, status,
++			      "failed to open serdev device\n");
+ 		goto err_devopen;
++	}
+ 
+ 	astatus = ssam_serdev_setup_via_acpi(ssh->handle, serdev);
+ 	if (ACPI_FAILURE(astatus)) {
+-- 
+2.44.0
+
+From 25b5454ea67f3bf6214a1ee4ed5a409ccd8eb946 Mon Sep 17 00:00:00 2001
+From: Weifeng Liu <weifeng.liu.z@gmail.com>
+Date: Wed, 24 Apr 2024 22:24:08 +0800
+Subject: [PATCH] platform/surface: aggregator: Log critical errors during SAM
+ probing
+
+Emits messages upon errors during probing of SAM.  Hopefully this could
+provide useful context to user for the purpose of diagnosis when
+something miserable happen.
+
+Signed-off-by: Weifeng Liu <weifeng.liu.z@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/aggregator/core.c | 26 +++++++++++++++++-----
+ 1 file changed, 20 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/platform/surface/aggregator/core.c b/drivers/platform/surface/aggregator/core.c
+index 72a521dd729c3..4e2e70f4dcf51 100644
+--- a/drivers/platform/surface/aggregator/core.c
++++ b/drivers/platform/surface/aggregator/core.c
+@@ -623,8 +623,10 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 	acpi_status astatus;
+ 	int status;
+ 
+-	if (gpiod_count(&serdev->dev, NULL) < 0)
++	if (gpiod_count(&serdev->dev, NULL) < 0) {
++		dev_err(&serdev->dev, "no GPIO found\n");
+ 		return -ENODEV;
++	}
+ 
+ 	status = devm_acpi_dev_add_driver_gpios(&serdev->dev, ssam_acpi_gpios);
+ 	if (status)
+@@ -637,8 +639,11 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 
+ 	/* Initialize controller. */
+ 	status = ssam_controller_init(ctrl, serdev);
+-	if (status)
++	if (status) {
++		dev_err_probe(&serdev->dev, status,
++			      "failed to initialize ssam controller\n");
+ 		goto err_ctrl_init;
++	}
+ 
+ 	ssam_controller_lock(ctrl);
+ 
+@@ -663,6 +668,7 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 	astatus = ssam_serdev_setup_via_acpi(ssh->handle, serdev);
+ 	if (ACPI_FAILURE(astatus)) {
+ 		status = -ENXIO;
++		dev_err(&serdev->dev, "failed to setup serdev\n");
+ 		goto err_devinit;
+ 	}
+ 
+@@ -678,16 +684,22 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 	 * states.
+ 	 */
+ 	status = ssam_log_firmware_version(ctrl);
+-	if (status)
++	if (status) {
++		dev_err(&serdev->dev, "failed to get firmware version\n");
+ 		goto err_initrq;
++	}
+ 
+ 	status = ssam_ctrl_notif_d0_entry(ctrl);
+-	if (status)
++	if (status) {
++		dev_err(&serdev->dev, "failed to notify EC of entry of D0\n");
+ 		goto err_initrq;
++	}
+ 
+ 	status = ssam_ctrl_notif_display_on(ctrl);
+-	if (status)
++	if (status) {
++		dev_err(&serdev->dev, "failed to notify EC of display on\n");
+ 		goto err_initrq;
++	}
+ 
+ 	status = sysfs_create_group(&serdev->dev.kobj, &ssam_sam_group);
+ 	if (status)
+@@ -695,8 +707,10 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 
+ 	/* Set up IRQ. */
+ 	status = ssam_irq_setup(ctrl);
+-	if (status)
++	if (status) {
++		dev_err_probe(&serdev->dev, status, "failed to setup IRQ\n");
+ 		goto err_irq;
++	}
+ 
+ 	/* Finally, set main controller reference. */
+ 	status = ssam_try_set_controller(ctrl);
+-- 
+2.44.0
+
