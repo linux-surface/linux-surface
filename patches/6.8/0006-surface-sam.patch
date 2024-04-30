@@ -1162,3 +1162,57 @@ index a5a3941b3f43..e54d0a8f7daa 100644
 -- 
 2.44.0
 
+From 63781a056a0f06d5cc38d7755e0753c7ec08c51c Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 19 Apr 2024 20:41:47 +0200
+Subject: [PATCH] platform/surface: aggregator: Fix warning when controller is
+ destroyed in probe
+
+There is a small window in ssam_serial_hub_probe() where the controller
+is initialized but has not been started yet. Specifically, between
+ssam_controller_init() and ssam_controller_start(). Any failure in this
+window, for example caused by a failure of serdev_device_open(),
+currently results in an incorrect warning being emitted.
+
+In particular, any failure in this window results in the controller
+being destroyed via ssam_controller_destroy(). This function checks the
+state of the controller and, in an attempt to validate that the
+controller has been cleanly shut down before we try and deallocate any
+resources, emits a warning if that state is not SSAM_CONTROLLER_STOPPED.
+
+However, since we have only just initialized the controller and have not
+yet started it, its state is SSAM_CONTROLLER_INITIALIZED. Note that this
+is the only point at which the controller has this state, as it will
+change after we start the controller with ssam_controller_start() and
+never revert back. Further, at this point no communication has taken
+place and the sender and receiver threads have not been started yet (and
+we may not even have an open serdev device either).
+
+Therefore, it is perfectly safe to call ssam_controller_destroy() with a
+state of SSAM_CONTROLLER_INITIALIZED. This, however, means that the
+warning currently being emitted is incorrect. Fix it by extending the
+check.
+
+Fixes: c167b9c7e3d6 ("platform/surface: Add Surface Aggregator subsystem")
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+---
+ drivers/platform/surface/aggregator/controller.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
+index 7fc602e01487..7e89f547999b 100644
+--- a/drivers/platform/surface/aggregator/controller.c
++++ b/drivers/platform/surface/aggregator/controller.c
+@@ -1354,7 +1354,8 @@ void ssam_controller_destroy(struct ssam_controller *ctrl)
+ 	if (ctrl->state == SSAM_CONTROLLER_UNINITIALIZED)
+ 		return;
+ 
+-	WARN_ON(ctrl->state != SSAM_CONTROLLER_STOPPED);
++	WARN_ON(ctrl->state != SSAM_CONTROLLER_STOPPED &&
++		ctrl->state != SSAM_CONTROLLER_INITIALIZED);
+ 
+ 	/*
+ 	 * Note: New events could still have been received after the previous
+-- 
+2.44.0
+
