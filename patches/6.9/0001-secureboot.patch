@@ -1,0 +1,37 @@
+From 24686c656a230f642f8ed6c09c184660c08cf46c Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 9 Jun 2024 19:48:58 +0200
+Subject: [PATCH] Revert "efi/x86: Set the PE/COFF header's NX compat flag
+ unconditionally"
+
+This reverts commit 891f8890a4a3663da7056542757022870b499bc1.
+
+Revert because of compatibility issues of MS Surface devices and GRUB
+with NX. In short, these devices get stuck on boot with NX advertised.
+So to not advertise it, add the respective option back in.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: secureboot
+---
+ arch/x86/boot/header.S | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/arch/x86/boot/header.S b/arch/x86/boot/header.S
+index b5c79f43359bc..a1bbedd989e42 100644
+--- a/arch/x86/boot/header.S
++++ b/arch/x86/boot/header.S
+@@ -111,7 +111,11 @@ extra_header_fields:
+ 	.long	salign				# SizeOfHeaders
+ 	.long	0				# CheckSum
+ 	.word	IMAGE_SUBSYSTEM_EFI_APPLICATION	# Subsystem (EFI application)
++#ifdef CONFIG_EFI_DXE_MEM_ATTRIBUTES
+ 	.word	IMAGE_DLL_CHARACTERISTICS_NX_COMPAT	# DllCharacteristics
++#else
++	.word	0				# DllCharacteristics
++#endif
+ #ifdef CONFIG_X86_32
+ 	.long	0				# SizeOfStackReserve
+ 	.long	0				# SizeOfStackCommit
+-- 
+2.45.1
+

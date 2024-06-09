@@ -1,7 +1,7 @@
-From ce569f6ee0bb24bfe2efc37a8aadc287aef1c5eb Mon Sep 17 00:00:00 2001
+From dbe49f128699931e317242ba589c1c22a63eed5f Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 18 Feb 2023 01:02:49 +0100
-Subject: [PATCH 1/3] USB: quirks: Add USB_QUIRK_DELAY_INIT for Surface Go 3
+Subject: [PATCH] USB: quirks: Add USB_QUIRK_DELAY_INIT for Surface Go 3
  Type-Cover
 
 The touchpad on the Type-Cover of the Surface Go 3 is sometimes not
@@ -23,7 +23,7 @@ Patchset: surface-typecover
  1 file changed, 3 insertions(+)
 
 diff --git a/drivers/usb/core/quirks.c b/drivers/usb/core/quirks.c
-index b4783574b8e6..360970620589 100644
+index b4783574b8e66..360970620589a 100644
 --- a/drivers/usb/core/quirks.c
 +++ b/drivers/usb/core/quirks.c
 @@ -223,6 +223,9 @@ static const struct usb_device_id usb_quirk_list[] = {
@@ -37,14 +37,13 @@ index b4783574b8e6..360970620589 100644
  	{ USB_DEVICE(0x046a, 0x0023), .driver_info = USB_QUIRK_RESET_RESUME },
  
 -- 
-2.44.1
+2.45.1
 
-
-From 6ec5d78cb24e61fe7601c40032bc1a713a87ad42 Mon Sep 17 00:00:00 2001
+From 89a3afeae85bd60a46bc4c2f0b23fb886452f5be Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 5 Nov 2020 13:09:45 +0100
-Subject: [PATCH 2/3] hid/multitouch: Turn off Type Cover keyboard backlight
- when suspending
+Subject: [PATCH] hid/multitouch: Turn off Type Cover keyboard backlight when
+ suspending
 
 The Type Cover for Microsoft Surface devices supports a special usb
 control request to disable or enable the built-in keyboard backlight.
@@ -76,7 +75,7 @@ Patchset: surface-typecover
  1 file changed, 98 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 04a014cd2a2f..89c9b00e6371 100644
+index 04a014cd2a2f6..89c9b00e63712 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -34,7 +34,10 @@
@@ -271,14 +270,13 @@ index 04a014cd2a2f..89c9b00e6371 100644
  	{ .driver_data = MT_CLS_GOOGLE,
  		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY, USB_VENDOR_ID_GOOGLE,
 -- 
-2.44.1
+2.45.1
 
-
-From a62411b28850e81c704a44339d15e29049310efb Mon Sep 17 00:00:00 2001
+From 3e3ecb44c93d8259a2a9e97ccfa09eb5b54d1a90 Mon Sep 17 00:00:00 2001
 From: PJungkamp <p.jungkamp@gmail.com>
 Date: Fri, 25 Feb 2022 12:04:25 +0100
-Subject: [PATCH 3/3] hid/multitouch: Add support for surface pro type cover
- tablet switch
+Subject: [PATCH] hid/multitouch: Add support for surface pro type cover tablet
+ switch
 
 The Surface Pro Type Cover has several non standard HID usages in it's
 hid report descriptor.
@@ -303,7 +301,7 @@ Patchset: surface-typecover
  1 file changed, 122 insertions(+), 26 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 89c9b00e6371..be131488161c 100644
+index 89c9b00e63712..be131488161cd 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -77,6 +77,7 @@ MODULE_LICENSE("GPL");
@@ -571,5 +569,5 @@ index 89c9b00e6371..be131488161c 100644
  	unregister_pm_notifier(&td->pm_notifier);
  	del_timer_sync(&td->release_timer);
 -- 
-2.44.1
+2.45.1
 

@@ -1,7 +1,7 @@
-From c6eae6f4321c2daafedaaf1f81201eed78291c8b Mon Sep 17 00:00:00 2001
+From 4b17942da35790b0e703a87267545f5a9f08e1cf Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Sun, 11 Dec 2022 12:03:38 +0100
-Subject: [PATCH 1/3] iommu: intel: Disable source id verification for ITHC
+Subject: [PATCH] iommu: intel: Disable source id verification for ITHC
 
 Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
 Patchset: ithc
@@ -10,7 +10,7 @@ Patchset: ithc
  1 file changed, 16 insertions(+)
 
 diff --git a/drivers/iommu/intel/irq_remapping.c b/drivers/iommu/intel/irq_remapping.c
-index 566297bc87dd..a8cd8f12d593 100644
+index 566297bc87ddb..a8cd8f12d5937 100644
 --- a/drivers/iommu/intel/irq_remapping.c
 +++ b/drivers/iommu/intel/irq_remapping.c
 @@ -386,6 +386,22 @@ static int set_msi_sid(struct irte *irte, struct pci_dev *dev)
@@ -37,13 +37,12 @@ index 566297bc87dd..a8cd8f12d593 100644
  	 * DMA alias provides us with a PCI device and alias.  The only case
  	 * where the it will return an alias on a different bus than the
 -- 
-2.44.1
+2.45.1
 
-
-From 9269060ff3088a0d1c33cf7ca134f1db48c99fd6 Mon Sep 17 00:00:00 2001
+From 14baff1c79b6499868b48e6fb4ada851db35c941 Mon Sep 17 00:00:00 2001
 From: quo <tuple@list.ru>
 Date: Sun, 11 Dec 2022 12:10:54 +0100
-Subject: [PATCH 2/3] hid: Add support for Intel Touch Host Controller
+Subject: [PATCH] hid: Add support for Intel Touch Host Controller
 
 Based on quo/ithc-linux@0b8b45d
 
@@ -73,7 +72,7 @@ Patchset: ithc
  create mode 100644 drivers/hid/ithc/ithc.h
 
 diff --git a/drivers/hid/Kconfig b/drivers/hid/Kconfig
-index a263e49b2ae2..03f0f5af289a 100644
+index a263e49b2ae29..03f0f5af289a4 100644
 --- a/drivers/hid/Kconfig
 +++ b/drivers/hid/Kconfig
 @@ -1353,4 +1353,6 @@ source "drivers/hid/surface-hid/Kconfig"
@@ -84,7 +83,7 @@ index a263e49b2ae2..03f0f5af289a 100644
 +
  endif # HID_SUPPORT
 diff --git a/drivers/hid/Makefile b/drivers/hid/Makefile
-index f4bad1b8d813..d32c194400ae 100644
+index f4bad1b8d813f..d32c194400aea 100644
 --- a/drivers/hid/Makefile
 +++ b/drivers/hid/Makefile
 @@ -172,3 +172,4 @@ obj-$(CONFIG_AMD_SFH_HID)       += amd-sfh-hid/
@@ -94,7 +93,7 @@ index f4bad1b8d813..d32c194400ae 100644
 +obj-$(CONFIG_HID_ITHC)          += ithc/
 diff --git a/drivers/hid/ithc/Kbuild b/drivers/hid/ithc/Kbuild
 new file mode 100644
-index 000000000000..aea83f2ac07b
+index 0000000000000..aea83f2ac07b4
 --- /dev/null
 +++ b/drivers/hid/ithc/Kbuild
 @@ -0,0 +1,6 @@
@@ -106,7 +105,7 @@ index 000000000000..aea83f2ac07b
 +
 diff --git a/drivers/hid/ithc/Kconfig b/drivers/hid/ithc/Kconfig
 new file mode 100644
-index 000000000000..ede713023609
+index 0000000000000..ede7130236096
 --- /dev/null
 +++ b/drivers/hid/ithc/Kconfig
 @@ -0,0 +1,12 @@
@@ -124,7 +123,7 @@ index 000000000000..ede713023609
 +	  module will be called ithc.
 diff --git a/drivers/hid/ithc/ithc-debug.c b/drivers/hid/ithc/ithc-debug.c
 new file mode 100644
-index 000000000000..1f1f1e33f2e5
+index 0000000000000..1f1f1e33f2e5a
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-debug.c
 @@ -0,0 +1,130 @@
@@ -260,7 +259,7 @@ index 000000000000..1f1f1e33f2e5
 +
 diff --git a/drivers/hid/ithc/ithc-dma.c b/drivers/hid/ithc/ithc-dma.c
 new file mode 100644
-index 000000000000..ffb8689b8a78
+index 0000000000000..ffb8689b8a780
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-dma.c
 @@ -0,0 +1,373 @@
@@ -639,7 +638,7 @@ index 000000000000..ffb8689b8a78
 +
 diff --git a/drivers/hid/ithc/ithc-dma.h b/drivers/hid/ithc/ithc-dma.h
 new file mode 100644
-index 000000000000..93652e4476bf
+index 0000000000000..93652e4476bf8
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-dma.h
 @@ -0,0 +1,69 @@
@@ -714,7 +713,7 @@ index 000000000000..93652e4476bf
 +
 diff --git a/drivers/hid/ithc/ithc-main.c b/drivers/hid/ithc/ithc-main.c
 new file mode 100644
-index 000000000000..87ed4aa70fda
+index 0000000000000..87ed4aa70fda0
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-main.c
 @@ -0,0 +1,728 @@
@@ -1448,7 +1447,7 @@ index 000000000000..87ed4aa70fda
 +
 diff --git a/drivers/hid/ithc/ithc-regs.c b/drivers/hid/ithc/ithc-regs.c
 new file mode 100644
-index 000000000000..e058721886e3
+index 0000000000000..e058721886e37
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-regs.c
 @@ -0,0 +1,96 @@
@@ -1550,7 +1549,7 @@ index 000000000000..e058721886e3
 +
 diff --git a/drivers/hid/ithc/ithc-regs.h b/drivers/hid/ithc/ithc-regs.h
 new file mode 100644
-index 000000000000..d4007d9e2bac
+index 0000000000000..d4007d9e2bacc
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-regs.h
 @@ -0,0 +1,189 @@
@@ -1745,7 +1744,7 @@ index 000000000000..d4007d9e2bac
 +
 diff --git a/drivers/hid/ithc/ithc.h b/drivers/hid/ithc/ithc.h
 new file mode 100644
-index 000000000000..028e55a4ec53
+index 0000000000000..028e55a4ec53e
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc.h
 @@ -0,0 +1,67 @@
@@ -1817,13 +1816,12 @@ index 000000000000..028e55a4ec53
 +void ithc_log_regs(struct ithc *ithc);
 +
 -- 
-2.44.1
+2.45.1
 
-
-From b6f9694876ec4a59690a80e4ee6affcc740cca9a Mon Sep 17 00:00:00 2001
+From 2537922b2f0c1d0002a2afe6d0fc79695add8e60 Mon Sep 17 00:00:00 2001
 From: quo <tuple@list.ru>
 Date: Fri, 19 Apr 2024 22:11:09 +0200
-Subject: [PATCH 3/3] hid: ithc: Update from quo/ithc-linux
+Subject: [PATCH] hid: ithc: Update from quo/ithc-linux
 
  - Added QuickSPI support for Surface Laptop Studio 2
  - Use Latency Tolerance Reporting instead of manual CPU latency adjustments
@@ -1842,13 +1840,13 @@ Patchset: ithc
  drivers/hid/ithc/ithc-hid.h      |  32 ++
  drivers/hid/ithc/ithc-legacy.c   | 252 ++++++++++++++
  drivers/hid/ithc/ithc-legacy.h   |   8 +
- drivers/hid/ithc/ithc-main.c     | 384 ++++----------------
+ drivers/hid/ithc/ithc-main.c     | 386 ++++-----------------
  drivers/hid/ithc/ithc-quickspi.c | 578 +++++++++++++++++++++++++++++++
  drivers/hid/ithc/ithc-quickspi.h |  39 +++
  drivers/hid/ithc/ithc-regs.c     |  72 +++-
  drivers/hid/ithc/ithc-regs.h     | 143 ++++----
  drivers/hid/ithc/ithc.h          |  71 ++--
- 15 files changed, 1440 insertions(+), 537 deletions(-)
+ 15 files changed, 1441 insertions(+), 538 deletions(-)
  create mode 100644 drivers/hid/ithc/ithc-debug.h
  create mode 100644 drivers/hid/ithc/ithc-hid.c
  create mode 100644 drivers/hid/ithc/ithc-hid.h
@@ -1858,7 +1856,7 @@ Patchset: ithc
  create mode 100644 drivers/hid/ithc/ithc-quickspi.h
 
 diff --git a/drivers/hid/ithc/Kbuild b/drivers/hid/ithc/Kbuild
-index aea83f2ac07b..4937ba131297 100644
+index aea83f2ac07b4..4937ba1312973 100644
 --- a/drivers/hid/ithc/Kbuild
 +++ b/drivers/hid/ithc/Kbuild
 @@ -1,6 +1,6 @@
@@ -1870,7 +1868,7 @@ index aea83f2ac07b..4937ba131297 100644
  ccflags-y := -std=gnu11 -Wno-declaration-after-statement
  
 diff --git a/drivers/hid/ithc/ithc-debug.c b/drivers/hid/ithc/ithc-debug.c
-index 1f1f1e33f2e5..2d8c6afe9966 100644
+index 1f1f1e33f2e5a..2d8c6afe99663 100644
 --- a/drivers/hid/ithc/ithc-debug.c
 +++ b/drivers/hid/ithc/ithc-debug.c
 @@ -85,10 +85,11 @@ static ssize_t ithc_debugfs_cmd_write(struct file *f, const char __user *buf, si
@@ -1937,7 +1935,7 @@ index 1f1f1e33f2e5..2d8c6afe9966 100644
  	*dbgm = dbg;
 diff --git a/drivers/hid/ithc/ithc-debug.h b/drivers/hid/ithc/ithc-debug.h
 new file mode 100644
-index 000000000000..38c53d916bdb
+index 0000000000000..38c53d916bdb5
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-debug.h
 @@ -0,0 +1,7 @@
@@ -1949,7 +1947,7 @@ index 000000000000..38c53d916bdb
 +void ithc_log_regs(struct ithc *ithc);
 +
 diff --git a/drivers/hid/ithc/ithc-dma.c b/drivers/hid/ithc/ithc-dma.c
-index ffb8689b8a78..bf4eab33062b 100644
+index ffb8689b8a780..bf4eab33062b0 100644
 --- a/drivers/hid/ithc/ithc-dma.c
 +++ b/drivers/hid/ithc/ithc-dma.c
 @@ -173,10 +173,9 @@ int ithc_dma_rx_init(struct ithc *ithc, u8 channel)
@@ -2130,7 +2128,7 @@ index ffb8689b8a78..bf4eab33062b 100644
  	return ret;
  }
 diff --git a/drivers/hid/ithc/ithc-dma.h b/drivers/hid/ithc/ithc-dma.h
-index 93652e4476bf..1749a5819b3e 100644
+index 93652e4476bf8..1749a5819b3e7 100644
 --- a/drivers/hid/ithc/ithc-dma.h
 +++ b/drivers/hid/ithc/ithc-dma.h
 @@ -11,27 +11,6 @@ struct ithc_phys_region_desc {
@@ -2178,7 +2176,7 @@ index 93652e4476bf..1749a5819b3e 100644
  
 diff --git a/drivers/hid/ithc/ithc-hid.c b/drivers/hid/ithc/ithc-hid.c
 new file mode 100644
-index 000000000000..065646ab499e
+index 0000000000000..065646ab499ef
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-hid.c
 @@ -0,0 +1,207 @@
@@ -2391,7 +2389,7 @@ index 000000000000..065646ab499e
 +
 diff --git a/drivers/hid/ithc/ithc-hid.h b/drivers/hid/ithc/ithc-hid.h
 new file mode 100644
-index 000000000000..599eb912c8c8
+index 0000000000000..599eb912c8c84
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-hid.h
 @@ -0,0 +1,32 @@
@@ -2429,7 +2427,7 @@ index 000000000000..599eb912c8c8
 +
 diff --git a/drivers/hid/ithc/ithc-legacy.c b/drivers/hid/ithc/ithc-legacy.c
 new file mode 100644
-index 000000000000..5c1da11e3f1d
+index 0000000000000..5c1da11e3f1d2
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-legacy.c
 @@ -0,0 +1,252 @@
@@ -2687,7 +2685,7 @@ index 000000000000..5c1da11e3f1d
 +
 diff --git a/drivers/hid/ithc/ithc-legacy.h b/drivers/hid/ithc/ithc-legacy.h
 new file mode 100644
-index 000000000000..28d692462072
+index 0000000000000..28d6924620722
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-legacy.h
 @@ -0,0 +1,8 @@
@@ -2700,7 +2698,7 @@ index 000000000000..28d692462072
 +	size_t maxlen);
 +
 diff --git a/drivers/hid/ithc/ithc-main.c b/drivers/hid/ithc/ithc-main.c
-index 87ed4aa70fda..2acf02e41d40 100644
+index 87ed4aa70fda0..2acf02e41d40f 100644
 --- a/drivers/hid/ithc/ithc-main.c
 +++ b/drivers/hid/ithc/ithc-main.c
 @@ -5,28 +5,6 @@
@@ -3130,15 +3128,16 @@ index 87ed4aa70fda..2acf02e41d40 100644
 +		: cfg.has_config && cfg.has_idle_ltr ? (u64)cfg.idle_ltr << 10
 +		: 100 * 1000 * 1000;
 +	ithc_set_ltr_config(ithc, active_ltr_ns, idle_ltr_ns);
- 
--	// Waiting for the following status bit makes reading config much more reliable,
--	// however the official driver does not seem to do this...
--	CHECK(waitl, ithc, &ithc->regs->dma_rx[0].status, DMA_RX_STATUS_UNKNOWN_4, DMA_RX_STATUS_UNKNOWN_4);
++
 +	if (ithc->use_quickspi)
 +		CHECK_RET(ithc_quickspi_init, ithc, &cfg);
 +	else
 +		CHECK_RET(ithc_legacy_init, ithc);
  
+-	// Waiting for the following status bit makes reading config much more reliable,
+-	// however the official driver does not seem to do this...
+-	CHECK(waitl, ithc, &ithc->regs->dma_rx[0].status, DMA_RX_STATUS_UNKNOWN_4, DMA_RX_STATUS_UNKNOWN_4);
+-
 -	// Read configuration data.
 -	for (int retries = 0; ; retries++) {
 -		ithc_log_regs(ithc);
@@ -3230,10 +3229,10 @@ index 87ed4aa70fda..2acf02e41d40 100644
  	// because it calls ithc_hid_parse() which reads the report descriptor via DMA.
 -	CHECK_RET(hid_add_device, ithc->hid);
 +	CHECK_RET(hid_add_device, ithc->hid.dev);
++
++	CHECK(ithc_debug_init_device, ithc);
  
 -	CHECK(ithc_debug_init, ithc);
-+	CHECK(ithc_debug_init_device, ithc);
-+
 +	ithc_set_ltr_idle(ithc);
  
  	pci_dbg(pci, "started\n");
@@ -3261,7 +3260,7 @@ index 87ed4aa70fda..2acf02e41d40 100644
  module_init(ithc_init);
 diff --git a/drivers/hid/ithc/ithc-quickspi.c b/drivers/hid/ithc/ithc-quickspi.c
 new file mode 100644
-index 000000000000..760e55ead078
+index 0000000000000..760e55ead0788
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-quickspi.c
 @@ -0,0 +1,578 @@
@@ -3845,7 +3844,7 @@ index 000000000000..760e55ead078
 +
 diff --git a/drivers/hid/ithc/ithc-quickspi.h b/drivers/hid/ithc/ithc-quickspi.h
 new file mode 100644
-index 000000000000..74d882f6b2f0
+index 0000000000000..74d882f6b2f0a
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-quickspi.h
 @@ -0,0 +1,39 @@
@@ -3889,7 +3888,7 @@ index 000000000000..74d882f6b2f0
 +	size_t maxlen);
 +
 diff --git a/drivers/hid/ithc/ithc-regs.c b/drivers/hid/ithc/ithc-regs.c
-index e058721886e3..c0f13506af20 100644
+index e058721886e37..c0f13506af205 100644
 --- a/drivers/hid/ithc/ithc-regs.c
 +++ b/drivers/hid/ithc/ithc-regs.c
 @@ -22,46 +22,104 @@ void bitsb(__iomem u8 *reg, u8 mask, u8 val)
@@ -4005,7 +4004,7 @@ index e058721886e3..c0f13506af20 100644
  		return -EINVAL;
  
 diff --git a/drivers/hid/ithc/ithc-regs.h b/drivers/hid/ithc/ithc-regs.h
-index d4007d9e2bac..a9d236454644 100644
+index d4007d9e2bacc..a9d2364546442 100644
 --- a/drivers/hid/ithc/ithc-regs.h
 +++ b/drivers/hid/ithc/ithc-regs.h
 @@ -1,14 +1,34 @@
@@ -4226,7 +4225,7 @@ index d4007d9e2bac..a9d236454644 100644
  int ithc_spi_command(struct ithc *ithc, u8 command, u32 offset, u32 size, void *data);
  
 diff --git a/drivers/hid/ithc/ithc.h b/drivers/hid/ithc/ithc.h
-index 028e55a4ec53..e90c38044432 100644
+index 028e55a4ec53e..e90c380444325 100644
 --- a/drivers/hid/ithc/ithc.h
 +++ b/drivers/hid/ithc/ithc.h
 @@ -1,20 +1,19 @@
@@ -4337,5 +4336,5 @@ index 028e55a4ec53..e90c38044432 100644
 -void ithc_log_regs(struct ithc *ithc);
  
 -- 
-2.44.1
+2.45.1
 

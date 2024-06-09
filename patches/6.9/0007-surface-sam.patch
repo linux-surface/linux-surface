@@ -1,7 +1,279 @@
-From 9740f9a56b1dff713a6bde51386ceece9bf9b37a Mon Sep 17 00:00:00 2001
+From b4563a0da733d5759de36d9e555ce81324dca286 Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Thu, 9 May 2024 16:15:49 +0200
+Subject: [PATCH] serial: Clear UPF_DEAD before calling
+ tty_port_register_device_attr_serdev()
+
+If a serdev_device_driver is already loaded for a serdev_tty_port when it
+gets registered by tty_port_register_device_attr_serdev() then that
+driver's probe() method will be called immediately.
+
+The serdev_device_driver's probe() method should then be able to call
+serdev_device_open() successfully, but because UPF_DEAD is still dead
+serdev_device_open() will fail with -ENXIO in this scenario:
+
+  serdev_device_open()
+  ctrl->ops->open()	/* this callback being ttyport_open() */
+  tty->ops->open()	/* this callback being uart_open() */
+  tty_port_open()
+  port->ops->activate()	/* this callback being uart_port_activate() */
+  Find bit UPF_DEAD is set in uport->flags and fail with errno -ENXIO.
+
+Fix this be clearing UPF_DEAD before tty_port_register_device_attr_serdev()
+note this only moves up the UPD_DEAD clearing a small bit, before:
+
+  tty_port_register_device_attr_serdev();
+  mutex_unlock(&tty_port.mutex);
+  uart_port.flags &= ~UPF_DEAD;
+  mutex_unlock(&port_mutex);
+
+after:
+
+  uart_port.flags &= ~UPF_DEAD;
+  tty_port_register_device_attr_serdev();
+  mutex_unlock(&tty_port.mutex);
+  mutex_unlock(&port_mutex);
+
+Reported-by: Weifeng Liu <weifeng.liu.z@gmail.com>
+Closes: https://lore.kernel.org/platform-driver-x86/20240505130800.2546640-1-weifeng.liu.z@gmail.com/
+Tested-by: Weifeng Liu <weifeng.liu.z@gmail.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Link: https://lore.kernel.org/r/20240509141549.63704-1-hdegoede@redhat.com
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+Patchset: surface-sam
+---
+ drivers/tty/serial/serial_core.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/tty/serial/serial_core.c b/drivers/tty/serial/serial_core.c
+index c476d884356db..b47a277978a0b 100644
+--- a/drivers/tty/serial/serial_core.c
++++ b/drivers/tty/serial/serial_core.c
+@@ -3211,6 +3211,9 @@ static int serial_core_add_one_port(struct uart_driver *drv, struct uart_port *u
+ 	if (uport->attr_group)
+ 		uport->tty_groups[1] = uport->attr_group;
+ 
++	/* Ensure serdev drivers can call serdev_device_open() right away */
++	uport->flags &= ~UPF_DEAD;
++
+ 	/*
+ 	 * Register the port whether it's detected or not.  This allows
+ 	 * setserial to be used to alter this port's parameters.
+@@ -3221,6 +3224,7 @@ static int serial_core_add_one_port(struct uart_driver *drv, struct uart_port *u
+ 	if (!IS_ERR(tty_dev)) {
+ 		device_set_wakeup_capable(tty_dev, 1);
+ 	} else {
++		uport->flags |= UPF_DEAD;
+ 		dev_err(uport->dev, "Cannot register tty device on line %d\n",
+ 		       uport->line);
+ 	}
+@@ -3426,8 +3430,6 @@ int serial_core_register_port(struct uart_driver *drv, struct uart_port *port)
+ 	if (ret)
+ 		goto err_unregister_port_dev;
+ 
+-	port->flags &= ~UPF_DEAD;
+-
+ 	mutex_unlock(&port_mutex);
+ 
+ 	return 0;
+-- 
+2.45.1
+
+From 0864ded554efe90dd9603b61e82c604481ee5125 Mon Sep 17 00:00:00 2001
+From: Weifeng Liu <weifeng.liu.z@gmail.com>
+Date: Sun, 5 May 2024 21:07:50 +0800
+Subject: [PATCH] platform/surface: aggregator: Log critical errors during SAM
+ probing
+
+Emits messages upon errors during probing of SAM.  Hopefully this could
+provide useful context to user for the purpose of diagnosis when
+something miserable happen.
+
+Reviewed-by: Maximilian Luz <luzmaximilian@gmail.com>
+Reviewed-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Signed-off-by: Weifeng Liu <weifeng.liu.z@gmail.com>
+Link: https://lore.kernel.org/r/20240505130800.2546640-3-weifeng.liu.z@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/aggregator/core.c | 42 ++++++++++++++--------
+ 1 file changed, 28 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/platform/surface/aggregator/core.c b/drivers/platform/surface/aggregator/core.c
+index ba550eaa06fcf..797d0645bd77f 100644
+--- a/drivers/platform/surface/aggregator/core.c
++++ b/drivers/platform/surface/aggregator/core.c
+@@ -618,15 +618,17 @@ static const struct acpi_gpio_mapping ssam_acpi_gpios[] = {
+ 
+ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ {
+-	struct acpi_device *ssh = ACPI_COMPANION(&serdev->dev);
++	struct device *dev = &serdev->dev;
++	struct acpi_device *ssh = ACPI_COMPANION(dev);
+ 	struct ssam_controller *ctrl;
+ 	acpi_status astatus;
+ 	int status;
+ 
+-	if (gpiod_count(&serdev->dev, NULL) < 0)
+-		return -ENODEV;
++	status = gpiod_count(dev, NULL);
++	if (status < 0)
++		return dev_err_probe(dev, status, "no GPIO found\n");
+ 
+-	status = devm_acpi_dev_add_driver_gpios(&serdev->dev, ssam_acpi_gpios);
++	status = devm_acpi_dev_add_driver_gpios(dev, ssam_acpi_gpios);
+ 	if (status)
+ 		return status;
+ 
+@@ -637,8 +639,10 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 
+ 	/* Initialize controller. */
+ 	status = ssam_controller_init(ctrl, serdev);
+-	if (status)
++	if (status) {
++		dev_err_probe(dev, status, "failed to initialize ssam controller\n");
+ 		goto err_ctrl_init;
++	}
+ 
+ 	ssam_controller_lock(ctrl);
+ 
+@@ -646,12 +650,14 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 	serdev_device_set_drvdata(serdev, ctrl);
+ 	serdev_device_set_client_ops(serdev, &ssam_serdev_ops);
+ 	status = serdev_device_open(serdev);
+-	if (status)
++	if (status) {
++		dev_err_probe(dev, status, "failed to open serdev device\n");
+ 		goto err_devopen;
++	}
+ 
+ 	astatus = ssam_serdev_setup_via_acpi(ssh->handle, serdev);
+ 	if (ACPI_FAILURE(astatus)) {
+-		status = -ENXIO;
++		status = dev_err_probe(dev, -ENXIO, "failed to setup serdev\n");
+ 		goto err_devinit;
+ 	}
+ 
+@@ -667,25 +673,33 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 	 * states.
+ 	 */
+ 	status = ssam_log_firmware_version(ctrl);
+-	if (status)
++	if (status) {
++		dev_err_probe(dev, status, "failed to get firmware version\n");
+ 		goto err_initrq;
++	}
+ 
+ 	status = ssam_ctrl_notif_d0_entry(ctrl);
+-	if (status)
++	if (status) {
++		dev_err_probe(dev, status, "D0-entry notification failed\n");
+ 		goto err_initrq;
++	}
+ 
+ 	status = ssam_ctrl_notif_display_on(ctrl);
+-	if (status)
++	if (status) {
++		dev_err_probe(dev, status, "display-on notification failed\n");
+ 		goto err_initrq;
++	}
+ 
+-	status = sysfs_create_group(&serdev->dev.kobj, &ssam_sam_group);
++	status = sysfs_create_group(&dev->kobj, &ssam_sam_group);
+ 	if (status)
+ 		goto err_initrq;
+ 
+ 	/* Set up IRQ. */
+ 	status = ssam_irq_setup(ctrl);
+-	if (status)
++	if (status) {
++		dev_err_probe(dev, status, "failed to setup IRQ\n");
+ 		goto err_irq;
++	}
+ 
+ 	/* Finally, set main controller reference. */
+ 	status = ssam_try_set_controller(ctrl);
+@@ -702,7 +716,7 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 	 *       resumed. In short, this causes some spurious unwanted wake-ups.
+ 	 *       For now let's thus default power/wakeup to false.
+ 	 */
+-	device_set_wakeup_capable(&serdev->dev, true);
++	device_set_wakeup_capable(dev, true);
+ 	acpi_dev_clear_dependencies(ssh);
+ 
+ 	return 0;
+@@ -710,7 +724,7 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ err_mainref:
+ 	ssam_irq_free(ctrl);
+ err_irq:
+-	sysfs_remove_group(&serdev->dev.kobj, &ssam_sam_group);
++	sysfs_remove_group(&dev->kobj, &ssam_sam_group);
+ err_initrq:
+ 	ssam_controller_lock(ctrl);
+ 	ssam_controller_shutdown(ctrl);
+-- 
+2.45.1
+
+From d44985653441ba783a830bd5efde2fcf3a3ea271 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 19 Apr 2024 20:41:47 +0200
+Subject: [PATCH] platform/surface: aggregator: Fix warning when controller is
+ destroyed in probe
+
+There is a small window in ssam_serial_hub_probe() where the controller
+is initialized but has not been started yet. Specifically, between
+ssam_controller_init() and ssam_controller_start(). Any failure in this
+window, for example caused by a failure of serdev_device_open(),
+currently results in an incorrect warning being emitted.
+
+In particular, any failure in this window results in the controller
+being destroyed via ssam_controller_destroy(). This function checks the
+state of the controller and, in an attempt to validate that the
+controller has been cleanly shut down before we try and deallocate any
+resources, emits a warning if that state is not SSAM_CONTROLLER_STOPPED.
+
+However, since we have only just initialized the controller and have not
+yet started it, its state is SSAM_CONTROLLER_INITIALIZED. Note that this
+is the only point at which the controller has this state, as it will
+change after we start the controller with ssam_controller_start() and
+never revert back. Further, at this point no communication has taken
+place and the sender and receiver threads have not been started yet (and
+we may not even have an open serdev device either).
+
+Therefore, it is perfectly safe to call ssam_controller_destroy() with a
+state of SSAM_CONTROLLER_INITIALIZED. This, however, means that the
+warning currently being emitted is incorrect. Fix it by extending the
+check.
+
+Fixes: c167b9c7e3d6 ("platform/surface: Add Surface Aggregator subsystem")
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/aggregator/controller.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
+index 7fc602e01487d..7e89f547999b2 100644
+--- a/drivers/platform/surface/aggregator/controller.c
++++ b/drivers/platform/surface/aggregator/controller.c
+@@ -1354,7 +1354,8 @@ void ssam_controller_destroy(struct ssam_controller *ctrl)
+ 	if (ctrl->state == SSAM_CONTROLLER_UNINITIALIZED)
+ 		return;
+ 
+-	WARN_ON(ctrl->state != SSAM_CONTROLLER_STOPPED);
++	WARN_ON(ctrl->state != SSAM_CONTROLLER_STOPPED &&
++		ctrl->state != SSAM_CONTROLLER_INITIALIZED);
+ 
+ 	/*
+ 	 * Note: New events could still have been received after the previous
+-- 
+2.45.1
+
+From 6b6f860bbef0ba3f10f8dc151ac4e27d0a34c223 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 22 Oct 2023 14:57:11 +0200
-Subject: [PATCH 1/7] platform/surface: aggregator_registry: Add support for
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for
  Surface Laptop Go 3
 
 Add SAM client device nodes for the Surface Laptop Go 3. It seems to use
@@ -15,7 +287,7 @@ Patchset: surface-sam
  1 file changed, 3 insertions(+)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 035d6b4105cd..74688a2ed4b2 100644
+index 035d6b4105cd6..74688a2ed4b2e 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -374,6 +374,9 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
@@ -29,13 +301,12 @@ index 035d6b4105cd..74688a2ed4b2 100644
  	{ "MSHW0123", (unsigned long)ssam_node_group_sls },
  
 -- 
-2.44.1
+2.45.1
 
-
-From 3bd7bc9cf8aa02303245ed2e6a18d86d8bd8ff80 Mon Sep 17 00:00:00 2001
+From 31b312c25822404e52a81de2525da5c7bae12864 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 20 Nov 2023 19:47:00 +0100
-Subject: [PATCH 2/7] platform/surface: aggregator_registry: Add support for
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for
  Surface Laptop Studio 2
 
 Add SAM client device nodes for the Surface Laptop Studio 2 (SLS2). The
@@ -50,7 +321,7 @@ Patchset: surface-sam
  1 file changed, 21 insertions(+), 4 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 74688a2ed4b2..f02a933160ff 100644
+index 74688a2ed4b2e..f02a933160ff2 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -253,8 +253,8 @@ static const struct software_node *ssam_node_group_sl5[] = {
@@ -100,13 +371,69 @@ index 74688a2ed4b2..f02a933160ff 100644
  	{ },
  };
 -- 
-2.44.1
+2.45.1
 
+From 42f6d14bda5e69c2b5a8d27cfcbd063a5922f876 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 9 Jun 2024 20:05:57 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for
+ Surface Laptop 6
 
-From 04d066bc571f06c406ee0837e3db5dfedbba7859 Mon Sep 17 00:00:00 2001
+Add SAM client device nodes for the Surface Laptop Studio 6 (SL6). The
+SL6 is similar to the SL5, with the typical battery/AC, platform
+profile, and HID nodes. It also has support for the newly supported fan
+interface.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c     | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index f02a933160ff2..34df1bdad83bd 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -253,6 +253,22 @@ static const struct software_node *ssam_node_group_sl5[] = {
+ 	NULL,
+ };
+ 
++/* Devices for Surface Laptop 6. */
++static const struct software_node *ssam_node_group_sl6[] = {
++	&ssam_node_root,
++	&ssam_node_bat_ac,
++	&ssam_node_bat_main,
++	&ssam_node_tmp_perf_profile_with_fan,
++	&ssam_node_tmp_sensors,
++	&ssam_node_fan_speed,
++	&ssam_node_hid_main_keyboard,
++	&ssam_node_hid_main_touchpad,
++	&ssam_node_hid_main_iid5,
++	&ssam_node_hid_sam_sensors,
++	&ssam_node_hid_sam_ucm_ucsi,
++	NULL,
++};
++
+ /* Devices for Surface Laptop Studio 1. */
+ static const struct software_node *ssam_node_group_sls1[] = {
+ 	&ssam_node_root,
+@@ -382,6 +398,9 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
+ 	/* Surface Laptop 5 */
+ 	{ "MSHW0350", (unsigned long)ssam_node_group_sl5 },
+ 
++	/* Surface Laptop 6 */
++	{ "MSHW0530", (unsigned long)ssam_node_group_sl5 },
++
+ 	/* Surface Laptop Go 1 */
+ 	{ "MSHW0118", (unsigned long)ssam_node_group_slg1 },
+ 
+-- 
+2.45.1
+
+From 88fda328aea3bb7077cd39f854148276dcffcea3 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 30 Dec 2023 18:07:54 +0100
-Subject: [PATCH 3/7] hwmon: Add thermal sensor driver for Surface Aggregator
+Subject: [PATCH] hwmon: Add thermal sensor driver for Surface Aggregator
  Module
 
 Some of the newer Microsoft Surface devices (such as the Surface Book
@@ -125,7 +452,7 @@ Patchset: surface-sam
  create mode 100644 drivers/hwmon/surface_temp.c
 
 diff --git a/drivers/hwmon/Kconfig b/drivers/hwmon/Kconfig
-index 83945397b6eb..338ef73c96a3 100644
+index 83945397b6eb1..338ef73c96a3a 100644
 --- a/drivers/hwmon/Kconfig
 +++ b/drivers/hwmon/Kconfig
 @@ -2070,6 +2070,16 @@ config SENSORS_SURFACE_FAN
@@ -146,7 +473,7 @@ index 83945397b6eb..338ef73c96a3 100644
  	tristate "Texas Instruments ADC128D818"
  	depends on I2C
 diff --git a/drivers/hwmon/Makefile b/drivers/hwmon/Makefile
-index 5c31808f6378..de8bc99719e6 100644
+index 5c31808f6378d..de8bc99719e63 100644
 --- a/drivers/hwmon/Makefile
 +++ b/drivers/hwmon/Makefile
 @@ -208,6 +208,7 @@ obj-$(CONFIG_SENSORS_SMSC47M192)+= smsc47m192.o
@@ -159,7 +486,7 @@ index 5c31808f6378..de8bc99719e6 100644
  obj-$(CONFIG_SENSORS_TC74)	+= tc74.o
 diff --git a/drivers/hwmon/surface_temp.c b/drivers/hwmon/surface_temp.c
 new file mode 100644
-index 000000000000..48c3e826713f
+index 0000000000000..48c3e826713f6
 --- /dev/null
 +++ b/drivers/hwmon/surface_temp.c
 @@ -0,0 +1,165 @@
@@ -329,13 +656,12 @@ index 000000000000..48c3e826713f
 +MODULE_DESCRIPTION("Thermal sensor subsystem driver for Surface System Aggregator Module");
 +MODULE_LICENSE("GPL");
 -- 
-2.44.1
+2.45.1
 
-
-From f97fa8fb9a6a94abd17c9fbc3fa3c719e6012ca8 Mon Sep 17 00:00:00 2001
+From 17f0ec6ef1bc95e152af3a9f2b05ea669c75d24a Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 30 Dec 2023 18:12:23 +0100
-Subject: [PATCH 4/7] hwmon: surface_temp: Add support for sensor names
+Subject: [PATCH] hwmon: surface_temp: Add support for sensor names
 
 The thermal subsystem of the Surface Aggregator Module allows us to
 query the names of the respective thermal sensors. Forward those to
@@ -350,7 +676,7 @@ Patchset: surface-sam
  1 file changed, 96 insertions(+), 17 deletions(-)
 
 diff --git a/drivers/hwmon/surface_temp.c b/drivers/hwmon/surface_temp.c
-index 48c3e826713f..4c08926139db 100644
+index 48c3e826713f6..4c08926139dbf 100644
 --- a/drivers/hwmon/surface_temp.c
 +++ b/drivers/hwmon/surface_temp.c
 @@ -17,6 +17,27 @@
@@ -525,13 +851,12 @@ index 48c3e826713f..4c08926139db 100644
  			"surface_thermal", ssam_temp, &ssam_temp_hwmon_chip_info,
  			NULL);
 -- 
-2.44.1
+2.45.1
 
-
-From 680b16d7ac234ebc3885a898d69105cc00da1c49 Mon Sep 17 00:00:00 2001
+From 54bfa02fe865b9f22d79b112a5244ce81e4961f1 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 30 Dec 2023 18:21:12 +0100
-Subject: [PATCH 5/7] platform/surface: aggregator_registry: Add support for
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for
  thermal sensors on the Surface Pro 9
 
 The Surface Pro 9 has thermal sensors connected via the Surface
@@ -544,7 +869,7 @@ Patchset: surface-sam
  1 file changed, 7 insertions(+)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index f02a933160ff..67686042e009 100644
+index 34df1bdad83bd..c0bf0cadcd258 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -74,6 +74,12 @@ static const struct software_node ssam_node_tmp_pprof = {
@@ -560,7 +885,7 @@ index f02a933160ff..67686042e009 100644
  /* Fan speed function. */
  static const struct software_node ssam_node_fan_speed = {
  	.name = "ssam:01:05:01:01:01",
-@@ -325,6 +331,7 @@ static const struct software_node *ssam_node_group_sp9[] = {
+@@ -341,6 +347,7 @@ static const struct software_node *ssam_node_group_sp9[] = {
  	&ssam_node_bat_ac,
  	&ssam_node_bat_main,
  	&ssam_node_tmp_pprof,
@@ -569,14 +894,12 @@ index f02a933160ff..67686042e009 100644
  	&ssam_node_pos_tablet_switch,
  	&ssam_node_hid_kip_keyboard,
 -- 
-2.44.1
+2.45.1
 
-
-From 500f45035aa04b231d9b7406a0e6f9ade8d6afb0 Mon Sep 17 00:00:00 2001
+From 06c4b5ac6b6357227e45c53643729140d794b48d Mon Sep 17 00:00:00 2001
 From: Ivor Wanders <ivor@iwanders.net>
 Date: Sat, 16 Dec 2023 15:56:39 -0500
-Subject: [PATCH 6/7] platform/surface: platform_profile: add fan profile
- switching
+Subject: [PATCH] platform/surface: platform_profile: add fan profile switching
 
 Change naming from tmp to platform profile to clarify the module may
 interact with both the TMP and FAN subystems. Add functionality that
@@ -590,7 +913,7 @@ Patchset: surface-sam
  2 files changed, 100 insertions(+), 24 deletions(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 67686042e009..058b6654a91a 100644
+index c0bf0cadcd258..07a4c4e1120d3 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -68,8 +68,8 @@ static const struct software_node ssam_node_bat_sb3base = {
@@ -661,7 +984,7 @@ index 67686042e009..058b6654a91a 100644
  	&ssam_node_hid_main_keyboard,
  	&ssam_node_hid_main_touchpad,
  	&ssam_node_hid_main_iid5,
-@@ -264,7 +278,7 @@ static const struct software_node *ssam_node_group_sls1[] = {
+@@ -280,7 +294,7 @@ static const struct software_node *ssam_node_group_sls1[] = {
  	&ssam_node_root,
  	&ssam_node_bat_ac,
  	&ssam_node_bat_main,
@@ -670,7 +993,7 @@ index 67686042e009..058b6654a91a 100644
  	&ssam_node_pos_tablet_switch,
  	&ssam_node_hid_sam_keyboard,
  	&ssam_node_hid_sam_penstash,
-@@ -280,7 +294,7 @@ static const struct software_node *ssam_node_group_sls2[] = {
+@@ -296,7 +310,7 @@ static const struct software_node *ssam_node_group_sls2[] = {
  	&ssam_node_root,
  	&ssam_node_bat_ac,
  	&ssam_node_bat_main,
@@ -679,7 +1002,7 @@ index 67686042e009..058b6654a91a 100644
  	&ssam_node_pos_tablet_switch,
  	&ssam_node_hid_sam_keyboard,
  	&ssam_node_hid_sam_penstash,
-@@ -294,7 +308,7 @@ static const struct software_node *ssam_node_group_slg1[] = {
+@@ -310,7 +324,7 @@ static const struct software_node *ssam_node_group_slg1[] = {
  	&ssam_node_root,
  	&ssam_node_bat_ac,
  	&ssam_node_bat_main,
@@ -688,7 +1011,7 @@ index 67686042e009..058b6654a91a 100644
  	NULL,
  };
  
-@@ -303,7 +317,7 @@ static const struct software_node *ssam_node_group_sp7[] = {
+@@ -319,7 +333,7 @@ static const struct software_node *ssam_node_group_sp7[] = {
  	&ssam_node_root,
  	&ssam_node_bat_ac,
  	&ssam_node_bat_main,
@@ -697,7 +1020,7 @@ index 67686042e009..058b6654a91a 100644
  	NULL,
  };
  
-@@ -313,7 +327,7 @@ static const struct software_node *ssam_node_group_sp8[] = {
+@@ -329,7 +343,7 @@ static const struct software_node *ssam_node_group_sp8[] = {
  	&ssam_node_hub_kip,
  	&ssam_node_bat_ac,
  	&ssam_node_bat_main,
@@ -706,7 +1029,7 @@ index 67686042e009..058b6654a91a 100644
  	&ssam_node_kip_tablet_switch,
  	&ssam_node_hid_kip_keyboard,
  	&ssam_node_hid_kip_penstash,
-@@ -330,7 +344,7 @@ static const struct software_node *ssam_node_group_sp9[] = {
+@@ -346,7 +360,7 @@ static const struct software_node *ssam_node_group_sp9[] = {
  	&ssam_node_hub_kip,
  	&ssam_node_bat_ac,
  	&ssam_node_bat_main,
@@ -716,7 +1039,7 @@ index 67686042e009..058b6654a91a 100644
  	&ssam_node_fan_speed,
  	&ssam_node_pos_tablet_switch,
 diff --git a/drivers/platform/surface/surface_platform_profile.c b/drivers/platform/surface/surface_platform_profile.c
-index a5a3941b3f43..e54d0a8f7daa 100644
+index a5a3941b3f43a..e54d0a8f7daa5 100644
 --- a/drivers/platform/surface/surface_platform_profile.c
 +++ b/drivers/platform/surface/surface_platform_profile.c
 @@ -1,7 +1,7 @@
@@ -860,17 +1183,17 @@ index a5a3941b3f43..e54d0a8f7daa 100644
  
 -	tpd = container_of(pprof, struct ssam_tmp_profile_device, handler);
 +	tpd = container_of(pprof, struct ssam_platform_profile_device, handler);
++
++	tp = convert_profile_to_ssam_tmp(tpd->sdev, profile);
++	if (tp < 0)
++		return tp;
  
 -	tp = convert_profile_to_ssam(tpd->sdev, profile);
-+	tp = convert_profile_to_ssam_tmp(tpd->sdev, profile);
++	tp = ssam_tmp_profile_set(tpd->sdev, tp);
  	if (tp < 0)
  		return tp;
  
 -	return ssam_tmp_profile_set(tpd->sdev, tp);
-+	tp = ssam_tmp_profile_set(tpd->sdev, tp);
-+	if (tp < 0)
-+		return tp;
-+
 +	if (tpd->has_fan) {
 +		tp = convert_profile_to_ssam_fan(tpd->sdev, profile);
 +		if (tp < 0)
@@ -898,60 +1221,5 @@ index a5a3941b3f43..e54d0a8f7daa 100644
  	set_bit(PLATFORM_PROFILE_BALANCED, tpd->handler.choices);
  	set_bit(PLATFORM_PROFILE_BALANCED_PERFORMANCE, tpd->handler.choices);
 -- 
-2.44.1
-
-
-From 0826fa5b802cae18967e733b525ea175cace518d Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Fri, 19 Apr 2024 20:41:47 +0200
-Subject: [PATCH 7/7] platform/surface: aggregator: Fix warning when controller
- is destroyed in probe
-
-There is a small window in ssam_serial_hub_probe() where the controller
-is initialized but has not been started yet. Specifically, between
-ssam_controller_init() and ssam_controller_start(). Any failure in this
-window, for example caused by a failure of serdev_device_open(),
-currently results in an incorrect warning being emitted.
-
-In particular, any failure in this window results in the controller
-being destroyed via ssam_controller_destroy(). This function checks the
-state of the controller and, in an attempt to validate that the
-controller has been cleanly shut down before we try and deallocate any
-resources, emits a warning if that state is not SSAM_CONTROLLER_STOPPED.
-
-However, since we have only just initialized the controller and have not
-yet started it, its state is SSAM_CONTROLLER_INITIALIZED. Note that this
-is the only point at which the controller has this state, as it will
-change after we start the controller with ssam_controller_start() and
-never revert back. Further, at this point no communication has taken
-place and the sender and receiver threads have not been started yet (and
-we may not even have an open serdev device either).
-
-Therefore, it is perfectly safe to call ssam_controller_destroy() with a
-state of SSAM_CONTROLLER_INITIALIZED. This, however, means that the
-warning currently being emitted is incorrect. Fix it by extending the
-check.
-
-Fixes: c167b9c7e3d6 ("platform/surface: Add Surface Aggregator subsystem")
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
----
- drivers/platform/surface/aggregator/controller.c | 3 ++-
- 1 file changed, 2 insertions(+), 1 deletion(-)
-
-diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
-index 7fc602e01487..7e89f547999b 100644
---- a/drivers/platform/surface/aggregator/controller.c
-+++ b/drivers/platform/surface/aggregator/controller.c
-@@ -1354,7 +1354,8 @@ void ssam_controller_destroy(struct ssam_controller *ctrl)
- 	if (ctrl->state == SSAM_CONTROLLER_UNINITIALIZED)
- 		return;
- 
--	WARN_ON(ctrl->state != SSAM_CONTROLLER_STOPPED);
-+	WARN_ON(ctrl->state != SSAM_CONTROLLER_STOPPED &&
-+		ctrl->state != SSAM_CONTROLLER_INITIALIZED);
- 
- 	/*
- 	 * Note: New events could still have been received after the previous
--- 
-2.44.1
+2.45.1
 
