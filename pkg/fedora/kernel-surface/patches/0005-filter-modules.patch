@@ -1,26 +1,25 @@
-From bb654591f82503f9e3c319902af2a2b64c18ae50 Mon Sep 17 00:00:00 2001
+From a82af933b2ee35e24140ee7fddf9a083596cda3f Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
-Date: Sat, 13 Jan 2024 12:30:02 +0100
-Subject: [PATCH] HACK: Move surface_fan and surface_temp to kernel-modules
+Date: Mon, 29 Jan 2024 19:26:41 +0100
+Subject: [PATCH] Pull in intel-vsc-firmware
 
+This package contains the IPU3 firmware needed for camera support.
 ---
- redhat/fedora_files/filter-modules.sh.fedora | 3 +++
- 1 file changed, 3 insertions(+)
+ redhat/kernel.spec.template | 1 +
+ 1 file changed, 1 insertion(+)
 
-diff --git a/redhat/fedora_files/filter-modules.sh.fedora b/redhat/fedora_files/filter-modules.sh.fedora
-index 2e7b79eba1d9..7ef7614cbda2 100755
---- a/redhat/fedora_files/filter-modules.sh.fedora
-+++ b/redhat/fedora_files/filter-modules.sh.fedora
-@@ -84,6 +84,9 @@ filter_ko() {
- 	return 0
- }
- 
-+# HACK: move surface_fan and surface_temp to kernel-modules
-+singlemods="${singlemods} surface_fan surface_temp"
-+
- # Filter the drivers/ subsystems
- for subsys in ${driverdirs}
- do
+diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
+index 4ece0fa3a56c..768316b2ec82 100644
+--- a/redhat/kernel.spec.template
++++ b/redhat/kernel.spec.template
+@@ -1028,6 +1028,7 @@ Requires(pre): %{kernel_prereq}\
+ Requires(pre): %{initrd_prereq}\
+ Requires(pre): ((linux-firmware >= 20150904-56.git6ebf5d57) if linux-firmware)\
+ Recommends: linux-firmware\
++Recommends: intel-vsc-firmware\
+ Recommends: iptsd\
+ Recommends: %{package_name}-default-watchdog\
+ Requires(preun): systemd >= 200\
 -- 
 2.43.0
 
