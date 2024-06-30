@@ -1,18 +1,18 @@
-From d4bbfbfee98f8b117885cf88a48f686ac889d73e Mon Sep 17 00:00:00 2001
+From 9fe406af6d54768c681817a91cf28e6159725c05 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Sat, 22 Jul 2023 10:45:33 +0200
 Subject: [PATCH] Use a custom key and certificate for Secure Boot signing
 
 Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
 ---
- redhat/kernel.spec.template | 15 +++++++++------
- 1 file changed, 9 insertions(+), 6 deletions(-)
+ redhat/kernel.spec.template | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
 
 diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
-index 0fb19cc23041..d7bd6013423c 100644
+index e6bece22b1f3..c5995edff65b 100644
 --- a/redhat/kernel.spec.template
 +++ b/redhat/kernel.spec.template
-@@ -762,6 +762,7 @@ BuildRequires: system-sb-certs
+@@ -764,6 +764,7 @@ BuildRequires: system-sb-certs
  %ifarch x86_64 aarch64
  BuildRequires: nss-tools
  BuildRequires: pesign >= 0.10-4
@@ -20,7 +20,7 @@ index 0fb19cc23041..d7bd6013423c 100644
  %endif
  %endif
  %endif
-@@ -821,6 +822,13 @@ Source2: kernel.changelog
+@@ -827,6 +828,13 @@ Source13: redhatsecureboot501.cer
  %define signing_key_filename kernel-signing-s390.cer
  %endif
  
@@ -31,30 +31,18 @@ index 0fb19cc23041..d7bd6013423c 100644
 +
 +%endif
 +
- %if %{?released_kernel}
- 
- Source10: redhatsecurebootca5.cer
-@@ -2201,9 +2209,7 @@ BuildKernel() {
+ # Fedora/ELN pesign macro expects to see these cert file names, see:
+ # https://github.com/rhboot/pesign/blob/main/src/pesign-rpmbuild-helper.in#L216
+ %if 0%{?fedora}%{?eln}
+@@ -2188,7 +2196,7 @@ BuildKernel() {
  
      %ifarch x86_64 aarch64
      %{log_msg "Sign kernel image"}
--    %pesign -s -i $SignImage -o vmlinuz.tmp -a %{secureboot_ca_0} -c %{secureboot_key_0} -n %{pesign_name_0}
--    %pesign -s -i vmlinuz.tmp -o vmlinuz.signed -a %{secureboot_ca_1} -c %{secureboot_key_1} -n %{pesign_name_1}
--    rm vmlinuz.tmp
+-    %pesign -s -i $SignImage -o vmlinuz.signed -a %{secureboot_ca_0} -c %{secureboot_key_0} -n %{pesign_name_0}
 +    sbsign --key %{SOURCE7001} --cert %{SOURCE7002} --output vmlinuz.signed $SignImage
      %endif
      %ifarch s390x ppc64le
      if [ -x /usr/bin/rpm-sign ]; then
-@@ -2783,9 +2789,6 @@ BuildKernel() {
-     %{log_msg "Install certs"}
-     mkdir -p $RPM_BUILD_ROOT%{_datadir}/doc/kernel-keys/$KernelVer
-     %ifarch x86_64 aarch64
--       install -m 0644 %{secureboot_ca_0} $RPM_BUILD_ROOT%{_datadir}/doc/kernel-keys/$KernelVer/kernel-signing-ca-20200609.cer
--       install -m 0644 %{secureboot_ca_1} $RPM_BUILD_ROOT%{_datadir}/doc/kernel-keys/$KernelVer/kernel-signing-ca-20140212.cer
--       ln -s kernel-signing-ca-20200609.cer $RPM_BUILD_ROOT%{_datadir}/doc/kernel-keys/$KernelVer/kernel-signing-ca.cer
-     %else
-        install -m 0644 %{secureboot_ca_0} $RPM_BUILD_ROOT%{_datadir}/doc/kernel-keys/$KernelVer/kernel-signing-ca.cer
-     %endif
 -- 
-2.44.0
+2.45.1
 
