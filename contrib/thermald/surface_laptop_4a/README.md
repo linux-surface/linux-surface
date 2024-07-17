@@ -30,7 +30,7 @@ sudo systemctl stop thermald.service
 Place thermal-conf.xml into the following directory:
 
 ```
-\etc\thermald\
+/etc/thermald/
 ```
 Restart thermald:
 
