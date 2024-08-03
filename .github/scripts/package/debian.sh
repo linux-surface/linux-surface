@@ -29,7 +29,7 @@ setup-builddeps)
     apt-get update
     apt-get upgrade
     apt-get install build-essential fakeroot rsync git wget software-properties-common \
-            zstd lz4 sbsigntool debhelper dpkg-dev dpkg-sig
+            zstd lz4 sbsigntool debhelper dpkg-dev dpkg-sig pkg-config
     apt-get build-dep linux
 
     # install python 3.11, required for configuring the kernel via Ubuntu's annotation format
