@@ -1,4 +1,4 @@
-From c2d6692b776f0d082e204f153ee9cca409e6aa1d Mon Sep 17 00:00:00 2001
+From 22e330a89ef3a3b8765bffcc67ad1426c715ff46 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Thu, 30 Jul 2020 13:21:53 +0200
 Subject: [PATCH] mei: me: Add Icelake device ID for iTouch
@@ -11,7 +11,7 @@ Patchset: ipts
  2 files changed, 2 insertions(+)
 
 diff --git a/drivers/misc/mei/hw-me-regs.h b/drivers/misc/mei/hw-me-regs.h
-index c3a6657dcd4a2..82eef2f4eb0a8 100644
+index c3a6657dcd4a..82eef2f4eb0a 100644
 --- a/drivers/misc/mei/hw-me-regs.h
 +++ b/drivers/misc/mei/hw-me-regs.h
 @@ -92,6 +92,7 @@
@@ -23,7 +23,7 @@ index c3a6657dcd4a2..82eef2f4eb0a8 100644
  
  #define MEI_DEV_ID_JSP_N      0x4DE0  /* Jasper Lake Point N */
 diff --git a/drivers/misc/mei/pci-me.c b/drivers/misc/mei/pci-me.c
-index 6589635f8ba32..a1df48a434e2f 100644
+index 6589635f8ba3..a1df48a434e2 100644
 --- a/drivers/misc/mei/pci-me.c
 +++ b/drivers/misc/mei/pci-me.c
 @@ -97,6 +97,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
@@ -35,9 +35,9 @@ index 6589635f8ba32..a1df48a434e2f 100644
  
  	{MEI_PCI_DEVICE(MEI_DEV_ID_TGP_LP, MEI_ME_PCH15_CFG)},
 -- 
-2.45.1
+2.45.2
 
-From 070ffec42eb5b8e6c0403bbcaa86a6bd19323dea Mon Sep 17 00:00:00 2001
+From 11229997041587d1c0613fc274e87b442c6596d9 Mon Sep 17 00:00:00 2001
 From: Liban Hannan <liban.p@gmail.com>
 Date: Tue, 12 Apr 2022 23:31:12 +0100
 Subject: [PATCH] iommu: Use IOMMU passthrough mode for IPTS
@@ -61,7 +61,7 @@ Patchset: ipts
  1 file changed, 29 insertions(+)
 
 diff --git a/drivers/iommu/intel/iommu.c b/drivers/iommu/intel/iommu.c
-index e4a03588a8a0f..61bc54299a591 100644
+index e4a03588a8a0..61bc54299a59 100644
 --- a/drivers/iommu/intel/iommu.c
 +++ b/drivers/iommu/intel/iommu.c
 @@ -39,6 +39,11 @@
@@ -142,9 +142,9 @@ index e4a03588a8a0f..61bc54299a591 100644
  {
  	if (risky_device(dev))
 -- 
-2.45.1
+2.45.2
 
-From 2e10f861a1556ad45bf1e4a7d5c81806653cdeb7 Mon Sep 17 00:00:00 2001
+From 2bd70f61f21bd369fcb90399530b9d2e63ad91b6 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Sun, 11 Dec 2022 12:00:59 +0100
 Subject: [PATCH] hid: Add support for Intel Precise Touch and Stylus
@@ -211,7 +211,7 @@ Patchset: ipts
  create mode 100644 drivers/hid/ipts/thread.h
 
 diff --git a/drivers/hid/Kconfig b/drivers/hid/Kconfig
-index 4c682c6507040..a263e49b2ae29 100644
+index 4c682c650704..a263e49b2ae2 100644
 --- a/drivers/hid/Kconfig
 +++ b/drivers/hid/Kconfig
 @@ -1351,4 +1351,6 @@ source "drivers/hid/amd-sfh-hid/Kconfig"
@@ -222,7 +222,7 @@ index 4c682c6507040..a263e49b2ae29 100644
 +
  endif # HID_SUPPORT
 diff --git a/drivers/hid/Makefile b/drivers/hid/Makefile
-index 082a728eac600..f4bad1b8d813f 100644
+index 082a728eac60..f4bad1b8d813 100644
 --- a/drivers/hid/Makefile
 +++ b/drivers/hid/Makefile
 @@ -170,3 +170,5 @@ obj-$(INTEL_ISH_FIRMWARE_DOWNLOADER)	+= intel-ish-hid/
@@ -233,7 +233,7 @@ index 082a728eac600..f4bad1b8d813f 100644
 +obj-$(CONFIG_HID_IPTS)          += ipts/
 diff --git a/drivers/hid/ipts/Kconfig b/drivers/hid/ipts/Kconfig
 new file mode 100644
-index 0000000000000..297401bd388dd
+index 000000000000..297401bd388d
 --- /dev/null
 +++ b/drivers/hid/ipts/Kconfig
 @@ -0,0 +1,14 @@
@@ -253,7 +253,7 @@ index 0000000000000..297401bd388dd
 +	  module will be called ipts.
 diff --git a/drivers/hid/ipts/Makefile b/drivers/hid/ipts/Makefile
 new file mode 100644
-index 0000000000000..883896f68e6ad
+index 000000000000..883896f68e6a
 --- /dev/null
 +++ b/drivers/hid/ipts/Makefile
 @@ -0,0 +1,16 @@
@@ -275,7 +275,7 @@ index 0000000000000..883896f68e6ad
 +ipts-objs += thread.o
 diff --git a/drivers/hid/ipts/cmd.c b/drivers/hid/ipts/cmd.c
 new file mode 100644
-index 0000000000000..63a4934bbc5fa
+index 000000000000..63a4934bbc5f
 --- /dev/null
 +++ b/drivers/hid/ipts/cmd.c
 @@ -0,0 +1,61 @@
@@ -342,7 +342,7 @@ index 0000000000000..63a4934bbc5fa
 +}
 diff --git a/drivers/hid/ipts/cmd.h b/drivers/hid/ipts/cmd.h
 new file mode 100644
-index 0000000000000..2b4079075b642
+index 000000000000..2b4079075b64
 --- /dev/null
 +++ b/drivers/hid/ipts/cmd.h
 @@ -0,0 +1,60 @@
@@ -408,7 +408,7 @@ index 0000000000000..2b4079075b642
 +#endif /* IPTS_CMD_H */
 diff --git a/drivers/hid/ipts/context.h b/drivers/hid/ipts/context.h
 new file mode 100644
-index 0000000000000..ba33259f1f7c5
+index 000000000000..ba33259f1f7c
 --- /dev/null
 +++ b/drivers/hid/ipts/context.h
 @@ -0,0 +1,52 @@
@@ -466,7 +466,7 @@ index 0000000000000..ba33259f1f7c5
 +#endif /* IPTS_CONTEXT_H */
 diff --git a/drivers/hid/ipts/control.c b/drivers/hid/ipts/control.c
 new file mode 100644
-index 0000000000000..5360842d260ba
+index 000000000000..5360842d260b
 --- /dev/null
 +++ b/drivers/hid/ipts/control.c
 @@ -0,0 +1,486 @@
@@ -958,7 +958,7 @@ index 0000000000000..5360842d260ba
 +}
 diff --git a/drivers/hid/ipts/control.h b/drivers/hid/ipts/control.h
 new file mode 100644
-index 0000000000000..26629c5144edb
+index 000000000000..26629c5144ed
 --- /dev/null
 +++ b/drivers/hid/ipts/control.h
 @@ -0,0 +1,126 @@
@@ -1090,7 +1090,7 @@ index 0000000000000..26629c5144edb
 +#endif /* IPTS_CONTROL_H */
 diff --git a/drivers/hid/ipts/desc.h b/drivers/hid/ipts/desc.h
 new file mode 100644
-index 0000000000000..307438c7c80cd
+index 000000000000..307438c7c80c
 --- /dev/null
 +++ b/drivers/hid/ipts/desc.h
 @@ -0,0 +1,80 @@
@@ -1176,7 +1176,7 @@ index 0000000000000..307438c7c80cd
 +#endif /* IPTS_DESC_H */
 diff --git a/drivers/hid/ipts/eds1.c b/drivers/hid/ipts/eds1.c
 new file mode 100644
-index 0000000000000..ecbb3a8bdaf60
+index 000000000000..ecbb3a8bdaf6
 --- /dev/null
 +++ b/drivers/hid/ipts/eds1.c
 @@ -0,0 +1,103 @@
@@ -1285,7 +1285,7 @@ index 0000000000000..ecbb3a8bdaf60
 +}
 diff --git a/drivers/hid/ipts/eds1.h b/drivers/hid/ipts/eds1.h
 new file mode 100644
-index 0000000000000..eeeb6575e3e89
+index 000000000000..eeeb6575e3e8
 --- /dev/null
 +++ b/drivers/hid/ipts/eds1.h
 @@ -0,0 +1,35 @@
@@ -1326,7 +1326,7 @@ index 0000000000000..eeeb6575e3e89
 +			  enum hid_report_type report_type, enum hid_class_request request_type);
 diff --git a/drivers/hid/ipts/eds2.c b/drivers/hid/ipts/eds2.c
 new file mode 100644
-index 0000000000000..198dc65d78876
+index 000000000000..198dc65d7887
 --- /dev/null
 +++ b/drivers/hid/ipts/eds2.c
 @@ -0,0 +1,144 @@
@@ -1476,7 +1476,7 @@ index 0000000000000..198dc65d78876
 +}
 diff --git a/drivers/hid/ipts/eds2.h b/drivers/hid/ipts/eds2.h
 new file mode 100644
-index 0000000000000..064e3716907ab
+index 000000000000..064e3716907a
 --- /dev/null
 +++ b/drivers/hid/ipts/eds2.h
 @@ -0,0 +1,35 @@
@@ -1517,7 +1517,7 @@ index 0000000000000..064e3716907ab
 +			  enum hid_report_type report_type, enum hid_class_request request_type);
 diff --git a/drivers/hid/ipts/hid.c b/drivers/hid/ipts/hid.c
 new file mode 100644
-index 0000000000000..e34a1a4f9fa77
+index 000000000000..e34a1a4f9fa7
 --- /dev/null
 +++ b/drivers/hid/ipts/hid.c
 @@ -0,0 +1,225 @@
@@ -1748,7 +1748,7 @@ index 0000000000000..e34a1a4f9fa77
 +}
 diff --git a/drivers/hid/ipts/hid.h b/drivers/hid/ipts/hid.h
 new file mode 100644
-index 0000000000000..1ebe77447903a
+index 000000000000..1ebe77447903
 --- /dev/null
 +++ b/drivers/hid/ipts/hid.h
 @@ -0,0 +1,24 @@
@@ -1778,7 +1778,7 @@ index 0000000000000..1ebe77447903a
 +#endif /* IPTS_HID_H */
 diff --git a/drivers/hid/ipts/main.c b/drivers/hid/ipts/main.c
 new file mode 100644
-index 0000000000000..fb5b5c13ee3ea
+index 000000000000..fb5b5c13ee3e
 --- /dev/null
 +++ b/drivers/hid/ipts/main.c
 @@ -0,0 +1,126 @@
@@ -1910,7 +1910,7 @@ index 0000000000000..fb5b5c13ee3ea
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/hid/ipts/mei.c b/drivers/hid/ipts/mei.c
 new file mode 100644
-index 0000000000000..1e0395ceae4a4
+index 000000000000..1e0395ceae4a
 --- /dev/null
 +++ b/drivers/hid/ipts/mei.c
 @@ -0,0 +1,188 @@
@@ -2104,7 +2104,7 @@ index 0000000000000..1e0395ceae4a4
 +}
 diff --git a/drivers/hid/ipts/mei.h b/drivers/hid/ipts/mei.h
 new file mode 100644
-index 0000000000000..973bade6b0fdd
+index 000000000000..973bade6b0fd
 --- /dev/null
 +++ b/drivers/hid/ipts/mei.h
 @@ -0,0 +1,66 @@
@@ -2176,7 +2176,7 @@ index 0000000000000..973bade6b0fdd
 +#endif /* IPTS_MEI_H */
 diff --git a/drivers/hid/ipts/receiver.c b/drivers/hid/ipts/receiver.c
 new file mode 100644
-index 0000000000000..ef66c3c9db807
+index 000000000000..ef66c3c9db80
 --- /dev/null
 +++ b/drivers/hid/ipts/receiver.c
 @@ -0,0 +1,250 @@
@@ -2432,7 +2432,7 @@ index 0000000000000..ef66c3c9db807
 +}
 diff --git a/drivers/hid/ipts/receiver.h b/drivers/hid/ipts/receiver.h
 new file mode 100644
-index 0000000000000..3de7da62d40c1
+index 000000000000..3de7da62d40c
 --- /dev/null
 +++ b/drivers/hid/ipts/receiver.h
 @@ -0,0 +1,16 @@
@@ -2454,7 +2454,7 @@ index 0000000000000..3de7da62d40c1
 +#endif /* IPTS_RECEIVER_H */
 diff --git a/drivers/hid/ipts/resources.c b/drivers/hid/ipts/resources.c
 new file mode 100644
-index 0000000000000..cc14653b2a9f5
+index 000000000000..cc14653b2a9f
 --- /dev/null
 +++ b/drivers/hid/ipts/resources.c
 @@ -0,0 +1,131 @@
@@ -2591,7 +2591,7 @@ index 0000000000000..cc14653b2a9f5
 +}
 diff --git a/drivers/hid/ipts/resources.h b/drivers/hid/ipts/resources.h
 new file mode 100644
-index 0000000000000..2068e13285f0e
+index 000000000000..2068e13285f0
 --- /dev/null
 +++ b/drivers/hid/ipts/resources.h
 @@ -0,0 +1,41 @@
@@ -2638,7 +2638,7 @@ index 0000000000000..2068e13285f0e
 +#endif /* IPTS_RESOURCES_H */
 diff --git a/drivers/hid/ipts/spec-data.h b/drivers/hid/ipts/spec-data.h
 new file mode 100644
-index 0000000000000..e8dd98895a7ee
+index 000000000000..e8dd98895a7e
 --- /dev/null
 +++ b/drivers/hid/ipts/spec-data.h
 @@ -0,0 +1,100 @@
@@ -2744,7 +2744,7 @@ index 0000000000000..e8dd98895a7ee
 +#endif /* IPTS_SPEC_DATA_H */
 diff --git a/drivers/hid/ipts/spec-device.h b/drivers/hid/ipts/spec-device.h
 new file mode 100644
-index 0000000000000..41845f9d90257
+index 000000000000..41845f9d9025
 --- /dev/null
 +++ b/drivers/hid/ipts/spec-device.h
 @@ -0,0 +1,290 @@
@@ -3040,7 +3040,7 @@ index 0000000000000..41845f9d90257
 +#endif /* IPTS_SPEC_DEVICE_H */
 diff --git a/drivers/hid/ipts/spec-hid.h b/drivers/hid/ipts/spec-hid.h
 new file mode 100644
-index 0000000000000..5a58d4a0a610f
+index 000000000000..5a58d4a0a610
 --- /dev/null
 +++ b/drivers/hid/ipts/spec-hid.h
 @@ -0,0 +1,34 @@
@@ -3080,7 +3080,7 @@ index 0000000000000..5a58d4a0a610f
 +#endif /* IPTS_SPEC_HID_H */
 diff --git a/drivers/hid/ipts/thread.c b/drivers/hid/ipts/thread.c
 new file mode 100644
-index 0000000000000..355e92bea26f8
+index 000000000000..355e92bea26f
 --- /dev/null
 +++ b/drivers/hid/ipts/thread.c
 @@ -0,0 +1,84 @@
@@ -3170,7 +3170,7 @@ index 0000000000000..355e92bea26f8
 +}
 diff --git a/drivers/hid/ipts/thread.h b/drivers/hid/ipts/thread.h
 new file mode 100644
-index 0000000000000..1f966b8b32c45
+index 000000000000..1f966b8b32c4
 --- /dev/null
 +++ b/drivers/hid/ipts/thread.h
 @@ -0,0 +1,59 @@
@@ -3234,9 +3234,9 @@ index 0000000000000..1f966b8b32c45
 +
 +#endif /* IPTS_THREAD_H */
 -- 
-2.45.1
+2.45.2
 
-From 1930dddc7cf94e188a3cf6e957b9bd8622ba4a6b Mon Sep 17 00:00:00 2001
+From 9548ddae8daf8630884b8dc207df42ea524dc500 Mon Sep 17 00:00:00 2001
 From: Jasmin Huber <jasmin@jasisonee.ch>
 Date: Mon, 15 Apr 2024 10:22:55 +0200
 Subject: [PATCH] Inlude headers to avoid compiler warnings 6.8 kernels compile
@@ -3251,7 +3251,7 @@ Patchset: ipts
  3 files changed, 3 insertions(+)
 
 diff --git a/drivers/hid/ipts/eds1.c b/drivers/hid/ipts/eds1.c
-index ecbb3a8bdaf60..7b9f54388a9f6 100644
+index ecbb3a8bdaf6..7b9f54388a9f 100644
 --- a/drivers/hid/ipts/eds1.c
 +++ b/drivers/hid/ipts/eds1.c
 @@ -14,6 +14,7 @@
@@ -3263,7 +3263,7 @@ index ecbb3a8bdaf60..7b9f54388a9f6 100644
  
  int ipts_eds1_get_descriptor(struct ipts_context *ipts, u8 **desc_buffer, size_t *desc_size)
 diff --git a/drivers/hid/ipts/eds2.c b/drivers/hid/ipts/eds2.c
-index 198dc65d78876..639940794615d 100644
+index 198dc65d7887..639940794615 100644
 --- a/drivers/hid/ipts/eds2.c
 +++ b/drivers/hid/ipts/eds2.c
 @@ -15,6 +15,7 @@
@@ -3275,7 +3275,7 @@ index 198dc65d78876..639940794615d 100644
  
  int ipts_eds2_get_descriptor(struct ipts_context *ipts, u8 **desc_buffer, size_t *desc_size)
 diff --git a/drivers/hid/ipts/receiver.c b/drivers/hid/ipts/receiver.c
-index ef66c3c9db807..977724c728c3e 100644
+index ef66c3c9db80..977724c728c3 100644
 --- a/drivers/hid/ipts/receiver.c
 +++ b/drivers/hid/ipts/receiver.c
 @@ -16,6 +16,7 @@
@@ -3287,5 +3287,5 @@ index ef66c3c9db807..977724c728c3e 100644
  #include "spec-device.h"
  #include "thread.h"
 -- 
-2.45.1
+2.45.2
 

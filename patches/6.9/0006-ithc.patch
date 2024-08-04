@@ -1,4 +1,4 @@
-From 28368e616f0710082f3c43e3614650b05a09773c Mon Sep 17 00:00:00 2001
+From 888f8f300f9a547535e251f192759902545208f0 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Sun, 11 Dec 2022 12:03:38 +0100
 Subject: [PATCH] iommu: intel: Disable source id verification for ITHC
@@ -10,7 +10,7 @@ Patchset: ithc
  1 file changed, 16 insertions(+)
 
 diff --git a/drivers/iommu/intel/irq_remapping.c b/drivers/iommu/intel/irq_remapping.c
-index 566297bc87ddb..a8cd8f12d5937 100644
+index 566297bc87dd..a8cd8f12d593 100644
 --- a/drivers/iommu/intel/irq_remapping.c
 +++ b/drivers/iommu/intel/irq_remapping.c
 @@ -386,6 +386,22 @@ static int set_msi_sid(struct irte *irte, struct pci_dev *dev)
@@ -37,9 +37,9 @@ index 566297bc87ddb..a8cd8f12d5937 100644
  	 * DMA alias provides us with a PCI device and alias.  The only case
  	 * where the it will return an alias on a different bus than the
 -- 
-2.45.1
+2.45.2
 
-From 07b04f9dbdee2152e14ac7777f71ee3a13dd019d Mon Sep 17 00:00:00 2001
+From e5bbe336297f8d6fbaac16f8b091522bb394e30a Mon Sep 17 00:00:00 2001
 From: quo <tuple@list.ru>
 Date: Sun, 11 Dec 2022 12:10:54 +0100
 Subject: [PATCH] hid: Add support for Intel Touch Host Controller
@@ -72,7 +72,7 @@ Patchset: ithc
  create mode 100644 drivers/hid/ithc/ithc.h
 
 diff --git a/drivers/hid/Kconfig b/drivers/hid/Kconfig
-index a263e49b2ae29..03f0f5af289a4 100644
+index a263e49b2ae2..03f0f5af289a 100644
 --- a/drivers/hid/Kconfig
 +++ b/drivers/hid/Kconfig
 @@ -1353,4 +1353,6 @@ source "drivers/hid/surface-hid/Kconfig"
@@ -83,7 +83,7 @@ index a263e49b2ae29..03f0f5af289a4 100644
 +
  endif # HID_SUPPORT
 diff --git a/drivers/hid/Makefile b/drivers/hid/Makefile
-index f4bad1b8d813f..d32c194400aea 100644
+index f4bad1b8d813..d32c194400ae 100644
 --- a/drivers/hid/Makefile
 +++ b/drivers/hid/Makefile
 @@ -172,3 +172,4 @@ obj-$(CONFIG_AMD_SFH_HID)       += amd-sfh-hid/
@@ -93,7 +93,7 @@ index f4bad1b8d813f..d32c194400aea 100644
 +obj-$(CONFIG_HID_ITHC)          += ithc/
 diff --git a/drivers/hid/ithc/Kbuild b/drivers/hid/ithc/Kbuild
 new file mode 100644
-index 0000000000000..aea83f2ac07b4
+index 000000000000..aea83f2ac07b
 --- /dev/null
 +++ b/drivers/hid/ithc/Kbuild
 @@ -0,0 +1,6 @@
@@ -105,7 +105,7 @@ index 0000000000000..aea83f2ac07b4
 +
 diff --git a/drivers/hid/ithc/Kconfig b/drivers/hid/ithc/Kconfig
 new file mode 100644
-index 0000000000000..ede7130236096
+index 000000000000..ede713023609
 --- /dev/null
 +++ b/drivers/hid/ithc/Kconfig
 @@ -0,0 +1,12 @@
@@ -123,7 +123,7 @@ index 0000000000000..ede7130236096
 +	  module will be called ithc.
 diff --git a/drivers/hid/ithc/ithc-debug.c b/drivers/hid/ithc/ithc-debug.c
 new file mode 100644
-index 0000000000000..1f1f1e33f2e5a
+index 000000000000..1f1f1e33f2e5
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-debug.c
 @@ -0,0 +1,130 @@
@@ -259,7 +259,7 @@ index 0000000000000..1f1f1e33f2e5a
 +
 diff --git a/drivers/hid/ithc/ithc-dma.c b/drivers/hid/ithc/ithc-dma.c
 new file mode 100644
-index 0000000000000..ffb8689b8a780
+index 000000000000..ffb8689b8a78
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-dma.c
 @@ -0,0 +1,373 @@
@@ -638,7 +638,7 @@ index 0000000000000..ffb8689b8a780
 +
 diff --git a/drivers/hid/ithc/ithc-dma.h b/drivers/hid/ithc/ithc-dma.h
 new file mode 100644
-index 0000000000000..93652e4476bf8
+index 000000000000..93652e4476bf
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-dma.h
 @@ -0,0 +1,69 @@
@@ -713,7 +713,7 @@ index 0000000000000..93652e4476bf8
 +
 diff --git a/drivers/hid/ithc/ithc-main.c b/drivers/hid/ithc/ithc-main.c
 new file mode 100644
-index 0000000000000..87ed4aa70fda0
+index 000000000000..87ed4aa70fda
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-main.c
 @@ -0,0 +1,728 @@
@@ -1447,7 +1447,7 @@ index 0000000000000..87ed4aa70fda0
 +
 diff --git a/drivers/hid/ithc/ithc-regs.c b/drivers/hid/ithc/ithc-regs.c
 new file mode 100644
-index 0000000000000..e058721886e37
+index 000000000000..e058721886e3
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-regs.c
 @@ -0,0 +1,96 @@
@@ -1549,7 +1549,7 @@ index 0000000000000..e058721886e37
 +
 diff --git a/drivers/hid/ithc/ithc-regs.h b/drivers/hid/ithc/ithc-regs.h
 new file mode 100644
-index 0000000000000..d4007d9e2bacc
+index 000000000000..d4007d9e2bac
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-regs.h
 @@ -0,0 +1,189 @@
@@ -1744,7 +1744,7 @@ index 0000000000000..d4007d9e2bacc
 +
 diff --git a/drivers/hid/ithc/ithc.h b/drivers/hid/ithc/ithc.h
 new file mode 100644
-index 0000000000000..028e55a4ec53e
+index 000000000000..028e55a4ec53
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc.h
 @@ -0,0 +1,67 @@
@@ -1816,9 +1816,9 @@ index 0000000000000..028e55a4ec53e
 +void ithc_log_regs(struct ithc *ithc);
 +
 -- 
-2.45.1
+2.45.2
 
-From 949ce7e16eb91fb96b2495a002364a82ee543f16 Mon Sep 17 00:00:00 2001
+From 299f645a4bc247c2f5adae925f56978870b133f8 Mon Sep 17 00:00:00 2001
 From: quo <tuple@list.ru>
 Date: Fri, 19 Apr 2024 22:11:09 +0200
 Subject: [PATCH] hid: ithc: Update from quo/ithc-linux
@@ -1856,7 +1856,7 @@ Patchset: ithc
  create mode 100644 drivers/hid/ithc/ithc-quickspi.h
 
 diff --git a/drivers/hid/ithc/Kbuild b/drivers/hid/ithc/Kbuild
-index aea83f2ac07b4..4937ba1312973 100644
+index aea83f2ac07b..4937ba131297 100644
 --- a/drivers/hid/ithc/Kbuild
 +++ b/drivers/hid/ithc/Kbuild
 @@ -1,6 +1,6 @@
@@ -1868,7 +1868,7 @@ index aea83f2ac07b4..4937ba1312973 100644
  ccflags-y := -std=gnu11 -Wno-declaration-after-statement
  
 diff --git a/drivers/hid/ithc/ithc-debug.c b/drivers/hid/ithc/ithc-debug.c
-index 1f1f1e33f2e5a..2d8c6afe99663 100644
+index 1f1f1e33f2e5..2d8c6afe9966 100644
 --- a/drivers/hid/ithc/ithc-debug.c
 +++ b/drivers/hid/ithc/ithc-debug.c
 @@ -85,10 +85,11 @@ static ssize_t ithc_debugfs_cmd_write(struct file *f, const char __user *buf, si
@@ -1935,7 +1935,7 @@ index 1f1f1e33f2e5a..2d8c6afe99663 100644
  	*dbgm = dbg;
 diff --git a/drivers/hid/ithc/ithc-debug.h b/drivers/hid/ithc/ithc-debug.h
 new file mode 100644
-index 0000000000000..38c53d916bdb5
+index 000000000000..38c53d916bdb
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-debug.h
 @@ -0,0 +1,7 @@
@@ -1947,7 +1947,7 @@ index 0000000000000..38c53d916bdb5
 +void ithc_log_regs(struct ithc *ithc);
 +
 diff --git a/drivers/hid/ithc/ithc-dma.c b/drivers/hid/ithc/ithc-dma.c
-index ffb8689b8a780..bf4eab33062b0 100644
+index ffb8689b8a78..bf4eab33062b 100644
 --- a/drivers/hid/ithc/ithc-dma.c
 +++ b/drivers/hid/ithc/ithc-dma.c
 @@ -173,10 +173,9 @@ int ithc_dma_rx_init(struct ithc *ithc, u8 channel)
@@ -2128,7 +2128,7 @@ index ffb8689b8a780..bf4eab33062b0 100644
  	return ret;
  }
 diff --git a/drivers/hid/ithc/ithc-dma.h b/drivers/hid/ithc/ithc-dma.h
-index 93652e4476bf8..1749a5819b3e7 100644
+index 93652e4476bf..1749a5819b3e 100644
 --- a/drivers/hid/ithc/ithc-dma.h
 +++ b/drivers/hid/ithc/ithc-dma.h
 @@ -11,27 +11,6 @@ struct ithc_phys_region_desc {
@@ -2176,7 +2176,7 @@ index 93652e4476bf8..1749a5819b3e7 100644
  
 diff --git a/drivers/hid/ithc/ithc-hid.c b/drivers/hid/ithc/ithc-hid.c
 new file mode 100644
-index 0000000000000..065646ab499ef
+index 000000000000..065646ab499e
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-hid.c
 @@ -0,0 +1,207 @@
@@ -2389,7 +2389,7 @@ index 0000000000000..065646ab499ef
 +
 diff --git a/drivers/hid/ithc/ithc-hid.h b/drivers/hid/ithc/ithc-hid.h
 new file mode 100644
-index 0000000000000..599eb912c8c84
+index 000000000000..599eb912c8c8
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-hid.h
 @@ -0,0 +1,32 @@
@@ -2427,7 +2427,7 @@ index 0000000000000..599eb912c8c84
 +
 diff --git a/drivers/hid/ithc/ithc-legacy.c b/drivers/hid/ithc/ithc-legacy.c
 new file mode 100644
-index 0000000000000..5c1da11e3f1d2
+index 000000000000..5c1da11e3f1d
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-legacy.c
 @@ -0,0 +1,252 @@
@@ -2685,7 +2685,7 @@ index 0000000000000..5c1da11e3f1d2
 +
 diff --git a/drivers/hid/ithc/ithc-legacy.h b/drivers/hid/ithc/ithc-legacy.h
 new file mode 100644
-index 0000000000000..28d6924620722
+index 000000000000..28d692462072
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-legacy.h
 @@ -0,0 +1,8 @@
@@ -2698,7 +2698,7 @@ index 0000000000000..28d6924620722
 +	size_t maxlen);
 +
 diff --git a/drivers/hid/ithc/ithc-main.c b/drivers/hid/ithc/ithc-main.c
-index 87ed4aa70fda0..2acf02e41d40f 100644
+index 87ed4aa70fda..2acf02e41d40 100644
 --- a/drivers/hid/ithc/ithc-main.c
 +++ b/drivers/hid/ithc/ithc-main.c
 @@ -5,28 +5,6 @@
@@ -3260,7 +3260,7 @@ index 87ed4aa70fda0..2acf02e41d40f 100644
  module_init(ithc_init);
 diff --git a/drivers/hid/ithc/ithc-quickspi.c b/drivers/hid/ithc/ithc-quickspi.c
 new file mode 100644
-index 0000000000000..760e55ead0788
+index 000000000000..760e55ead078
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-quickspi.c
 @@ -0,0 +1,578 @@
@@ -3844,7 +3844,7 @@ index 0000000000000..760e55ead0788
 +
 diff --git a/drivers/hid/ithc/ithc-quickspi.h b/drivers/hid/ithc/ithc-quickspi.h
 new file mode 100644
-index 0000000000000..74d882f6b2f0a
+index 000000000000..74d882f6b2f0
 --- /dev/null
 +++ b/drivers/hid/ithc/ithc-quickspi.h
 @@ -0,0 +1,39 @@
@@ -3888,7 +3888,7 @@ index 0000000000000..74d882f6b2f0a
 +	size_t maxlen);
 +
 diff --git a/drivers/hid/ithc/ithc-regs.c b/drivers/hid/ithc/ithc-regs.c
-index e058721886e37..c0f13506af205 100644
+index e058721886e3..c0f13506af20 100644
 --- a/drivers/hid/ithc/ithc-regs.c
 +++ b/drivers/hid/ithc/ithc-regs.c
 @@ -22,46 +22,104 @@ void bitsb(__iomem u8 *reg, u8 mask, u8 val)
@@ -4004,7 +4004,7 @@ index e058721886e37..c0f13506af205 100644
  		return -EINVAL;
  
 diff --git a/drivers/hid/ithc/ithc-regs.h b/drivers/hid/ithc/ithc-regs.h
-index d4007d9e2bacc..a9d2364546442 100644
+index d4007d9e2bac..a9d236454644 100644
 --- a/drivers/hid/ithc/ithc-regs.h
 +++ b/drivers/hid/ithc/ithc-regs.h
 @@ -1,14 +1,34 @@
@@ -4225,7 +4225,7 @@ index d4007d9e2bacc..a9d2364546442 100644
  int ithc_spi_command(struct ithc *ithc, u8 command, u32 offset, u32 size, void *data);
  
 diff --git a/drivers/hid/ithc/ithc.h b/drivers/hid/ithc/ithc.h
-index 028e55a4ec53e..e90c380444325 100644
+index 028e55a4ec53..e90c38044432 100644
 --- a/drivers/hid/ithc/ithc.h
 +++ b/drivers/hid/ithc/ithc.h
 @@ -1,20 +1,19 @@
@@ -4336,5 +4336,344 @@ index 028e55a4ec53e..e90c380444325 100644
 -void ithc_log_regs(struct ithc *ithc);
  
 -- 
-2.45.1
+2.45.2
+
+From 79abe7fc9d3cd1eda0d9904695a98e98eab037aa Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 4 Aug 2024 16:04:53 +0200
+Subject: [PATCH] hid: ithc: Update from quo/ithc-linux
+
+ - Enable support for SL6/SP10
+ - Fixes for SP8
+
+Based on: https://github.com/quo/ithc-linux/commit/34539af4726d970f9765363bb78b5fd920611a0b
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: ithc
+---
+ drivers/hid/ithc/ithc-legacy.c   |  4 +-
+ drivers/hid/ithc/ithc-main.c     | 91 +++++++++-----------------------
+ drivers/hid/ithc/ithc-quickspi.c | 53 ++++++++++++++-----
+ drivers/hid/ithc/ithc-regs.h     | 15 +++---
+ drivers/hid/ithc/ithc.h          |  9 +++-
+ 5 files changed, 82 insertions(+), 90 deletions(-)
+
+diff --git a/drivers/hid/ithc/ithc-legacy.c b/drivers/hid/ithc/ithc-legacy.c
+index 5c1da11e3f1d..8883987fb352 100644
+--- a/drivers/hid/ithc/ithc-legacy.c
++++ b/drivers/hid/ithc/ithc-legacy.c
+@@ -82,8 +82,10 @@ int ithc_legacy_init(struct ithc *ithc)
+ 	// Setting the following bit seems to make reading the config more reliable.
+ 	bitsl_set(&ithc->regs->dma_rx[0].init_unknown, INIT_UNKNOWN_31);
+ 
+-	// Setting this bit may be necessary on some ADL devices.
++	// Setting this bit may be necessary on ADL devices.
+ 	switch (ithc->pci->device) {
++	case PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT1:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT2:
+ 	case PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT1:
+ 	case PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT2:
+ 	case PCI_DEVICE_ID_INTEL_THC_ADL_M_PORT1:
+diff --git a/drivers/hid/ithc/ithc-main.c b/drivers/hid/ithc/ithc-main.c
+index 2acf02e41d40..ac56c253674b 100644
+--- a/drivers/hid/ithc/ithc-main.c
++++ b/drivers/hid/ithc/ithc-main.c
+@@ -6,25 +6,14 @@ MODULE_DESCRIPTION("Intel Touch Host Controller driver");
+ MODULE_LICENSE("Dual BSD/GPL");
+ 
+ static const struct pci_device_id ithc_pci_tbl[] = {
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_LKF_PORT1) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_LKF_PORT2) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_TGL_LP_PORT1) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_TGL_LP_PORT2) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_TGL_H_PORT1) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_TGL_H_PORT2) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT1) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT2) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT1) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT2) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_ADL_M_PORT1) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_ADL_M_PORT2) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_RPL_S_PORT1) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_RPL_S_PORT2) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_MTL_PORT1) },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_THC_MTL_PORT2) },
+-	// XXX So far the THC seems to be the only Intel PCI device with PCI_CLASS_INPUT_PEN,
+-	// so instead of the device list we could just do:
+-	// { .vendor = PCI_VENDOR_ID_INTEL, .device = PCI_ANY_ID, .subvendor = PCI_ANY_ID, .subdevice = PCI_ANY_ID, .class = PCI_CLASS_INPUT_PEN, .class_mask = ~0, },
++	{
++		.vendor = PCI_VENDOR_ID_INTEL,
++		.device = PCI_ANY_ID,
++		.subvendor = PCI_ANY_ID,
++		.subdevice = PCI_ANY_ID,
++		.class = PCI_CLASS_INPUT_PEN << 8,
++		.class_mask = ~0,
++	},
+ 	{}
+ };
+ MODULE_DEVICE_TABLE(pci, ithc_pci_tbl);
+@@ -52,50 +41,14 @@ static int ithc_idle_ltr_us = -1;
+ module_param_named(idleltr, ithc_idle_ltr_us, int, 0);
+ MODULE_PARM_DESC(idleltr, "Idle LTR value override (in microseconds)");
+ 
++static unsigned int ithc_idle_delay_ms = 1000;
++module_param_named(idledelay, ithc_idle_delay_ms, uint, 0);
++MODULE_PARM_DESC(idleltr, "Minimum idle time before applying idle LTR value (in milliseconds)");
++
+ static bool ithc_log_regs_enabled = false;
+ module_param_named(logregs, ithc_log_regs_enabled, bool, 0);
+ MODULE_PARM_DESC(logregs, "Log changes in register values (for debugging)");
+ 
+-// Sysfs attributes
+-
+-static ssize_t vendor_show(struct device *dev, struct device_attribute *attr, char *buf)
+-{
+-	struct ithc *ithc = dev_get_drvdata(dev);
+-	if (!ithc || !ithc->have_config)
+-		return -ENODEV;
+-	return sprintf(buf, "0x%04x", ithc->vendor_id);
+-}
+-static DEVICE_ATTR_RO(vendor);
+-static ssize_t product_show(struct device *dev, struct device_attribute *attr, char *buf)
+-{
+-	struct ithc *ithc = dev_get_drvdata(dev);
+-	if (!ithc || !ithc->have_config)
+-		return -ENODEV;
+-	return sprintf(buf, "0x%04x", ithc->product_id);
+-}
+-static DEVICE_ATTR_RO(product);
+-static ssize_t revision_show(struct device *dev, struct device_attribute *attr, char *buf)
+-{
+-	struct ithc *ithc = dev_get_drvdata(dev);
+-	if (!ithc || !ithc->have_config)
+-		return -ENODEV;
+-	return sprintf(buf, "%u", ithc->product_rev);
+-}
+-static DEVICE_ATTR_RO(revision);
+-
+-static const struct attribute_group *ithc_attribute_groups[] = {
+-	&(const struct attribute_group){
+-		.name = DEVNAME,
+-		.attrs = (struct attribute *[]){
+-			&dev_attr_vendor.attr,
+-			&dev_attr_product.attr,
+-			&dev_attr_revision.attr,
+-			NULL
+-		},
+-	},
+-	NULL
+-};
+-
+ // Interrupts/polling
+ 
+ static void ithc_disable_interrupts(struct ithc *ithc)
+@@ -124,14 +77,19 @@ static void ithc_clear_interrupts(struct ithc *ithc)
+ 		&ithc->regs->dma_tx.status);
+ }
+ 
++static void ithc_idle_timer_callback(struct timer_list *t)
++{
++	struct ithc *ithc = container_of(t, struct ithc, idle_timer);
++	ithc_set_ltr_idle(ithc);
++}
++
+ static void ithc_process(struct ithc *ithc)
+ {
+ 	ithc_log_regs(ithc);
+ 
+ 	// The THC automatically transitions from LTR idle to active at the start of a DMA transfer.
+-	// It does not appear to automatically go back to idle, so we switch it back here, since
+-	// the DMA transfer should be complete.
+-	ithc_set_ltr_idle(ithc);
++	// It does not appear to automatically go back to idle, so we switch it back after a delay.
++	mod_timer(&ithc->idle_timer, jiffies + msecs_to_jiffies(ithc_idle_delay_ms));
+ 
+ 	bool rx0 = ithc_use_rx0 && (readl(&ithc->regs->dma_rx[0].status) & (DMA_RX_STATUS_ERROR | DMA_RX_STATUS_HAVE_DATA)) != 0;
+ 	bool rx1 = ithc_use_rx1 && (readl(&ithc->regs->dma_rx[1].status) & (DMA_RX_STATUS_ERROR | DMA_RX_STATUS_HAVE_DATA)) != 0;
+@@ -231,10 +189,10 @@ static int ithc_init_device(struct ithc *ithc)
+ 	// Set Latency Tolerance Reporting config. The device will automatically
+ 	// apply these values depending on whether it is active or idle.
+ 	// If active value is too high, DMA buffer data can become truncated.
+-	// By default, we set the active LTR value to 100us, and idle to 100ms.
++	// By default, we set the active LTR value to 50us, and idle to 100ms.
+ 	u64 active_ltr_ns = ithc_active_ltr_us >= 0 ? (u64)ithc_active_ltr_us * 1000
+ 		: cfg.has_config && cfg.has_active_ltr ? (u64)cfg.active_ltr << 10
+-		: 100 * 1000;
++		: 50 * 1000;
+ 	u64 idle_ltr_ns = ithc_idle_ltr_us >= 0 ? (u64)ithc_idle_ltr_us * 1000
+ 		: cfg.has_config && cfg.has_idle_ltr ? (u64)cfg.idle_ltr << 10
+ 		: 100 * 1000 * 1000;
+@@ -279,6 +237,7 @@ static void ithc_stop(void *res)
+ 	else
+ 		ithc_legacy_exit(ithc);
+ 	ithc_disable(ithc);
++	del_timer_sync(&ithc->idle_timer);
+ 
+ 	// Clear DMA config.
+ 	for (unsigned int i = 0; i < 2; i++) {
+@@ -343,13 +302,14 @@ static int ithc_start(struct pci_dev *pci)
+ 
+ 	// Initialize HID and DMA.
+ 	CHECK_RET(ithc_hid_init, ithc);
+-	CHECK(devm_device_add_groups, &pci->dev, ithc_attribute_groups);
+ 	if (ithc_use_rx0)
+ 		CHECK_RET(ithc_dma_rx_init, ithc, 0);
+ 	if (ithc_use_rx1)
+ 		CHECK_RET(ithc_dma_rx_init, ithc, 1);
+ 	CHECK_RET(ithc_dma_tx_init, ithc);
+ 
++	timer_setup(&ithc->idle_timer, ithc_idle_timer_callback, 0);
++
+ 	// Add ithc_stop() callback AFTER setting up DMA buffers, so that polling/irqs/DMA are
+ 	// disabled BEFORE the buffers are freed.
+ 	CHECK_RET(devm_add_action_or_reset, &pci->dev, ithc_stop, ithc);
+@@ -452,7 +412,6 @@ static struct pci_driver ithc_driver = {
+ 		.restore = ithc_restore,
+ 	},
+ 	.driver.probe_type = PROBE_PREFER_ASYNCHRONOUS,
+-	//.dev_groups = ithc_attribute_groups, // could use this (since 5.14), however the attributes won't have valid values until config has been read anyway
+ };
+ 
+ static int __init ithc_init(void)
+diff --git a/drivers/hid/ithc/ithc-quickspi.c b/drivers/hid/ithc/ithc-quickspi.c
+index 760e55ead078..e2d1690b8cf8 100644
+--- a/drivers/hid/ithc/ithc-quickspi.c
++++ b/drivers/hid/ithc/ithc-quickspi.c
+@@ -257,6 +257,14 @@ void ithc_print_acpi_config(struct ithc *ithc, const struct ithc_acpi_config *cf
+ 		spi_frequency, limit_packet_size, tx_delay, active_ltr, idle_ltr);
+ }
+ 
++static void set_opcode(struct ithc *ithc, size_t i, u8 opcode)
++{
++	writeb(opcode, &ithc->regs->opcode[i].header);
++	writeb(opcode, &ithc->regs->opcode[i].single);
++	writeb(opcode, &ithc->regs->opcode[i].dual);
++	writeb(opcode, &ithc->regs->opcode[i].quad);
++}
++
+ static int ithc_quickspi_init_regs(struct ithc *ithc, const struct ithc_acpi_config *cfg)
+ {
+ 	pci_dbg(ithc->pci, "initializing QuickSPI registers\n");
+@@ -279,26 +287,47 @@ static int ithc_quickspi_init_regs(struct ithc *ithc, const struct ithc_acpi_con
+ 	// SPI addresses and opcodes
+ 	if (cfg->has_input_report_header_address)
+ 		writel(cfg->input_report_header_address, &ithc->regs->spi_header_addr);
+-	if (cfg->has_input_report_body_address)
++	if (cfg->has_input_report_body_address) {
+ 		writel(cfg->input_report_body_address, &ithc->regs->dma_rx[0].spi_addr);
++		writel(cfg->input_report_body_address, &ithc->regs->dma_rx[1].spi_addr);
++	}
+ 	if (cfg->has_output_report_body_address)
+ 		writel(cfg->output_report_body_address, &ithc->regs->dma_tx.spi_addr);
+ 
+-	if (cfg->has_read_opcode) {
+-		writeb(cfg->read_opcode, &ithc->regs->read_opcode);
+-		writeb(cfg->read_opcode, &ithc->regs->read_opcode_single);
+-		writeb(cfg->read_opcode, &ithc->regs->read_opcode_dual);
+-		writeb(cfg->read_opcode, &ithc->regs->read_opcode_quad);
+-	}
+-	if (cfg->has_write_opcode) {
+-		writeb(cfg->write_opcode, &ithc->regs->write_opcode);
+-		writeb(cfg->write_opcode, &ithc->regs->write_opcode_single);
+-		writeb(cfg->write_opcode, &ithc->regs->write_opcode_dual);
+-		writeb(cfg->write_opcode, &ithc->regs->write_opcode_quad);
++	switch (ithc->pci->device) {
++	// LKF/TGL don't support QuickSPI.
++	// For ADL, opcode layout is RX/TX/unused.
++	case PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT1:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT2:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT1:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT2:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_M_PORT1:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_M_PORT2:
++		if (cfg->has_read_opcode) {
++			set_opcode(ithc, 0, cfg->read_opcode);
++		}
++		if (cfg->has_write_opcode) {
++			set_opcode(ithc, 1, cfg->write_opcode);
++		}
++		break;
++	// For MTL, opcode layout was changed to RX/RX/TX.
++	// (RPL layout is unknown.)
++	default:
++		if (cfg->has_read_opcode) {
++			set_opcode(ithc, 0, cfg->read_opcode);
++			set_opcode(ithc, 1, cfg->read_opcode);
++		}
++		if (cfg->has_write_opcode) {
++			set_opcode(ithc, 2, cfg->write_opcode);
++		}
++		break;
+ 	}
++
+ 	ithc_log_regs(ithc);
+ 
+ 	// The rest...
++	bitsl_set(&ithc->regs->dma_rx[0].init_unknown, INIT_UNKNOWN_31);
++
+ 	bitsl(&ithc->regs->quickspi_config1,
+ 		QUICKSPI_CONFIG1_UNKNOWN_0(0xff) | QUICKSPI_CONFIG1_UNKNOWN_5(0xff) |
+ 		QUICKSPI_CONFIG1_UNKNOWN_10(0xff) | QUICKSPI_CONFIG1_UNKNOWN_16(0xffff),
+diff --git a/drivers/hid/ithc/ithc-regs.h b/drivers/hid/ithc/ithc-regs.h
+index a9d236454644..4f541fe533fa 100644
+--- a/drivers/hid/ithc/ithc-regs.h
++++ b/drivers/hid/ithc/ithc-regs.h
+@@ -129,15 +129,12 @@ struct ithc_registers {
+ 	/* 1008 */ u32 control_bits;
+ 	/* 100c */ u32 _unknown_100c;
+ 	/* 1010 */ u32 spi_config;
+-	/* 1014 */ u8 read_opcode; // maybe for header?
+-	/* 1015 */ u8 read_opcode_quad;
+-	/* 1016 */ u8 read_opcode_dual;
+-	/* 1017 */ u8 read_opcode_single;
+-	/* 1018 */ u8 write_opcode; // not used?
+-	/* 1019 */ u8 write_opcode_quad;
+-	/* 101a */ u8 write_opcode_dual;
+-	/* 101b */ u8 write_opcode_single;
+-	/* 101c */ u32 _unknown_101c;
++	struct {
++		/* 1014/1018/101c */ u8 header;
++		/* 1015/1019/101d */ u8 quad;
++		/* 1016/101a/101e */ u8 dual;
++		/* 1017/101b/101f */ u8 single;
++	} opcode[3];
+ 	/* 1020 */ u32 error_control;
+ 	/* 1024 */ u32 error_status; // write to clear
+ 	/* 1028 */ u32 error_flags; // write to clear
+diff --git a/drivers/hid/ithc/ithc.h b/drivers/hid/ithc/ithc.h
+index e90c38044432..aec320d4e945 100644
+--- a/drivers/hid/ithc/ithc.h
++++ b/drivers/hid/ithc/ithc.h
+@@ -14,6 +14,8 @@
+ #include <linux/module.h>
+ #include <linux/pci.h>
+ #include <linux/poll.h>
++#include <linux/timer.h>
++#include <linux/vmalloc.h>
+ 
+ #define DEVNAME "ithc"
+ #define DEVFULLNAME "Intel Touch Host Controller"
+@@ -46,8 +48,10 @@
+ #define PCI_DEVICE_ID_INTEL_THC_RPL_S_PORT1  0x7a58
+ #define PCI_DEVICE_ID_INTEL_THC_RPL_S_PORT2  0x7a59
+ // Meteor Lake
+-#define PCI_DEVICE_ID_INTEL_THC_MTL_PORT1    0x7e48
+-#define PCI_DEVICE_ID_INTEL_THC_MTL_PORT2    0x7e4a
++#define PCI_DEVICE_ID_INTEL_THC_MTL_S_PORT1  0x7f59
++#define PCI_DEVICE_ID_INTEL_THC_MTL_S_PORT2  0x7f5b
++#define PCI_DEVICE_ID_INTEL_THC_MTL_MP_PORT1 0x7e49
++#define PCI_DEVICE_ID_INTEL_THC_MTL_MP_PORT2 0x7e4b
+ 
+ struct ithc;
+ 
+@@ -63,6 +67,7 @@ struct ithc {
+ 	struct pci_dev *pci;
+ 	int irq;
+ 	struct task_struct *poll_thread;
++	struct timer_list idle_timer;
+ 
+ 	struct ithc_registers __iomem *regs;
+ 	struct ithc_registers *prev_regs; // for debugging
+-- 
+2.45.2
 
