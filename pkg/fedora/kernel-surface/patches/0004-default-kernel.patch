@@ -1,4 +1,4 @@
-From 64bb7e9daea6e836c3eb8334368ea9cd651ce8db Mon Sep 17 00:00:00 2001
+From ddb9b1b93df3bf75843ab952534a39a7e8dd7711 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Sat, 22 Jul 2023 10:41:11 +0200
 Subject: [PATCH 4/5] Install scripts and service files for keeping the surface
@@ -6,14 +6,14 @@ Subject: [PATCH 4/5] Install scripts and service files for keeping the surface
 
 Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
 ---
- redhat/kernel.spec.template | 34 ++++++++++++++++++++++++++++++++++
- 1 file changed, 34 insertions(+)
+ redhat/kernel.spec.template | 33 +++++++++++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
 
 diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
-index 4f3253f17121..3ce7fbec4beb 100644
+index 890d9225edd8..68b06ba0d4b1 100644
 --- a/redhat/kernel.spec.template
 +++ b/redhat/kernel.spec.template
-@@ -974,6 +974,11 @@ Source4000: README.rst
+@@ -992,6 +992,11 @@ Source4000: README.rst
  Source4001: rpminspect.yaml
  Source4002: gating.yaml
  
@@ -25,7 +25,7 @@ index 4f3253f17121..3ce7fbec4beb 100644
  ## Patches needed for building this package
  
  %if !%{nopatches}
-@@ -1007,6 +1012,7 @@ Requires(pre): %{initrd_prereq}\
+@@ -1025,6 +1030,7 @@ Requires(pre): %{initrd_prereq}\
  Requires(pre): ((linux-firmware >= 20150904-56.git6ebf5d57) if linux-firmware)\
  Recommends: linux-firmware\
  Recommends: iptsd\
@@ -33,7 +33,7 @@ index 4f3253f17121..3ce7fbec4beb 100644
  Requires(preun): systemd >= 200\
  Conflicts: xfsprogs < 4.3.0-1\
  Conflicts: xorg-x11-drv-vmmouse < 13.0.99\
-@@ -1021,6 +1027,14 @@ AutoProv: yes\
+@@ -1039,6 +1045,13 @@ AutoProv: yes\
  %{nil}
  
  
@@ -44,11 +44,10 @@ index 4f3253f17121..3ce7fbec4beb 100644
 +the surface kernel as the default kernel in GRUB, even if a newer stock
 +kernel has been installed.
 +
-+
  %package doc
  Summary: Various documentation bits found in the kernel source
  Group: Documentation
-@@ -3091,6 +3105,11 @@ find Documentation -type d | xargs chmod u+w
+@@ -3170,6 +3183,11 @@ find Documentation -type d | xargs chmod u+w
  
  cd linux-%{KVERREL}
  
@@ -57,10 +56,10 @@ index 4f3253f17121..3ce7fbec4beb 100644
 +install -D -m755 "%{SOURCE4102}" -t "%{buildroot}%{_bindir}"
 +install -D -m755 "%{SOURCE4103}" -t "%{buildroot}%{_presetdir}"
 +
- %if %{with_doc}
- docdir=$RPM_BUILD_ROOT%{_datadir}/doc/kernel-doc-%{specversion}-%{pkgrelease}
+ # re-define RPM_VMLINUX_H, because it doesn't carry over from %build
+ RPM_VMLINUX_H="$(cat ../vmlinux_h_path)"
  
-@@ -3347,6 +3366,15 @@ popd
+@@ -3441,6 +3459,15 @@ popd
  ### scripts
  ###
  
@@ -76,7 +75,7 @@ index 4f3253f17121..3ce7fbec4beb 100644
  %if %{with_tools}
  %post -n %{package_name}-tools-libs
  /sbin/ldconfig
-@@ -3810,6 +3838,12 @@ fi\
+@@ -3904,6 +3931,12 @@ fi\
  %{_libexecdir}/kselftests
  %endif
  
@@ -90,5 +89,5 @@ index 4f3253f17121..3ce7fbec4beb 100644
  %if %{with_up_base}
  %ifnarch %nobuildarches noarch
 -- 
-2.45.1
+2.46.0
 
