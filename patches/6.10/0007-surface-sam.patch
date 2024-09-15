@@ -1,59 +1,4 @@
-From 17af44bcfe971e7b9dddad3735fad70bbda3fbf9 Mon Sep 17 00:00:00 2001
-From: Maximilian Luz <luzmaximilian@gmail.com>
-Date: Fri, 19 Apr 2024 20:41:47 +0200
-Subject: [PATCH] platform/surface: aggregator: Fix warning when controller is
- destroyed in probe
-
-There is a small window in ssam_serial_hub_probe() where the controller
-is initialized but has not been started yet. Specifically, between
-ssam_controller_init() and ssam_controller_start(). Any failure in this
-window, for example caused by a failure of serdev_device_open(),
-currently results in an incorrect warning being emitted.
-
-In particular, any failure in this window results in the controller
-being destroyed via ssam_controller_destroy(). This function checks the
-state of the controller and, in an attempt to validate that the
-controller has been cleanly shut down before we try and deallocate any
-resources, emits a warning if that state is not SSAM_CONTROLLER_STOPPED.
-
-However, since we have only just initialized the controller and have not
-yet started it, its state is SSAM_CONTROLLER_INITIALIZED. Note that this
-is the only point at which the controller has this state, as it will
-change after we start the controller with ssam_controller_start() and
-never revert back. Further, at this point no communication has taken
-place and the sender and receiver threads have not been started yet (and
-we may not even have an open serdev device either).
-
-Therefore, it is perfectly safe to call ssam_controller_destroy() with a
-state of SSAM_CONTROLLER_INITIALIZED. This, however, means that the
-warning currently being emitted is incorrect. Fix it by extending the
-check.
-
-Fixes: c167b9c7e3d6 ("platform/surface: Add Surface Aggregator subsystem")
-Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
-Patchset: surface-sam
----
- drivers/platform/surface/aggregator/controller.c | 3 ++-
- 1 file changed, 2 insertions(+), 1 deletion(-)
-
-diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
-index 7fc602e01487..7e89f547999b 100644
---- a/drivers/platform/surface/aggregator/controller.c
-+++ b/drivers/platform/surface/aggregator/controller.c
-@@ -1354,7 +1354,8 @@ void ssam_controller_destroy(struct ssam_controller *ctrl)
- 	if (ctrl->state == SSAM_CONTROLLER_UNINITIALIZED)
- 		return;
- 
--	WARN_ON(ctrl->state != SSAM_CONTROLLER_STOPPED);
-+	WARN_ON(ctrl->state != SSAM_CONTROLLER_STOPPED &&
-+		ctrl->state != SSAM_CONTROLLER_INITIALIZED);
- 
- 	/*
- 	 * Note: New events could still have been received after the previous
--- 
-2.46.0
-
-From 00b833401e8060eb50db269e0681383454a74848 Mon Sep 17 00:00:00 2001
+From 1c0c81136657ad8656e5d713d0d8282d70413e53 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 22 Oct 2023 14:57:11 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add support for
@@ -86,7 +31,7 @@ index 1c4d74db08c9..f826489dc69d 100644
 -- 
 2.46.0
 
-From 9e13165394bf1898d05c7d5a4a5adb1767d2307e Mon Sep 17 00:00:00 2001
+From 74e058609a1229cfd478690ae2ad0fbb209ee6ed Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 20 Nov 2023 19:47:00 +0100
 Subject: [PATCH] platform/surface: aggregator_registry: Add support for
@@ -156,7 +101,7 @@ index f826489dc69d..ef59a7b66667 100644
 -- 
 2.46.0
 
-From 83719d2cd70ad6ac1df993782e757ded15e881cc Mon Sep 17 00:00:00 2001
+From 61ed1a703286c45a6f9de31053a8041e7e54cd4d Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 9 Jun 2024 20:05:57 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add support for
@@ -174,7 +119,7 @@ Patchset: surface-sam
  1 file changed, 19 insertions(+)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index ef59a7b66667..70a2ea5a1957 100644
+index ef59a7b66667..a20ccf49731c 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -273,6 +273,22 @@ static const struct software_node *ssam_node_group_sl5[] = {
@@ -205,7 +150,7 @@ index ef59a7b66667..70a2ea5a1957 100644
  	{ "MSHW0350", (unsigned long)ssam_node_group_sl5 },
  
 +	/* Surface Laptop 6 */
-+	{ "MSHW0530", (unsigned long)ssam_node_group_sl5 },
++	{ "MSHW0530", (unsigned long)ssam_node_group_sl6 },
 +
  	/* Surface Laptop Go 1 */
  	{ "MSHW0118", (unsigned long)ssam_node_group_slg1 },
@@ -213,7 +158,7 @@ index ef59a7b66667..70a2ea5a1957 100644
 -- 
 2.46.0
 
-From c188646846cc6e9db1134eb62208d088ce615312 Mon Sep 17 00:00:00 2001
+From be2709e2a0ddebba3887d730a2e61b7bec2a06f2 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 30 Dec 2023 18:07:54 +0100
 Subject: [PATCH] hwmon: Add thermal sensor driver for Surface Aggregator
@@ -441,7 +386,7 @@ index 000000000000..48c3e826713f
 -- 
 2.46.0
 
-From 31d334453ebc65b7868bf33b1963553586e64fa3 Mon Sep 17 00:00:00 2001
+From 15ba0027e4d72f580255f8776ee251c94f81cab1 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 30 Dec 2023 18:12:23 +0100
 Subject: [PATCH] hwmon: surface_temp: Add support for sensor names
@@ -636,7 +581,7 @@ index 48c3e826713f..4c08926139db 100644
 -- 
 2.46.0
 
-From 36174000616d130e9b4655d69eb3bd5b07adbecb Mon Sep 17 00:00:00 2001
+From b80e50b1a90e22d3a200b085cac567905e56543c Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 10 Jun 2024 21:47:47 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add fan and thermal
@@ -648,7 +593,7 @@ Patchset: surface-sam
  1 file changed, 3 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 70a2ea5a1957..6b568804f70b 100644
+index a20ccf49731c..2b20c74bbe6d 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -265,7 +265,9 @@ static const struct software_node *ssam_node_group_sl5[] = {
@@ -665,7 +610,7 @@ index 70a2ea5a1957..6b568804f70b 100644
 -- 
 2.46.0
 
-From e32f317be4ad620fb6683b62ad9e883f37e17f57 Mon Sep 17 00:00:00 2001
+From 06973bc3db29f5d009d4de6298e0496490c811ee Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Mon, 10 Jun 2024 21:48:02 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add fan and thermal
@@ -677,7 +622,7 @@ Patchset: surface-sam
  1 file changed, 3 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 6b568804f70b..9046df95c043 100644
+index 2b20c74bbe6d..1e7e7ebeb074 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -312,7 +312,9 @@ static const struct software_node *ssam_node_group_sls2[] = {
@@ -694,7 +639,7 @@ index 6b568804f70b..9046df95c043 100644
 -- 
 2.46.0
 
-From ebf64f6dcf1bdf0dbe80b5ec5e3d4b8a6cfab41e Mon Sep 17 00:00:00 2001
+From 01cab9f250e8dc4b6a2e784467487f7eb03e7afe Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 28 Jun 2024 22:31:37 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add Support for
@@ -706,7 +651,7 @@ Patchset: surface-sam
  1 file changed, 22 insertions(+)
 
 diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
-index 9046df95c043..058f4edd8b66 100644
+index 1e7e7ebeb074..ec9eb4d375b9 100644
 --- a/drivers/platform/surface/surface_aggregator_registry.c
 +++ b/drivers/platform/surface/surface_aggregator_registry.c
 @@ -377,6 +377,25 @@ static const struct software_node *ssam_node_group_sp9[] = {

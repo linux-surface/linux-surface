@@ -1,4 +1,4 @@
-From 252c5b2e65865a2a3aa6a5400f204c47d22490ee Mon Sep 17 00:00:00 2001
+From f042429d0ea3d440fa70f9c51c8197bb208f0a88 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 9 Jun 2024 19:48:58 +0200
 Subject: [PATCH] Revert "efi/x86: Set the PE/COFF header's NX compat flag
@@ -32,6 +32,81 @@ index b5c79f43359b..a1bbedd989e4 100644
  #ifdef CONFIG_X86_32
  	.long	0				# SizeOfStackReserve
  	.long	0				# SizeOfStackCommit
+-- 
+2.46.0
+
+From db11088db25ece8759f2db44ae62b144575a3649 Mon Sep 17 00:00:00 2001
+From: "J. Eduardo" <j.eduardo@gmail.com>
+Date: Sun, 25 Aug 2024 14:17:45 +0200
+Subject: [PATCH] PM: hibernate: Add a lockdown_hibernate parameter
+
+This allows the user to tell the kernel that they know better (namely,
+they secured their swap properly), and that it can enable hibernation.
+
+Signed-off-by: Kelvie Wong <kelvie@kelvie.ca>
+Link: https://github.com/linux-surface/kernel/pull/158
+Link: https://gist.github.com/brknkfr/95d1925ccdbb7a2d18947c168dfabbee
+Patchset: secureboot
+---
+ Documentation/admin-guide/kernel-parameters.txt |  5 +++++
+ kernel/power/hibernate.c                        | 10 +++++++++-
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/admin-guide/kernel-parameters.txt b/Documentation/admin-guide/kernel-parameters.txt
+index c82446cef8e2..2ae1a6fda7f9 100644
+--- a/Documentation/admin-guide/kernel-parameters.txt
++++ b/Documentation/admin-guide/kernel-parameters.txt
+@@ -3000,6 +3000,11 @@
+ 			to extract confidential information from the kernel
+ 			are also disabled.
+ 
++	lockdown_hibernate	[HIBERNATION]
++			Enable hibernation even if lockdown is enabled. Enable this only if
++			your swap is encrypted and secured properly, as an attacker can
++			modify the kernel offline during hibernation.
++
+ 	locktorture.acq_writer_lim= [KNL]
+ 			Set the time limit in jiffies for a lock
+ 			acquisition.  Acquisitions exceeding this limit
+diff --git a/kernel/power/hibernate.c b/kernel/power/hibernate.c
+index 0a213f69a9e4..8e4f9dcc9f4c 100644
+--- a/kernel/power/hibernate.c
++++ b/kernel/power/hibernate.c
+@@ -37,6 +37,7 @@
+ #include "power.h"
+ 
+ 
++static int lockdown_hibernate;
+ static int nocompress;
+ static int noresume;
+ static int nohibernate;
+@@ -92,7 +93,7 @@ void hibernate_release(void)
+ bool hibernation_available(void)
+ {
+ 	return nohibernate == 0 &&
+-		!security_locked_down(LOCKDOWN_HIBERNATION) &&
++		(lockdown_hibernate || !security_locked_down(LOCKDOWN_HIBERNATION)) &&
+ 		!secretmem_active() && !cxl_mem_active();
+ }
+ 
+@@ -1422,6 +1423,12 @@ static int __init nohibernate_setup(char *str)
+ 	return 1;
+ }
+ 
++static int __init lockdown_hibernate_setup(char *str)
++{
++	lockdown_hibernate = 1;
++	return 1;
++}
++
+ static const char * const comp_alg_enabled[] = {
+ #if IS_ENABLED(CONFIG_CRYPTO_LZO)
+ 	COMPRESSION_ALGO_LZO,
+@@ -1480,3 +1487,4 @@ __setup("hibernate=", hibernate_setup);
+ __setup("resumewait", resumewait_setup);
+ __setup("resumedelay=", resumedelay_setup);
+ __setup("nohibernate", nohibernate_setup);
++__setup("lockdown_hibernate", lockdown_hibernate_setup);
 -- 
 2.46.0
 

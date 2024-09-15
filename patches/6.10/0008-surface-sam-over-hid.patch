@@ -1,4 +1,4 @@
-From 8dac7a369f2f1c461750a3c3f6d93caae9566ace Mon Sep 17 00:00:00 2001
+From 6e7285d272dd52c42f6e2f17264a88abe8460a99 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 25 Jul 2020 17:19:53 +0200
 Subject: [PATCH] i2c: acpi: Implement RawBytes read access
@@ -51,14 +51,14 @@ quirk-like interface into the I2C core.
 Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
 Patchset: surface-sam-over-hid
 ---
- drivers/i2c/i2c-core-acpi.c | 35 +++++++++++++++++++++++++++++++++++
- 1 file changed, 35 insertions(+)
+ drivers/i2c/i2c-core-acpi.c | 34 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
 
 diff --git a/drivers/i2c/i2c-core-acpi.c b/drivers/i2c/i2c-core-acpi.c
-index 14ae0cfc325e..a3a9f81fb47f 100644
+index 14ae0cfc325e..6197c5252d2a 100644
 --- a/drivers/i2c/i2c-core-acpi.c
 +++ b/drivers/i2c/i2c-core-acpi.c
-@@ -639,6 +639,28 @@ static int acpi_gsb_i2c_write_bytes(struct i2c_client *client,
+@@ -639,6 +639,27 @@ static int acpi_gsb_i2c_write_bytes(struct i2c_client *client,
  	return (ret == 1) ? 0 : -EIO;
  }
  
@@ -66,7 +66,7 @@ index 14ae0cfc325e..a3a9f81fb47f 100644
 +		u8 *data, u8 data_len)
 +{
 +	struct i2c_msg msgs[1];
-+	int ret = AE_OK;
++	int ret;
 +
 +	msgs[0].addr = client->addr;
 +	msgs[0].flags = client->flags;
@@ -74,7 +74,6 @@ index 14ae0cfc325e..a3a9f81fb47f 100644
 +	msgs[0].buf = data;
 +
 +	ret = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
-+
 +	if (ret < 0) {
 +		dev_err(&client->adapter->dev, "i2c write failed: %d\n", ret);
 +		return ret;
@@ -87,7 +86,7 @@ index 14ae0cfc325e..a3a9f81fb47f 100644
  static acpi_status
  i2c_acpi_space_handler(u32 function, acpi_physical_address command,
  			u32 bits, u64 *value64,
-@@ -740,6 +762,19 @@ i2c_acpi_space_handler(u32 function, acpi_physical_address command,
+@@ -740,6 +761,19 @@ i2c_acpi_space_handler(u32 function, acpi_physical_address command,
  		}
  		break;
  
@@ -110,7 +109,7 @@ index 14ae0cfc325e..a3a9f81fb47f 100644
 -- 
 2.46.0
 
-From fe964119c511036a560d1dfcbec1196ae4ed1621 Mon Sep 17 00:00:00 2001
+From 0ce0983a58d19778a010c55e6ca16e344a28b4a1 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 13 Feb 2021 16:41:18 +0100
 Subject: [PATCH] platform/surface: Add driver for Surface Book 1 dGPU switch
@@ -128,8 +127,8 @@ Patchset: surface-sam-over-hid
 ---
  drivers/platform/surface/Kconfig              |   7 +
  drivers/platform/surface/Makefile             |   1 +
- .../surface/surfacebook1_dgpu_switch.c        | 162 ++++++++++++++++++
- 3 files changed, 170 insertions(+)
+ .../surface/surfacebook1_dgpu_switch.c        | 136 ++++++++++++++++++
+ 3 files changed, 144 insertions(+)
  create mode 100644 drivers/platform/surface/surfacebook1_dgpu_switch.c
 
 diff --git a/drivers/platform/surface/Kconfig b/drivers/platform/surface/Kconfig
@@ -164,35 +163,28 @@ index 53344330939b..7efcd0cdb532 100644
  obj-$(CONFIG_SURFACE_HOTPLUG)		+= surface_hotplug.o
 diff --git a/drivers/platform/surface/surfacebook1_dgpu_switch.c b/drivers/platform/surface/surfacebook1_dgpu_switch.c
 new file mode 100644
-index 000000000000..8b816ed8f35c
+index 000000000000..68db237734a1
 --- /dev/null
 +++ b/drivers/platform/surface/surfacebook1_dgpu_switch.c
-@@ -0,0 +1,162 @@
+@@ -0,0 +1,136 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
-+#include <linux/kernel.h>
 +#include <linux/module.h>
 +#include <linux/acpi.h>
 +#include <linux/platform_device.h>
 +
-+
-+#ifdef pr_fmt
-+#undef pr_fmt
-+#endif
-+#define pr_fmt(fmt) "%s:%s: " fmt, KBUILD_MODNAME, __func__
-+
-+
-+static const guid_t dgpu_sw_guid = GUID_INIT(0x6fd05c69, 0xcde3, 0x49f4,
-+	0x95, 0xed, 0xab, 0x16, 0x65, 0x49, 0x80, 0x35);
++/* MSHW0040/VGBI DSM UUID: 6fd05c69-cde3-49f4-95ed-ab1665498035 */
++static const guid_t dgpu_sw_guid =
++	GUID_INIT(0x6fd05c69, 0xcde3, 0x49f4,
++		  0x95, 0xed, 0xab, 0x16, 0x65, 0x49, 0x80, 0x35);
 +
 +#define DGPUSW_ACPI_PATH_DSM	"\\_SB_.PCI0.LPCB.EC0_.VGBI"
 +#define DGPUSW_ACPI_PATH_HGON	"\\_SB_.PCI0.RP05.HGON"
 +#define DGPUSW_ACPI_PATH_HGOF	"\\_SB_.PCI0.RP05.HGOF"
 +
-+
 +static int sb1_dgpu_sw_dsmcall(void)
 +{
-+	union acpi_object *ret;
++	union acpi_object *obj;
 +	acpi_handle handle;
 +	acpi_status status;
 +
@@ -200,67 +192,66 @@ index 000000000000..8b816ed8f35c
 +	if (status)
 +		return -EINVAL;
 +
-+	ret = acpi_evaluate_dsm_typed(handle, &dgpu_sw_guid, 1, 1, NULL, ACPI_TYPE_BUFFER);
-+	if (!ret)
++	obj = acpi_evaluate_dsm_typed(handle, &dgpu_sw_guid, 1, 1, NULL, ACPI_TYPE_BUFFER);
++	if (!obj)
 +		return -EINVAL;
 +
-+	ACPI_FREE(ret);
++	ACPI_FREE(obj);
 +	return 0;
 +}
 +
-+static int sb1_dgpu_sw_hgon(void)
++static int sb1_dgpu_sw_hgon(struct device *dev)
 +{
 +	struct acpi_buffer buf = {ACPI_ALLOCATE_BUFFER, NULL};
 +	acpi_status status;
 +
 +	status = acpi_evaluate_object(NULL, DGPUSW_ACPI_PATH_HGON, NULL, &buf);
 +	if (status) {
-+		pr_err("failed to run HGON: %d\n", status);
++		dev_err(dev, "failed to run HGON: %d\n", status);
 +		return -EINVAL;
 +	}
 +
-+	if (buf.pointer)
-+		ACPI_FREE(buf.pointer);
++	ACPI_FREE(buf.pointer);
 +
-+	pr_info("turned-on dGPU via HGON\n");
++	dev_info(dev, "turned-on dGPU via HGON\n");
 +	return 0;
 +}
 +
-+static int sb1_dgpu_sw_hgof(void)
++static int sb1_dgpu_sw_hgof(struct device *dev)
 +{
 +	struct acpi_buffer buf = {ACPI_ALLOCATE_BUFFER, NULL};
 +	acpi_status status;
 +
 +	status = acpi_evaluate_object(NULL, DGPUSW_ACPI_PATH_HGOF, NULL, &buf);
 +	if (status) {
-+		pr_err("failed to run HGOF: %d\n", status);
++		dev_err(dev, "failed to run HGOF: %d\n", status);
 +		return -EINVAL;
 +	}
 +
-+	if (buf.pointer)
-+		ACPI_FREE(buf.pointer);
++	ACPI_FREE(buf.pointer);
 +
-+	pr_info("turned-off dGPU via HGOF\n");
++	dev_info(dev, "turned-off dGPU via HGOF\n");
 +	return 0;
 +}
-+
 +
 +static ssize_t dgpu_dsmcall_store(struct device *dev, struct device_attribute *attr,
 +				  const char *buf, size_t len)
 +{
-+	int status, value;
++	bool value;
++	int status;
 +
-+	status = kstrtoint(buf, 0, &value);
++	status = kstrtobool(buf, &value);
 +	if (status < 0)
 +		return status;
 +
-+	if (value != 1)
-+		return -EINVAL;
++	if (!value)
++		return 0;
 +
 +	status = sb1_dgpu_sw_dsmcall();
 +
 +	return status < 0 ? status : len;
 +}
++static DEVICE_ATTR_WO(dgpu_dsmcall);
 +
 +static ssize_t dgpu_power_store(struct device *dev, struct device_attribute *attr,
 +				const char *buf, size_t len)
@@ -273,37 +264,20 @@ index 000000000000..8b816ed8f35c
 +		return status;
 +
 +	if (power)
-+		status = sb1_dgpu_sw_hgon();
++		status = sb1_dgpu_sw_hgon(dev);
 +	else
-+		status = sb1_dgpu_sw_hgof();
++		status = sb1_dgpu_sw_hgof(dev);
 +
 +	return status < 0 ? status : len;
 +}
-+
-+static DEVICE_ATTR_WO(dgpu_dsmcall);
 +static DEVICE_ATTR_WO(dgpu_power);
 +
 +static struct attribute *sb1_dgpu_sw_attrs[] = {
 +	&dev_attr_dgpu_dsmcall.attr,
 +	&dev_attr_dgpu_power.attr,
-+	NULL,
++	NULL
 +};
-+
-+static const struct attribute_group sb1_dgpu_sw_attr_group = {
-+	.attrs = sb1_dgpu_sw_attrs,
-+};
-+
-+
-+static int sb1_dgpu_sw_probe(struct platform_device *pdev)
-+{
-+	return sysfs_create_group(&pdev->dev.kobj, &sb1_dgpu_sw_attr_group);
-+}
-+
-+static int sb1_dgpu_sw_remove(struct platform_device *pdev)
-+{
-+	sysfs_remove_group(&pdev->dev.kobj, &sb1_dgpu_sw_attr_group);
-+	return 0;
-+}
++ATTRIBUTE_GROUPS(sb1_dgpu_sw);
 +
 +/*
 + * The dGPU power seems to be actually handled by MSHW0040. However, that is
@@ -312,17 +286,16 @@ index 000000000000..8b816ed8f35c
 + */
 +static const struct acpi_device_id sb1_dgpu_sw_match[] = {
 +	{ "MSHW0041", },
-+	{ },
++	{ }
 +};
 +MODULE_DEVICE_TABLE(acpi, sb1_dgpu_sw_match);
 +
 +static struct platform_driver sb1_dgpu_sw = {
-+	.probe = sb1_dgpu_sw_probe,
-+	.remove = sb1_dgpu_sw_remove,
 +	.driver = {
 +		.name = "surfacebook1_dgpu_switch",
 +		.acpi_match_table = sb1_dgpu_sw_match,
 +		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++		.dev_groups = sb1_dgpu_sw_groups,
 +	},
 +};
 +module_platform_driver(sb1_dgpu_sw);
