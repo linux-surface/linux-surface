@@ -48,9 +48,12 @@ If your device is not listed as supported yet, feel free to open an issue.
 * Surface Laptop 3
 * Surface Laptop 4
 * Surface Laptop 5
+* Surface Laptop 6
 * Surface Laptop Go
 * Surface Laptop Go 2
+* Surface Laptop Go 3
 * Surface Laptop Studio
+* Surface Laptop Studio 2
 * Surface Pro 1
 * Surface Pro 3
 * Surface Pro 4
@@ -60,6 +63,7 @@ If your device is not listed as supported yet, feel free to open an issue.
 * Surface Pro 7+
 * Surface Pro 8
 * Surface Pro 9
+* Surface Pro 10
 * Surface Studio
 
 ### Features / What's Working
