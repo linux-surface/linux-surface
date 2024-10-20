@@ -1,4 +1,4 @@
-From 5685742814d25f3e7bf875d953edb3606cadf964 Mon Sep 17 00:00:00 2001
+From a5a6bdb95712bac5c7654818ac8d4f057ef4d5cb Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 18 Feb 2023 01:02:49 +0100
 Subject: [PATCH] USB: quirks: Add USB_QUIRK_DELAY_INIT for Surface Go 3
@@ -37,9 +37,9 @@ index 13171454f959..a83beefd25f3 100644
  	{ USB_DEVICE(0x046a, 0x0023), .driver_info = USB_QUIRK_RESET_RESUME },
  
 -- 
-2.46.1
+2.47.0
 
-From 996f946c80d5a28b533d2cb173faadf0421c05ae Mon Sep 17 00:00:00 2001
+From 4ce6ba56469f18617a4498efc9a820eee619adf1 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 5 Nov 2020 13:09:45 +0100
 Subject: [PATCH] hid/multitouch: Turn off Type Cover keyboard backlight when
@@ -75,7 +75,7 @@ Patchset: surface-typecover
  1 file changed, 98 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 99812c0f830b..0b3b51e37149 100644
+index 847462650549..eea3fdbe28e9 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -34,7 +34,10 @@
@@ -147,7 +147,7 @@ index 99812c0f830b..0b3b51e37149 100644
  	{ }
  };
  
-@@ -1744,6 +1764,69 @@ static void mt_expired_timeout(struct timer_list *t)
+@@ -1745,6 +1765,69 @@ static void mt_expired_timeout(struct timer_list *t)
  	clear_bit_unlock(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
  }
  
@@ -217,7 +217,7 @@ index 99812c0f830b..0b3b51e37149 100644
  static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  {
  	int ret, i;
-@@ -1767,6 +1850,9 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+@@ -1768,6 +1851,9 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  	td->inputmode_value = MT_INPUTMODE_TOUCHSCREEN;
  	hid_set_drvdata(hdev, td);
  
@@ -227,7 +227,7 @@ index 99812c0f830b..0b3b51e37149 100644
  	INIT_LIST_HEAD(&td->applications);
  	INIT_LIST_HEAD(&td->reports);
  
-@@ -1805,15 +1891,19 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+@@ -1806,15 +1892,19 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  	timer_setup(&td->release_timer, mt_expired_timeout, 0);
  
  	ret = hid_parse(hdev);
@@ -249,7 +249,7 @@ index 99812c0f830b..0b3b51e37149 100644
  
  	ret = sysfs_create_group(&hdev->dev.kobj, &mt_attribute_group);
  	if (ret)
-@@ -1863,6 +1953,7 @@ static void mt_remove(struct hid_device *hdev)
+@@ -1864,6 +1954,7 @@ static void mt_remove(struct hid_device *hdev)
  {
  	struct mt_device *td = hid_get_drvdata(hdev);
  
@@ -257,7 +257,7 @@ index 99812c0f830b..0b3b51e37149 100644
  	del_timer_sync(&td->release_timer);
  
  	sysfs_remove_group(&hdev->dev.kobj, &mt_attribute_group);
-@@ -2267,6 +2358,11 @@ static const struct hid_device_id mt_devices[] = {
+@@ -2277,6 +2368,11 @@ static const struct hid_device_id mt_devices[] = {
  		MT_USB_DEVICE(USB_VENDOR_ID_XIROKU,
  			USB_DEVICE_ID_XIROKU_CSR2) },
  
@@ -270,9 +270,9 @@ index 99812c0f830b..0b3b51e37149 100644
  	{ .driver_data = MT_CLS_GOOGLE,
  		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY, USB_VENDOR_ID_GOOGLE,
 -- 
-2.46.1
+2.47.0
 
-From 299f2254f1ea935f2f59c9150556dc6e26aa6ddb Mon Sep 17 00:00:00 2001
+From cf0c06dd2575c17fbe7a82e6cc40ffaeea997903 Mon Sep 17 00:00:00 2001
 From: PJungkamp <p.jungkamp@gmail.com>
 Date: Fri, 25 Feb 2022 12:04:25 +0100
 Subject: [PATCH] hid/multitouch: Add support for surface pro type cover tablet
@@ -301,7 +301,7 @@ Patchset: surface-typecover
  1 file changed, 122 insertions(+), 26 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 0b3b51e37149..481b97dce830 100644
+index eea3fdbe28e9..382dd01beb82 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -77,6 +77,7 @@ MODULE_LICENSE("GPL");
@@ -411,7 +411,7 @@ index 0b3b51e37149..481b97dce830 100644
  	return 0;
  }
  
-@@ -1634,6 +1680,42 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app)
+@@ -1635,6 +1681,42 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app)
  		app->quirks &= ~MT_QUIRK_CONTACT_CNT_ACCURATE;
  }
  
@@ -454,7 +454,7 @@ index 0b3b51e37149..481b97dce830 100644
  static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
  {
  	struct mt_device *td = hid_get_drvdata(hdev);
-@@ -1682,6 +1764,13 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
+@@ -1683,6 +1765,13 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
  		/* force BTN_STYLUS to allow tablet matching in udev */
  		__set_bit(BTN_STYLUS, hi->input->keybit);
  		break;
@@ -468,7 +468,7 @@ index 0b3b51e37149..481b97dce830 100644
  	default:
  		suffix = "UNKNOWN";
  		break;
-@@ -1764,30 +1853,6 @@ static void mt_expired_timeout(struct timer_list *t)
+@@ -1765,30 +1854,6 @@ static void mt_expired_timeout(struct timer_list *t)
  	clear_bit_unlock(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
  }
  
@@ -499,7 +499,7 @@ index 0b3b51e37149..481b97dce830 100644
  static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
  {
  	struct usb_device *udev = hid_to_usb_dev(hdev);
-@@ -1796,8 +1861,9 @@ static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
+@@ -1797,8 +1862,9 @@ static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
  	/* Wake up the device in case it's already suspended */
  	pm_runtime_get_sync(&udev->dev);
  
@@ -511,7 +511,7 @@ index 0b3b51e37149..481b97dce830 100644
  		hid_err(hdev, "couldn't find backlight field\n");
  		goto out;
  	}
-@@ -1931,13 +1997,24 @@ static int mt_suspend(struct hid_device *hdev, pm_message_t state)
+@@ -1932,13 +1998,24 @@ static int mt_suspend(struct hid_device *hdev, pm_message_t state)
  
  static int mt_reset_resume(struct hid_device *hdev)
  {
@@ -536,7 +536,7 @@ index 0b3b51e37149..481b97dce830 100644
  	/* Some Elan legacy devices require SET_IDLE to be set on resume.
  	 * It should be safe to send it to other devices too.
  	 * Tested on 3M, Stantum, Cypress, Zytronic, eGalax, and Elan panels. */
-@@ -1946,12 +2023,31 @@ static int mt_resume(struct hid_device *hdev)
+@@ -1947,12 +2024,31 @@ static int mt_resume(struct hid_device *hdev)
  
  	mt_set_modes(hdev, HID_LATENCY_NORMAL, true, true);
  
@@ -569,5 +569,5 @@ index 0b3b51e37149..481b97dce830 100644
  	unregister_pm_notifier(&td->pm_notifier);
  	del_timer_sync(&td->release_timer);
 -- 
-2.46.1
+2.47.0
 
