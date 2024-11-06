@@ -45,7 +45,9 @@ build-packages)
     git config --global user.email "surfacebot@users.noreply.github.com"
 
     # Build source RPM packages
-    python3 build-linux-surface.py --mode srpm --ark-dir kernel-ark --outdir srpm
+    sbd="${SB_DISABLED:-}"
+    python3 build-linux-surface.py --mode srpm --ark-dir kernel-ark --outdir srpm \
+        ${sbd:+"--no-sb"}
 
     # Remove the kernel-ark tree to get as much free disk space as possible
     rm -rf kernel-ark
