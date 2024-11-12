@@ -4,6 +4,7 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
+import logging
 
 #####################################################################
 
@@ -86,7 +87,7 @@ sb_key = script / "secureboot" / "MOK.key"
 
 # Check if the major version is supported.
 if not patches.exists() or not config.exists():
-    print("ERROR: Could not find patches / configs for kernel %s!" % kernel_major)
+    logging.error("ERROR: Could not find patches / configs for kernel %s!" % kernel_major)
     sys.exit(1)
 
 # Check if Secure Boot keys are available.
@@ -94,10 +95,8 @@ sb_avail = sb_cert.exists() and sb_key.exists()
 
 # If we are building without secureboot, require user input to continue.
 if not sb_avail:
-    print("")
-    print("Secure Boot keys were not configured! Using Red Hat testkeys.")
-    print("The compiled kernel will not boot with Secure Boot enabled!")
-    print("")
+    logging.warning("Secure Boot keys were not configured! Using Red Hat testkeys.")
+    logging.warning("The compiled kernel will not boot with Secure Boot enabled!")
 
     if sys.stdin.isatty():
         input("Press enter to continue: ")
