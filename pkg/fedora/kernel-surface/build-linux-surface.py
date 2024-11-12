@@ -65,12 +65,6 @@ parser.add_argument(
     default="out",
 )
 
-parser.add_argument(
-    "--no-sb",
-    help="Do not use secureboot keys",
-    action="store_true",
-)
-
 args = parser.parse_args()
 
 # The directory where this script is saved.
@@ -98,15 +92,13 @@ if not patches.exists() or not config.exists():
 # Check if Secure Boot keys are available.
 sb_avail = sb_cert.exists() and sb_key.exists()
 
-# If we are building without secureboot, warn user.
-if not sb_avail or args.no_sb:
+# If we are building without secureboot, require user input to continue.
+if not sb_avail:
     print("")
     print("Secure Boot keys were not configured! Using Red Hat testkeys.")
     print("The compiled kernel will not boot with Secure Boot enabled!")
     print("")
 
-# If no keys and no flag, require user input to continue.
-if not sb_avail and not args.no_sb:
     input("Press enter to continue: ")
 
 # Expand globs
@@ -137,7 +129,7 @@ if len(local_configs) > 0:
 if len(local_files) > 0:
     cmd += ["--file"] + local_files
 
-if sb_avail and not args.no_sb:
+if sb_avail:
     sb_patches = sorted((script / "secureboot").glob("*.patch"))
     sb_configs = sorted((script / "secureboot").glob("*.config"))
 
