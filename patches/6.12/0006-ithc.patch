@@ -1,0 +1,2771 @@
+From dc3bac38912e573c6534082ffcfda0cb2fc9a3e7 Mon Sep 17 00:00:00 2001
+From: Dorian Stoll <dorian.stoll@tmsp.io>
+Date: Sun, 11 Dec 2022 12:03:38 +0100
+Subject: [PATCH] iommu: intel: Disable source id verification for ITHC
+
+Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
+Patchset: ithc
+---
+ drivers/iommu/intel/irq_remapping.c | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/drivers/iommu/intel/irq_remapping.c b/drivers/iommu/intel/irq_remapping.c
+index 7a6d188e3bea..0179baee4596 100644
+--- a/drivers/iommu/intel/irq_remapping.c
++++ b/drivers/iommu/intel/irq_remapping.c
+@@ -389,6 +389,22 @@ static int set_msi_sid(struct irte *irte, struct pci_dev *dev)
+ 	data.busmatch_count = 0;
+ 	pci_for_each_dma_alias(dev, set_msi_sid_cb, &data);
+ 
++	/*
++	 * The Intel Touch Host Controller is at 00:10.6, but for some reason
++	 * the MSI interrupts have request id 01:05.0.
++	 * Disable id verification to work around this.
++	 * FIXME Find proper fix or turn this into a quirk.
++	 */
++	if (dev->vendor == PCI_VENDOR_ID_INTEL && (dev->class >> 8) == PCI_CLASS_INPUT_PEN) {
++		switch(dev->device) {
++		case 0x98d0: case 0x98d1: // LKF
++		case 0xa0d0: case 0xa0d1: // TGL LP
++		case 0x43d0: case 0x43d1: // TGL H
++			set_irte_sid(irte, SVT_NO_VERIFY, SQ_ALL_16, 0);
++			return 0;
++		}
++	}
++
+ 	/*
+ 	 * DMA alias provides us with a PCI device and alias.  The only case
+ 	 * where the it will return an alias on a different bus than the
+-- 
+2.47.1
+
+From 3dcdddffd167ca72abc56abba9b68e3bfb9d1051 Mon Sep 17 00:00:00 2001
+From: quo <tuple@list.ru>
+Date: Sun, 11 Dec 2022 12:10:54 +0100
+Subject: [PATCH] hid: Add support for Intel Touch Host Controller
+
+Based on quo/ithc-linux@34539af4726d.
+
+Signed-off-by: Maximilian Stoll <luzmaximilian@gmail.com>
+Patchset: ithc
+---
+ drivers/hid/Kconfig              |   2 +
+ drivers/hid/Makefile             |   1 +
+ drivers/hid/ithc/Kbuild          |   6 +
+ drivers/hid/ithc/Kconfig         |  12 +
+ drivers/hid/ithc/ithc-debug.c    | 149 ++++++++
+ drivers/hid/ithc/ithc-debug.h    |   7 +
+ drivers/hid/ithc/ithc-dma.c      | 312 ++++++++++++++++
+ drivers/hid/ithc/ithc-dma.h      |  47 +++
+ drivers/hid/ithc/ithc-hid.c      | 207 +++++++++++
+ drivers/hid/ithc/ithc-hid.h      |  32 ++
+ drivers/hid/ithc/ithc-legacy.c   | 254 +++++++++++++
+ drivers/hid/ithc/ithc-legacy.h   |   8 +
+ drivers/hid/ithc/ithc-main.c     | 431 ++++++++++++++++++++++
+ drivers/hid/ithc/ithc-quickspi.c | 607 +++++++++++++++++++++++++++++++
+ drivers/hid/ithc/ithc-quickspi.h |  39 ++
+ drivers/hid/ithc/ithc-regs.c     | 154 ++++++++
+ drivers/hid/ithc/ithc-regs.h     | 211 +++++++++++
+ drivers/hid/ithc/ithc.h          |  89 +++++
+ 18 files changed, 2568 insertions(+)
+ create mode 100644 drivers/hid/ithc/Kbuild
+ create mode 100644 drivers/hid/ithc/Kconfig
+ create mode 100644 drivers/hid/ithc/ithc-debug.c
+ create mode 100644 drivers/hid/ithc/ithc-debug.h
+ create mode 100644 drivers/hid/ithc/ithc-dma.c
+ create mode 100644 drivers/hid/ithc/ithc-dma.h
+ create mode 100644 drivers/hid/ithc/ithc-hid.c
+ create mode 100644 drivers/hid/ithc/ithc-hid.h
+ create mode 100644 drivers/hid/ithc/ithc-legacy.c
+ create mode 100644 drivers/hid/ithc/ithc-legacy.h
+ create mode 100644 drivers/hid/ithc/ithc-main.c
+ create mode 100644 drivers/hid/ithc/ithc-quickspi.c
+ create mode 100644 drivers/hid/ithc/ithc-quickspi.h
+ create mode 100644 drivers/hid/ithc/ithc-regs.c
+ create mode 100644 drivers/hid/ithc/ithc-regs.h
+ create mode 100644 drivers/hid/ithc/ithc.h
+
+diff --git a/drivers/hid/Kconfig b/drivers/hid/Kconfig
+index 38eb29e4cc31..76ad7d9143c7 100644
+--- a/drivers/hid/Kconfig
++++ b/drivers/hid/Kconfig
+@@ -1375,4 +1375,6 @@ source "drivers/hid/surface-hid/Kconfig"
+ 
+ source "drivers/hid/ipts/Kconfig"
+ 
++source "drivers/hid/ithc/Kconfig"
++
+ endif # HID_SUPPORT
+diff --git a/drivers/hid/Makefile b/drivers/hid/Makefile
+index 02588e5d01eb..1ea3d2e0d4e9 100644
+--- a/drivers/hid/Makefile
++++ b/drivers/hid/Makefile
+@@ -172,3 +172,4 @@ obj-$(CONFIG_AMD_SFH_HID)       += amd-sfh-hid/
+ obj-$(CONFIG_SURFACE_HID_CORE)  += surface-hid/
+ 
+ obj-$(CONFIG_HID_IPTS)          += ipts/
++obj-$(CONFIG_HID_ITHC)          += ithc/
+diff --git a/drivers/hid/ithc/Kbuild b/drivers/hid/ithc/Kbuild
+new file mode 100644
+index 000000000000..4937ba131297
+--- /dev/null
++++ b/drivers/hid/ithc/Kbuild
+@@ -0,0 +1,6 @@
++obj-$(CONFIG_HID_ITHC) := ithc.o
++
++ithc-objs := ithc-main.o ithc-regs.o ithc-dma.o ithc-hid.o ithc-legacy.o ithc-quickspi.o ithc-debug.o
++
++ccflags-y := -std=gnu11 -Wno-declaration-after-statement
++
+diff --git a/drivers/hid/ithc/Kconfig b/drivers/hid/ithc/Kconfig
+new file mode 100644
+index 000000000000..ede713023609
+--- /dev/null
++++ b/drivers/hid/ithc/Kconfig
+@@ -0,0 +1,12 @@
++config HID_ITHC
++	tristate "Intel Touch Host Controller"
++	depends on PCI
++	depends on HID
++	help
++	  Say Y here if your system has a touchscreen using Intels
++	  Touch Host Controller (ITHC / IPTS) technology.
++
++	  If unsure say N.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called ithc.
+diff --git a/drivers/hid/ithc/ithc-debug.c b/drivers/hid/ithc/ithc-debug.c
+new file mode 100644
+index 000000000000..2d8c6afe9966
+--- /dev/null
++++ b/drivers/hid/ithc/ithc-debug.c
+@@ -0,0 +1,149 @@
++// SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause
++
++#include "ithc.h"
++
++void ithc_log_regs(struct ithc *ithc)
++{
++	if (!ithc->prev_regs)
++		return;
++	u32 __iomem *cur = (__iomem void *)ithc->regs;
++	u32 *prev = (void *)ithc->prev_regs;
++	for (int i = 1024; i < sizeof(*ithc->regs) / 4; i++) {
++		u32 x = readl(cur + i);
++		if (x != prev[i]) {
++			pci_info(ithc->pci, "reg %04x: %08x -> %08x\n", i * 4, prev[i], x);
++			prev[i] = x;
++		}
++	}
++}
++
++static ssize_t ithc_debugfs_cmd_write(struct file *f, const char __user *buf, size_t len,
++	loff_t *offset)
++{
++	// Debug commands consist of a single letter followed by a list of numbers (decimal or
++	// hexadecimal, space-separated).
++	struct ithc *ithc = file_inode(f)->i_private;
++	char cmd[256];
++	if (!ithc || !ithc->pci)
++		return -ENODEV;
++	if (!len)
++		return -EINVAL;
++	if (len >= sizeof(cmd))
++		return -EINVAL;
++	if (copy_from_user(cmd, buf, len))
++		return -EFAULT;
++	cmd[len] = 0;
++	if (cmd[len-1] == '\n')
++		cmd[len-1] = 0;
++	pci_info(ithc->pci, "debug command: %s\n", cmd);
++
++	// Parse the list of arguments into a u32 array.
++	u32 n = 0;
++	const char *s = cmd + 1;
++	u32 a[32];
++	while (*s && *s != '\n') {
++		if (n >= ARRAY_SIZE(a))
++			return -EINVAL;
++		if (*s++ != ' ')
++			return -EINVAL;
++		char *e;
++		a[n++] = simple_strtoul(s, &e, 0);
++		if (e == s)
++			return -EINVAL;
++		s = e;
++	}
++	ithc_log_regs(ithc);
++
++	// Execute the command.
++	switch (cmd[0]) {
++	case 'x': // reset
++		ithc_reset(ithc);
++		break;
++	case 'w': // write register: offset mask value
++		if (n != 3 || (a[0] & 3))
++			return -EINVAL;
++		pci_info(ithc->pci, "debug write 0x%04x = 0x%08x (mask 0x%08x)\n",
++			a[0], a[2], a[1]);
++		bitsl(((__iomem u32 *)ithc->regs) + a[0] / 4, a[1], a[2]);
++		break;
++	case 'r': // read register: offset
++		if (n != 1 || (a[0] & 3))
++			return -EINVAL;
++		pci_info(ithc->pci, "debug read 0x%04x = 0x%08x\n", a[0],
++			readl(((__iomem u32 *)ithc->regs) + a[0] / 4));
++		break;
++	case 's': // spi command: cmd offset len data...
++		// read config: s 4 0 64 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
++		// set touch cfg: s 6 12 4 XX
++		if (n < 3 || a[2] > (n - 3) * 4)
++			return -EINVAL;
++		pci_info(ithc->pci, "debug spi command %u with %u bytes of data\n", a[0], a[2]);
++		if (!CHECK(ithc_spi_command, ithc, a[0], a[1], a[2], a + 3))
++			for (u32 i = 0; i < (a[2] + 3) / 4; i++)
++				pci_info(ithc->pci, "resp %u = 0x%08x\n", i, a[3+i]);
++		break;
++	case 'd': // dma command: cmd len data...
++		// get report descriptor: d 7 8 0 0
++		// enable multitouch: d 3 2 0x0105
++		if (n < 1)
++			return -EINVAL;
++		pci_info(ithc->pci, "debug dma command with %u bytes of data\n", n * 4);
++		struct ithc_data data = { .type = ITHC_DATA_RAW, .size = n * 4, .data = a };
++		if (ithc_dma_tx(ithc, &data))
++			pci_err(ithc->pci, "dma tx failed\n");
++		break;
++	default:
++		return -EINVAL;
++	}
++	ithc_log_regs(ithc);
++	return len;
++}
++
++static struct dentry *dbg_dir;
++
++void __init ithc_debug_init_module(void)
++{
++	struct dentry *d = debugfs_create_dir(DEVNAME, NULL);
++	if (IS_ERR(d))
++		pr_warn("failed to create debugfs dir (%li)\n", PTR_ERR(d));
++	else
++		dbg_dir = d;
++}
++
++void __exit ithc_debug_exit_module(void)
++{
++	debugfs_remove_recursive(dbg_dir);
++	dbg_dir = NULL;
++}
++
++static const struct file_operations ithc_debugfops_cmd = {
++	.owner = THIS_MODULE,
++	.write = ithc_debugfs_cmd_write,
++};
++
++static void ithc_debugfs_devres_release(struct device *dev, void *res)
++{
++	struct dentry **dbgm = res;
++	debugfs_remove_recursive(*dbgm);
++}
++
++int ithc_debug_init_device(struct ithc *ithc)
++{
++	if (!dbg_dir)
++		return -ENOENT;
++	struct dentry **dbgm = devres_alloc(ithc_debugfs_devres_release, sizeof(*dbgm), GFP_KERNEL);
++	if (!dbgm)
++		return -ENOMEM;
++	devres_add(&ithc->pci->dev, dbgm);
++	struct dentry *dbg = debugfs_create_dir(pci_name(ithc->pci), dbg_dir);
++	if (IS_ERR(dbg))
++		return PTR_ERR(dbg);
++	*dbgm = dbg;
++
++	struct dentry *cmd = debugfs_create_file("cmd", 0220, dbg, ithc, &ithc_debugfops_cmd);
++	if (IS_ERR(cmd))
++		return PTR_ERR(cmd);
++
++	return 0;
++}
++
+diff --git a/drivers/hid/ithc/ithc-debug.h b/drivers/hid/ithc/ithc-debug.h
+new file mode 100644
+index 000000000000..38c53d916bdb
+--- /dev/null
++++ b/drivers/hid/ithc/ithc-debug.h
+@@ -0,0 +1,7 @@
++/* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
++
++void ithc_debug_init_module(void);
++void ithc_debug_exit_module(void);
++int ithc_debug_init_device(struct ithc *ithc);
++void ithc_log_regs(struct ithc *ithc);
++
+diff --git a/drivers/hid/ithc/ithc-dma.c b/drivers/hid/ithc/ithc-dma.c
+new file mode 100644
+index 000000000000..bf4eab33062b
+--- /dev/null
++++ b/drivers/hid/ithc/ithc-dma.c
+@@ -0,0 +1,312 @@
++// SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause
++
++#include "ithc.h"
++
++// The THC uses tables of PRDs (physical region descriptors) to describe the TX and RX data buffers.
++// Each PRD contains the DMA address and size of a block of DMA memory, and some status flags.
++// This allows each data buffer to consist of multiple non-contiguous blocks of memory.
++
++static int ithc_dma_prd_alloc(struct ithc *ithc, struct ithc_dma_prd_buffer *p,
++	unsigned int num_buffers, unsigned int num_pages, enum dma_data_direction dir)
++{
++	p->num_pages = num_pages;
++	p->dir = dir;
++	// We allocate enough space to have one PRD per data buffer page, however if the data
++	// buffer pages happen to be contiguous, we can describe the buffer using fewer PRDs, so
++	// some will remain unused (which is fine).
++	p->size = round_up(num_buffers * num_pages * sizeof(struct ithc_phys_region_desc), PAGE_SIZE);
++	p->addr = dmam_alloc_coherent(&ithc->pci->dev, p->size, &p->dma_addr, GFP_KERNEL);
++	if (!p->addr)
++		return -ENOMEM;
++	if (p->dma_addr & (PAGE_SIZE - 1))
++		return -EFAULT;
++	return 0;
++}
++
++// Devres managed sg_table wrapper.
++struct ithc_sg_table {
++	void *addr;
++	struct sg_table sgt;
++	enum dma_data_direction dir;
++};
++static void ithc_dma_sgtable_free(struct sg_table *sgt)
++{
++	struct scatterlist *sg;
++	int i;
++	for_each_sgtable_sg(sgt, sg, i) {
++		struct page *p = sg_page(sg);
++		if (p)
++			__free_page(p);
++	}
++	sg_free_table(sgt);
++}
++static void ithc_dma_data_devres_release(struct device *dev, void *res)
++{
++	struct ithc_sg_table *sgt = res;
++	if (sgt->addr)
++		vunmap(sgt->addr);
++	dma_unmap_sgtable(dev, &sgt->sgt, sgt->dir, 0);
++	ithc_dma_sgtable_free(&sgt->sgt);
++}
++
++static int ithc_dma_data_alloc(struct ithc *ithc, struct ithc_dma_prd_buffer *prds,
++	struct ithc_dma_data_buffer *b)
++{
++	// We don't use dma_alloc_coherent() for data buffers, because they don't have to be
++	// coherent (they are unidirectional) or contiguous (we can use one PRD per page).
++	// We could use dma_alloc_noncontiguous(), however this still always allocates a single
++	// DMA mapped segment, which is more restrictive than what we need.
++	// Instead we use an sg_table of individually allocated pages.
++	struct page *pages[16];
++	if (prds->num_pages == 0 || prds->num_pages > ARRAY_SIZE(pages))
++		return -EINVAL;
++	b->active_idx = -1;
++	struct ithc_sg_table *sgt = devres_alloc(
++		ithc_dma_data_devres_release, sizeof(*sgt), GFP_KERNEL);
++	if (!sgt)
++		return -ENOMEM;
++	sgt->dir = prds->dir;
++
++	if (!sg_alloc_table(&sgt->sgt, prds->num_pages, GFP_KERNEL)) {
++		struct scatterlist *sg;
++		int i;
++		bool ok = true;
++		for_each_sgtable_sg(&sgt->sgt, sg, i) {
++			// NOTE: don't need __GFP_DMA for PCI DMA
++			struct page *p = pages[i] = alloc_page(GFP_KERNEL | __GFP_ZERO);
++			if (!p) {
++				ok = false;
++				break;
++			}
++			sg_set_page(sg, p, PAGE_SIZE, 0);
++		}
++		if (ok && !dma_map_sgtable(&ithc->pci->dev, &sgt->sgt, prds->dir, 0)) {
++			devres_add(&ithc->pci->dev, sgt);
++			b->sgt = &sgt->sgt;
++			b->addr = sgt->addr = vmap(pages, prds->num_pages, 0, PAGE_KERNEL);
++			if (!b->addr)
++				return -ENOMEM;
++			return 0;
++		}
++		ithc_dma_sgtable_free(&sgt->sgt);
++	}
++	devres_free(sgt);
++	return -ENOMEM;
++}
++
++static int ithc_dma_data_buffer_put(struct ithc *ithc, struct ithc_dma_prd_buffer *prds,
++	struct ithc_dma_data_buffer *b, unsigned int idx)
++{
++	// Give a buffer to the THC.
++	struct ithc_phys_region_desc *prd = prds->addr;
++	prd += idx * prds->num_pages;
++	if (b->active_idx >= 0) {
++		pci_err(ithc->pci, "buffer already active\n");
++		return -EINVAL;
++	}
++	b->active_idx = idx;
++	if (prds->dir == DMA_TO_DEVICE) {
++		// TX buffer: Caller should have already filled the data buffer, so just fill
++		// the PRD and flush.
++		// (TODO: Support multi-page TX buffers. So far no device seems to use or need
++		// these though.)
++		if (b->data_size > PAGE_SIZE)
++			return -EINVAL;
++		prd->addr = sg_dma_address(b->sgt->sgl) >> 10;
++		prd->size = b->data_size | PRD_FLAG_END;
++		flush_kernel_vmap_range(b->addr, b->data_size);
++	} else if (prds->dir == DMA_FROM_DEVICE) {
++		// RX buffer: Reset PRDs.
++		struct scatterlist *sg;
++		int i;
++		for_each_sgtable_dma_sg(b->sgt, sg, i) {
++			prd->addr = sg_dma_address(sg) >> 10;
++			prd->size = sg_dma_len(sg);
++			prd++;
++		}
++		prd[-1].size |= PRD_FLAG_END;
++	}
++	dma_wmb(); // for the prds
++	dma_sync_sgtable_for_device(&ithc->pci->dev, b->sgt, prds->dir);
++	return 0;
++}
++
++static int ithc_dma_data_buffer_get(struct ithc *ithc, struct ithc_dma_prd_buffer *prds,
++	struct ithc_dma_data_buffer *b, unsigned int idx)
++{
++	// Take a buffer from the THC.
++	struct ithc_phys_region_desc *prd = prds->addr;
++	prd += idx * prds->num_pages;
++	// This is purely a sanity check. We don't strictly need the idx parameter for this
++	// function, because it should always be the same as active_idx, unless we have a bug.
++	if (b->active_idx != idx) {
++		pci_err(ithc->pci, "wrong buffer index\n");
++		return -EINVAL;
++	}
++	b->active_idx = -1;
++	if (prds->dir == DMA_FROM_DEVICE) {
++		// RX buffer: Calculate actual received data size from PRDs.
++		dma_rmb(); // for the prds
++		b->data_size = 0;
++		struct scatterlist *sg;
++		int i;
++		for_each_sgtable_dma_sg(b->sgt, sg, i) {
++			unsigned int size = prd->size;
++			b->data_size += size & PRD_SIZE_MASK;
++			if (size & PRD_FLAG_END)
++				break;
++			if ((size & PRD_SIZE_MASK) != sg_dma_len(sg)) {
++				pci_err(ithc->pci, "truncated prd\n");
++				break;
++			}
++			prd++;
++		}
++		invalidate_kernel_vmap_range(b->addr, b->data_size);
++	}
++	dma_sync_sgtable_for_cpu(&ithc->pci->dev, b->sgt, prds->dir);
++	return 0;
++}
++
++int ithc_dma_rx_init(struct ithc *ithc, u8 channel)
++{
++	struct ithc_dma_rx *rx = &ithc->dma_rx[channel];
++	mutex_init(&rx->mutex);
++
++	// Allocate buffers.
++	unsigned int num_pages = (ithc->max_rx_size + PAGE_SIZE - 1) / PAGE_SIZE;
++	pci_dbg(ithc->pci, "allocating rx buffers: num = %u, size = %u, pages = %u\n",
++		NUM_RX_BUF, ithc->max_rx_size, num_pages);
++	CHECK_RET(ithc_dma_prd_alloc, ithc, &rx->prds, NUM_RX_BUF, num_pages, DMA_FROM_DEVICE);
++	for (unsigned int i = 0; i < NUM_RX_BUF; i++)
++		CHECK_RET(ithc_dma_data_alloc, ithc, &rx->prds, &rx->bufs[i]);
++
++	// Init registers.
++	writeb(DMA_RX_CONTROL2_RESET, &ithc->regs->dma_rx[channel].control2);
++	lo_hi_writeq(rx->prds.dma_addr, &ithc->regs->dma_rx[channel].addr);
++	writeb(NUM_RX_BUF - 1, &ithc->regs->dma_rx[channel].num_bufs);
++	writeb(num_pages - 1, &ithc->regs->dma_rx[channel].num_prds);
++	u8 head = readb(&ithc->regs->dma_rx[channel].head);
++	if (head) {
++		pci_err(ithc->pci, "head is nonzero (%u)\n", head);
++		return -EIO;
++	}
++
++	// Init buffers.
++	for (unsigned int i = 0; i < NUM_RX_BUF; i++)
++		CHECK_RET(ithc_dma_data_buffer_put, ithc, &rx->prds, &rx->bufs[i], i);
++
++	writeb(head ^ DMA_RX_WRAP_FLAG, &ithc->regs->dma_rx[channel].tail);
++	return 0;
++}
++
++void ithc_dma_rx_enable(struct ithc *ithc, u8 channel)
++{
++	bitsb_set(&ithc->regs->dma_rx[channel].control,
++		DMA_RX_CONTROL_ENABLE | DMA_RX_CONTROL_IRQ_ERROR | DMA_RX_CONTROL_IRQ_DATA);
++	CHECK(waitl, ithc, &ithc->regs->dma_rx[channel].status,
++		DMA_RX_STATUS_ENABLED, DMA_RX_STATUS_ENABLED);
++}
++
++int ithc_dma_tx_init(struct ithc *ithc)
++{
++	struct ithc_dma_tx *tx = &ithc->dma_tx;
++	mutex_init(&tx->mutex);
++
++	// Allocate buffers.
++	unsigned int num_pages = (ithc->max_tx_size + PAGE_SIZE - 1) / PAGE_SIZE;
++	pci_dbg(ithc->pci, "allocating tx buffers: size = %u, pages = %u\n",
++		ithc->max_tx_size, num_pages);
++	CHECK_RET(ithc_dma_prd_alloc, ithc, &tx->prds, 1, num_pages, DMA_TO_DEVICE);
++	CHECK_RET(ithc_dma_data_alloc, ithc, &tx->prds, &tx->buf);
++
++	// Init registers.
++	lo_hi_writeq(tx->prds.dma_addr, &ithc->regs->dma_tx.addr);
++	writeb(num_pages - 1, &ithc->regs->dma_tx.num_prds);
++
++	// Init buffers.
++	CHECK_RET(ithc_dma_data_buffer_put, ithc, &ithc->dma_tx.prds, &ithc->dma_tx.buf, 0);
++	return 0;
++}
++
++static int ithc_dma_rx_unlocked(struct ithc *ithc, u8 channel)
++{
++	// Process all filled RX buffers from the ringbuffer.
++	struct ithc_dma_rx *rx = &ithc->dma_rx[channel];
++	unsigned int n = rx->num_received;
++	u8 head_wrap = readb(&ithc->regs->dma_rx[channel].head);
++	while (1) {
++		u8 tail = n % NUM_RX_BUF;
++		u8 tail_wrap = tail | ((n / NUM_RX_BUF) & 1 ? 0 : DMA_RX_WRAP_FLAG);
++		writeb(tail_wrap, &ithc->regs->dma_rx[channel].tail);
++		// ringbuffer is full if tail_wrap == head_wrap
++		// ringbuffer is empty if tail_wrap == head_wrap ^ WRAP_FLAG
++		if (tail_wrap == (head_wrap ^ DMA_RX_WRAP_FLAG))
++			return 0;
++
++		// take the buffer that the device just filled
++		struct ithc_dma_data_buffer *b = &rx->bufs[n % NUM_RX_BUF];
++		CHECK_RET(ithc_dma_data_buffer_get, ithc, &rx->prds, b, tail);
++		rx->num_received = ++n;
++
++		// process data
++		struct ithc_data d;
++		if ((ithc->use_quickspi ? ithc_quickspi_decode_rx : ithc_legacy_decode_rx)
++			(ithc, b->addr, b->data_size, &d) < 0) {
++			pci_err(ithc->pci, "invalid dma rx data! channel %u, buffer %u, size %u: %*ph\n",
++				channel, tail, b->data_size, min((int)b->data_size, 64), b->addr);
++			print_hex_dump_debug(DEVNAME " data: ", DUMP_PREFIX_OFFSET, 32, 1,
++				b->addr, min(b->data_size, 0x400u), 0);
++		} else {
++			ithc_hid_process_data(ithc, &d);
++		}
++
++		// give the buffer back to the device
++		CHECK_RET(ithc_dma_data_buffer_put, ithc, &rx->prds, b, tail);
++	}
++}
++int ithc_dma_rx(struct ithc *ithc, u8 channel)
++{
++	struct ithc_dma_rx *rx = &ithc->dma_rx[channel];
++	mutex_lock(&rx->mutex);
++	int ret = ithc_dma_rx_unlocked(ithc, channel);
++	mutex_unlock(&rx->mutex);
++	return ret;
++}
++
++static int ithc_dma_tx_unlocked(struct ithc *ithc, const struct ithc_data *data)
++{
++	// Send a single TX buffer to the THC.
++	pci_dbg(ithc->pci, "dma tx data type %u, size %u\n", data->type, data->size);
++	CHECK_RET(ithc_dma_data_buffer_get, ithc, &ithc->dma_tx.prds, &ithc->dma_tx.buf, 0);
++
++	// Fill the TX buffer with header and data.
++	ssize_t sz;
++	if (data->type == ITHC_DATA_RAW) {
++		sz = min(data->size, ithc->max_tx_size);
++		memcpy(ithc->dma_tx.buf.addr, data->data, sz);
++	} else {
++		sz = (ithc->use_quickspi ? ithc_quickspi_encode_tx : ithc_legacy_encode_tx)
++			(ithc, data, ithc->dma_tx.buf.addr, ithc->max_tx_size);
++	}
++	ithc->dma_tx.buf.data_size = sz < 0 ? 0 : sz;
++	CHECK_RET(ithc_dma_data_buffer_put, ithc, &ithc->dma_tx.prds, &ithc->dma_tx.buf, 0);
++	if (sz < 0) {
++		pci_err(ithc->pci, "failed to encode tx data type %i, size %u, error %i\n",
++			data->type, data->size, (int)sz);
++		return -EINVAL;
++	}
++
++	// Let the THC process the buffer.
++	bitsb_set(&ithc->regs->dma_tx.control, DMA_TX_CONTROL_SEND);
++	CHECK_RET(waitb, ithc, &ithc->regs->dma_tx.control, DMA_TX_CONTROL_SEND, 0);
++	writel(DMA_TX_STATUS_DONE, &ithc->regs->dma_tx.status);
++	return 0;
++}
++int ithc_dma_tx(struct ithc *ithc, const struct ithc_data *data)
++{
++	mutex_lock(&ithc->dma_tx.mutex);
++	int ret = ithc_dma_tx_unlocked(ithc, data);
++	mutex_unlock(&ithc->dma_tx.mutex);
++	return ret;
++}
++
+diff --git a/drivers/hid/ithc/ithc-dma.h b/drivers/hid/ithc/ithc-dma.h
+new file mode 100644
+index 000000000000..1749a5819b3e
+--- /dev/null
++++ b/drivers/hid/ithc/ithc-dma.h
+@@ -0,0 +1,47 @@
++/* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
++
++#define PRD_SIZE_MASK            0xffffff
++#define PRD_FLAG_END             0x1000000
++#define PRD_FLAG_SUCCESS         0x2000000
++#define PRD_FLAG_ERROR           0x4000000
++
++struct ithc_phys_region_desc {
++	u64 addr; // physical addr/1024
++	u32 size; // num bytes, PRD_FLAG_END marks last prd for data split over multiple prds
++	u32 unused;
++};
++
++struct ithc_dma_prd_buffer {
++	void *addr;
++	dma_addr_t dma_addr;
++	u32 size;
++	u32 num_pages; // per data buffer
++	enum dma_data_direction dir;
++};
++
++struct ithc_dma_data_buffer {
++	void *addr;
++	struct sg_table *sgt;
++	int active_idx;
++	u32 data_size;
++};
++
++struct ithc_dma_tx {
++	struct mutex mutex;
++	struct ithc_dma_prd_buffer prds;
++	struct ithc_dma_data_buffer buf;
++};
++
++struct ithc_dma_rx {
++	struct mutex mutex;
++	u32 num_received;
++	struct ithc_dma_prd_buffer prds;
++	struct ithc_dma_data_buffer bufs[NUM_RX_BUF];
++};
++
++int ithc_dma_rx_init(struct ithc *ithc, u8 channel);
++void ithc_dma_rx_enable(struct ithc *ithc, u8 channel);
++int ithc_dma_tx_init(struct ithc *ithc);
++int ithc_dma_rx(struct ithc *ithc, u8 channel);
++int ithc_dma_tx(struct ithc *ithc, const struct ithc_data *data);
++
+diff --git a/drivers/hid/ithc/ithc-hid.c b/drivers/hid/ithc/ithc-hid.c
+new file mode 100644
+index 000000000000..065646ab499e
+--- /dev/null
++++ b/drivers/hid/ithc/ithc-hid.c
+@@ -0,0 +1,207 @@
++// SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause
++
++#include "ithc.h"
++
++static int ithc_hid_start(struct hid_device *hdev) { return 0; }
++static void ithc_hid_stop(struct hid_device *hdev) { }
++static int ithc_hid_open(struct hid_device *hdev) { return 0; }
++static void ithc_hid_close(struct hid_device *hdev) { }
++
++static int ithc_hid_parse(struct hid_device *hdev)
++{
++	struct ithc *ithc = hdev->driver_data;
++	const struct ithc_data get_report_desc = { .type = ITHC_DATA_REPORT_DESCRIPTOR };
++	WRITE_ONCE(ithc->hid.parse_done, false);
++	for (int retries = 0; ; retries++) {
++		ithc_log_regs(ithc);
++		CHECK_RET(ithc_dma_tx, ithc, &get_report_desc);
++		if (wait_event_timeout(ithc->hid.wait_parse, READ_ONCE(ithc->hid.parse_done),
++				msecs_to_jiffies(200))) {
++			ithc_log_regs(ithc);
++			return 0;
++		}
++		if (retries > 5) {
++			ithc_log_regs(ithc);
++			pci_err(ithc->pci, "failed to read report descriptor\n");
++			return -ETIMEDOUT;
++		}
++		pci_warn(ithc->pci, "failed to read report descriptor, retrying\n");
++	}
++}
++
++static int ithc_hid_raw_request(struct hid_device *hdev, unsigned char reportnum, __u8 *buf,
++	size_t len, unsigned char rtype, int reqtype)
++{
++	struct ithc *ithc = hdev->driver_data;
++	if (!buf || !len)
++		return -EINVAL;
++
++	struct ithc_data d = { .size = len, .data = buf };
++	buf[0] = reportnum;
++
++	if (rtype == HID_OUTPUT_REPORT && reqtype == HID_REQ_SET_REPORT) {
++		d.type = ITHC_DATA_OUTPUT_REPORT;
++		CHECK_RET(ithc_dma_tx, ithc, &d);
++		return 0;
++	}
++
++	if (rtype == HID_FEATURE_REPORT && reqtype == HID_REQ_SET_REPORT) {
++		d.type = ITHC_DATA_SET_FEATURE;
++		CHECK_RET(ithc_dma_tx, ithc, &d);
++		return 0;
++	}
++
++	if (rtype == HID_FEATURE_REPORT && reqtype == HID_REQ_GET_REPORT) {
++		d.type = ITHC_DATA_GET_FEATURE;
++		d.data = &reportnum;
++		d.size = 1;
++
++		// Prepare for response.
++		mutex_lock(&ithc->hid.get_feature_mutex);
++		ithc->hid.get_feature_buf = buf;
++		ithc->hid.get_feature_size = len;
++		mutex_unlock(&ithc->hid.get_feature_mutex);
++
++		// Transmit 'get feature' request.
++		int r = CHECK(ithc_dma_tx, ithc, &d);
++		if (!r) {
++			r = wait_event_interruptible_timeout(ithc->hid.wait_get_feature,
++				!ithc->hid.get_feature_buf, msecs_to_jiffies(1000));
++			if (!r)
++				r = -ETIMEDOUT;
++			else if (r < 0)
++				r = -EINTR;
++			else
++				r = 0;
++		}
++
++		// If everything went ok, the buffer has been filled with the response data.
++		// Return the response size.
++		mutex_lock(&ithc->hid.get_feature_mutex);
++		ithc->hid.get_feature_buf = NULL;
++		if (!r)
++			r = ithc->hid.get_feature_size;
++		mutex_unlock(&ithc->hid.get_feature_mutex);
++		return r;
++	}
++
++	pci_err(ithc->pci, "unhandled hid request %i %i for report id %i\n",
++		rtype, reqtype, reportnum);
++	return -EINVAL;
++}
++
++// FIXME hid_input_report()/hid_parse_report() currently don't take const buffers, so we have to
++// cast away the const to avoid a compiler warning...
++#define NOCONST(x) ((void *)x)
++
++void ithc_hid_process_data(struct ithc *ithc, struct ithc_data *d)
++{
++	WARN_ON(!ithc->hid.dev);
++	if (!ithc->hid.dev)
++		return;
++
++	switch (d->type) {
++
++	case ITHC_DATA_IGNORE:
++		return;
++
++	case ITHC_DATA_ERROR:
++		CHECK(ithc_reset, ithc);
++		return;
++
++	case ITHC_DATA_REPORT_DESCRIPTOR:
++		// Response to the report descriptor request sent by ithc_hid_parse().
++		CHECK(hid_parse_report, ithc->hid.dev, NOCONST(d->data), d->size);
++		WRITE_ONCE(ithc->hid.parse_done, true);
++		wake_up(&ithc->hid.wait_parse);
++		return;
++
++	case ITHC_DATA_INPUT_REPORT:
++	{
++		// Standard HID input report.
++		int r = hid_input_report(ithc->hid.dev, HID_INPUT_REPORT, NOCONST(d->data), d->size, 1);
++		if (r < 0) {
++			pci_warn(ithc->pci, "hid_input_report failed with %i (size %u, report ID 0x%02x)\n",
++				r, d->size, d->size ? *(u8 *)d->data : 0);
++			print_hex_dump_debug(DEVNAME " report: ", DUMP_PREFIX_OFFSET, 32, 1,
++				d->data, min(d->size, 0x400u), 0);
++		}
++		return;
++	}
++
++	case ITHC_DATA_GET_FEATURE:
++	{
++		// Response to a 'get feature' request sent by ithc_hid_raw_request().
++		bool done = false;
++		mutex_lock(&ithc->hid.get_feature_mutex);
++		if (ithc->hid.get_feature_buf) {
++			if (d->size < ithc->hid.get_feature_size)
++				ithc->hid.get_feature_size = d->size;
++			memcpy(ithc->hid.get_feature_buf, d->data, ithc->hid.get_feature_size);
++			ithc->hid.get_feature_buf = NULL;
++			done = true;
++		}
++		mutex_unlock(&ithc->hid.get_feature_mutex);
++		if (done) {
++			wake_up(&ithc->hid.wait_get_feature);
++		} else {
++			// Received data without a matching request, or the request already
++			// timed out. (XXX What's the correct thing to do here?)
++			CHECK(hid_input_report, ithc->hid.dev, HID_FEATURE_REPORT,
++				NOCONST(d->data), d->size, 1);
++		}
++		return;
++	}
++
++	default:
++		pci_err(ithc->pci, "unhandled data type %i\n", d->type);
++		return;
++	}
++}
++
++static struct hid_ll_driver ithc_ll_driver = {
++	.start = ithc_hid_start,
++	.stop = ithc_hid_stop,
++	.open = ithc_hid_open,
++	.close = ithc_hid_close,
++	.parse = ithc_hid_parse,
++	.raw_request = ithc_hid_raw_request,
++};
++
++static void ithc_hid_devres_release(struct device *dev, void *res)
++{
++	struct hid_device **hidm = res;
++	if (*hidm)
++		hid_destroy_device(*hidm);
++}
++
++int ithc_hid_init(struct ithc *ithc)
++{
++	struct hid_device **hidm = devres_alloc(ithc_hid_devres_release, sizeof(*hidm), GFP_KERNEL);
++	if (!hidm)
++		return -ENOMEM;
++	devres_add(&ithc->pci->dev, hidm);
++	struct hid_device *hid = hid_allocate_device();
++	if (IS_ERR(hid))
++		return PTR_ERR(hid);
++	*hidm = hid;
++
++	strscpy(hid->name, DEVFULLNAME, sizeof(hid->name));
++	strscpy(hid->phys, ithc->phys, sizeof(hid->phys));
++	hid->ll_driver = &ithc_ll_driver;
++	hid->bus = BUS_PCI;
++	hid->vendor = ithc->vendor_id;
++	hid->product = ithc->product_id;
++	hid->version = 0x100;
++	hid->dev.parent = &ithc->pci->dev;
++	hid->driver_data = ithc;
++
++	ithc->hid.dev = hid;
++
++	init_waitqueue_head(&ithc->hid.wait_parse);
++	init_waitqueue_head(&ithc->hid.wait_get_feature);
++	mutex_init(&ithc->hid.get_feature_mutex);
++
++	return 0;
++}
++
+diff --git a/drivers/hid/ithc/ithc-hid.h b/drivers/hid/ithc/ithc-hid.h
+new file mode 100644
+index 000000000000..599eb912c8c8
+--- /dev/null
++++ b/drivers/hid/ithc/ithc-hid.h
+@@ -0,0 +1,32 @@
++/* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
++
++enum ithc_data_type {
++	ITHC_DATA_IGNORE,
++	ITHC_DATA_RAW,
++	ITHC_DATA_ERROR,
++	ITHC_DATA_REPORT_DESCRIPTOR,
++	ITHC_DATA_INPUT_REPORT,
++	ITHC_DATA_OUTPUT_REPORT,
++	ITHC_DATA_GET_FEATURE,
++	ITHC_DATA_SET_FEATURE,
++};
++
++struct ithc_data {
++	enum ithc_data_type type;
++	u32 size;
++	const void *data;
++};
++
++struct ithc_hid {
++	struct hid_device *dev;
++	bool parse_done;
++	wait_queue_head_t wait_parse;
++	wait_queue_head_t wait_get_feature;
++	struct mutex get_feature_mutex;
++	void *get_feature_buf;
++	size_t get_feature_size;
++};
++
++int ithc_hid_init(struct ithc *ithc);
++void ithc_hid_process_data(struct ithc *ithc, struct ithc_data *d);
++
+diff --git a/drivers/hid/ithc/ithc-legacy.c b/drivers/hid/ithc/ithc-legacy.c
+new file mode 100644
+index 000000000000..8883987fb352
+--- /dev/null
++++ b/drivers/hid/ithc/ithc-legacy.c
+@@ -0,0 +1,254 @@
++// SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause
++
++#include "ithc.h"
++
++#define DEVCFG_DMA_RX_SIZE(x)          ((((x) & 0x3fff) + 1) << 6)
++#define DEVCFG_DMA_TX_SIZE(x)          (((((x) >> 14) & 0x3ff) + 1) << 6)
++
++#define DEVCFG_TOUCH_MASK              0x3f
++#define DEVCFG_TOUCH_ENABLE            BIT(0)
++#define DEVCFG_TOUCH_PROP_DATA_ENABLE  BIT(1)
++#define DEVCFG_TOUCH_HID_REPORT_ENABLE BIT(2)
++#define DEVCFG_TOUCH_POWER_STATE(x)    (((x) & 7) << 3)
++#define DEVCFG_TOUCH_UNKNOWN_6         BIT(6)
++
++#define DEVCFG_DEVICE_ID_TIC           0x43495424 // "$TIC"
++
++#define DEVCFG_SPI_CLKDIV(x)           (((x) >> 1) & 7)
++#define DEVCFG_SPI_CLKDIV_8            BIT(4)
++#define DEVCFG_SPI_SUPPORTS_SINGLE     BIT(5)
++#define DEVCFG_SPI_SUPPORTS_DUAL       BIT(6)
++#define DEVCFG_SPI_SUPPORTS_QUAD       BIT(7)
++#define DEVCFG_SPI_MAX_TOUCH_POINTS(x) (((x) >> 8) & 0x3f)
++#define DEVCFG_SPI_MIN_RESET_TIME(x)   (((x) >> 16) & 0xf)
++#define DEVCFG_SPI_NEEDS_HEARTBEAT     BIT(20) // TODO implement heartbeat
++#define DEVCFG_SPI_HEARTBEAT_INTERVAL(x) (((x) >> 21) & 7)
++#define DEVCFG_SPI_UNKNOWN_25          BIT(25)
++#define DEVCFG_SPI_UNKNOWN_26          BIT(26)
++#define DEVCFG_SPI_UNKNOWN_27          BIT(27)
++#define DEVCFG_SPI_DELAY(x)            (((x) >> 28) & 7) // TODO use this
++#define DEVCFG_SPI_USE_EXT_READ_CFG    BIT(31) // TODO use this?
++
++struct ithc_device_config { // (Example values are from an SP7+.)
++	u32 irq_cause;        // 00 = 0xe0000402 (0xe0000401 after DMA_RX_CODE_RESET)
++	u32 error;            // 04 = 0x00000000
++	u32 dma_buf_sizes;    // 08 = 0x000a00ff
++	u32 touch_cfg;        // 0c = 0x0000001c
++	u32 touch_state;      // 10 = 0x0000001c
++	u32 device_id;        // 14 = 0x43495424 = "$TIC"
++	u32 spi_config;       // 18 = 0xfda00a2e
++	u16 vendor_id;        // 1c = 0x045e = Microsoft Corp.
++	u16 product_id;       // 1e = 0x0c1a
++	u32 revision;         // 20 = 0x00000001
++	u32 fw_version;       // 24 = 0x05008a8b = 5.0.138.139 (this value looks more random on newer devices)
++	u32 command;          // 28 = 0x00000000
++	u32 fw_mode;          // 2c = 0x00000000 (for fw update?)
++	u32 _unknown_30;      // 30 = 0x00000000
++	u8 eds_minor_ver;     // 34 = 0x5e
++	u8 eds_major_ver;     // 35 = 0x03
++	u8 interface_rev;     // 36 = 0x04
++	u8 eu_kernel_ver;     // 37 = 0x04
++	u32 _unknown_38;      // 38 = 0x000001c0 (0x000001c1 after DMA_RX_CODE_RESET)
++	u32 _unknown_3c;      // 3c = 0x00000002
++};
++static_assert(sizeof(struct ithc_device_config) == 64);
++
++#define RX_CODE_INPUT_REPORT          3
++#define RX_CODE_FEATURE_REPORT        4
++#define RX_CODE_REPORT_DESCRIPTOR     5
++#define RX_CODE_RESET                 7
++
++#define TX_CODE_SET_FEATURE           3
++#define TX_CODE_GET_FEATURE           4
++#define TX_CODE_OUTPUT_REPORT         5
++#define TX_CODE_GET_REPORT_DESCRIPTOR 7
++
++static int ithc_set_device_enabled(struct ithc *ithc, bool enable)
++{
++	u32 x = ithc->legacy_touch_cfg =
++		(ithc->legacy_touch_cfg & ~(u32)DEVCFG_TOUCH_MASK) |
++		DEVCFG_TOUCH_HID_REPORT_ENABLE |
++		(enable ? DEVCFG_TOUCH_ENABLE | DEVCFG_TOUCH_POWER_STATE(3) : 0);
++	return ithc_spi_command(ithc, SPI_CMD_CODE_WRITE,
++		offsetof(struct ithc_device_config, touch_cfg), sizeof(x), &x);
++}
++
++int ithc_legacy_init(struct ithc *ithc)
++{
++	// Since we don't yet know which SPI config the device wants, use default speed and mode
++	// initially for reading config data.
++	CHECK(ithc_set_spi_config, ithc, 2, true, SPI_MODE_SINGLE, SPI_MODE_SINGLE);
++
++	// Setting the following bit seems to make reading the config more reliable.
++	bitsl_set(&ithc->regs->dma_rx[0].init_unknown, INIT_UNKNOWN_31);
++
++	// Setting this bit may be necessary on ADL devices.
++	switch (ithc->pci->device) {
++	case PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT1:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT2:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT1:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT2:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_M_PORT1:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_M_PORT2:
++		bitsl_set(&ithc->regs->dma_rx[0].init_unknown, INIT_UNKNOWN_5);
++		break;
++	}
++
++	// Take the touch device out of reset.
++	bitsl(&ithc->regs->control_bits, CONTROL_QUIESCE, 0);
++	CHECK_RET(waitl, ithc, &ithc->regs->control_bits, CONTROL_IS_QUIESCED, 0);
++	for (int retries = 0; ; retries++) {
++		ithc_log_regs(ithc);
++		bitsl_set(&ithc->regs->control_bits, CONTROL_NRESET);
++		if (!waitl(ithc, &ithc->regs->irq_cause, 0xf, 2))
++			break;
++		if (retries > 5) {
++			pci_err(ithc->pci, "failed to reset device, irq_cause = 0x%08x\n",
++				readl(&ithc->regs->irq_cause));
++			return -ETIMEDOUT;
++		}
++		pci_warn(ithc->pci, "invalid irq_cause, retrying reset\n");
++		bitsl(&ithc->regs->control_bits, CONTROL_NRESET, 0);
++		if (msleep_interruptible(1000))
++			return -EINTR;
++	}
++	ithc_log_regs(ithc);
++
++	CHECK(waitl, ithc, &ithc->regs->dma_rx[0].status, DMA_RX_STATUS_READY, DMA_RX_STATUS_READY);
++
++	// Read configuration data.
++	u32 spi_cfg;
++	for (int retries = 0; ; retries++) {
++		ithc_log_regs(ithc);
++		struct ithc_device_config config = { 0 };
++		CHECK_RET(ithc_spi_command, ithc, SPI_CMD_CODE_READ, 0, sizeof(config), &config);
++		u32 *p = (void *)&config;
++		pci_info(ithc->pci, "config: %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x\n",
++			p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
++		if (config.device_id == DEVCFG_DEVICE_ID_TIC) {
++			spi_cfg = config.spi_config;
++			ithc->vendor_id = config.vendor_id;
++			ithc->product_id = config.product_id;
++			ithc->product_rev = config.revision;
++			ithc->max_rx_size = DEVCFG_DMA_RX_SIZE(config.dma_buf_sizes);
++			ithc->max_tx_size = DEVCFG_DMA_TX_SIZE(config.dma_buf_sizes);
++			ithc->legacy_touch_cfg = config.touch_cfg;
++			ithc->have_config = true;
++			break;
++		}
++		if (retries > 10) {
++			pci_err(ithc->pci, "failed to read config, unknown device ID 0x%08x\n",
++				config.device_id);
++			return -EIO;
++		}
++		pci_warn(ithc->pci, "failed to read config, retrying\n");
++		if (msleep_interruptible(100))
++			return -EINTR;
++	}
++	ithc_log_regs(ithc);
++
++	// Apply SPI config and enable touch device.
++	CHECK_RET(ithc_set_spi_config, ithc,
++		DEVCFG_SPI_CLKDIV(spi_cfg), (spi_cfg & DEVCFG_SPI_CLKDIV_8) != 0,
++		spi_cfg & DEVCFG_SPI_SUPPORTS_QUAD ? SPI_MODE_QUAD :
++		spi_cfg & DEVCFG_SPI_SUPPORTS_DUAL ? SPI_MODE_DUAL :
++		SPI_MODE_SINGLE,
++		SPI_MODE_SINGLE);
++	CHECK_RET(ithc_set_device_enabled, ithc, true);
++	ithc_log_regs(ithc);
++	return 0;
++}
++
++void ithc_legacy_exit(struct ithc *ithc)
++{
++	CHECK(ithc_set_device_enabled, ithc, false);
++}
++
++int ithc_legacy_decode_rx(struct ithc *ithc, const void *src, size_t len, struct ithc_data *dest)
++{
++	const struct {
++		u32 code;
++		u32 data_size;
++		u32 _unknown[14];
++	} *hdr = src;
++
++	if (len < sizeof(*hdr))
++		return -ENODATA;
++	// Note: RX data is not padded, even though TX data must be padded.
++	if (len != sizeof(*hdr) + hdr->data_size)
++		return -EMSGSIZE;
++
++	dest->data = hdr + 1;
++	dest->size = hdr->data_size;
++
++	switch (hdr->code) {
++	case RX_CODE_RESET:
++		// The THC sends a reset request when we need to reinitialize the device.
++		// This usually only happens if we send an invalid command or put the device
++		// in a bad state.
++		dest->type = ITHC_DATA_ERROR;
++		return 0;
++	case RX_CODE_REPORT_DESCRIPTOR:
++		// The descriptor is preceded by 8 nul bytes.
++		if (hdr->data_size < 8)
++			return -ENODATA;
++		dest->type = ITHC_DATA_REPORT_DESCRIPTOR;
++		dest->data = (char *)(hdr + 1) + 8;
++		dest->size = hdr->data_size - 8;
++		return 0;
++	case RX_CODE_INPUT_REPORT:
++		dest->type = ITHC_DATA_INPUT_REPORT;
++		return 0;
++	case RX_CODE_FEATURE_REPORT:
++		dest->type = ITHC_DATA_GET_FEATURE;
++		return 0;
++	default:
++		return -EINVAL;
++	}
++}
++
++ssize_t ithc_legacy_encode_tx(struct ithc *ithc, const struct ithc_data *src, void *dest,
++	size_t maxlen)
++{
++	struct {
++		u32 code;
++		u32 data_size;
++	} *hdr = dest;
++
++	size_t src_size = src->size;
++	const void *src_data = src->data;
++	const u64 get_report_desc_data = 0;
++	u32 code;
++
++	switch (src->type) {
++	case ITHC_DATA_SET_FEATURE:
++		code = TX_CODE_SET_FEATURE;
++		break;
++	case ITHC_DATA_GET_FEATURE:
++		code = TX_CODE_GET_FEATURE;
++		break;
++	case ITHC_DATA_OUTPUT_REPORT:
++		code = TX_CODE_OUTPUT_REPORT;
++		break;
++	case ITHC_DATA_REPORT_DESCRIPTOR:
++		code = TX_CODE_GET_REPORT_DESCRIPTOR;
++		src_size = sizeof(get_report_desc_data);
++		src_data = &get_report_desc_data;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	// Data must be padded to next 4-byte boundary.
++	size_t padded = round_up(src_size, 4);
++	if (sizeof(*hdr) + padded > maxlen)
++		return -EOVERFLOW;
++
++	// Fill the TX buffer with header and data.
++	hdr->code = code;
++	hdr->data_size = src_size;
++	memcpy_and_pad(hdr + 1, padded, src_data, src_size, 0);
++
++	return sizeof(*hdr) + padded;
++}
++
+diff --git a/drivers/hid/ithc/ithc-legacy.h b/drivers/hid/ithc/ithc-legacy.h
+new file mode 100644
+index 000000000000..28d692462072
+--- /dev/null
++++ b/drivers/hid/ithc/ithc-legacy.h
+@@ -0,0 +1,8 @@
++/* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
++
++int ithc_legacy_init(struct ithc *ithc);
++void ithc_legacy_exit(struct ithc *ithc);
++int ithc_legacy_decode_rx(struct ithc *ithc, const void *src, size_t len, struct ithc_data *dest);
++ssize_t ithc_legacy_encode_tx(struct ithc *ithc, const struct ithc_data *src, void *dest,
++	size_t maxlen);
++
+diff --git a/drivers/hid/ithc/ithc-main.c b/drivers/hid/ithc/ithc-main.c
+new file mode 100644
+index 000000000000..ac56c253674b
+--- /dev/null
++++ b/drivers/hid/ithc/ithc-main.c
+@@ -0,0 +1,431 @@
++// SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause
++
++#include "ithc.h"
++
++MODULE_DESCRIPTION("Intel Touch Host Controller driver");
++MODULE_LICENSE("Dual BSD/GPL");
++
++static const struct pci_device_id ithc_pci_tbl[] = {
++	{
++		.vendor = PCI_VENDOR_ID_INTEL,
++		.device = PCI_ANY_ID,
++		.subvendor = PCI_ANY_ID,
++		.subdevice = PCI_ANY_ID,
++		.class = PCI_CLASS_INPUT_PEN << 8,
++		.class_mask = ~0,
++	},
++	{}
++};
++MODULE_DEVICE_TABLE(pci, ithc_pci_tbl);
++
++// Module parameters
++
++static bool ithc_use_polling = false;
++module_param_named(poll, ithc_use_polling, bool, 0);
++MODULE_PARM_DESC(poll, "Use polling instead of interrupts");
++
++// Since all known devices seem to use only channel 1, by default we disable channel 0.
++static bool ithc_use_rx0 = false;
++module_param_named(rx0, ithc_use_rx0, bool, 0);
++MODULE_PARM_DESC(rx0, "Use DMA RX channel 0");
++
++static bool ithc_use_rx1 = true;
++module_param_named(rx1, ithc_use_rx1, bool, 0);
++MODULE_PARM_DESC(rx1, "Use DMA RX channel 1");
++
++static int ithc_active_ltr_us = -1;
++module_param_named(activeltr, ithc_active_ltr_us, int, 0);
++MODULE_PARM_DESC(activeltr, "Active LTR value override (in microseconds)");
++
++static int ithc_idle_ltr_us = -1;
++module_param_named(idleltr, ithc_idle_ltr_us, int, 0);
++MODULE_PARM_DESC(idleltr, "Idle LTR value override (in microseconds)");
++
++static unsigned int ithc_idle_delay_ms = 1000;
++module_param_named(idledelay, ithc_idle_delay_ms, uint, 0);
++MODULE_PARM_DESC(idleltr, "Minimum idle time before applying idle LTR value (in milliseconds)");
++
++static bool ithc_log_regs_enabled = false;
++module_param_named(logregs, ithc_log_regs_enabled, bool, 0);
++MODULE_PARM_DESC(logregs, "Log changes in register values (for debugging)");
++
++// Interrupts/polling
++
++static void ithc_disable_interrupts(struct ithc *ithc)
++{
++	writel(0, &ithc->regs->error_control);
++	bitsb(&ithc->regs->spi_cmd.control, SPI_CMD_CONTROL_IRQ, 0);
++	bitsb(&ithc->regs->dma_rx[0].control, DMA_RX_CONTROL_IRQ_UNKNOWN_1 | DMA_RX_CONTROL_IRQ_ERROR | DMA_RX_CONTROL_IRQ_READY | DMA_RX_CONTROL_IRQ_DATA, 0);
++	bitsb(&ithc->regs->dma_rx[1].control, DMA_RX_CONTROL_IRQ_UNKNOWN_1 | DMA_RX_CONTROL_IRQ_ERROR | DMA_RX_CONTROL_IRQ_READY | DMA_RX_CONTROL_IRQ_DATA, 0);
++	bitsb(&ithc->regs->dma_tx.control, DMA_TX_CONTROL_IRQ, 0);
++}
++
++static void ithc_clear_dma_rx_interrupts(struct ithc *ithc, unsigned int channel)
++{
++	writel(DMA_RX_STATUS_ERROR | DMA_RX_STATUS_READY | DMA_RX_STATUS_HAVE_DATA,
++		&ithc->regs->dma_rx[channel].status);
++}
++
++static void ithc_clear_interrupts(struct ithc *ithc)
++{
++	writel(0xffffffff, &ithc->regs->error_flags);
++	writel(ERROR_STATUS_DMA | ERROR_STATUS_SPI, &ithc->regs->error_status);
++	writel(SPI_CMD_STATUS_DONE | SPI_CMD_STATUS_ERROR, &ithc->regs->spi_cmd.status);
++	ithc_clear_dma_rx_interrupts(ithc, 0);
++	ithc_clear_dma_rx_interrupts(ithc, 1);
++	writel(DMA_TX_STATUS_DONE | DMA_TX_STATUS_ERROR | DMA_TX_STATUS_UNKNOWN_2,
++		&ithc->regs->dma_tx.status);
++}
++
++static void ithc_idle_timer_callback(struct timer_list *t)
++{
++	struct ithc *ithc = container_of(t, struct ithc, idle_timer);
++	ithc_set_ltr_idle(ithc);
++}
++
++static void ithc_process(struct ithc *ithc)
++{
++	ithc_log_regs(ithc);
++
++	// The THC automatically transitions from LTR idle to active at the start of a DMA transfer.
++	// It does not appear to automatically go back to idle, so we switch it back after a delay.
++	mod_timer(&ithc->idle_timer, jiffies + msecs_to_jiffies(ithc_idle_delay_ms));
++
++	bool rx0 = ithc_use_rx0 && (readl(&ithc->regs->dma_rx[0].status) & (DMA_RX_STATUS_ERROR | DMA_RX_STATUS_HAVE_DATA)) != 0;
++	bool rx1 = ithc_use_rx1 && (readl(&ithc->regs->dma_rx[1].status) & (DMA_RX_STATUS_ERROR | DMA_RX_STATUS_HAVE_DATA)) != 0;
++
++	// Read and clear error bits
++	u32 err = readl(&ithc->regs->error_flags);
++	if (err) {
++		writel(err, &ithc->regs->error_flags);
++		if (err & ~ERROR_FLAG_DMA_RX_TIMEOUT)
++			pci_err(ithc->pci, "error flags: 0x%08x\n", err);
++		if (err & ERROR_FLAG_DMA_RX_TIMEOUT)
++			pci_err(ithc->pci, "DMA RX timeout/error (try decreasing activeltr/idleltr if this happens frequently)\n");
++	}
++
++	// Process DMA rx
++	if (ithc_use_rx0) {
++		ithc_clear_dma_rx_interrupts(ithc, 0);
++		if (rx0)
++			ithc_dma_rx(ithc, 0);
++	}
++	if (ithc_use_rx1) {
++		ithc_clear_dma_rx_interrupts(ithc, 1);
++		if (rx1)
++			ithc_dma_rx(ithc, 1);
++	}
++
++	ithc_log_regs(ithc);
++}
++
++static irqreturn_t ithc_interrupt_thread(int irq, void *arg)
++{
++	struct ithc *ithc = arg;
++	pci_dbg(ithc->pci, "IRQ! err=%08x/%08x/%08x, cmd=%02x/%08x, rx0=%02x/%08x, rx1=%02x/%08x, tx=%02x/%08x\n",
++		readl(&ithc->regs->error_control), readl(&ithc->regs->error_status), readl(&ithc->regs->error_flags),
++		readb(&ithc->regs->spi_cmd.control), readl(&ithc->regs->spi_cmd.status),
++		readb(&ithc->regs->dma_rx[0].control), readl(&ithc->regs->dma_rx[0].status),
++		readb(&ithc->regs->dma_rx[1].control), readl(&ithc->regs->dma_rx[1].status),
++		readb(&ithc->regs->dma_tx.control), readl(&ithc->regs->dma_tx.status));
++	ithc_process(ithc);
++	return IRQ_HANDLED;
++}
++
++static int ithc_poll_thread(void *arg)
++{
++	struct ithc *ithc = arg;
++	unsigned int sleep = 100;
++	while (!kthread_should_stop()) {
++		u32 n = ithc->dma_rx[1].num_received;
++		ithc_process(ithc);
++		// Decrease polling interval to 20ms if we received data, otherwise slowly
++		// increase it up to 200ms.
++		sleep = n != ithc->dma_rx[1].num_received ? 20
++			: min(200u, sleep + (sleep >> 4) + 1);
++		msleep_interruptible(sleep);
++	}
++	return 0;
++}
++
++// Device initialization and shutdown
++
++static void ithc_disable(struct ithc *ithc)
++{
++	bitsl_set(&ithc->regs->control_bits, CONTROL_QUIESCE);
++	CHECK(waitl, ithc, &ithc->regs->control_bits, CONTROL_IS_QUIESCED, CONTROL_IS_QUIESCED);
++	bitsl(&ithc->regs->control_bits, CONTROL_NRESET, 0);
++	bitsb(&ithc->regs->spi_cmd.control, SPI_CMD_CONTROL_SEND, 0);
++	bitsb(&ithc->regs->dma_tx.control, DMA_TX_CONTROL_SEND, 0);
++	bitsb(&ithc->regs->dma_rx[0].control, DMA_RX_CONTROL_ENABLE, 0);
++	bitsb(&ithc->regs->dma_rx[1].control, DMA_RX_CONTROL_ENABLE, 0);
++	ithc_disable_interrupts(ithc);
++	ithc_clear_interrupts(ithc);
++}
++
++static int ithc_init_device(struct ithc *ithc)
++{
++	// Read ACPI config for QuickSPI mode
++	struct ithc_acpi_config cfg = { 0 };
++	CHECK_RET(ithc_read_acpi_config, ithc, &cfg);
++	if (!cfg.has_config)
++		pci_info(ithc->pci, "no ACPI config, using legacy mode\n");
++	else
++		ithc_print_acpi_config(ithc, &cfg);
++	ithc->use_quickspi = cfg.has_config;
++
++	// Shut down device
++	ithc_log_regs(ithc);
++	bool was_enabled = (readl(&ithc->regs->control_bits) & CONTROL_NRESET) != 0;
++	ithc_disable(ithc);
++	CHECK_RET(waitl, ithc, &ithc->regs->control_bits, CONTROL_READY, CONTROL_READY);
++	ithc_log_regs(ithc);
++
++	// If the device was previously enabled, wait a bit to make sure it's fully shut down.
++	if (was_enabled)
++		if (msleep_interruptible(100))
++			return -EINTR;
++
++	// Set Latency Tolerance Reporting config. The device will automatically
++	// apply these values depending on whether it is active or idle.
++	// If active value is too high, DMA buffer data can become truncated.
++	// By default, we set the active LTR value to 50us, and idle to 100ms.
++	u64 active_ltr_ns = ithc_active_ltr_us >= 0 ? (u64)ithc_active_ltr_us * 1000
++		: cfg.has_config && cfg.has_active_ltr ? (u64)cfg.active_ltr << 10
++		: 50 * 1000;
++	u64 idle_ltr_ns = ithc_idle_ltr_us >= 0 ? (u64)ithc_idle_ltr_us * 1000
++		: cfg.has_config && cfg.has_idle_ltr ? (u64)cfg.idle_ltr << 10
++		: 100 * 1000 * 1000;
++	ithc_set_ltr_config(ithc, active_ltr_ns, idle_ltr_ns);
++
++	if (ithc->use_quickspi)
++		CHECK_RET(ithc_quickspi_init, ithc, &cfg);
++	else
++		CHECK_RET(ithc_legacy_init, ithc);
++
++	return 0;
++}
++
++int ithc_reset(struct ithc *ithc)
++{
++	// FIXME This should probably do devres_release_group()+ithc_start().
++	// But because this is called during DMA processing, that would have to be done
++	// asynchronously (schedule_work()?). And with extra locking?
++	pci_err(ithc->pci, "reset\n");
++	CHECK(ithc_init_device, ithc);
++	if (ithc_use_rx0)
++		ithc_dma_rx_enable(ithc, 0);
++	if (ithc_use_rx1)
++		ithc_dma_rx_enable(ithc, 1);
++	ithc_log_regs(ithc);
++	pci_dbg(ithc->pci, "reset completed\n");
++	return 0;
++}
++
++static void ithc_stop(void *res)
++{
++	struct ithc *ithc = res;
++	pci_dbg(ithc->pci, "stopping\n");
++	ithc_log_regs(ithc);
++
++	if (ithc->poll_thread)
++		CHECK(kthread_stop, ithc->poll_thread);
++	if (ithc->irq >= 0)
++		disable_irq(ithc->irq);
++	if (ithc->use_quickspi)
++		ithc_quickspi_exit(ithc);
++	else
++		ithc_legacy_exit(ithc);
++	ithc_disable(ithc);
++	del_timer_sync(&ithc->idle_timer);
++
++	// Clear DMA config.
++	for (unsigned int i = 0; i < 2; i++) {
++		CHECK(waitl, ithc, &ithc->regs->dma_rx[i].status, DMA_RX_STATUS_ENABLED, 0);
++		lo_hi_writeq(0, &ithc->regs->dma_rx[i].addr);
++		writeb(0, &ithc->regs->dma_rx[i].num_bufs);
++		writeb(0, &ithc->regs->dma_rx[i].num_prds);
++	}
++	lo_hi_writeq(0, &ithc->regs->dma_tx.addr);
++	writeb(0, &ithc->regs->dma_tx.num_prds);
++
++	ithc_log_regs(ithc);
++	pci_dbg(ithc->pci, "stopped\n");
++}
++
++static void ithc_clear_drvdata(void *res)
++{
++	struct pci_dev *pci = res;
++	pci_set_drvdata(pci, NULL);
++}
++
++static int ithc_start(struct pci_dev *pci)
++{
++	pci_dbg(pci, "starting\n");
++	if (pci_get_drvdata(pci)) {
++		pci_err(pci, "device already initialized\n");
++		return -EINVAL;
++	}
++	if (!devres_open_group(&pci->dev, ithc_start, GFP_KERNEL))
++		return -ENOMEM;
++
++	// Allocate/init main driver struct.
++	struct ithc *ithc = devm_kzalloc(&pci->dev, sizeof(*ithc), GFP_KERNEL);
++	if (!ithc)
++		return -ENOMEM;
++	ithc->irq = -1;
++	ithc->pci = pci;
++	snprintf(ithc->phys, sizeof(ithc->phys), "pci-%s/" DEVNAME, pci_name(pci));
++	pci_set_drvdata(pci, ithc);
++	CHECK_RET(devm_add_action_or_reset, &pci->dev, ithc_clear_drvdata, pci);
++	if (ithc_log_regs_enabled)
++		ithc->prev_regs = devm_kzalloc(&pci->dev, sizeof(*ithc->prev_regs), GFP_KERNEL);
++
++	// PCI initialization.
++	CHECK_RET(pcim_enable_device, pci);
++	pci_set_master(pci);
++	CHECK_RET(pcim_iomap_regions, pci, BIT(0), DEVNAME " regs");
++	CHECK_RET(dma_set_mask_and_coherent, &pci->dev, DMA_BIT_MASK(64));
++	CHECK_RET(pci_set_power_state, pci, PCI_D0);
++	ithc->regs = pcim_iomap_table(pci)[0];
++
++	// Allocate IRQ.
++	if (!ithc_use_polling) {
++		CHECK_RET(pci_alloc_irq_vectors, pci, 1, 1, PCI_IRQ_MSI | PCI_IRQ_MSIX);
++		ithc->irq = CHECK(pci_irq_vector, pci, 0);
++		if (ithc->irq < 0)
++			return ithc->irq;
++	}
++
++	// Initialize THC and touch device.
++	CHECK_RET(ithc_init_device, ithc);
++
++	// Initialize HID and DMA.
++	CHECK_RET(ithc_hid_init, ithc);
++	if (ithc_use_rx0)
++		CHECK_RET(ithc_dma_rx_init, ithc, 0);
++	if (ithc_use_rx1)
++		CHECK_RET(ithc_dma_rx_init, ithc, 1);
++	CHECK_RET(ithc_dma_tx_init, ithc);
++
++	timer_setup(&ithc->idle_timer, ithc_idle_timer_callback, 0);
++
++	// Add ithc_stop() callback AFTER setting up DMA buffers, so that polling/irqs/DMA are
++	// disabled BEFORE the buffers are freed.
++	CHECK_RET(devm_add_action_or_reset, &pci->dev, ithc_stop, ithc);
++
++	// Start polling/IRQ.
++	if (ithc_use_polling) {
++		pci_info(pci, "using polling instead of irq\n");
++		// Use a thread instead of simple timer because we want to be able to sleep.
++		ithc->poll_thread = kthread_run(ithc_poll_thread, ithc, DEVNAME "poll");
++		if (IS_ERR(ithc->poll_thread)) {
++			int err = PTR_ERR(ithc->poll_thread);
++			ithc->poll_thread = NULL;
++			return err;
++		}
++	} else {
++		CHECK_RET(devm_request_threaded_irq, &pci->dev, ithc->irq, NULL,
++			ithc_interrupt_thread, IRQF_TRIGGER_HIGH | IRQF_ONESHOT, DEVNAME, ithc);
++	}
++
++	if (ithc_use_rx0)
++		ithc_dma_rx_enable(ithc, 0);
++	if (ithc_use_rx1)
++		ithc_dma_rx_enable(ithc, 1);
++
++	// hid_add_device() can only be called after irq/polling is started and DMA is enabled,
++	// because it calls ithc_hid_parse() which reads the report descriptor via DMA.
++	CHECK_RET(hid_add_device, ithc->hid.dev);
++
++	CHECK(ithc_debug_init_device, ithc);
++
++	ithc_set_ltr_idle(ithc);
++
++	pci_dbg(pci, "started\n");
++	return 0;
++}
++
++static int ithc_probe(struct pci_dev *pci, const struct pci_device_id *id)
++{
++	pci_dbg(pci, "device probe\n");
++	return ithc_start(pci);
++}
++
++static void ithc_remove(struct pci_dev *pci)
++{
++	pci_dbg(pci, "device remove\n");
++	// all cleanup is handled by devres
++}
++
++// For suspend/resume, we just deinitialize and reinitialize everything.
++// TODO It might be cleaner to keep the HID device around, however we would then have to signal
++// to userspace that the touch device has lost state and userspace needs to e.g. resend 'set
++// feature' requests. Hidraw does not seem to have a facility to do that.
++static int ithc_suspend(struct device *dev)
++{
++	struct pci_dev *pci = to_pci_dev(dev);
++	pci_dbg(pci, "pm suspend\n");
++	devres_release_group(dev, ithc_start);
++	return 0;
++}
++
++static int ithc_resume(struct device *dev)
++{
++	struct pci_dev *pci = to_pci_dev(dev);
++	pci_dbg(pci, "pm resume\n");
++	return ithc_start(pci);
++}
++
++static int ithc_freeze(struct device *dev)
++{
++	struct pci_dev *pci = to_pci_dev(dev);
++	pci_dbg(pci, "pm freeze\n");
++	devres_release_group(dev, ithc_start);
++	return 0;
++}
++
++static int ithc_thaw(struct device *dev)
++{
++	struct pci_dev *pci = to_pci_dev(dev);
++	pci_dbg(pci, "pm thaw\n");
++	return ithc_start(pci);
++}
++
++static int ithc_restore(struct device *dev)
++{
++	struct pci_dev *pci = to_pci_dev(dev);
++	pci_dbg(pci, "pm restore\n");
++	return ithc_start(pci);
++}
++
++static struct pci_driver ithc_driver = {
++	.name = DEVNAME,
++	.id_table = ithc_pci_tbl,
++	.probe = ithc_probe,
++	.remove = ithc_remove,
++	.driver.pm = &(const struct dev_pm_ops) {
++		.suspend = ithc_suspend,
++		.resume = ithc_resume,
++		.freeze = ithc_freeze,
++		.thaw = ithc_thaw,
++		.restore = ithc_restore,
++	},
++	.driver.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++};
++
++static int __init ithc_init(void)
++{
++	ithc_debug_init_module();
++	return pci_register_driver(&ithc_driver);
++}
++
++static void __exit ithc_exit(void)
++{
++	pci_unregister_driver(&ithc_driver);
++	ithc_debug_exit_module();
++}
++
++module_init(ithc_init);
++module_exit(ithc_exit);
++
+diff --git a/drivers/hid/ithc/ithc-quickspi.c b/drivers/hid/ithc/ithc-quickspi.c
+new file mode 100644
+index 000000000000..e2d1690b8cf8
+--- /dev/null
++++ b/drivers/hid/ithc/ithc-quickspi.c
+@@ -0,0 +1,607 @@
++// SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause
++
++// Some public THC/QuickSPI documentation can be found in:
++// - Intel Firmware Support Package repo: https://github.com/intel/FSP
++// - HID over SPI (HIDSPI) spec: https://www.microsoft.com/en-us/download/details.aspx?id=103325
++
++#include "ithc.h"
++
++static const guid_t guid_hidspi =
++	GUID_INIT(0x6e2ac436, 0x0fcf, 0x41af, 0xa2, 0x65, 0xb3, 0x2a, 0x22, 0x0d, 0xcf, 0xab);
++static const guid_t guid_thc_quickspi =
++	GUID_INIT(0x300d35b7, 0xac20, 0x413e, 0x8e, 0x9c, 0x92, 0xe4, 0xda, 0xfd, 0x0a, 0xfe);
++static const guid_t guid_thc_ltr =
++	GUID_INIT(0x84005682, 0x5b71, 0x41a4, 0x8d, 0x66, 0x81, 0x30, 0xf7, 0x87, 0xa1, 0x38);
++
++// TODO The HIDSPI spec says revision should be 3. Should we try both?
++#define DSM_REV 2
++
++struct hidspi_header {
++	u8 type;
++	u16 len;
++	u8 id;
++} __packed;
++static_assert(sizeof(struct hidspi_header) == 4);
++
++#define HIDSPI_INPUT_TYPE_DATA                        1
++#define HIDSPI_INPUT_TYPE_RESET_RESPONSE              3
++#define HIDSPI_INPUT_TYPE_COMMAND_RESPONSE            4
++#define HIDSPI_INPUT_TYPE_GET_FEATURE_RESPONSE        5
++#define HIDSPI_INPUT_TYPE_DEVICE_DESCRIPTOR           7
++#define HIDSPI_INPUT_TYPE_REPORT_DESCRIPTOR           8
++#define HIDSPI_INPUT_TYPE_SET_FEATURE_RESPONSE        9
++#define HIDSPI_INPUT_TYPE_OUTPUT_REPORT_RESPONSE      10
++#define HIDSPI_INPUT_TYPE_GET_INPUT_REPORT_RESPONSE   11
++
++#define HIDSPI_OUTPUT_TYPE_DEVICE_DESCRIPTOR_REQUEST  1
++#define HIDSPI_OUTPUT_TYPE_REPORT_DESCRIPTOR_REQUEST  2
++#define HIDSPI_OUTPUT_TYPE_SET_FEATURE                3
++#define HIDSPI_OUTPUT_TYPE_GET_FEATURE                4
++#define HIDSPI_OUTPUT_TYPE_OUTPUT_REPORT              5
++#define HIDSPI_OUTPUT_TYPE_INPUT_REPORT_REQUEST       6
++#define HIDSPI_OUTPUT_TYPE_COMMAND                    7
++
++struct hidspi_device_descriptor {
++	u16 wDeviceDescLength;
++	u16 bcdVersion;
++	u16 wReportDescLength;
++	u16 wMaxInputLength;
++	u16 wMaxOutputLength;
++	u16 wMaxFragmentLength;
++	u16 wVendorID;
++	u16 wProductID;
++	u16 wVersionID;
++	u16 wFlags;
++	u32 dwReserved;
++};
++static_assert(sizeof(struct hidspi_device_descriptor) == 24);
++
++static int read_acpi_u32(struct ithc *ithc, const guid_t *guid, u32 func, u32 *dest)
++{
++	acpi_handle handle = ACPI_HANDLE(&ithc->pci->dev);
++	union acpi_object *o = acpi_evaluate_dsm(handle, guid, DSM_REV, func, NULL);
++	if (!o)
++		return 0;
++	if (o->type != ACPI_TYPE_INTEGER) {
++		pci_err(ithc->pci, "DSM %pUl %u returned type %i instead of integer\n",
++			guid, func, o->type);
++		ACPI_FREE(o);
++		return -1;
++	}
++	pci_dbg(ithc->pci, "DSM %pUl %u = 0x%08x\n", guid, func, (u32)o->integer.value);
++	*dest = (u32)o->integer.value;
++	ACPI_FREE(o);
++	return 1;
++}
++
++static int read_acpi_buf(struct ithc *ithc, const guid_t *guid, u32 func, size_t len, u8 *dest)
++{
++	acpi_handle handle = ACPI_HANDLE(&ithc->pci->dev);
++	union acpi_object *o = acpi_evaluate_dsm(handle, guid, DSM_REV, func, NULL);
++	if (!o)
++		return 0;
++	if (o->type != ACPI_TYPE_BUFFER) {
++		pci_err(ithc->pci, "DSM %pUl %u returned type %i instead of buffer\n",
++			guid, func, o->type);
++		ACPI_FREE(o);
++		return -1;
++	}
++	if (o->buffer.length != len) {
++		pci_err(ithc->pci, "DSM %pUl %u returned len %u instead of %zu\n",
++			guid, func, o->buffer.length, len);
++		ACPI_FREE(o);
++		return -1;
++	}
++	memcpy(dest, o->buffer.pointer, len);
++	pci_dbg(ithc->pci, "DSM %pUl %u = 0x%02x\n", guid, func, dest[0]);
++	ACPI_FREE(o);
++	return 1;
++}
++
++int ithc_read_acpi_config(struct ithc *ithc, struct ithc_acpi_config *cfg)
++{
++	int r;
++	acpi_handle handle = ACPI_HANDLE(&ithc->pci->dev);
++
++	cfg->has_config = acpi_check_dsm(handle, &guid_hidspi, DSM_REV, BIT(0));
++	if (!cfg->has_config)
++		return 0;
++
++	// HIDSPI settings
++
++	r = read_acpi_u32(ithc, &guid_hidspi, 1, &cfg->input_report_header_address);
++	if (r < 0)
++		return r;
++	cfg->has_input_report_header_address = r > 0;
++	if (r > 0 && cfg->input_report_header_address > 0xffffff) {
++		pci_err(ithc->pci, "Invalid input report header address 0x%x\n",
++			cfg->input_report_header_address);
++		return -1;
++	}
++
++	r = read_acpi_u32(ithc, &guid_hidspi, 2, &cfg->input_report_body_address);
++	if (r < 0)
++		return r;
++	cfg->has_input_report_body_address = r > 0;
++	if (r > 0 && cfg->input_report_body_address > 0xffffff) {
++		pci_err(ithc->pci, "Invalid input report body address 0x%x\n",
++			cfg->input_report_body_address);
++		return -1;
++	}
++
++	r = read_acpi_u32(ithc, &guid_hidspi, 3, &cfg->output_report_body_address);
++	if (r < 0)
++		return r;
++	cfg->has_output_report_body_address = r > 0;
++	if (r > 0 && cfg->output_report_body_address > 0xffffff) {
++		pci_err(ithc->pci, "Invalid output report body address 0x%x\n",
++			cfg->output_report_body_address);
++		return -1;
++	}
++
++	r = read_acpi_buf(ithc, &guid_hidspi, 4, sizeof(cfg->read_opcode), &cfg->read_opcode);
++	if (r < 0)
++		return r;
++	cfg->has_read_opcode = r > 0;
++
++	r = read_acpi_buf(ithc, &guid_hidspi, 5, sizeof(cfg->write_opcode), &cfg->write_opcode);
++	if (r < 0)
++		return r;
++	cfg->has_write_opcode = r > 0;
++
++	u32 flags;
++	r = read_acpi_u32(ithc, &guid_hidspi, 6, &flags);
++	if (r < 0)
++		return r;
++	cfg->has_read_mode = cfg->has_write_mode = r > 0;
++	if (r > 0) {
++		cfg->read_mode = (flags >> 14) & 3;
++		cfg->write_mode = flags & BIT(13) ? cfg->read_mode : SPI_MODE_SINGLE;
++	}
++
++	// Quick SPI settings
++
++	r = read_acpi_u32(ithc, &guid_thc_quickspi, 1, &cfg->spi_frequency);
++	if (r < 0)
++		return r;
++	cfg->has_spi_frequency = r > 0;
++
++	r = read_acpi_u32(ithc, &guid_thc_quickspi, 2, &cfg->limit_packet_size);
++	if (r < 0)
++		return r;
++	cfg->has_limit_packet_size = r > 0;
++
++	r = read_acpi_u32(ithc, &guid_thc_quickspi, 3, &cfg->tx_delay);
++	if (r < 0)
++		return r;
++	cfg->has_tx_delay = r > 0;
++	if (r > 0)
++		cfg->tx_delay &= 0xffff;
++
++	// LTR settings
++
++	r = read_acpi_u32(ithc, &guid_thc_ltr, 1, &cfg->active_ltr);
++	if (r < 0)
++		return r;
++	cfg->has_active_ltr = r > 0;
++	if (r > 0 && (!cfg->active_ltr || cfg->active_ltr > 0x3ff)) {
++		if (cfg->active_ltr != 0xffffffff)
++			pci_warn(ithc->pci, "Ignoring invalid active LTR value 0x%x\n",
++				cfg->active_ltr);
++		cfg->active_ltr = 500;
++	}
++
++	r = read_acpi_u32(ithc, &guid_thc_ltr, 2, &cfg->idle_ltr);
++	if (r < 0)
++		return r;
++	cfg->has_idle_ltr = r > 0;
++	if (r > 0 && (!cfg->idle_ltr || cfg->idle_ltr > 0x3ff)) {
++		if (cfg->idle_ltr != 0xffffffff)
++			pci_warn(ithc->pci, "Ignoring invalid idle LTR value 0x%x\n",
++				cfg->idle_ltr);
++		cfg->idle_ltr = 500;
++		if (cfg->has_active_ltr && cfg->active_ltr > cfg->idle_ltr)
++			cfg->idle_ltr = cfg->active_ltr;
++	}
++
++	return 0;
++}
++
++void ithc_print_acpi_config(struct ithc *ithc, const struct ithc_acpi_config *cfg)
++{
++	if (!cfg->has_config) {
++		pci_info(ithc->pci, "No ACPI config");
++		return;
++	}
++
++	char input_report_header_address[16] = "-";
++	if (cfg->has_input_report_header_address)
++		sprintf(input_report_header_address, "0x%x", cfg->input_report_header_address);
++	char input_report_body_address[16] = "-";
++	if (cfg->has_input_report_body_address)
++		sprintf(input_report_body_address, "0x%x", cfg->input_report_body_address);
++	char output_report_body_address[16] = "-";
++	if (cfg->has_output_report_body_address)
++		sprintf(output_report_body_address, "0x%x", cfg->output_report_body_address);
++	char read_opcode[16] = "-";
++	if (cfg->has_read_opcode)
++		sprintf(read_opcode, "0x%02x", cfg->read_opcode);
++	char write_opcode[16] = "-";
++	if (cfg->has_write_opcode)
++		sprintf(write_opcode, "0x%02x", cfg->write_opcode);
++	char read_mode[16] = "-";
++	if (cfg->has_read_mode)
++		sprintf(read_mode, "%i", cfg->read_mode);
++	char write_mode[16] = "-";
++	if (cfg->has_write_mode)
++		sprintf(write_mode, "%i", cfg->write_mode);
++	char spi_frequency[16] = "-";
++	if (cfg->has_spi_frequency)
++		sprintf(spi_frequency, "%u", cfg->spi_frequency);
++	char limit_packet_size[16] = "-";
++	if (cfg->has_limit_packet_size)
++		sprintf(limit_packet_size, "%u", cfg->limit_packet_size);
++	char tx_delay[16] = "-";
++	if (cfg->has_tx_delay)
++		sprintf(tx_delay, "%u", cfg->tx_delay);
++	char active_ltr[16] = "-";
++	if (cfg->has_active_ltr)
++		sprintf(active_ltr, "%u", cfg->active_ltr);
++	char idle_ltr[16] = "-";
++	if (cfg->has_idle_ltr)
++		sprintf(idle_ltr, "%u", cfg->idle_ltr);
++
++	pci_info(ithc->pci, "ACPI config: InputHeaderAddr=%s InputBodyAddr=%s OutputBodyAddr=%s ReadOpcode=%s WriteOpcode=%s ReadMode=%s WriteMode=%s Frequency=%s LimitPacketSize=%s TxDelay=%s ActiveLTR=%s IdleLTR=%s\n",
++		input_report_header_address, input_report_body_address, output_report_body_address,
++		read_opcode, write_opcode, read_mode, write_mode,
++		spi_frequency, limit_packet_size, tx_delay, active_ltr, idle_ltr);
++}
++
++static void set_opcode(struct ithc *ithc, size_t i, u8 opcode)
++{
++	writeb(opcode, &ithc->regs->opcode[i].header);
++	writeb(opcode, &ithc->regs->opcode[i].single);
++	writeb(opcode, &ithc->regs->opcode[i].dual);
++	writeb(opcode, &ithc->regs->opcode[i].quad);
++}
++
++static int ithc_quickspi_init_regs(struct ithc *ithc, const struct ithc_acpi_config *cfg)
++{
++	pci_dbg(ithc->pci, "initializing QuickSPI registers\n");
++
++	// SPI frequency and mode
++	if (!cfg->has_spi_frequency || !cfg->spi_frequency) {
++		pci_err(ithc->pci, "Missing SPI frequency in configuration\n");
++		return -EINVAL;
++	}
++	unsigned int clkdiv = DIV_ROUND_UP(SPI_CLK_FREQ_BASE, cfg->spi_frequency);
++	bool clkdiv8 = clkdiv > 7;
++	if (clkdiv8)
++		clkdiv = min(7u, DIV_ROUND_UP(clkdiv, 8u));
++	if (!clkdiv)
++		clkdiv = 1;
++	CHECK_RET(ithc_set_spi_config, ithc, clkdiv, clkdiv8,
++		cfg->has_read_mode ? cfg->read_mode : SPI_MODE_SINGLE,
++		cfg->has_write_mode ? cfg->write_mode : SPI_MODE_SINGLE);
++
++	// SPI addresses and opcodes
++	if (cfg->has_input_report_header_address)
++		writel(cfg->input_report_header_address, &ithc->regs->spi_header_addr);
++	if (cfg->has_input_report_body_address) {
++		writel(cfg->input_report_body_address, &ithc->regs->dma_rx[0].spi_addr);
++		writel(cfg->input_report_body_address, &ithc->regs->dma_rx[1].spi_addr);
++	}
++	if (cfg->has_output_report_body_address)
++		writel(cfg->output_report_body_address, &ithc->regs->dma_tx.spi_addr);
++
++	switch (ithc->pci->device) {
++	// LKF/TGL don't support QuickSPI.
++	// For ADL, opcode layout is RX/TX/unused.
++	case PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT1:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT2:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT1:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT2:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_M_PORT1:
++	case PCI_DEVICE_ID_INTEL_THC_ADL_M_PORT2:
++		if (cfg->has_read_opcode) {
++			set_opcode(ithc, 0, cfg->read_opcode);
++		}
++		if (cfg->has_write_opcode) {
++			set_opcode(ithc, 1, cfg->write_opcode);
++		}
++		break;
++	// For MTL, opcode layout was changed to RX/RX/TX.
++	// (RPL layout is unknown.)
++	default:
++		if (cfg->has_read_opcode) {
++			set_opcode(ithc, 0, cfg->read_opcode);
++			set_opcode(ithc, 1, cfg->read_opcode);
++		}
++		if (cfg->has_write_opcode) {
++			set_opcode(ithc, 2, cfg->write_opcode);
++		}
++		break;
++	}
++
++	ithc_log_regs(ithc);
++
++	// The rest...
++	bitsl_set(&ithc->regs->dma_rx[0].init_unknown, INIT_UNKNOWN_31);
++
++	bitsl(&ithc->regs->quickspi_config1,
++		QUICKSPI_CONFIG1_UNKNOWN_0(0xff) | QUICKSPI_CONFIG1_UNKNOWN_5(0xff) |
++		QUICKSPI_CONFIG1_UNKNOWN_10(0xff) | QUICKSPI_CONFIG1_UNKNOWN_16(0xffff),
++		QUICKSPI_CONFIG1_UNKNOWN_0(4) | QUICKSPI_CONFIG1_UNKNOWN_5(4) |
++		QUICKSPI_CONFIG1_UNKNOWN_10(22) | QUICKSPI_CONFIG1_UNKNOWN_16(2));
++
++	bitsl(&ithc->regs->quickspi_config2,
++		QUICKSPI_CONFIG2_UNKNOWN_0(0xff) | QUICKSPI_CONFIG2_UNKNOWN_5(0xff) |
++		QUICKSPI_CONFIG2_UNKNOWN_12(0xff),
++		QUICKSPI_CONFIG2_UNKNOWN_0(8) | QUICKSPI_CONFIG2_UNKNOWN_5(14) |
++		QUICKSPI_CONFIG2_UNKNOWN_12(2));
++
++	u32 pktsize = cfg->has_limit_packet_size && cfg->limit_packet_size == 1 ? 4 : 0x80;
++	bitsl(&ithc->regs->spi_config,
++		SPI_CONFIG_READ_PACKET_SIZE(0xfff) | SPI_CONFIG_WRITE_PACKET_SIZE(0xfff),
++		SPI_CONFIG_READ_PACKET_SIZE(pktsize) | SPI_CONFIG_WRITE_PACKET_SIZE(pktsize));
++
++	bitsl_set(&ithc->regs->quickspi_config2,
++		QUICKSPI_CONFIG2_UNKNOWN_16 | QUICKSPI_CONFIG2_UNKNOWN_17);
++	bitsl(&ithc->regs->quickspi_config2,
++		QUICKSPI_CONFIG2_DISABLE_READ_ADDRESS_INCREMENT |
++		QUICKSPI_CONFIG2_DISABLE_WRITE_ADDRESS_INCREMENT |
++		QUICKSPI_CONFIG2_ENABLE_WRITE_STREAMING_MODE, 0);
++
++	return 0;
++}
++
++static int wait_for_report(struct ithc *ithc)
++{
++	CHECK_RET(waitl, ithc, &ithc->regs->dma_rx[0].status,
++		DMA_RX_STATUS_READY, DMA_RX_STATUS_READY);
++	writel(DMA_RX_STATUS_READY, &ithc->regs->dma_rx[0].status);
++
++	u32 h = readl(&ithc->regs->input_header);
++	ithc_log_regs(ithc);
++	if (INPUT_HEADER_SYNC(h) != INPUT_HEADER_SYNC_VALUE
++		|| INPUT_HEADER_VERSION(h) != INPUT_HEADER_VERSION_VALUE) {
++		pci_err(ithc->pci, "invalid input report frame header 0x%08x\n", h);
++		return -ENODATA;
++	}
++	return INPUT_HEADER_REPORT_LENGTH(h) * 4;
++}
++
++static int ithc_quickspi_init_hidspi(struct ithc *ithc, const struct ithc_acpi_config *cfg)
++{
++	pci_dbg(ithc->pci, "initializing HIDSPI\n");
++
++	// HIDSPI initialization sequence:
++	// "1. The host shall invoke the ACPI reset method to clear the device state."
++	acpi_status s = acpi_evaluate_object(ACPI_HANDLE(&ithc->pci->dev), "_RST", NULL, NULL);
++	if (ACPI_FAILURE(s)) {
++		pci_err(ithc->pci, "ACPI reset failed\n");
++		return -EIO;
++	}
++
++	bitsl(&ithc->regs->control_bits, CONTROL_QUIESCE, 0);
++
++	// "2. Within 1 second, the device shall signal an interrupt and make available to the host
++	// an input report containing a device reset response."
++	int size = wait_for_report(ithc);
++	if (size < 0)
++		return size;
++	if (size < sizeof(struct hidspi_header)) {
++		pci_err(ithc->pci, "SPI data size too small for reset response (%u)\n", size);
++		return -EMSGSIZE;
++	}
++
++	// "3. The host shall read the reset response from the device at the Input Report addresses
++	// specified in ACPI."
++	u32 in_addr = cfg->has_input_report_body_address ? cfg->input_report_body_address : 0x1000;
++	struct {
++		struct hidspi_header header;
++		union {
++			struct hidspi_device_descriptor device_desc;
++			u32 data[16];
++		};
++	} resp = { 0 };
++	if (size > sizeof(resp)) {
++		pci_err(ithc->pci, "SPI data size for reset response too big (%u)\n", size);
++		return -EMSGSIZE;
++	}
++	CHECK_RET(ithc_spi_command, ithc, SPI_CMD_CODE_READ, in_addr, size, &resp);
++	if (resp.header.type != HIDSPI_INPUT_TYPE_RESET_RESPONSE) {
++		pci_err(ithc->pci, "received type %i instead of reset response\n", resp.header.type);
++		return -ENOMSG;
++	}
++
++	// "4. The host shall then write an Output Report to the device at the Output Report Address
++	// specified in ACPI, requesting the Device Descriptor from the device."
++	u32 out_addr = cfg->has_output_report_body_address ? cfg->output_report_body_address : 0x1000;
++	struct hidspi_header req = { .type = HIDSPI_OUTPUT_TYPE_DEVICE_DESCRIPTOR_REQUEST };
++	CHECK_RET(ithc_spi_command, ithc, SPI_CMD_CODE_WRITE, out_addr, sizeof(req), &req);
++
++	// "5. Within 1 second, the device shall signal an interrupt and make available to the host
++	// an input report containing the Device Descriptor."
++	size = wait_for_report(ithc);
++	if (size < 0)
++		return size;
++	if (size < sizeof(resp.header) + sizeof(resp.device_desc)) {
++		pci_err(ithc->pci, "SPI data size too small for device descriptor (%u)\n", size);
++		return -EMSGSIZE;
++	}
++
++	// "6. The host shall read the Device Descriptor from the Input Report addresses specified
++	// in ACPI."
++	if (size > sizeof(resp)) {
++		pci_err(ithc->pci, "SPI data size for device descriptor too big (%u)\n", size);
++		return -EMSGSIZE;
++	}
++	memset(&resp, 0, sizeof(resp));
++	CHECK_RET(ithc_spi_command, ithc, SPI_CMD_CODE_READ, in_addr, size, &resp);
++	if (resp.header.type != HIDSPI_INPUT_TYPE_DEVICE_DESCRIPTOR) {
++		pci_err(ithc->pci, "received type %i instead of device descriptor\n",
++			resp.header.type);
++		return -ENOMSG;
++	}
++	struct hidspi_device_descriptor *d = &resp.device_desc;
++	if (resp.header.len < sizeof(*d)) {
++		pci_err(ithc->pci, "response too small for device descriptor (%u)\n",
++			resp.header.len);
++		return -EMSGSIZE;
++	}
++	if (d->wDeviceDescLength != sizeof(*d)) {
++		pci_err(ithc->pci, "invalid device descriptor length (%u)\n",
++			d->wDeviceDescLength);
++		return -EMSGSIZE;
++	}
++
++	pci_info(ithc->pci, "Device descriptor: bcdVersion=0x%04x wReportDescLength=%u wMaxInputLength=%u wMaxOutputLength=%u wMaxFragmentLength=%u wVendorID=0x%04x wProductID=0x%04x wVersionID=0x%04x wFlags=0x%04x dwReserved=0x%08x\n",
++		d->bcdVersion, d->wReportDescLength,
++		d->wMaxInputLength, d->wMaxOutputLength, d->wMaxFragmentLength,
++		d->wVendorID, d->wProductID, d->wVersionID,
++		d->wFlags, d->dwReserved);
++
++	ithc->vendor_id = d->wVendorID;
++	ithc->product_id = d->wProductID;
++	ithc->product_rev = d->wVersionID;
++	ithc->max_rx_size = max_t(u32, d->wMaxInputLength,
++		d->wReportDescLength + sizeof(struct hidspi_header));
++	ithc->max_tx_size = d->wMaxOutputLength;
++	ithc->have_config = true;
++
++	// "7. The device and host shall then enter their "Ready" states - where the device may
++	// begin sending Input Reports, and the device shall be prepared for Output Reports from
++	// the host."
++
++	return 0;
++}
++
++int ithc_quickspi_init(struct ithc *ithc, const struct ithc_acpi_config *cfg)
++{
++	bitsl_set(&ithc->regs->control_bits, CONTROL_QUIESCE);
++	CHECK_RET(waitl, ithc, &ithc->regs->control_bits, CONTROL_IS_QUIESCED, CONTROL_IS_QUIESCED);
++
++	ithc_log_regs(ithc);
++	CHECK_RET(ithc_quickspi_init_regs, ithc, cfg);
++	ithc_log_regs(ithc);
++	CHECK_RET(ithc_quickspi_init_hidspi, ithc, cfg);
++	ithc_log_regs(ithc);
++
++	// This value is set to 2 in ithc_quickspi_init_regs(). It needs to be set to 1 here,
++	// otherwise DMA will not work. Maybe selects between DMA and PIO mode?
++	bitsl(&ithc->regs->quickspi_config1,
++		QUICKSPI_CONFIG1_UNKNOWN_16(0xffff), QUICKSPI_CONFIG1_UNKNOWN_16(1));
++
++	// TODO Do we need to set any of the following bits here?
++	//bitsb_set(&ithc->regs->dma_rx[1].control2, DMA_RX_CONTROL2_UNKNOWN_4);
++	//bitsb_set(&ithc->regs->dma_rx[0].control2, DMA_RX_CONTROL2_UNKNOWN_5);
++	//bitsb_set(&ithc->regs->dma_rx[1].control2, DMA_RX_CONTROL2_UNKNOWN_5);
++	//bitsl_set(&ithc->regs->dma_rx[0].init_unknown, INIT_UNKNOWN_3);
++	//bitsl_set(&ithc->regs->dma_rx[0].init_unknown, INIT_UNKNOWN_31);
++
++	ithc_log_regs(ithc);
++
++	return 0;
++}
++
++void ithc_quickspi_exit(struct ithc *ithc)
++{
++	// TODO Should we send HIDSPI 'power off' command?
++	//struct hidspi_header h = { .type = HIDSPI_OUTPUT_TYPE_COMMAND, .id = 3, };
++	//struct ithc_data d = { .type = ITHC_DATA_RAW, .data = &h, .size = sizeof(h) };
++	//CHECK(ithc_dma_tx, ithc, &d); // or ithc_spi_command()
++}
++
++int ithc_quickspi_decode_rx(struct ithc *ithc, const void *src, size_t len, struct ithc_data *dest)
++{
++	const struct hidspi_header *hdr = src;
++
++	if (len < sizeof(*hdr))
++		return -ENODATA;
++	// TODO Do we need to handle HIDSPI packet fragmentation?
++	if (len < sizeof(*hdr) + hdr->len)
++		return -EMSGSIZE;
++	if (len > round_up(sizeof(*hdr) + hdr->len, 4))
++		return -EMSGSIZE;
++
++	switch (hdr->type) {
++	case HIDSPI_INPUT_TYPE_RESET_RESPONSE:
++		// TODO "When the device detects an error condition, it may interrupt and make
++		// available to the host an Input Report containing an unsolicited Reset Response.
++		// After receiving an unsolicited Reset Response, the host shall initiate the
++		// request procedure from step (4) in the [HIDSPI initialization] process."
++		dest->type = ITHC_DATA_ERROR;
++		return 0;
++	case HIDSPI_INPUT_TYPE_REPORT_DESCRIPTOR:
++		dest->type = ITHC_DATA_REPORT_DESCRIPTOR;
++		dest->data = hdr + 1;
++		dest->size = hdr->len;
++		return 0;
++	case HIDSPI_INPUT_TYPE_DATA:
++	case HIDSPI_INPUT_TYPE_GET_INPUT_REPORT_RESPONSE:
++		dest->type = ITHC_DATA_INPUT_REPORT;
++		dest->data = &hdr->id;
++		dest->size = hdr->len + 1;
++		return 0;
++	case HIDSPI_INPUT_TYPE_GET_FEATURE_RESPONSE:
++		dest->type = ITHC_DATA_GET_FEATURE;
++		dest->data = &hdr->id;
++		dest->size = hdr->len + 1;
++		return 0;
++	case HIDSPI_INPUT_TYPE_SET_FEATURE_RESPONSE:
++	case HIDSPI_INPUT_TYPE_OUTPUT_REPORT_RESPONSE:
++		dest->type = ITHC_DATA_IGNORE;
++		return 0;
++	default:
++		return -EINVAL;
++	}
++}
++
++ssize_t ithc_quickspi_encode_tx(struct ithc *ithc, const struct ithc_data *src, void *dest,
++	size_t maxlen)
++{
++	struct hidspi_header *hdr = dest;
++
++	size_t src_size = src->size;
++	const u8 *src_data = src->data;
++	u8 type;
++
++	switch (src->type) {
++	case ITHC_DATA_SET_FEATURE:
++		type = HIDSPI_OUTPUT_TYPE_SET_FEATURE;
++		break;
++	case ITHC_DATA_GET_FEATURE:
++		type = HIDSPI_OUTPUT_TYPE_GET_FEATURE;
++		break;
++	case ITHC_DATA_OUTPUT_REPORT:
++		type = HIDSPI_OUTPUT_TYPE_OUTPUT_REPORT;
++		break;
++	case ITHC_DATA_REPORT_DESCRIPTOR:
++		type = HIDSPI_OUTPUT_TYPE_REPORT_DESCRIPTOR_REQUEST;
++		src_size = 0;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	u8 id = 0;
++	if (src_size) {
++		id = *src_data++;
++		src_size--;
++	}
++
++	// Data must be padded to next 4-byte boundary.
++	size_t padded = round_up(src_size, 4);
++	if (sizeof(*hdr) + padded > maxlen)
++		return -EOVERFLOW;
++
++	// Fill the TX buffer with header and data.
++	hdr->type = type;
++	hdr->len = (u16)src_size;
++	hdr->id = id;
++	memcpy_and_pad(hdr + 1, padded, src_data, src_size, 0);
++
++	return sizeof(*hdr) + padded;
++}
++
+diff --git a/drivers/hid/ithc/ithc-quickspi.h b/drivers/hid/ithc/ithc-quickspi.h
+new file mode 100644
+index 000000000000..74d882f6b2f0
+--- /dev/null
++++ b/drivers/hid/ithc/ithc-quickspi.h
+@@ -0,0 +1,39 @@
++/* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
++
++struct ithc_acpi_config {
++	bool has_config: 1;
++	bool has_input_report_header_address: 1;
++	bool has_input_report_body_address: 1;
++	bool has_output_report_body_address: 1;
++	bool has_read_opcode: 1;
++	bool has_write_opcode: 1;
++	bool has_read_mode: 1;
++	bool has_write_mode: 1;
++	bool has_spi_frequency: 1;
++	bool has_limit_packet_size: 1;
++	bool has_tx_delay: 1;
++	bool has_active_ltr: 1;
++	bool has_idle_ltr: 1;
++	u32 input_report_header_address;
++	u32 input_report_body_address;
++	u32 output_report_body_address;
++	u8 read_opcode;
++	u8 write_opcode;
++	u8 read_mode;
++	u8 write_mode;
++	u32 spi_frequency;
++	u32 limit_packet_size;
++	u32 tx_delay; // us/10 // TODO use?
++	u32 active_ltr; // ns/1024
++	u32 idle_ltr; // ns/1024
++};
++
++int ithc_read_acpi_config(struct ithc *ithc, struct ithc_acpi_config *cfg);
++void ithc_print_acpi_config(struct ithc *ithc, const struct ithc_acpi_config *cfg);
++
++int ithc_quickspi_init(struct ithc *ithc, const struct ithc_acpi_config *cfg);
++void ithc_quickspi_exit(struct ithc *ithc);
++int ithc_quickspi_decode_rx(struct ithc *ithc, const void *src, size_t len, struct ithc_data *dest);
++ssize_t ithc_quickspi_encode_tx(struct ithc *ithc, const struct ithc_data *src, void *dest,
++	size_t maxlen);
++
+diff --git a/drivers/hid/ithc/ithc-regs.c b/drivers/hid/ithc/ithc-regs.c
+new file mode 100644
+index 000000000000..c0f13506af20
+--- /dev/null
++++ b/drivers/hid/ithc/ithc-regs.c
+@@ -0,0 +1,154 @@
++// SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause
++
++#include "ithc.h"
++
++#define reg_num(r) (0x1fff & (u16)(__force u64)(r))
++
++void bitsl(__iomem u32 *reg, u32 mask, u32 val)
++{
++	if (val & ~mask)
++		pr_err("register 0x%x: invalid value 0x%x for bitmask 0x%x\n",
++			reg_num(reg), val, mask);
++	writel((readl(reg) & ~mask) | (val & mask), reg);
++}
++
++void bitsb(__iomem u8 *reg, u8 mask, u8 val)
++{
++	if (val & ~mask)
++		pr_err("register 0x%x: invalid value 0x%x for bitmask 0x%x\n",
++			reg_num(reg), val, mask);
++	writeb((readb(reg) & ~mask) | (val & mask), reg);
++}
++
++int waitl(struct ithc *ithc, __iomem u32 *reg, u32 mask, u32 val)
++{
++	ithc_log_regs(ithc);
++	pci_dbg(ithc->pci, "waiting for reg 0x%04x mask 0x%08x val 0x%08x\n",
++		reg_num(reg), mask, val);
++	u32 x;
++	if (readl_poll_timeout(reg, x, (x & mask) == val, 200, 1000*1000)) {
++		ithc_log_regs(ithc);
++		pci_err(ithc->pci, "timed out waiting for reg 0x%04x mask 0x%08x val 0x%08x\n",
++			reg_num(reg), mask, val);
++		return -ETIMEDOUT;
++	}
++	ithc_log_regs(ithc);
++	pci_dbg(ithc->pci, "done waiting\n");
++	return 0;
++}
++
++int waitb(struct ithc *ithc, __iomem u8 *reg, u8 mask, u8 val)
++{
++	ithc_log_regs(ithc);
++	pci_dbg(ithc->pci, "waiting for reg 0x%04x mask 0x%02x val 0x%02x\n",
++		reg_num(reg), mask, val);
++	u8 x;
++	if (readb_poll_timeout(reg, x, (x & mask) == val, 200, 1000*1000)) {
++		ithc_log_regs(ithc);
++		pci_err(ithc->pci, "timed out waiting for reg 0x%04x mask 0x%02x val 0x%02x\n",
++			reg_num(reg), mask, val);
++		return -ETIMEDOUT;
++	}
++	ithc_log_regs(ithc);
++	pci_dbg(ithc->pci, "done waiting\n");
++	return 0;
++}
++
++static void calc_ltr(u64 *ns, unsigned int *val, unsigned int *scale)
++{
++	unsigned int s = 0;
++	u64 v = *ns;
++	while (v > 0x3ff) {
++		s++;
++		v >>= 5;
++	}
++	if (s > 5) {
++		s = 5;
++		v = 0x3ff;
++	}
++	*val = v;
++	*scale = s;
++	*ns = v << (5 * s);
++}
++
++void ithc_set_ltr_config(struct ithc *ithc, u64 active_ltr_ns, u64 idle_ltr_ns)
++{
++	unsigned int active_val, active_scale, idle_val, idle_scale;
++	calc_ltr(&active_ltr_ns, &active_val, &active_scale);
++	calc_ltr(&idle_ltr_ns, &idle_val, &idle_scale);
++	pci_dbg(ithc->pci, "setting active LTR value to %llu ns, idle LTR value to %llu ns\n",
++		active_ltr_ns, idle_ltr_ns);
++	writel(LTR_CONFIG_ENABLE_ACTIVE | LTR_CONFIG_ENABLE_IDLE | LTR_CONFIG_APPLY |
++		LTR_CONFIG_ACTIVE_LTR_SCALE(active_scale) | LTR_CONFIG_ACTIVE_LTR_VALUE(active_val) |
++		LTR_CONFIG_IDLE_LTR_SCALE(idle_scale) | LTR_CONFIG_IDLE_LTR_VALUE(idle_val),
++		&ithc->regs->ltr_config);
++}
++
++void ithc_set_ltr_idle(struct ithc *ithc)
++{
++	u32 ltr = readl(&ithc->regs->ltr_config);
++	switch (ltr & (LTR_CONFIG_STATUS_ACTIVE | LTR_CONFIG_STATUS_IDLE)) {
++	case LTR_CONFIG_STATUS_IDLE:
++		break;
++	case LTR_CONFIG_STATUS_ACTIVE:
++		writel(ltr | LTR_CONFIG_TOGGLE | LTR_CONFIG_APPLY, &ithc->regs->ltr_config);
++		break;
++	default:
++		pci_err(ithc->pci, "invalid LTR state 0x%08x\n", ltr);
++		break;
++	}
++}
++
++int ithc_set_spi_config(struct ithc *ithc, u8 clkdiv, bool clkdiv8, u8 read_mode, u8 write_mode)
++{
++	if (clkdiv == 0 || clkdiv > 7 || read_mode > SPI_MODE_QUAD || write_mode > SPI_MODE_QUAD)
++		return -EINVAL;
++	static const char * const modes[] = { "single", "dual", "quad" };
++	pci_dbg(ithc->pci, "setting SPI frequency to %i Hz, %s read, %s write\n",
++		SPI_CLK_FREQ_BASE / (clkdiv * (clkdiv8 ? 8 : 1)),
++		modes[read_mode], modes[write_mode]);
++	bitsl(&ithc->regs->spi_config,
++		SPI_CONFIG_READ_MODE(0xff) | SPI_CONFIG_READ_CLKDIV(0xff) |
++		SPI_CONFIG_WRITE_MODE(0xff) | SPI_CONFIG_WRITE_CLKDIV(0xff) |
++		SPI_CONFIG_CLKDIV_8,
++		SPI_CONFIG_READ_MODE(read_mode) | SPI_CONFIG_READ_CLKDIV(clkdiv) |
++		SPI_CONFIG_WRITE_MODE(write_mode) | SPI_CONFIG_WRITE_CLKDIV(clkdiv) |
++		(clkdiv8 ? SPI_CONFIG_CLKDIV_8 : 0));
++	return 0;
++}
++
++int ithc_spi_command(struct ithc *ithc, u8 command, u32 offset, u32 size, void *data)
++{
++	pci_dbg(ithc->pci, "SPI command %u, size %u, offset 0x%x\n", command, size, offset);
++	if (size > sizeof(ithc->regs->spi_cmd.data))
++		return -EINVAL;
++
++	// Wait if the device is still busy.
++	CHECK_RET(waitl, ithc, &ithc->regs->spi_cmd.status, SPI_CMD_STATUS_BUSY, 0);
++	// Clear result flags.
++	writel(SPI_CMD_STATUS_DONE | SPI_CMD_STATUS_ERROR, &ithc->regs->spi_cmd.status);
++
++	// Init SPI command data.
++	writeb(command, &ithc->regs->spi_cmd.code);
++	writew(size, &ithc->regs->spi_cmd.size);
++	writel(offset, &ithc->regs->spi_cmd.offset);
++	u32 *p = data, n = (size + 3) / 4;
++	for (u32 i = 0; i < n; i++)
++		writel(p[i], &ithc->regs->spi_cmd.data[i]);
++
++	// Start transmission.
++	bitsb_set(&ithc->regs->spi_cmd.control, SPI_CMD_CONTROL_SEND);
++	CHECK_RET(waitl, ithc, &ithc->regs->spi_cmd.status, SPI_CMD_STATUS_BUSY, 0);
++
++	// Read response.
++	if ((readl(&ithc->regs->spi_cmd.status) & (SPI_CMD_STATUS_DONE | SPI_CMD_STATUS_ERROR)) != SPI_CMD_STATUS_DONE)
++		return -EIO;
++	if (readw(&ithc->regs->spi_cmd.size) != size)
++		return -EMSGSIZE;
++	for (u32 i = 0; i < n; i++)
++		p[i] = readl(&ithc->regs->spi_cmd.data[i]);
++
++	writel(SPI_CMD_STATUS_DONE | SPI_CMD_STATUS_ERROR, &ithc->regs->spi_cmd.status);
++	return 0;
++}
++
+diff --git a/drivers/hid/ithc/ithc-regs.h b/drivers/hid/ithc/ithc-regs.h
+new file mode 100644
+index 000000000000..4f541fe533fa
+--- /dev/null
++++ b/drivers/hid/ithc/ithc-regs.h
+@@ -0,0 +1,211 @@
++/* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
++
++#define LTR_CONFIG_ENABLE_ACTIVE            BIT(0)
++#define LTR_CONFIG_TOGGLE                   BIT(1)
++#define LTR_CONFIG_ENABLE_IDLE              BIT(2)
++#define LTR_CONFIG_APPLY                    BIT(3)
++#define LTR_CONFIG_IDLE_LTR_SCALE(x)        (((x) & 7) << 4)
++#define LTR_CONFIG_IDLE_LTR_VALUE(x)        (((x) & 0x3ff) << 7)
++#define LTR_CONFIG_ACTIVE_LTR_SCALE(x)      (((x) & 7) << 17)
++#define LTR_CONFIG_ACTIVE_LTR_VALUE(x)      (((x) & 0x3ff) << 20)
++#define LTR_CONFIG_STATUS_ACTIVE            BIT(30)
++#define LTR_CONFIG_STATUS_IDLE              BIT(31)
++
++#define CONTROL_QUIESCE                     BIT(1)
++#define CONTROL_IS_QUIESCED                 BIT(2)
++#define CONTROL_NRESET                      BIT(3)
++#define CONTROL_UNKNOWN_24(x)               (((x) & 3) << 24)
++#define CONTROL_READY                       BIT(29)
++
++#define SPI_CONFIG_READ_MODE(x)             (((x) & 3) << 2)
++#define SPI_CONFIG_READ_CLKDIV(x)           (((x) & 7) << 4)
++#define SPI_CONFIG_READ_PACKET_SIZE(x)      (((x) & 0x1ff) << 7)
++#define SPI_CONFIG_WRITE_MODE(x)            (((x) & 3) << 18)
++#define SPI_CONFIG_WRITE_CLKDIV(x)          (((x) & 7) << 20)
++#define SPI_CONFIG_CLKDIV_8                 BIT(23) // additionally divide clk by 8, for both read and write
++#define SPI_CONFIG_WRITE_PACKET_SIZE(x)     (((x) & 0xff) << 24)
++
++#define SPI_CLK_FREQ_BASE                   125000000
++#define SPI_MODE_SINGLE                     0
++#define SPI_MODE_DUAL                       1
++#define SPI_MODE_QUAD                       2
++
++#define ERROR_CONTROL_UNKNOWN_0             BIT(0)
++#define ERROR_CONTROL_DISABLE_DMA           BIT(1) // clears DMA_RX_CONTROL_ENABLE when a DMA error occurs
++#define ERROR_CONTROL_UNKNOWN_2             BIT(2)
++#define ERROR_CONTROL_UNKNOWN_3             BIT(3)
++#define ERROR_CONTROL_IRQ_DMA_UNKNOWN_9     BIT(9)
++#define ERROR_CONTROL_IRQ_DMA_UNKNOWN_10    BIT(10)
++#define ERROR_CONTROL_IRQ_DMA_UNKNOWN_12    BIT(12)
++#define ERROR_CONTROL_IRQ_DMA_UNKNOWN_13    BIT(13)
++#define ERROR_CONTROL_UNKNOWN_16(x)         (((x) & 0xff) << 16) // spi error code irq?
++#define ERROR_CONTROL_SET_DMA_STATUS        BIT(29) // sets DMA_RX_STATUS_ERROR when a DMA error occurs
++
++#define ERROR_STATUS_DMA                    BIT(28)
++#define ERROR_STATUS_SPI                    BIT(30)
++
++#define ERROR_FLAG_DMA_UNKNOWN_9            BIT(9)
++#define ERROR_FLAG_DMA_UNKNOWN_10           BIT(10)
++#define ERROR_FLAG_DMA_RX_TIMEOUT           BIT(12) // set when we receive a truncated DMA message
++#define ERROR_FLAG_DMA_UNKNOWN_13           BIT(13)
++#define ERROR_FLAG_SPI_BUS_TURNAROUND       BIT(16)
++#define ERROR_FLAG_SPI_RESPONSE_TIMEOUT     BIT(17)
++#define ERROR_FLAG_SPI_INTRA_PACKET_TIMEOUT BIT(18)
++#define ERROR_FLAG_SPI_INVALID_RESPONSE     BIT(19)
++#define ERROR_FLAG_SPI_HS_RX_TIMEOUT        BIT(20)
++#define ERROR_FLAG_SPI_TOUCH_IC_INIT        BIT(21)
++
++#define SPI_CMD_CONTROL_SEND                BIT(0) // cleared by device when sending is complete
++#define SPI_CMD_CONTROL_IRQ                 BIT(1)
++
++#define SPI_CMD_CODE_READ                   4
++#define SPI_CMD_CODE_WRITE                  6
++
++#define SPI_CMD_STATUS_DONE                 BIT(0)
++#define SPI_CMD_STATUS_ERROR                BIT(1)
++#define SPI_CMD_STATUS_BUSY                 BIT(3)
++
++#define DMA_TX_CONTROL_SEND                 BIT(0) // cleared by device when sending is complete
++#define DMA_TX_CONTROL_IRQ                  BIT(3)
++
++#define DMA_TX_STATUS_DONE                  BIT(0)
++#define DMA_TX_STATUS_ERROR                 BIT(1)
++#define DMA_TX_STATUS_UNKNOWN_2             BIT(2)
++#define DMA_TX_STATUS_UNKNOWN_3             BIT(3) // busy?
++
++#define INPUT_HEADER_VERSION(x)             ((x) & 0xf)
++#define INPUT_HEADER_REPORT_LENGTH(x)       (((x) >> 8) & 0x3fff)
++#define INPUT_HEADER_SYNC(x)                ((x) >> 24)
++#define INPUT_HEADER_VERSION_VALUE          3
++#define INPUT_HEADER_SYNC_VALUE             0x5a
++
++#define QUICKSPI_CONFIG1_UNKNOWN_0(x)       (((x) & 0x1f) << 0)
++#define QUICKSPI_CONFIG1_UNKNOWN_5(x)       (((x) & 0x1f) << 5)
++#define QUICKSPI_CONFIG1_UNKNOWN_10(x)      (((x) & 0x1f) << 10)
++#define QUICKSPI_CONFIG1_UNKNOWN_16(x)      (((x) & 0xffff) << 16)
++
++#define QUICKSPI_CONFIG2_UNKNOWN_0(x)       (((x) & 0x1f) << 0)
++#define QUICKSPI_CONFIG2_UNKNOWN_5(x)       (((x) & 0x1f) << 5)
++#define QUICKSPI_CONFIG2_UNKNOWN_12(x)      (((x) & 0xf) << 12)
++#define QUICKSPI_CONFIG2_UNKNOWN_16         BIT(16)
++#define QUICKSPI_CONFIG2_UNKNOWN_17         BIT(17)
++#define QUICKSPI_CONFIG2_DISABLE_READ_ADDRESS_INCREMENT  BIT(24)
++#define QUICKSPI_CONFIG2_DISABLE_WRITE_ADDRESS_INCREMENT BIT(25)
++#define QUICKSPI_CONFIG2_ENABLE_WRITE_STREAMING_MODE     BIT(27)
++#define QUICKSPI_CONFIG2_IRQ_POLARITY       BIT(28)
++
++#define DMA_RX_CONTROL_ENABLE               BIT(0)
++#define DMA_RX_CONTROL_IRQ_UNKNOWN_1        BIT(1) // rx1 only?
++#define DMA_RX_CONTROL_IRQ_ERROR            BIT(3) // rx1 only?
++#define DMA_RX_CONTROL_IRQ_READY            BIT(4) // rx0 only
++#define DMA_RX_CONTROL_IRQ_DATA             BIT(5)
++
++#define DMA_RX_CONTROL2_UNKNOWN_4           BIT(4) // rx1 only?
++#define DMA_RX_CONTROL2_UNKNOWN_5           BIT(5) // rx0 only?
++#define DMA_RX_CONTROL2_RESET               BIT(7) // resets ringbuffer indices
++
++#define DMA_RX_WRAP_FLAG                    BIT(7)
++
++#define DMA_RX_STATUS_ERROR                 BIT(3)
++#define DMA_RX_STATUS_READY                 BIT(4) // set in rx0 after using CONTROL_NRESET when it becomes possible to read config (can take >100ms)
++#define DMA_RX_STATUS_HAVE_DATA             BIT(5)
++#define DMA_RX_STATUS_ENABLED               BIT(8)
++
++#define INIT_UNKNOWN_GUC_2                  BIT(2)
++#define INIT_UNKNOWN_3                      BIT(3)
++#define INIT_UNKNOWN_GUC_4                  BIT(4)
++#define INIT_UNKNOWN_5                      BIT(5)
++#define INIT_UNKNOWN_31                     BIT(31)
++
++// COUNTER_RESET can be written to counter registers to reset them to zero. However, in some cases this can mess up the THC.
++#define COUNTER_RESET                       BIT(31)
++
++struct ithc_registers {
++	/* 0000 */ u32 _unknown_0000[5];
++	/* 0014 */ u32 ltr_config;
++	/* 0018 */ u32 _unknown_0018[1018];
++	/* 1000 */ u32 _unknown_1000;
++	/* 1004 */ u32 _unknown_1004;
++	/* 1008 */ u32 control_bits;
++	/* 100c */ u32 _unknown_100c;
++	/* 1010 */ u32 spi_config;
++	struct {
++		/* 1014/1018/101c */ u8 header;
++		/* 1015/1019/101d */ u8 quad;
++		/* 1016/101a/101e */ u8 dual;
++		/* 1017/101b/101f */ u8 single;
++	} opcode[3];
++	/* 1020 */ u32 error_control;
++	/* 1024 */ u32 error_status; // write to clear
++	/* 1028 */ u32 error_flags; // write to clear
++	/* 102c */ u32 _unknown_102c[5];
++	struct {
++		/* 1040 */ u8 control;
++		/* 1041 */ u8 code;
++		/* 1042 */ u16 size;
++		/* 1044 */ u32 status; // write to clear
++		/* 1048 */ u32 offset;
++		/* 104c */ u32 data[16];
++		/* 108c */ u32 _unknown_108c;
++	} spi_cmd;
++	struct {
++		/* 1090 */ u64 addr; // cannot be written with writeq(), must use lo_hi_writeq()
++		/* 1098 */ u8 control;
++		/* 1099 */ u8 _unknown_1099;
++		/* 109a */ u8 _unknown_109a;
++		/* 109b */ u8 num_prds;
++		/* 109c */ u32 status; // write to clear
++		/* 10a0 */ u32 _unknown_10a0[5];
++		/* 10b4 */ u32 spi_addr;
++	} dma_tx;
++	/* 10b8 */ u32 spi_header_addr;
++	union {
++		/* 10bc */ u32 irq_cause; // in legacy THC mode
++		/* 10bc */ u32 input_header; // in QuickSPI mode (see HIDSPI spec)
++	};
++	/* 10c0 */ u32 _unknown_10c0[8];
++	/* 10e0 */ u32 _unknown_10e0_counters[3];
++	/* 10ec */ u32 quickspi_config1;
++	/* 10f0 */ u32 quickspi_config2;
++	/* 10f4 */ u32 _unknown_10f4[3];
++	struct {
++		/* 1100/1200 */ u64 addr; // cannot be written with writeq(), must use lo_hi_writeq()
++		/* 1108/1208 */ u8 num_bufs;
++		/* 1109/1209 */ u8 num_prds;
++		/* 110a/120a */ u16 _unknown_110a;
++		/* 110c/120c */ u8 control;
++		/* 110d/120d */ u8 head;
++		/* 110e/120e */ u8 tail;
++		/* 110f/120f */ u8 control2;
++		/* 1110/1210 */ u32 status; // write to clear
++		/* 1114/1214 */ u32 _unknown_1114;
++		/* 1118/1218 */ u64 _unknown_1118_guc_addr;
++		/* 1120/1220 */ u32 _unknown_1120_guc;
++		/* 1124/1224 */ u32 _unknown_1124_guc;
++		/* 1128/1228 */ u32 init_unknown;
++		/* 112c/122c */ u32 _unknown_112c;
++		/* 1130/1230 */ u64 _unknown_1130_guc_addr;
++		/* 1138/1238 */ u32 _unknown_1138_guc;
++		/* 113c/123c */ u32 _unknown_113c;
++		/* 1140/1240 */ u32 _unknown_1140_guc;
++		/* 1144/1244 */ u32 _unknown_1144[11];
++		/* 1170/1270 */ u32 spi_addr;
++		/* 1174/1274 */ u32 _unknown_1174[11];
++		/* 11a0/12a0 */ u32 _unknown_11a0_counters[6];
++		/* 11b8/12b8 */ u32 _unknown_11b8[18];
++	} dma_rx[2];
++};
++static_assert(sizeof(struct ithc_registers) == 0x1300);
++
++void bitsl(__iomem u32 *reg, u32 mask, u32 val);
++void bitsb(__iomem u8 *reg, u8 mask, u8 val);
++#define bitsl_set(reg, x) bitsl(reg, x, x)
++#define bitsb_set(reg, x) bitsb(reg, x, x)
++int waitl(struct ithc *ithc, __iomem u32 *reg, u32 mask, u32 val);
++int waitb(struct ithc *ithc, __iomem u8 *reg, u8 mask, u8 val);
++
++void ithc_set_ltr_config(struct ithc *ithc, u64 active_ltr_ns, u64 idle_ltr_ns);
++void ithc_set_ltr_idle(struct ithc *ithc);
++int ithc_set_spi_config(struct ithc *ithc, u8 clkdiv, bool clkdiv8, u8 read_mode, u8 write_mode);
++int ithc_spi_command(struct ithc *ithc, u8 command, u32 offset, u32 size, void *data);
++
+diff --git a/drivers/hid/ithc/ithc.h b/drivers/hid/ithc/ithc.h
+new file mode 100644
+index 000000000000..aec320d4e945
+--- /dev/null
++++ b/drivers/hid/ithc/ithc.h
+@@ -0,0 +1,89 @@
++/* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
++
++#include <linux/acpi.h>
++#include <linux/debugfs.h>
++#include <linux/delay.h>
++#include <linux/dma-mapping.h>
++#include <linux/hid.h>
++#include <linux/highmem.h>
++#include <linux/input.h>
++#include <linux/io-64-nonatomic-lo-hi.h>
++#include <linux/iopoll.h>
++#include <linux/kthread.h>
++#include <linux/miscdevice.h>
++#include <linux/module.h>
++#include <linux/pci.h>
++#include <linux/poll.h>
++#include <linux/timer.h>
++#include <linux/vmalloc.h>
++
++#define DEVNAME "ithc"
++#define DEVFULLNAME "Intel Touch Host Controller"
++
++#undef pr_fmt
++#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
++
++#define CHECK(fn, ...) ({ int r = fn(__VA_ARGS__); if (r < 0) pci_err(ithc->pci, "%s: %s failed with %i\n", __func__, #fn, r); r; })
++#define CHECK_RET(...) do { int r = CHECK(__VA_ARGS__); if (r < 0) return r; } while (0)
++
++#define NUM_RX_BUF 16
++
++// PCI device IDs:
++// Lakefield
++#define PCI_DEVICE_ID_INTEL_THC_LKF_PORT1    0x98d0
++#define PCI_DEVICE_ID_INTEL_THC_LKF_PORT2    0x98d1
++// Tiger Lake
++#define PCI_DEVICE_ID_INTEL_THC_TGL_LP_PORT1 0xa0d0
++#define PCI_DEVICE_ID_INTEL_THC_TGL_LP_PORT2 0xa0d1
++#define PCI_DEVICE_ID_INTEL_THC_TGL_H_PORT1  0x43d0
++#define PCI_DEVICE_ID_INTEL_THC_TGL_H_PORT2  0x43d1
++// Alder Lake
++#define PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT1  0x7ad8
++#define PCI_DEVICE_ID_INTEL_THC_ADL_S_PORT2  0x7ad9
++#define PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT1  0x51d0
++#define PCI_DEVICE_ID_INTEL_THC_ADL_P_PORT2  0x51d1
++#define PCI_DEVICE_ID_INTEL_THC_ADL_M_PORT1  0x54d0
++#define PCI_DEVICE_ID_INTEL_THC_ADL_M_PORT2  0x54d1
++// Raptor Lake
++#define PCI_DEVICE_ID_INTEL_THC_RPL_S_PORT1  0x7a58
++#define PCI_DEVICE_ID_INTEL_THC_RPL_S_PORT2  0x7a59
++// Meteor Lake
++#define PCI_DEVICE_ID_INTEL_THC_MTL_S_PORT1  0x7f59
++#define PCI_DEVICE_ID_INTEL_THC_MTL_S_PORT2  0x7f5b
++#define PCI_DEVICE_ID_INTEL_THC_MTL_MP_PORT1 0x7e49
++#define PCI_DEVICE_ID_INTEL_THC_MTL_MP_PORT2 0x7e4b
++
++struct ithc;
++
++#include "ithc-regs.h"
++#include "ithc-hid.h"
++#include "ithc-dma.h"
++#include "ithc-legacy.h"
++#include "ithc-quickspi.h"
++#include "ithc-debug.h"
++
++struct ithc {
++	char phys[32];
++	struct pci_dev *pci;
++	int irq;
++	struct task_struct *poll_thread;
++	struct timer_list idle_timer;
++
++	struct ithc_registers __iomem *regs;
++	struct ithc_registers *prev_regs; // for debugging
++	struct ithc_dma_rx dma_rx[2];
++	struct ithc_dma_tx dma_tx;
++	struct ithc_hid hid;
++
++	bool use_quickspi;
++	bool have_config;
++	u16 vendor_id;
++	u16 product_id;
++	u32 product_rev;
++	u32 max_rx_size;
++	u32 max_tx_size;
++	u32 legacy_touch_cfg;
++};
++
++int ithc_reset(struct ithc *ithc);
++
+-- 
+2.47.1
+
