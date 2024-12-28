@@ -49,7 +49,7 @@ build-packages)
     export MAKEFLAGS="-j2"
 
     # Build
-    su nobody --pty -p -s /bin/bash -c 'makepkg -sf --skippgpcheck --noconfirm'
+    runuser -u nobody -- makepkg -sf --skippgpcheck --noconfirm
 
     # Prepare release
     mkdir release
