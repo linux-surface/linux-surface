@@ -25,6 +25,14 @@ setup-builddeps)
 
     # Install tools for singing the kernel for secureboot
     pacman -S sbsigntools
+
+    # Install actual build dependencies from PKGBUILD
+    pushd pkg/arch/kernel || exit 1
+
+    deps=$(bash -c 'source PKGBUILD && echo "${makedepends[@]}"')
+    pacman --noconfirm -S ${deps}
+
+    popd || exit 1
     ;;
 setup-secureboot)
     if [ -z "${SB_KEY:-}" ]; then
@@ -40,7 +48,6 @@ build-packages)
     pushd pkg/arch/kernel || exit 1
 
     # Fix permissions (can't makepkg as root)
-    echo "nobody ALL=(ALL) NOPASSWD: /usr/bin/pacman" >> /etc/sudoers
     chown -R nobody .
 
     # Package compression settings (Matches latest Arch)
