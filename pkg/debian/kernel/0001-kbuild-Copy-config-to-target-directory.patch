@@ -1,0 +1,25 @@
+From 6cf53165cd3876128648dadb76a718d02692e19d Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 9 Mar 2025 01:33:54 +0100
+Subject: [PATCH] kbuild: Copy config to target directory
+
+Partial revert of aaed5c7739be ("kbuild: slim down package for building
+external modules"). Re-incldue the .config file.
+---
+ scripts/package/install-extmod-build | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/scripts/package/install-extmod-build b/scripts/package/install-extmod-build
+index d3c5b104c063..d98da1f2bf02 100755
+--- a/scripts/package/install-extmod-build
++++ b/scripts/package/install-extmod-build
+@@ -83,4 +83,6 @@ if [ "${CC}" != "${HOSTCC}" ]; then
+ 	rm -f "${destdir}/Kbuild" "${destdir}/scripts/Kbuild"
+ fi
+ 
++# copy .config manually to be where it's expected to be
++cp "${KCONFIG_CONFIG}" "${destdir}/.config"
+ find "${destdir}" \( -name '.*.cmd' -o -name '*.o' \) -delete
+-- 
+2.48.1
+
