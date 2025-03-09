@@ -79,7 +79,7 @@ kernel_version = PACKAGE_TAG.split("-")[1]
 kernel_major = ".".join(kernel_version.split(".")[:2])
 
 # Determine the patches directory and config file.
-patches = linux_surface / "patches" / kernel_major
+patches = linux_surface / "patches" / f"{kernel_major}-fedora"
 config = linux_surface / "configs" / ("surface-%s.config" % kernel_major)
 
 sb_cert = script / "secureboot" / "MOK.crt"
