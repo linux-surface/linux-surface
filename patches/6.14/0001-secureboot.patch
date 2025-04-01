@@ -1,0 +1,112 @@
+From bbcfb18eb05bd92e4501ca35bdfd558c849ddeda Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 9 Jun 2024 19:48:58 +0200
+Subject: [PATCH] Revert "efi/x86: Set the PE/COFF header's NX compat flag
+ unconditionally"
+
+This reverts commit 891f8890a4a3663da7056542757022870b499bc1.
+
+Revert because of compatibility issues of MS Surface devices and GRUB
+with NX. In short, these devices get stuck on boot with NX advertised.
+So to not advertise it, add the respective option back in.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: secureboot
+---
+ arch/x86/boot/header.S | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/arch/x86/boot/header.S b/arch/x86/boot/header.S
+index b5c79f43359b..a1bbedd989e4 100644
+--- a/arch/x86/boot/header.S
++++ b/arch/x86/boot/header.S
+@@ -111,7 +111,11 @@ extra_header_fields:
+ 	.long	salign				# SizeOfHeaders
+ 	.long	0				# CheckSum
+ 	.word	IMAGE_SUBSYSTEM_EFI_APPLICATION	# Subsystem (EFI application)
++#ifdef CONFIG_EFI_DXE_MEM_ATTRIBUTES
+ 	.word	IMAGE_DLL_CHARACTERISTICS_NX_COMPAT	# DllCharacteristics
++#else
++	.word	0				# DllCharacteristics
++#endif
+ #ifdef CONFIG_X86_32
+ 	.long	0				# SizeOfStackReserve
+ 	.long	0				# SizeOfStackCommit
+-- 
+2.47.1
+
+From 9a796344897d077f1fc977ab026315c2cfcd3960 Mon Sep 17 00:00:00 2001
+From: "J. Eduardo" <j.eduardo@gmail.com>
+Date: Sun, 25 Aug 2024 14:17:45 +0200
+Subject: [PATCH] PM: hibernate: Add a lockdown_hibernate parameter
+
+This allows the user to tell the kernel that they know better (namely,
+they secured their swap properly), and that it can enable hibernation.
+
+Signed-off-by: Kelvie Wong <kelvie@kelvie.ca>
+Link: https://github.com/linux-surface/kernel/pull/158
+Link: https://gist.github.com/brknkfr/95d1925ccdbb7a2d18947c168dfabbee
+Patchset: secureboot
+---
+ Documentation/admin-guide/kernel-parameters.txt |  5 +++++
+ kernel/power/hibernate.c                        | 10 +++++++++-
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/admin-guide/kernel-parameters.txt b/Documentation/admin-guide/kernel-parameters.txt
+index d401577b5a6a..5a812e0b740a 100644
+--- a/Documentation/admin-guide/kernel-parameters.txt
++++ b/Documentation/admin-guide/kernel-parameters.txt
+@@ -3066,6 +3066,11 @@
+ 			to extract confidential information from the kernel
+ 			are also disabled.
+ 
++	lockdown_hibernate	[HIBERNATION]
++			Enable hibernation even if lockdown is enabled. Enable this only if
++			your swap is encrypted and secured properly, as an attacker can
++			modify the kernel offline during hibernation.
++
+ 	locktorture.acq_writer_lim= [KNL]
+ 			Set the time limit in jiffies for a lock
+ 			acquisition.  Acquisitions exceeding this limit
+diff --git a/kernel/power/hibernate.c b/kernel/power/hibernate.c
+index e35829d36039..6d54eb03b63d 100644
+--- a/kernel/power/hibernate.c
++++ b/kernel/power/hibernate.c
+@@ -37,6 +37,7 @@
+ #include "power.h"
+ 
+ 
++static int lockdown_hibernate;
+ static int nocompress;
+ static int noresume;
+ static int nohibernate;
+@@ -92,7 +93,7 @@ void hibernate_release(void)
+ bool hibernation_available(void)
+ {
+ 	return nohibernate == 0 &&
+-		!security_locked_down(LOCKDOWN_HIBERNATION) &&
++		(lockdown_hibernate || !security_locked_down(LOCKDOWN_HIBERNATION)) &&
+ 		!secretmem_active() && !cxl_mem_active();
+ }
+ 
+@@ -1426,6 +1427,12 @@ static int __init nohibernate_setup(char *str)
+ 	return 1;
+ }
+ 
++static int __init lockdown_hibernate_setup(char *str)
++{
++	lockdown_hibernate = 1;
++	return 1;
++}
++
+ static const char * const comp_alg_enabled[] = {
+ #if IS_ENABLED(CONFIG_CRYPTO_LZO)
+ 	COMPRESSION_ALGO_LZO,
+@@ -1484,3 +1491,4 @@ __setup("hibernate=", hibernate_setup);
+ __setup("resumewait", resumewait_setup);
+ __setup("resumedelay=", resumedelay_setup);
+ __setup("nohibernate", nohibernate_setup);
++__setup("lockdown_hibernate", lockdown_hibernate_setup);
+-- 
+2.47.1
+
