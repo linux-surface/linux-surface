@@ -1,0 +1,734 @@
+From 2cb3cbe91cb78a8747e6eee341c1d4e20c459d16 Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Sun, 10 Oct 2021 20:56:57 +0200
+Subject: [PATCH] ACPI: delay enumeration of devices with a _DEP pointing to an
+ INT3472 device
+
+The clk and regulator frameworks expect clk/regulator consumer-devices
+to have info about the consumed clks/regulators described in the device's
+fw_node.
+
+To work around cases where this info is not present in the firmware tables,
+which is often the case on x86/ACPI devices, both frameworks allow the
+provider-driver to attach info about consumers to the clks/regulators
+when registering these.
+
+This causes problems with the probe ordering wrt drivers for consumers
+of these clks/regulators. Since the lookups are only registered when the
+provider-driver binds, trying to get these clks/regulators before then
+results in a -ENOENT error for clks and a dummy regulator for regulators.
+
+One case where we hit this issue is camera sensors such as e.g. the OV8865
+sensor found on the Microsoft Surface Go. The sensor uses clks, regulators
+and GPIOs provided by a TPS68470 PMIC which is described in an INT3472
+ACPI device. There is special platform code handling this and setting
+platform_data with the necessary consumer info on the MFD cells
+instantiated for the PMIC under: drivers/platform/x86/intel/int3472.
+
+For this to work properly the ov8865 driver must not bind to the I2C-client
+for the OV8865 sensor until after the TPS68470 PMIC gpio, regulator and
+clk MFD cells have all been fully setup.
+
+The OV8865 on the Microsoft Surface Go is just one example, all X86
+devices using the Intel IPU3 camera block found on recent Intel SoCs
+have similar issues where there is an INT3472 HID ACPI-device, which
+describes the clks and regulators, and the driver for this INT3472 device
+must be fully initialized before the sensor driver (any sensor driver)
+binds for things to work properly.
+
+On these devices the ACPI nodes describing the sensors all have a _DEP
+dependency on the matching INT3472 ACPI device (there is one per sensor).
+
+This allows solving the probe-ordering problem by delaying the enumeration
+(instantiation of the I2C-client in the ov8865 example) of ACPI-devices
+which have a _DEP dependency on an INT3472 device.
+
+The new acpi_dev_ready_for_enumeration() helper used for this is also
+exported because for devices, which have the enumeration_by_parent flag
+set, the parent-driver will do its own scan of child ACPI devices and
+it will try to enumerate those during its probe(). Code doing this such
+as e.g. the i2c-core-acpi.c code must call this new helper to ensure
+that it too delays the enumeration until all the _DEP dependencies are
+met on devices which have the new honor_deps flag set.
+
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: cameras
+---
+ drivers/acpi/scan.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/acpi/scan.c b/drivers/acpi/scan.c
+index 7ecc401fb97f..e35185de1902 100644
+--- a/drivers/acpi/scan.c
++++ b/drivers/acpi/scan.c
+@@ -2205,6 +2205,9 @@ static acpi_status acpi_bus_check_add_2(acpi_handle handle, u32 lvl_not_used,
+ 
+ static void acpi_default_enumeration(struct acpi_device *device)
+ {
++	if (!acpi_dev_ready_for_enumeration(device))
++		return;
++
+ 	/*
+ 	 * Do not enumerate devices with enumeration_by_parent flag set as
+ 	 * they will be enumerated by their respective parents.
+-- 
+2.47.1
+
+From 29efdd823d22e0a6f7dead43d9c309602a1d2cbd Mon Sep 17 00:00:00 2001
+From: zouxiaoh <xiaohong.zou@intel.com>
+Date: Fri, 25 Jun 2021 08:52:59 +0800
+Subject: [PATCH] iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs
+
+Intel IPU(Image Processing Unit) has its own (IO)MMU hardware,
+The IPU driver allocates its own page table that is not mapped
+via the DMA, and thus the Intel IOMMU driver blocks access giving
+this error: DMAR: DRHD: handling fault status reg 3 DMAR:
+[DMA Read] Request device [00:05.0] PASID ffffffff
+fault addr 76406000 [fault reason 06] PTE Read access is not set
+As IPU is not an external facing device which is not risky, so use
+IOMMU passthrough mode for Intel IPUs.
+
+Change-Id: I6dcccdadac308cf42e20a18e1b593381391e3e6b
+Depends-On: Iacd67578e8c6a9b9ac73285f52b4081b72fb68a6
+Tracked-On: #JIITL8-411
+Signed-off-by: Bingbu Cao <bingbu.cao@intel.com>
+Signed-off-by: zouxiaoh <xiaohong.zou@intel.com>
+Signed-off-by: Xu Chongyang <chongyang.xu@intel.com>
+Patchset: cameras
+---
+ drivers/iommu/intel/iommu.c | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/drivers/iommu/intel/iommu.c b/drivers/iommu/intel/iommu.c
+index c010aebe6cc1..42b342184d56 100644
+--- a/drivers/iommu/intel/iommu.c
++++ b/drivers/iommu/intel/iommu.c
+@@ -45,6 +45,13 @@
+ 		((pdev)->vendor == PCI_VENDOR_ID_INTEL && (pdev)->device == 0x34E4) \
+ 	)
+ 
++#define IS_INTEL_IPU(pdev) ((pdev)->vendor == PCI_VENDOR_ID_INTEL &&	\
++			   ((pdev)->device == 0x9a19 ||		\
++			    (pdev)->device == 0x9a39 ||		\
++			    (pdev)->device == 0x4e19 ||		\
++			    (pdev)->device == 0x465d ||		\
++			    (pdev)->device == 0x1919))
++
+ #define IOAPIC_RANGE_START	(0xfee00000)
+ #define IOAPIC_RANGE_END	(0xfeefffff)
+ #define IOVA_START_ADDR		(0x1000)
+@@ -214,12 +221,14 @@ int intel_iommu_enabled = 0;
+ EXPORT_SYMBOL_GPL(intel_iommu_enabled);
+ 
+ static int dmar_map_ipts = 1;
++static int dmar_map_ipu = 1;
+ static int intel_iommu_superpage = 1;
+ static int iommu_identity_mapping;
+ static int iommu_skip_te_disable;
+ static int disable_igfx_iommu;
+ 
+ #define IDENTMAP_AZALIA		4
++#define IDENTMAP_IPU		8
+ #define IDENTMAP_IPTS		16
+ 
+ const struct iommu_ops intel_iommu_ops;
+@@ -2054,6 +2063,9 @@ static int device_def_domain_type(struct device *dev)
+ 		if ((iommu_identity_mapping & IDENTMAP_AZALIA) && IS_AZALIA(pdev))
+ 			return IOMMU_DOMAIN_IDENTITY;
+ 
++		if ((iommu_identity_mapping & IDENTMAP_IPU) && IS_INTEL_IPU(pdev))
++			return IOMMU_DOMAIN_IDENTITY;
++
+ 		if ((iommu_identity_mapping & IDENTMAP_IPTS) && IS_IPTS(pdev))
+ 			return IOMMU_DOMAIN_IDENTITY;
+ 	}
+@@ -2354,6 +2366,9 @@ static int __init init_dmars(void)
+ 		iommu_set_root_entry(iommu);
+ 	}
+ 
++	if (!dmar_map_ipu)
++		iommu_identity_mapping |= IDENTMAP_IPU;
++
+ 	if (!dmar_map_ipts)
+ 		iommu_identity_mapping |= IDENTMAP_IPTS;
+ 
+@@ -4664,6 +4679,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
+ 	disable_igfx_iommu = 1;
+ }
+ 
++static void quirk_iommu_ipu(struct pci_dev *dev)
++{
++	if (!IS_INTEL_IPU(dev))
++		return;
++
++	if (risky_device(dev))
++		return;
++
++	pci_info(dev, "Passthrough IOMMU for integrated Intel IPU\n");
++	dmar_map_ipu = 0;
++}
++
+ static void quirk_iommu_ipts(struct pci_dev *dev)
+ {
+ 	if (!IS_IPTS(dev))
+@@ -4711,6 +4738,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163A, quirk_iommu_igfx);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163D, quirk_iommu_igfx);
+ 
++/* disable IPU dmar support */
++DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, PCI_ANY_ID, quirk_iommu_ipu);
++
+ /* disable IPTS dmar support */
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9D3E, quirk_iommu_ipts);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x34E4, quirk_iommu_ipts);
+-- 
+2.47.1
+
+From 503ddf1a3c915d4b1108b44a280fd588fd11252c Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sun, 10 Oct 2021 20:57:02 +0200
+Subject: [PATCH] platform/x86: int3472: Enable I2c daisy chain
+
+The TPS68470 PMIC has an I2C passthrough mode through which I2C traffic
+can be forwarded to a device connected to the PMIC as though it were
+connected directly to the system bus. Enable this mode when the chip
+is initialised.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/tps68470.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/platform/x86/intel/int3472/tps68470.c b/drivers/platform/x86/intel/int3472/tps68470.c
+index 1e107fd49f82..e3e1696e7f0e 100644
+--- a/drivers/platform/x86/intel/int3472/tps68470.c
++++ b/drivers/platform/x86/intel/int3472/tps68470.c
+@@ -46,6 +46,13 @@ static int tps68470_chip_init(struct device *dev, struct regmap *regmap)
+ 		return ret;
+ 	}
+ 
++	/* Enable I2C daisy chain */
++	ret = regmap_write(regmap, TPS68470_REG_S_I2C_CTL, 0x03);
++	if (ret) {
++		dev_err(dev, "Failed to enable i2c daisy chain\n");
++		return ret;
++	}
++
+ 	dev_info(dev, "TPS68470 REVID: 0x%02x\n", version);
+ 
+ 	return 0;
+-- 
+2.47.1
+
+From 46806f2df854794beb466026561dc6446ec77632 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <dan.scally@ideasonboard.com>
+Date: Thu, 2 Mar 2023 12:59:39 +0000
+Subject: [PATCH] platform/x86: int3472: Remap reset GPIO for INT347E
+
+ACPI _HID INT347E represents the OmniVision 7251 camera sensor. The
+driver for this sensor expects a single pin named "enable", but on
+some Microsoft Surface platforms the sensor is assigned a single
+GPIO who's type flag is INT3472_GPIO_TYPE_RESET.
+
+Remap the GPIO pin's function from "reset" to "enable". This is done
+outside of the existing remap table since it is a more widespread
+discrepancy than that method is designed for. Additionally swap the
+polarity of the pin to match the driver's expectation.
+
+Signed-off-by: Daniel Scally <dan.scally@ideasonboard.com>
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/discrete.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
+index 3de463c3d13b..0a012eeed30a 100644
+--- a/drivers/platform/x86/intel/int3472/discrete.c
++++ b/drivers/platform/x86/intel/int3472/discrete.c
+@@ -80,12 +80,27 @@ static int skl_int3472_map_gpio_to_sensor(struct int3472_discrete_device *int347
+ 					  const char *func, u32 polarity)
+ {
+ 	int ret;
++	const struct acpi_device_id ov7251_ids[] = {
++		{ "INT347E" },
++		{ }
++	};
+ 
+ 	if (int3472->n_sensor_gpios >= INT3472_MAX_SENSOR_GPIOS) {
+ 		dev_warn(int3472->dev, "Too many GPIOs mapped\n");
+ 		return -EINVAL;
+ 	}
+ 
++	/*
++	 * In addition to the function remap table we need to bulk remap the
++	 * "reset" GPIO for the OmniVision 7251 sensor, as the driver for that
++	 * expects its only GPIO pin to be called "enable" (and to have the
++	 * opposite polarity).
++	 */
++	if (!strcmp(func, "reset") && !acpi_match_device_ids(int3472->sensor, ov7251_ids)) {
++		func = "enable";
++		polarity ^= GPIO_ACTIVE_LOW;
++	}
++
+ 	ret = skl_int3472_fill_gpiod_lookup(&int3472->gpios.table[int3472->n_sensor_gpios],
+ 					    agpio, func, polarity);
+ 	if (ret)
+-- 
+2.47.1
+
+From af26f5acd84f8f7db95873690902562a159a94fb Mon Sep 17 00:00:00 2001
+From: Daniel Scally <dan.scally@ideasonboard.com>
+Date: Tue, 21 Mar 2023 13:45:26 +0000
+Subject: [PATCH] media: i2c: Clarify that gain is Analogue gain in OV7251
+
+Update the control ID for the gain control in the ov7251 driver to
+V4L2_CID_ANALOGUE_GAIN.
+
+Signed-off-by: Daniel Scally <dan.scally@ideasonboard.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov7251.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/i2c/ov7251.c b/drivers/media/i2c/ov7251.c
+index 30f61e04ecaf..9c1292ca8552 100644
+--- a/drivers/media/i2c/ov7251.c
++++ b/drivers/media/i2c/ov7251.c
+@@ -1051,7 +1051,7 @@ static int ov7251_s_ctrl(struct v4l2_ctrl *ctrl)
+ 	case V4L2_CID_EXPOSURE:
+ 		ret = ov7251_set_exposure(ov7251, ctrl->val);
+ 		break;
+-	case V4L2_CID_GAIN:
++	case V4L2_CID_ANALOGUE_GAIN:
+ 		ret = ov7251_set_gain(ov7251, ctrl->val);
+ 		break;
+ 	case V4L2_CID_TEST_PATTERN:
+@@ -1572,7 +1572,7 @@ static int ov7251_init_ctrls(struct ov7251 *ov7251)
+ 	ov7251->exposure = v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
+ 					     V4L2_CID_EXPOSURE, 1, 32, 1, 32);
+ 	ov7251->gain = v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
+-					 V4L2_CID_GAIN, 16, 1023, 1, 16);
++					 V4L2_CID_ANALOGUE_GAIN, 16, 1023, 1, 16);
+ 	v4l2_ctrl_new_std_menu_items(&ov7251->ctrls, &ov7251_ctrl_ops,
+ 				     V4L2_CID_TEST_PATTERN,
+ 				     ARRAY_SIZE(ov7251_test_pattern_menu) - 1,
+-- 
+2.47.1
+
+From d0bcf0400f018b7d505f47bcf21ef7843f1372ca Mon Sep 17 00:00:00 2001
+From: Daniel Scally <dan.scally@ideasonboard.com>
+Date: Wed, 22 Mar 2023 11:01:42 +0000
+Subject: [PATCH] media: v4l2-core: Acquire privacy led in
+ v4l2_async_register_subdev()
+
+The current call to v4l2_subdev_get_privacy_led() is contained in
+v4l2_async_register_subdev_sensor(), but that function isn't used by
+all the sensor drivers. Move the acquisition of the privacy led to
+v4l2_async_register_subdev() instead.
+
+Signed-off-by: Daniel Scally <dan.scally@ideasonboard.com>
+Patchset: cameras
+---
+ drivers/media/v4l2-core/v4l2-async.c  | 4 ++++
+ drivers/media/v4l2-core/v4l2-fwnode.c | 4 ----
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/media/v4l2-core/v4l2-async.c b/drivers/media/v4l2-core/v4l2-async.c
+index ee884a8221fb..4f6bafd900ee 100644
+--- a/drivers/media/v4l2-core/v4l2-async.c
++++ b/drivers/media/v4l2-core/v4l2-async.c
+@@ -799,6 +799,10 @@ int __v4l2_async_register_subdev(struct v4l2_subdev *sd, struct module *module)
+ 
+ 	INIT_LIST_HEAD(&sd->asc_list);
+ 
++	ret = v4l2_subdev_get_privacy_led(sd);
++	if (ret < 0)
++		return ret;
++
+ 	/*
+ 	 * No reference taken. The reference is held by the device (struct
+ 	 * v4l2_subdev.dev), and async sub-device does not exist independently
+diff --git a/drivers/media/v4l2-core/v4l2-fwnode.c b/drivers/media/v4l2-core/v4l2-fwnode.c
+index f19c8adf2c61..923ed1b5ab8b 100644
+--- a/drivers/media/v4l2-core/v4l2-fwnode.c
++++ b/drivers/media/v4l2-core/v4l2-fwnode.c
+@@ -1219,10 +1219,6 @@ int v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd)
+ 
+ 	v4l2_async_subdev_nf_init(notifier, sd);
+ 
+-	ret = v4l2_subdev_get_privacy_led(sd);
+-	if (ret < 0)
+-		goto out_cleanup;
+-
+ 	ret = v4l2_async_nf_parse_fwnode_sensor(sd->dev, notifier);
+ 	if (ret < 0)
+ 		goto out_cleanup;
+-- 
+2.47.1
+
+From 222586440493b857e7c5aa363f8741b7fff753be Mon Sep 17 00:00:00 2001
+From: Kate Hsuan <hpa@redhat.com>
+Date: Tue, 21 Mar 2023 23:37:16 +0800
+Subject: [PATCH] platform: x86: int3472: Add MFD cell for tps68470 LED
+
+Add MFD cell for tps68470-led.
+
+Reviewed-by: Daniel Scally <dan.scally@ideasonboard.com>
+Signed-off-by: Kate Hsuan <hpa@redhat.com>
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/tps68470.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/platform/x86/intel/int3472/tps68470.c b/drivers/platform/x86/intel/int3472/tps68470.c
+index e3e1696e7f0e..423dc555093f 100644
+--- a/drivers/platform/x86/intel/int3472/tps68470.c
++++ b/drivers/platform/x86/intel/int3472/tps68470.c
+@@ -17,7 +17,7 @@
+ #define DESIGNED_FOR_CHROMEOS		1
+ #define DESIGNED_FOR_WINDOWS		2
+ 
+-#define TPS68470_WIN_MFD_CELL_COUNT	3
++#define TPS68470_WIN_MFD_CELL_COUNT	4
+ 
+ static const struct mfd_cell tps68470_cros[] = {
+ 	{ .name = "tps68470-gpio" },
+@@ -200,7 +200,8 @@ static int skl_int3472_tps68470_probe(struct i2c_client *client)
+ 		cells[1].name = "tps68470-regulator";
+ 		cells[1].platform_data = (void *)board_data->tps68470_regulator_pdata;
+ 		cells[1].pdata_size = sizeof(struct tps68470_regulator_platform_data);
+-		cells[2].name = "tps68470-gpio";
++		cells[2].name = "tps68470-led";
++		cells[3].name = "tps68470-gpio";
+ 
+ 		for (i = 0; i < board_data->n_gpiod_lookups; i++)
+ 			gpiod_add_lookup_table(board_data->tps68470_gpio_lookup_tables[i]);
+-- 
+2.47.1
+
+From b0e450741669b478b74d8610fd9dbae817962077 Mon Sep 17 00:00:00 2001
+From: Kate Hsuan <hpa@redhat.com>
+Date: Tue, 21 Mar 2023 23:37:17 +0800
+Subject: [PATCH] include: mfd: tps68470: Add masks for LEDA and LEDB
+
+Add flags for both LEDA(TPS68470_ILEDCTL_ENA), LEDB
+(TPS68470_ILEDCTL_ENB), and current control mask for LEDB
+(TPS68470_ILEDCTL_CTRLB)
+
+Reviewed-by: Daniel Scally <dan.scally@ideasonboard.com>
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Kate Hsuan <hpa@redhat.com>
+Patchset: cameras
+---
+ include/linux/mfd/tps68470.h | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/include/linux/mfd/tps68470.h b/include/linux/mfd/tps68470.h
+index 7807fa329db0..2d2abb25b944 100644
+--- a/include/linux/mfd/tps68470.h
++++ b/include/linux/mfd/tps68470.h
+@@ -34,6 +34,7 @@
+ #define TPS68470_REG_SGPO		0x22
+ #define TPS68470_REG_GPDI		0x26
+ #define TPS68470_REG_GPDO		0x27
++#define TPS68470_REG_ILEDCTL		0x28
+ #define TPS68470_REG_VCMVAL		0x3C
+ #define TPS68470_REG_VAUX1VAL		0x3D
+ #define TPS68470_REG_VAUX2VAL		0x3E
+@@ -94,4 +95,8 @@
+ #define TPS68470_GPIO_MODE_OUT_CMOS	2
+ #define TPS68470_GPIO_MODE_OUT_ODRAIN	3
+ 
++#define TPS68470_ILEDCTL_ENA		BIT(2)
++#define TPS68470_ILEDCTL_ENB		BIT(6)
++#define TPS68470_ILEDCTL_CTRLB		GENMASK(5, 4)
++
+ #endif /* __LINUX_MFD_TPS68470_H */
+-- 
+2.47.1
+
+From 7f546475ba781cf67aedd9817046b506873edab1 Mon Sep 17 00:00:00 2001
+From: Kate Hsuan <hpa@redhat.com>
+Date: Tue, 21 Mar 2023 23:37:18 +0800
+Subject: [PATCH] leds: tps68470: Add LED control for tps68470
+
+There are two LED controllers, LEDA indicator LED and LEDB flash LED for
+tps68470. LEDA can be enabled by setting TPS68470_ILEDCTL_ENA. Moreover,
+tps68470 provides four levels of power status for LEDB. If the
+properties called "ti,ledb-current" can be found, the current will be
+set according to the property values. These two LEDs can be controlled
+through the LED class of sysfs (tps68470-leda and tps68470-ledb).
+
+Signed-off-by: Kate Hsuan <hpa@redhat.com>
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: cameras
+---
+ drivers/leds/Kconfig         |  12 +++
+ drivers/leds/Makefile        |   1 +
+ drivers/leds/leds-tps68470.c | 185 +++++++++++++++++++++++++++++++++++
+ 3 files changed, 198 insertions(+)
+ create mode 100644 drivers/leds/leds-tps68470.c
+
+diff --git a/drivers/leds/Kconfig b/drivers/leds/Kconfig
+index b784bb74a837..f8d8fcfacac2 100644
+--- a/drivers/leds/Kconfig
++++ b/drivers/leds/Kconfig
+@@ -941,6 +941,18 @@ config LEDS_TPS6105X
+ 	  It is a single boost converter primarily for white LEDs and
+ 	  audio amplifiers.
+ 
++config LEDS_TPS68470
++	tristate "LED support for TI TPS68470"
++	depends on LEDS_CLASS
++	depends on INTEL_SKL_INT3472
++	help
++	  This driver supports TPS68470 PMIC with LED chip.
++	  It provides two LED controllers, with the ability to drive 2
++	  indicator LEDs and 2 flash LEDs.
++
++	  To compile this driver as a module, choose M and it will be
++	  called leds-tps68470
++
+ config LEDS_IP30
+ 	tristate "LED support for SGI Octane machines"
+ 	depends on LEDS_CLASS
+diff --git a/drivers/leds/Makefile b/drivers/leds/Makefile
+index 18afbb5a23ee..a1d16c0af82d 100644
+--- a/drivers/leds/Makefile
++++ b/drivers/leds/Makefile
+@@ -88,6 +88,7 @@ obj-$(CONFIG_LEDS_TCA6507)		+= leds-tca6507.o
+ obj-$(CONFIG_LEDS_TI_LMU_COMMON)	+= leds-ti-lmu-common.o
+ obj-$(CONFIG_LEDS_TLC591XX)		+= leds-tlc591xx.o
+ obj-$(CONFIG_LEDS_TPS6105X)		+= leds-tps6105x.o
++obj-$(CONFIG_LEDS_TPS68470)		+= leds-tps68470.o
+ obj-$(CONFIG_LEDS_TURRIS_OMNIA)		+= leds-turris-omnia.o
+ obj-$(CONFIG_LEDS_WM831X_STATUS)	+= leds-wm831x-status.o
+ obj-$(CONFIG_LEDS_WM8350)		+= leds-wm8350.o
+diff --git a/drivers/leds/leds-tps68470.c b/drivers/leds/leds-tps68470.c
+new file mode 100644
+index 000000000000..35aeb5db89c8
+--- /dev/null
++++ b/drivers/leds/leds-tps68470.c
+@@ -0,0 +1,185 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * LED driver for TPS68470 PMIC
++ *
++ * Copyright (C) 2023 Red Hat
++ *
++ * Authors:
++ *	Kate Hsuan <hpa@redhat.com>
++ */
++
++#include <linux/leds.h>
++#include <linux/mfd/tps68470.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++#include <linux/property.h>
++#include <linux/regmap.h>
++
++
++#define lcdev_to_led(led_cdev) \
++	container_of(led_cdev, struct tps68470_led, lcdev)
++
++#define led_to_tps68470(led, index) \
++	container_of(led, struct tps68470_device, leds[index])
++
++enum tps68470_led_ids {
++	TPS68470_ILED_A,
++	TPS68470_ILED_B,
++	TPS68470_NUM_LEDS
++};
++
++static const char *tps68470_led_names[] = {
++	[TPS68470_ILED_A] = "tps68470-iled_a",
++	[TPS68470_ILED_B] = "tps68470-iled_b",
++};
++
++struct tps68470_led {
++	unsigned int led_id;
++	struct led_classdev lcdev;
++};
++
++struct tps68470_device {
++	struct device *dev;
++	struct regmap *regmap;
++	struct tps68470_led leds[TPS68470_NUM_LEDS];
++};
++
++enum ctrlb_current {
++	CTRLB_2MA	= 0,
++	CTRLB_4MA	= 1,
++	CTRLB_8MA	= 2,
++	CTRLB_16MA	= 3,
++};
++
++static int tps68470_brightness_set(struct led_classdev *led_cdev, enum led_brightness brightness)
++{
++	struct tps68470_led *led = lcdev_to_led(led_cdev);
++	struct tps68470_device *tps68470 = led_to_tps68470(led, led->led_id);
++	struct regmap *regmap = tps68470->regmap;
++
++	switch (led->led_id) {
++	case TPS68470_ILED_A:
++		return regmap_update_bits(regmap, TPS68470_REG_ILEDCTL, TPS68470_ILEDCTL_ENA,
++					  brightness ? TPS68470_ILEDCTL_ENA : 0);
++	case TPS68470_ILED_B:
++		return regmap_update_bits(regmap, TPS68470_REG_ILEDCTL, TPS68470_ILEDCTL_ENB,
++					  brightness ? TPS68470_ILEDCTL_ENB : 0);
++	}
++	return -EINVAL;
++}
++
++static enum led_brightness tps68470_brightness_get(struct led_classdev *led_cdev)
++{
++	struct tps68470_led *led = lcdev_to_led(led_cdev);
++	struct tps68470_device *tps68470 = led_to_tps68470(led, led->led_id);
++	struct regmap *regmap = tps68470->regmap;
++	int ret = 0;
++	int value = 0;
++
++	ret =  regmap_read(regmap, TPS68470_REG_ILEDCTL, &value);
++	if (ret)
++		return dev_err_probe(led_cdev->dev, -EINVAL, "failed on reading register\n");
++
++	switch (led->led_id) {
++	case TPS68470_ILED_A:
++		value = value & TPS68470_ILEDCTL_ENA;
++		break;
++	case TPS68470_ILED_B:
++		value = value & TPS68470_ILEDCTL_ENB;
++		break;
++	}
++
++	return value ? LED_ON : LED_OFF;
++}
++
++
++static int tps68470_ledb_current_init(struct platform_device *pdev,
++				      struct tps68470_device *tps68470)
++{
++	int ret = 0;
++	unsigned int curr;
++
++	/* configure LEDB current if the properties can be got */
++	if (!device_property_read_u32(&pdev->dev, "ti,ledb-current", &curr)) {
++		if (curr > CTRLB_16MA) {
++			dev_err(&pdev->dev,
++				"Invalid LEDB current value: %d\n",
++				curr);
++			return -EINVAL;
++		}
++		ret = regmap_update_bits(tps68470->regmap, TPS68470_REG_ILEDCTL,
++					 TPS68470_ILEDCTL_CTRLB, curr);
++	}
++	return ret;
++}
++
++static int tps68470_leds_probe(struct platform_device *pdev)
++{
++	int i = 0;
++	int ret = 0;
++	struct tps68470_device *tps68470;
++	struct tps68470_led *led;
++	struct led_classdev *lcdev;
++
++	tps68470 = devm_kzalloc(&pdev->dev, sizeof(struct tps68470_device),
++				GFP_KERNEL);
++	if (!tps68470)
++		return -ENOMEM;
++
++	tps68470->dev = &pdev->dev;
++	tps68470->regmap = dev_get_drvdata(pdev->dev.parent);
++
++	for (i = 0; i < TPS68470_NUM_LEDS; i++) {
++		led = &tps68470->leds[i];
++		lcdev = &led->lcdev;
++
++		led->led_id = i;
++
++		lcdev->name = devm_kasprintf(tps68470->dev, GFP_KERNEL, "%s::%s",
++					     tps68470_led_names[i], LED_FUNCTION_INDICATOR);
++		if (!lcdev->name)
++			return -ENOMEM;
++
++		lcdev->max_brightness = 1;
++		lcdev->brightness = 0;
++		lcdev->brightness_set_blocking = tps68470_brightness_set;
++		lcdev->brightness_get = tps68470_brightness_get;
++		lcdev->dev = &pdev->dev;
++
++		ret = devm_led_classdev_register(tps68470->dev, lcdev);
++		if (ret) {
++			dev_err_probe(tps68470->dev, ret,
++				      "error registering led\n");
++			goto err_exit;
++		}
++
++		if (i == TPS68470_ILED_B) {
++			ret = tps68470_ledb_current_init(pdev, tps68470);
++			if (ret)
++				goto err_exit;
++		}
++	}
++
++err_exit:
++	if (ret) {
++		for (i = 0; i < TPS68470_NUM_LEDS; i++) {
++			if (tps68470->leds[i].lcdev.name)
++				devm_led_classdev_unregister(&pdev->dev,
++							     &tps68470->leds[i].lcdev);
++		}
++	}
++
++	return ret;
++}
++static struct platform_driver tps68470_led_driver = {
++	.driver = {
++		   .name = "tps68470-led",
++	},
++	.probe = tps68470_leds_probe,
++};
++
++module_platform_driver(tps68470_led_driver);
++
++MODULE_ALIAS("platform:tps68470-led");
++MODULE_DESCRIPTION("LED driver for TPS68470 PMIC");
++MODULE_LICENSE("GPL v2");
+-- 
+2.47.1
+
+From adf794d65cca167d5bc66ef0c8a160e3fbeb3481 Mon Sep 17 00:00:00 2001
+From: mojyack <mojyack@gmail.com>
+Date: Tue, 26 Mar 2024 05:55:44 +0900
+Subject: [PATCH] media: i2c: dw9719: fix probe error on surface go 2
+
+On surface go 2, sometimes probing dw9719 fails with "dw9719: probe of i2c-INT347A:00-VCM failed with error -121".
+The -121(-EREMOTEIO) is came from drivers/i2c/busses/i2c-designware-common.c:575, and indicates the initialize occurs too early.
+So just add some delay.
+There is no exact reason for this 10000us, but 100us failed.
+
+Patchset: cameras
+---
+ drivers/media/i2c/dw9719.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/media/i2c/dw9719.c b/drivers/media/i2c/dw9719.c
+index c626ed845928..0094cfda57ea 100644
+--- a/drivers/media/i2c/dw9719.c
++++ b/drivers/media/i2c/dw9719.c
+@@ -82,6 +82,9 @@ static int dw9719_power_up(struct dw9719_device *dw9719)
+ 	if (ret)
+ 		return ret;
+ 
++	/* Wait for device to be acknowledged */
++	fsleep(10000);
++
+ 	/* Jiggle SCL pin to wake up device */
+ 	cci_write(dw9719->regmap, DW9719_CONTROL, 1, &ret);
+ 
+-- 
+2.47.1
+

@@ -1,0 +1,308 @@
+From 064893f3e33bd77cecece7ea4047b3a6e1147fe2 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sat, 25 Jul 2020 17:19:53 +0200
+Subject: [PATCH] i2c: acpi: Implement RawBytes read access
+
+Microsoft Surface Pro 4 and Book 1 devices access the MSHW0030 I2C
+device via a generic serial bus operation region and RawBytes read
+access. On the Surface Book 1, this access is required to turn on (and
+off) the discrete GPU.
+
+Multiple things are to note here:
+
+a) The RawBytes access is device/driver dependent. The ACPI
+   specification states:
+
+   > Raw accesses assume that the writer has knowledge of the bus that
+   > the access is made over and the device that is being accessed. The
+   > protocol may only ensure that the buffer is transmitted to the
+   > appropriate driver, but the driver must be able to interpret the
+   > buffer to communicate to a register.
+
+   Thus this implementation may likely not work on other devices
+   accessing I2C via the RawBytes accessor type.
+
+b) The MSHW0030 I2C device is an HID-over-I2C device which seems to
+   serve multiple functions:
+
+   1. It is the main access point for the legacy-type Surface Aggregator
+      Module (also referred to as SAM-over-HID, as opposed to the newer
+      SAM-over-SSH/UART). It has currently not been determined on how
+      support for the legacy SAM should be implemented. Likely via a
+      custom HID driver.
+
+   2. It seems to serve as the HID device for the Integrated Sensor Hub.
+      This might complicate matters with regards to implementing a
+      SAM-over-HID driver required by legacy SAM.
+
+In light of this, the simplest approach has been chosen for now.
+However, it may make more sense regarding breakage and compatibility to
+either provide functionality for replacing or enhancing the default
+operation region handler via some additional API functions, or even to
+completely blacklist MSHW0030 from the I2C core and provide a custom
+driver for it.
+
+Replacing/enhancing the default operation region handler would, however,
+either require some sort of secondary driver and access point for it,
+from which the new API functions would be called and the new handler
+(part) would be installed, or hard-coding them via some sort of
+quirk-like interface into the I2C core.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam-over-hid
+---
+ drivers/i2c/i2c-core-acpi.c | 34 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/drivers/i2c/i2c-core-acpi.c b/drivers/i2c/i2c-core-acpi.c
+index 14ae0cfc325e..6197c5252d2a 100644
+--- a/drivers/i2c/i2c-core-acpi.c
++++ b/drivers/i2c/i2c-core-acpi.c
+@@ -639,6 +639,27 @@ static int acpi_gsb_i2c_write_bytes(struct i2c_client *client,
+ 	return (ret == 1) ? 0 : -EIO;
+ }
+ 
++static int acpi_gsb_i2c_write_raw_bytes(struct i2c_client *client,
++		u8 *data, u8 data_len)
++{
++	struct i2c_msg msgs[1];
++	int ret;
++
++	msgs[0].addr = client->addr;
++	msgs[0].flags = client->flags;
++	msgs[0].len = data_len + 1;
++	msgs[0].buf = data;
++
++	ret = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
++	if (ret < 0) {
++		dev_err(&client->adapter->dev, "i2c write failed: %d\n", ret);
++		return ret;
++	}
++
++	/* 1 transfer must have completed successfully */
++	return (ret == 1) ? 0 : -EIO;
++}
++
+ static acpi_status
+ i2c_acpi_space_handler(u32 function, acpi_physical_address command,
+ 			u32 bits, u64 *value64,
+@@ -740,6 +761,19 @@ i2c_acpi_space_handler(u32 function, acpi_physical_address command,
+ 		}
+ 		break;
+ 
++	case ACPI_GSB_ACCESS_ATTRIB_RAW_BYTES:
++		if (action == ACPI_READ) {
++			dev_warn(&adapter->dev,
++				 "protocol 0x%02x not supported for client 0x%02x\n",
++				 accessor_type, client->addr);
++			ret = AE_BAD_PARAMETER;
++			goto err;
++		} else {
++			status = acpi_gsb_i2c_write_raw_bytes(client,
++					gsb->data, info->access_length);
++		}
++		break;
++
+ 	default:
+ 		dev_warn(&adapter->dev, "protocol 0x%02x not supported for client 0x%02x\n",
+ 			 accessor_type, client->addr);
+-- 
+2.47.1
+
+From f6714cb9a95aeec3379336df70e7cc8d9537f727 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sat, 13 Feb 2021 16:41:18 +0100
+Subject: [PATCH] platform/surface: Add driver for Surface Book 1 dGPU switch
+
+Add driver exposing the discrete GPU power-switch of the  Microsoft
+Surface Book 1 to user-space.
+
+On the Surface Book 1, the dGPU power is controlled via the Surface
+System Aggregator Module (SAM). The specific SAM-over-HID command for
+this is exposed via ACPI. This module provides a simple driver exposing
+the ACPI call via a sysfs parameter to user-space, so that users can
+easily power-on/-off the dGPU.
+
+Patchset: surface-sam-over-hid
+---
+ drivers/platform/surface/Kconfig              |   7 +
+ drivers/platform/surface/Makefile             |   1 +
+ .../surface/surfacebook1_dgpu_switch.c        | 136 ++++++++++++++++++
+ 3 files changed, 144 insertions(+)
+ create mode 100644 drivers/platform/surface/surfacebook1_dgpu_switch.c
+
+diff --git a/drivers/platform/surface/Kconfig b/drivers/platform/surface/Kconfig
+index b629e82af97c..68656e8f309e 100644
+--- a/drivers/platform/surface/Kconfig
++++ b/drivers/platform/surface/Kconfig
+@@ -149,6 +149,13 @@ config SURFACE_AGGREGATOR_TABLET_SWITCH
+ 	  Select M or Y here, if you want to provide tablet-mode switch input
+ 	  events on the Surface Pro 8, Surface Pro X, and Surface Laptop Studio.
+ 
++config SURFACE_BOOK1_DGPU_SWITCH
++	tristate "Surface Book 1 dGPU Switch Driver"
++	depends on SYSFS
++	help
++	  This driver provides a sysfs switch to set the power-state of the
++	  discrete GPU found on the Microsoft Surface Book 1.
++
+ config SURFACE_DTX
+ 	tristate "Surface DTX (Detachment System) Driver"
+ 	depends on SURFACE_AGGREGATOR
+diff --git a/drivers/platform/surface/Makefile b/drivers/platform/surface/Makefile
+index 53344330939b..7efcd0cdb532 100644
+--- a/drivers/platform/surface/Makefile
++++ b/drivers/platform/surface/Makefile
+@@ -12,6 +12,7 @@ obj-$(CONFIG_SURFACE_AGGREGATOR_CDEV)	+= surface_aggregator_cdev.o
+ obj-$(CONFIG_SURFACE_AGGREGATOR_HUB)	+= surface_aggregator_hub.o
+ obj-$(CONFIG_SURFACE_AGGREGATOR_REGISTRY) += surface_aggregator_registry.o
+ obj-$(CONFIG_SURFACE_AGGREGATOR_TABLET_SWITCH) += surface_aggregator_tabletsw.o
++obj-$(CONFIG_SURFACE_BOOK1_DGPU_SWITCH) += surfacebook1_dgpu_switch.o
+ obj-$(CONFIG_SURFACE_DTX)		+= surface_dtx.o
+ obj-$(CONFIG_SURFACE_GPE)		+= surface_gpe.o
+ obj-$(CONFIG_SURFACE_HOTPLUG)		+= surface_hotplug.o
+diff --git a/drivers/platform/surface/surfacebook1_dgpu_switch.c b/drivers/platform/surface/surfacebook1_dgpu_switch.c
+new file mode 100644
+index 000000000000..68db237734a1
+--- /dev/null
++++ b/drivers/platform/surface/surfacebook1_dgpu_switch.c
+@@ -0,0 +1,136 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include <linux/module.h>
++#include <linux/acpi.h>
++#include <linux/platform_device.h>
++
++/* MSHW0040/VGBI DSM UUID: 6fd05c69-cde3-49f4-95ed-ab1665498035 */
++static const guid_t dgpu_sw_guid =
++	GUID_INIT(0x6fd05c69, 0xcde3, 0x49f4,
++		  0x95, 0xed, 0xab, 0x16, 0x65, 0x49, 0x80, 0x35);
++
++#define DGPUSW_ACPI_PATH_DSM	"\\_SB_.PCI0.LPCB.EC0_.VGBI"
++#define DGPUSW_ACPI_PATH_HGON	"\\_SB_.PCI0.RP05.HGON"
++#define DGPUSW_ACPI_PATH_HGOF	"\\_SB_.PCI0.RP05.HGOF"
++
++static int sb1_dgpu_sw_dsmcall(void)
++{
++	union acpi_object *obj;
++	acpi_handle handle;
++	acpi_status status;
++
++	status = acpi_get_handle(NULL, DGPUSW_ACPI_PATH_DSM, &handle);
++	if (status)
++		return -EINVAL;
++
++	obj = acpi_evaluate_dsm_typed(handle, &dgpu_sw_guid, 1, 1, NULL, ACPI_TYPE_BUFFER);
++	if (!obj)
++		return -EINVAL;
++
++	ACPI_FREE(obj);
++	return 0;
++}
++
++static int sb1_dgpu_sw_hgon(struct device *dev)
++{
++	struct acpi_buffer buf = {ACPI_ALLOCATE_BUFFER, NULL};
++	acpi_status status;
++
++	status = acpi_evaluate_object(NULL, DGPUSW_ACPI_PATH_HGON, NULL, &buf);
++	if (status) {
++		dev_err(dev, "failed to run HGON: %d\n", status);
++		return -EINVAL;
++	}
++
++	ACPI_FREE(buf.pointer);
++
++	dev_info(dev, "turned-on dGPU via HGON\n");
++	return 0;
++}
++
++static int sb1_dgpu_sw_hgof(struct device *dev)
++{
++	struct acpi_buffer buf = {ACPI_ALLOCATE_BUFFER, NULL};
++	acpi_status status;
++
++	status = acpi_evaluate_object(NULL, DGPUSW_ACPI_PATH_HGOF, NULL, &buf);
++	if (status) {
++		dev_err(dev, "failed to run HGOF: %d\n", status);
++		return -EINVAL;
++	}
++
++	ACPI_FREE(buf.pointer);
++
++	dev_info(dev, "turned-off dGPU via HGOF\n");
++	return 0;
++}
++
++static ssize_t dgpu_dsmcall_store(struct device *dev, struct device_attribute *attr,
++				  const char *buf, size_t len)
++{
++	bool value;
++	int status;
++
++	status = kstrtobool(buf, &value);
++	if (status < 0)
++		return status;
++
++	if (!value)
++		return 0;
++
++	status = sb1_dgpu_sw_dsmcall();
++
++	return status < 0 ? status : len;
++}
++static DEVICE_ATTR_WO(dgpu_dsmcall);
++
++static ssize_t dgpu_power_store(struct device *dev, struct device_attribute *attr,
++				const char *buf, size_t len)
++{
++	bool power;
++	int status;
++
++	status = kstrtobool(buf, &power);
++	if (status < 0)
++		return status;
++
++	if (power)
++		status = sb1_dgpu_sw_hgon(dev);
++	else
++		status = sb1_dgpu_sw_hgof(dev);
++
++	return status < 0 ? status : len;
++}
++static DEVICE_ATTR_WO(dgpu_power);
++
++static struct attribute *sb1_dgpu_sw_attrs[] = {
++	&dev_attr_dgpu_dsmcall.attr,
++	&dev_attr_dgpu_power.attr,
++	NULL
++};
++ATTRIBUTE_GROUPS(sb1_dgpu_sw);
++
++/*
++ * The dGPU power seems to be actually handled by MSHW0040. However, that is
++ * also the power-/volume-button device with a mainline driver. So let's use
++ * MSHW0041 instead for now, which seems to be the LTCH (latch/DTX) device.
++ */
++static const struct acpi_device_id sb1_dgpu_sw_match[] = {
++	{ "MSHW0041", },
++	{ }
++};
++MODULE_DEVICE_TABLE(acpi, sb1_dgpu_sw_match);
++
++static struct platform_driver sb1_dgpu_sw = {
++	.driver = {
++		.name = "surfacebook1_dgpu_switch",
++		.acpi_match_table = sb1_dgpu_sw_match,
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++		.dev_groups = sb1_dgpu_sw_groups,
++	},
++};
++module_platform_driver(sb1_dgpu_sw);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Discrete GPU Power-Switch for Surface Book 1");
++MODULE_LICENSE("GPL");
+-- 
+2.47.1
+
