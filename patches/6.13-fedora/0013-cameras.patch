@@ -1,4 +1,4 @@
-From 6675cd092b80f34b8697aa9012855e351eb704db Mon Sep 17 00:00:00 2001
+From c3ad75a88591c4fae17287d81ad262915b995a63 Mon Sep 17 00:00:00 2001
 From: Hans de Goede <hdegoede@redhat.com>
 Date: Sun, 10 Oct 2021 20:56:57 +0200
 Subject: [PATCH] ACPI: delay enumeration of devices with a _DEP pointing to an
@@ -72,9 +72,9 @@ index d6265ddc87ef..2a5fcdff4d69 100644
  	 * Do not enumerate devices with enumeration_by_parent flag set as
  	 * they will be enumerated by their respective parents.
 -- 
-2.48.1
+2.49.0
 
-From d225b017ed8cadd981353e1cf114cddf79444cfc Mon Sep 17 00:00:00 2001
+From 6cb288a1c01f510952bc52b2bfdfdc995f87df5a Mon Sep 17 00:00:00 2001
 From: zouxiaoh <xiaohong.zou@intel.com>
 Date: Fri, 25 Jun 2021 08:52:59 +0800
 Subject: [PATCH] iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs
@@ -182,9 +182,9 @@ index 1839a831a89f..ebd7aa6b9038 100644
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9D3E, quirk_iommu_ipts);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x34E4, quirk_iommu_ipts);
 -- 
-2.48.1
+2.49.0
 
-From 9c19e6347c9da54ab936be79799c010c06710aa4 Mon Sep 17 00:00:00 2001
+From 6ed7b1d776a5093ef202df1644aaf749d4c59e30 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 10 Oct 2021 20:57:02 +0200
 Subject: [PATCH] platform/x86: int3472: Enable I2c daisy chain
@@ -219,9 +219,9 @@ index 81ac4c691963..f453c9043042 100644
  
  	return 0;
 -- 
-2.48.1
+2.49.0
 
-From 46a21f6b29916e6e600eefb53c054bf684c34e49 Mon Sep 17 00:00:00 2001
+From afb5099a5ee3e5687f4950170338997e09c22d6d Mon Sep 17 00:00:00 2001
 From: Daniel Scally <dan.scally@ideasonboard.com>
 Date: Thu, 2 Mar 2023 12:59:39 +0000
 Subject: [PATCH] platform/x86: int3472: Remap reset GPIO for INT347E
@@ -243,11 +243,11 @@ Patchset: cameras
  1 file changed, 15 insertions(+)
 
 diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
-index 09fff213b091..ce641eb45de6 100644
+index a80c981caa34..68d0f07dda0c 100644
 --- a/drivers/platform/x86/intel/int3472/discrete.c
 +++ b/drivers/platform/x86/intel/int3472/discrete.c
-@@ -80,12 +80,27 @@ static int skl_int3472_map_gpio_to_sensor(struct int3472_discrete_device *int347
- 					  const char *func, u32 polarity)
+@@ -81,12 +81,27 @@ static int skl_int3472_map_gpio_to_sensor(struct int3472_discrete_device *int347
+ 					  const char *func, unsigned long gpio_flags)
  {
  	int ret;
 +	const struct acpi_device_id ov7251_ids[] = {
@@ -268,16 +268,16 @@ index 09fff213b091..ce641eb45de6 100644
 +	 */
 +	if (!strcmp(func, "reset") && !acpi_match_device_ids(int3472->sensor, ov7251_ids)) {
 +		func = "enable";
-+		polarity ^= GPIO_ACTIVE_LOW;
++		gpio_flags ^= GPIO_ACTIVE_LOW;
 +	}
 +
  	ret = skl_int3472_fill_gpiod_lookup(&int3472->gpios.table[int3472->n_sensor_gpios],
- 					    agpio, func, polarity);
+ 					    agpio, func, gpio_flags);
  	if (ret)
 -- 
-2.48.1
+2.49.0
 
-From 0a96da6ea51e6117da7bc09ec2b1a4825bf3f1d0 Mon Sep 17 00:00:00 2001
+From 9f64f577e063bc55f0792e86749fae2be3edeb7d Mon Sep 17 00:00:00 2001
 From: Daniel Scally <dan.scally@ideasonboard.com>
 Date: Tue, 21 Mar 2023 13:45:26 +0000
 Subject: [PATCH] media: i2c: Clarify that gain is Analogue gain in OV7251
@@ -314,9 +314,9 @@ index 30f61e04ecaf..9c1292ca8552 100644
  				     V4L2_CID_TEST_PATTERN,
  				     ARRAY_SIZE(ov7251_test_pattern_menu) - 1,
 -- 
-2.48.1
+2.49.0
 
-From 5be6985f9a839a162a69b8cd73345fb77ccceea2 Mon Sep 17 00:00:00 2001
+From d0da4f26a459eccb3dff3e85bf5d4d62b0610815 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <dan.scally@ideasonboard.com>
 Date: Wed, 22 Mar 2023 11:01:42 +0000
 Subject: [PATCH] media: v4l2-core: Acquire privacy led in
@@ -365,9 +365,9 @@ index f19c8adf2c61..923ed1b5ab8b 100644
  	if (ret < 0)
  		goto out_cleanup;
 -- 
-2.48.1
+2.49.0
 
-From d625f41c3c85ffc29c9f11a6040324052edebc0a Mon Sep 17 00:00:00 2001
+From 435c11d00b0daa5b011dc401e38ab209f10bca75 Mon Sep 17 00:00:00 2001
 From: Kate Hsuan <hpa@redhat.com>
 Date: Tue, 21 Mar 2023 23:37:16 +0800
 Subject: [PATCH] platform: x86: int3472: Add MFD cell for tps68470 LED
@@ -406,9 +406,9 @@ index f453c9043042..b8ad6b413e8b 100644
  		for (i = 0; i < board_data->n_gpiod_lookups; i++)
  			gpiod_add_lookup_table(board_data->tps68470_gpio_lookup_tables[i]);
 -- 
-2.48.1
+2.49.0
 
-From 26cea0a675dd2392b0fc23d9b1f9633e131e6b6c Mon Sep 17 00:00:00 2001
+From 8f5b49efb0cdf75553a1491e3620955581d369c2 Mon Sep 17 00:00:00 2001
 From: Kate Hsuan <hpa@redhat.com>
 Date: Tue, 21 Mar 2023 23:37:17 +0800
 Subject: [PATCH] include: mfd: tps68470: Add masks for LEDA and LEDB
@@ -447,9 +447,9 @@ index 7807fa329db0..2d2abb25b944 100644
 +
  #endif /* __LINUX_MFD_TPS68470_H */
 -- 
-2.48.1
+2.49.0
 
-From 61c8e3ff365f40be6c82f7e0b9895a60159e2c94 Mon Sep 17 00:00:00 2001
+From 7ade024275c62ea257aa474632534b709d67fafa Mon Sep 17 00:00:00 2001
 From: Kate Hsuan <hpa@redhat.com>
 Date: Tue, 21 Mar 2023 23:37:18 +0800
 Subject: [PATCH] leds: tps68470: Add LED control for tps68470
@@ -698,9 +698,9 @@ index 000000000000..35aeb5db89c8
 +MODULE_DESCRIPTION("LED driver for TPS68470 PMIC");
 +MODULE_LICENSE("GPL v2");
 -- 
-2.48.1
+2.49.0
 
-From 62551f0c278803ba20e5ecbfe600f49d675d0855 Mon Sep 17 00:00:00 2001
+From a912466b23ce74196341f724384b46957d3a78b2 Mon Sep 17 00:00:00 2001
 From: mojyack <mojyack@gmail.com>
 Date: Tue, 26 Mar 2024 05:55:44 +0900
 Subject: [PATCH] media: i2c: dw9719: fix probe error on surface go 2
@@ -730,5 +730,5 @@ index c626ed845928..0094cfda57ea 100644
  	cci_write(dw9719->regmap, DW9719_CONTROL, 1, &ret);
  
 -- 
-2.48.1
+2.49.0
 
