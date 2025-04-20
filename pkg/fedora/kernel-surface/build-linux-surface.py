@@ -19,7 +19,7 @@ PACKAGE_NAME = "surface"
 ## Fedora tags: kernel-X.Y.Z
 ## Upstream tags: vX.Y.Z
 ##
-PACKAGE_TAG = "kernel-6.13.6-0"
+PACKAGE_TAG = "kernel-6.14.2-0"
 
 ##
 ## The release number of the modified kernel package.
@@ -79,7 +79,7 @@ kernel_version = PACKAGE_TAG.split("-")[1]
 kernel_major = ".".join(kernel_version.split(".")[:2])
 
 # Determine the patches directory and config file.
-patches = linux_surface / "patches" / f"{kernel_major}-fedora"
+patches = linux_surface / "patches" / kernel_major
 config = linux_surface / "configs" / ("surface-%s.config" % kernel_major)
 
 sb_cert = script / "secureboot" / "MOK.crt"
