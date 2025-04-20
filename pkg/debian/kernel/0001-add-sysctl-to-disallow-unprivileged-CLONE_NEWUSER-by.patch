@@ -1,4 +1,4 @@
-From 8da9938f2e7d28a5ae834bec723bc283dc62470f Mon Sep 17 00:00:00 2001
+From d70cb56d43efddd10d4263f2af24f52fb81137b9 Mon Sep 17 00:00:00 2001
 From: Serge Hallyn <serge.hallyn@canonical.com>
 Date: Fri, 31 May 2013 19:12:12 +0100
 Subject: [PATCH] add sysctl to disallow unprivileged CLONE_NEWUSER by default
@@ -20,7 +20,7 @@ Signed-off-by: Serge Hallyn <serge.hallyn@ubuntu.com>
  3 files changed, 32 insertions(+)
 
 diff --git a/kernel/fork.c b/kernel/fork.c
-index 9da032802e34..f3ad270eb96b 100644
+index ca2ca3884f76..d9591a8a6ead 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
 @@ -119,6 +119,12 @@
@@ -36,7 +36,7 @@ index 9da032802e34..f3ad270eb96b 100644
  /*
   * Minimum number of threads to boot the kernel
   */
-@@ -2169,6 +2175,10 @@ __latent_entropy struct task_struct *copy_process(
+@@ -2171,6 +2177,10 @@ __latent_entropy struct task_struct *copy_process(
  	if ((clone_flags & (CLONE_NEWUSER|CLONE_FS)) == (CLONE_NEWUSER|CLONE_FS))
  		return ERR_PTR(-EINVAL);
  
@@ -47,7 +47,7 @@ index 9da032802e34..f3ad270eb96b 100644
  	/*
  	 * Thread groups must share signals as well, and detached threads
  	 * can only be started up within the thread group.
-@@ -3322,6 +3332,12 @@ int ksys_unshare(unsigned long unshare_flags)
+@@ -3324,6 +3334,12 @@ int ksys_unshare(unsigned long unshare_flags)
  	if (unshare_flags & CLONE_NEWNS)
  		unshare_flags |= CLONE_FS;
  
@@ -61,7 +61,7 @@ index 9da032802e34..f3ad270eb96b 100644
  	if (err)
  		goto bad_unshare_out;
 diff --git a/kernel/sysctl.c b/kernel/sysctl.c
-index 5c9202cb8f59..71102bca044e 100644
+index cb57da499ebb..5e9ae0e6a727 100644
 --- a/kernel/sysctl.c
 +++ b/kernel/sysctl.c
 @@ -135,6 +135,10 @@ static enum sysctl_writes_mode sysctl_writes_strict = SYSCTL_WRITES_STRICT;
@@ -75,7 +75,7 @@ index 5c9202cb8f59..71102bca044e 100644
  #endif /* CONFIG_SYSCTL */
  
  /*
-@@ -1617,6 +1621,15 @@ static struct ctl_table kern_table[] = {
+@@ -1617,6 +1621,15 @@ static const struct ctl_table kern_table[] = {
  		.mode		= 0644,
  		.proc_handler	= proc_dointvec,
  	},
@@ -106,5 +106,5 @@ index aa0b2e47f2f2..222bb2b40b73 100644
  static DEFINE_MUTEX(userns_state_mutex);
  
 -- 
-2.48.1
+2.49.0
 
