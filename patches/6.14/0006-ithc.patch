@@ -1,4 +1,4 @@
-From d07e07e448b9b1ac7102911263626b623f138a28 Mon Sep 17 00:00:00 2001
+From 85f3a4111005d23749f1a5b0424264ba38bbb3f4 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Sun, 11 Dec 2022 12:03:38 +0100
 Subject: [PATCH] iommu: intel: Disable source id verification for ITHC
@@ -10,10 +10,10 @@ Patchset: ithc
  1 file changed, 16 insertions(+)
 
 diff --git a/drivers/iommu/intel/irq_remapping.c b/drivers/iommu/intel/irq_remapping.c
-index 7a6d188e3bea..0179baee4596 100644
+index ad795c772f21..2c10bca9e06b 100644
 --- a/drivers/iommu/intel/irq_remapping.c
 +++ b/drivers/iommu/intel/irq_remapping.c
-@@ -389,6 +389,22 @@ static int set_msi_sid(struct irte *irte, struct pci_dev *dev)
+@@ -388,6 +388,22 @@ static int set_msi_sid(struct irte *irte, struct pci_dev *dev)
  	data.busmatch_count = 0;
  	pci_for_each_dma_alias(dev, set_msi_sid_cb, &data);
  
@@ -37,9 +37,9 @@ index 7a6d188e3bea..0179baee4596 100644
  	 * DMA alias provides us with a PCI device and alias.  The only case
  	 * where the it will return an alias on a different bus than the
 -- 
-2.47.1
+2.49.0
 
-From 280c63dff160b59d1cbac71a63dc7f16d335fec9 Mon Sep 17 00:00:00 2001
+From 3e386a2ed36c9d620f4de23d671daa75a509d797 Mon Sep 17 00:00:00 2001
 From: quo <tuple@list.ru>
 Date: Sun, 11 Dec 2022 12:10:54 +0100
 Subject: [PATCH] hid: Add support for Intel Touch Host Controller
@@ -86,36 +86,26 @@ Patchset: ithc
  create mode 100644 drivers/hid/ithc/ithc.h
 
 diff --git a/drivers/hid/Kconfig b/drivers/hid/Kconfig
-index 38eb29e4cc31..76ad7d9143c7 100644
+index f91ba8a06cfc..e945736e216f 100644
 --- a/drivers/hid/Kconfig
 +++ b/drivers/hid/Kconfig
-@@ -1375,12 +1375,14 @@ source "drivers/hid/surface-hid/Kconfig"
- 
- source "drivers/hid/intel-thc-hid/Kconfig"
+@@ -1389,6 +1389,8 @@ source "drivers/hid/intel-thc-hid/Kconfig"
  
  source "drivers/hid/ipts/Kconfig"
  
 +source "drivers/hid/ithc/Kconfig"
 +
  endif # HID
-
+ 
  # USB support may be used with HID disabled
-
- source "drivers/hid/usbhid/Kconfig"
-
- endif # HID_SUPPORT
 diff --git a/drivers/hid/Makefile b/drivers/hid/Makefile
-index 02588e5d01eb..1ea3d2e0d4e9 100644
+index c86c9e80d225..046eb5fd8017 100644
 --- a/drivers/hid/Makefile
 +++ b/drivers/hid/Makefile
-@@ -173,6 +173,8 @@ obj-$(CONFIG_AMD_SFH_HID)       += amd-sfh-hid/
-
- obj-$(CONFIG_SURFACE_HID_CORE)  += surface-hid/
- 
+@@ -174,3 +174,4 @@ obj-$(CONFIG_SURFACE_HID_CORE)  += surface-hid/
  obj-$(CONFIG_INTEL_THC_HID)     += intel-thc-hid/
-
+ 
  obj-$(CONFIG_HID_IPTS)          += ipts/
-+
 +obj-$(CONFIG_HID_ITHC)          += ithc/
 diff --git a/drivers/hid/ithc/Kbuild b/drivers/hid/ithc/Kbuild
 new file mode 100644
@@ -2779,5 +2769,5 @@ index 000000000000..aec320d4e945
 +int ithc_reset(struct ithc *ithc);
 +
 -- 
-2.47.1
+2.49.0
 
