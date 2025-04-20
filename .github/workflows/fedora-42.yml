@@ -1,0 +1,125 @@
+name: Fedora 42
+
+env:
+  FEDORA: 42
+  GPG_KEY_ID: 56C464BAAC421453
+
+on:
+  push:
+    tags:
+      - 'fedora-42-*'
+
+  repository_dispatch:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Kernel
+    runs-on: ubuntu-latest
+    steps:
+      - name: Maximize disk space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 5120
+          remove-dotnet: true
+          remove-android: true
+          remove-docker-images: true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize containers
+        run: |
+          bash ./.github/scripts/container/create.sh \
+            registry.fedoraproject.org/fedora:${{ env.FEDORA }}
+
+      - name: Install build dependencies
+        run: |
+          bash ./.github/scripts/container/exec.sh \
+            -- \
+            bash ./.github/scripts/package/fedora.sh setup-builddeps
+
+      - name: Setup secureboot certificate
+        env:
+          SB_KEY: ${{ secrets.SURFACE_SB_KEY }}
+        run: |
+          bash ./.github/scripts/container/exec.sh \
+            -e SB_KEY \
+            -- \
+            bash ./.github/scripts/package/fedora.sh setup-secureboot
+
+      - name: Build packages
+        run: |
+          bash ./.github/scripts/container/exec.sh \
+            -- \
+            bash ./.github/scripts/package/fedora.sh build-packages
+
+      - name: Sign packages
+        env:
+          GPG_KEY: ${{ secrets.LINUX_SURFACE_GPG_KEY }}
+        run: |
+          bash ./.github/scripts/container/exec.sh \
+            -e GPG_KEY \
+            -e GPG_KEY_ID \
+            -- \
+            bash ./.github/scripts/package/fedora.sh sign-packages
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-${{ env.FEDORA }}-latest
+          path: pkg/fedora/kernel-surface/out/x86_64
+
+  release:
+    name: Publish release
+    if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/')
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: fedora-${{ env.FEDORA }}-latest
+          path: fedora-${{ env.FEDORA }}-latest
+
+      - name: Upload assets
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+          file: ./*-latest/*
+          tag: ${{ github.ref }}
+          overwrite: true
+          file_glob: true
+
+  repo:
+    name: Update package repository
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: fedora-${{ env.FEDORA }}-latest
+          path: fedora-${{ env.FEDORA }}-latest
+
+      - name: Initialize containers
+        run: |
+          bash ./.github/scripts/container/create.sh \
+            registry.fedoraproject.org/fedora:${{ env.FEDORA }}
+
+      - name: Update repository
+        env:
+          SURFACEBOT_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+          GIT_REF: ${{ github.ref }}
+          BRANCH_STAGING: u/staging
+        run: |
+          bash ./.github/scripts/container/exec.sh \
+            -e SURFACEBOT_TOKEN \
+            -e GIT_REF \
+            -e BRANCH_STAGING \
+            -e GITHUB_REPOSITORY \
+            -- \
+            bash ./.github/scripts/repository/fedora.sh ${{ env.FEDORA }}
