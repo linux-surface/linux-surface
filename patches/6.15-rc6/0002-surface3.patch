@@ -1,0 +1,234 @@
+From 97e443f4ec202c66165990d72c05aa28c359b31e Mon Sep 17 00:00:00 2001
+From: Tsuchiya Yuto <kitakar@gmail.com>
+Date: Sun, 18 Oct 2020 16:42:44 +0900
+Subject: [PATCH] (surface3-oemb) add DMI matches for Surface 3 with broken DMI
+ table
+
+On some Surface 3, the DMI table gets corrupted for unknown reasons
+and breaks existing DMI matching used for device-specific quirks.
+
+This commit adds the (broken) DMI data into dmi_system_id tables used
+for quirks so that each driver can enable quirks even on the affected
+systems.
+
+On affected systems, DMI data will look like this:
+    $ grep . /sys/devices/virtual/dmi/id/{bios_vendor,board_name,board_vendor,\
+    chassis_vendor,product_name,sys_vendor}
+    /sys/devices/virtual/dmi/id/bios_vendor:American Megatrends Inc.
+    /sys/devices/virtual/dmi/id/board_name:OEMB
+    /sys/devices/virtual/dmi/id/board_vendor:OEMB
+    /sys/devices/virtual/dmi/id/chassis_vendor:OEMB
+    /sys/devices/virtual/dmi/id/product_name:OEMB
+    /sys/devices/virtual/dmi/id/sys_vendor:OEMB
+
+Expected:
+    $ grep . /sys/devices/virtual/dmi/id/{bios_vendor,board_name,board_vendor,\
+    chassis_vendor,product_name,sys_vendor}
+    /sys/devices/virtual/dmi/id/bios_vendor:American Megatrends Inc.
+    /sys/devices/virtual/dmi/id/board_name:Surface 3
+    /sys/devices/virtual/dmi/id/board_vendor:Microsoft Corporation
+    /sys/devices/virtual/dmi/id/chassis_vendor:Microsoft Corporation
+    /sys/devices/virtual/dmi/id/product_name:Surface 3
+    /sys/devices/virtual/dmi/id/sys_vendor:Microsoft Corporation
+
+Signed-off-by: Tsuchiya Yuto <kitakar@gmail.com>
+Patchset: surface3
+---
+ drivers/platform/surface/surface3-wmi.c           | 7 +++++++
+ sound/soc/codecs/rt5645.c                         | 9 +++++++++
+ sound/soc/intel/common/soc-acpi-intel-cht-match.c | 8 ++++++++
+ 3 files changed, 24 insertions(+)
+
+diff --git a/drivers/platform/surface/surface3-wmi.c b/drivers/platform/surface/surface3-wmi.c
+index 6c8fb7a4dde4..22797a53f4d8 100644
+--- a/drivers/platform/surface/surface3-wmi.c
++++ b/drivers/platform/surface/surface3-wmi.c
+@@ -37,6 +37,13 @@ static const struct dmi_system_id surface3_dmi_table[] = {
+ 			DMI_MATCH(DMI_PRODUCT_NAME, "Surface 3"),
+ 		},
+ 	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_BIOS_VENDOR, "American Megatrends Inc."),
++			DMI_MATCH(DMI_SYS_VENDOR, "OEMB"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "OEMB"),
++		},
++	},
+ #endif
+ 	{ }
+ };
+diff --git a/sound/soc/codecs/rt5645.c b/sound/soc/codecs/rt5645.c
+index 51187b1e0ed2..bfb83ce8d8f8 100644
+--- a/sound/soc/codecs/rt5645.c
++++ b/sound/soc/codecs/rt5645.c
+@@ -3790,6 +3790,15 @@ static const struct dmi_system_id dmi_platform_data[] = {
+ 		},
+ 		.driver_data = (void *)&intel_braswell_platform_data,
+ 	},
++	{
++		.ident = "Microsoft Surface 3",
++		.matches = {
++			DMI_MATCH(DMI_BIOS_VENDOR, "American Megatrends Inc."),
++			DMI_MATCH(DMI_SYS_VENDOR, "OEMB"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "OEMB"),
++		},
++		.driver_data = (void *)&intel_braswell_platform_data,
++	},
+ 	{
+ 		/*
+ 		 * Match for the GPDwin which unfortunately uses somewhat
+diff --git a/sound/soc/intel/common/soc-acpi-intel-cht-match.c b/sound/soc/intel/common/soc-acpi-intel-cht-match.c
+index e4c3492a0c28..0b930c91bccb 100644
+--- a/sound/soc/intel/common/soc-acpi-intel-cht-match.c
++++ b/sound/soc/intel/common/soc-acpi-intel-cht-match.c
+@@ -27,6 +27,14 @@ static const struct dmi_system_id cht_table[] = {
+ 			DMI_MATCH(DMI_PRODUCT_NAME, "Surface 3"),
+ 		},
+ 	},
++	{
++		.callback = cht_surface_quirk_cb,
++		.matches = {
++			DMI_MATCH(DMI_BIOS_VENDOR, "American Megatrends Inc."),
++			DMI_MATCH(DMI_SYS_VENDOR, "OEMB"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "OEMB"),
++		},
++	},
+ 	{ }
+ };
+ 
+-- 
+2.49.0
+
+From ebacd5e19eb63db32a538bab0d9e5b44737a24bb Mon Sep 17 00:00:00 2001
+From: kitakar5525 <34676735+kitakar5525@users.noreply.github.com>
+Date: Fri, 6 Dec 2019 23:10:30 +0900
+Subject: [PATCH] surface3-spi: workaround: disable DMA mode to avoid crash by
+ default
+
+On Arch Linux kernel at least after 4.19, touch input is broken after suspend
+(s2idle).
+
+        kern  :err   : [  +0.203408] Surface3-spi spi-MSHW0037:00: SPI transfer timed out
+
+On recent stable Arch Linux kernel (at least after 5.1), touch input will
+crash after the first touch.
+
+        kern  :err   : [  +0.203592] Surface3-spi spi-MSHW0037:00: SPI transfer timed out
+        kern  :err   : [  +0.000173] spi_master spi1: failed to transfer one message from queue
+
+I found on an affected system (Arch Linux kernel, etc.), the touchscreen
+driver uses DMA mode by default. Then, we found some kernels with different
+kernel config (5.1 kernel config from Jakeday [1] or Chromium OS kernel
+chromeos-4.19 [2]) will use PIO mode by default and no such issues there.
+
+So, this commit disables DMA mode on the touchscreen driver side as a quick
+workaround to avoid touch input crash.
+We may need to properly set up DMA mode to use the touchscreen driver with
+DMA mode.
+
+You can still switch DMA/PIO mode if you want:
+
+  switch to DMA mode (maybe broken)
+        echo 1 | sudo tee /sys/module/surface3_spi/parameters/use_dma
+  back to PIO mode
+        echo 0 | sudo tee /sys/module/surface3_spi/parameters/use_dma
+
+Link to issue: https://github.com/jakeday/linux-surface/issues/596
+
+References:
+[1] https://github.com/jakeday/linux-surface/blob/master/configs/5.1/config
+[2] https://chromium.googlesource.com/chromiumos/third_party/kernel/+/refs/heads/chromeos-4.19
+
+Tested on Arch Linux 5.4.1 with Surface 3, which will use DMA by default.
+This commit made the driver use PIO by default and no touch input crash.
+Also tested on chromeos-4.19 4.19.90 with Surface 3, which will use PIO by default
+even without this commit. After this commit, it still uses PIO and confirmed
+no functional changes regarding touch input.
+
+More details:
+  We can confirm which mode the touchscreen driver uses; first, enable
+  debug output:
+
+        echo "file drivers/spi/spi-pxa2xx.c +p" | sudo tee /sys/kernel/debug/dynamic_debug/control
+        echo "file drivers/input/touchscreen/surface3_spi.c +p" | sudo tee /sys/kernel/debug/dynamic_debug/control
+
+  Then, try to make a touch input and see dmesg log
+
+        (On Arch Linux kernel, uses DMA)
+        kern  :debug : [  +0.006383] Surface3-spi spi-MSHW0037:00: 7692307 Hz actual, DMA
+        kern  :debug : [  +0.000495] Surface3-spi spi-MSHW0037:00: surface3_spi_irq_handler received
+	-> ff ff ff ff a5 5a e7 7e 01 d2 00 80 01 03 03 18 00 e4 01 00 04 1a 04 1a e3 0c e3 0c b0 00
+	c5 00 00 00 00 00 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+
+        (On the kernels I referenced above, uses PIO)
+        kern  :debug : [  +0.009260] Surface3-spi spi-MSHW0037:00: 7692307 Hz actual, PIO
+        kern  :debug : [  +0.001105] Surface3-spi spi-MSHW0037:00: surface3_spi_irq_handler received
+	-> ff ff ff ff a5 5a e7 7e 01 d2 00 80 01 03 03 24 00 e4 01 00 58 0b 58 0b 83 12 83 12 26 01
+	95 01 00 00 00 00 ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+
+Note (2025-03-08): This patch was originally dropped due to the
+comments in [3]. However, according to the commments in [4] it is still
+required.
+
+[3]: https://github.com/linux-surface/kernel/commit/a3421c12bed0e46c28518bcb8c6b22f237c6dc7a
+[4]: https://github.com/linux-surface/linux-surface/issues/1184
+
+Patchset: surface3
+---
+ drivers/input/touchscreen/surface3_spi.c | 26 ++++++++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/drivers/input/touchscreen/surface3_spi.c b/drivers/input/touchscreen/surface3_spi.c
+index 6074b7730e86..6aa3e1d6f160 100644
+--- a/drivers/input/touchscreen/surface3_spi.c
++++ b/drivers/input/touchscreen/surface3_spi.c
+@@ -25,6 +25,12 @@
+ #define SURFACE3_REPORT_TOUCH	0xd2
+ #define SURFACE3_REPORT_PEN	0x16
+ 
++bool use_dma = false;
++module_param(use_dma, bool, 0644);
++MODULE_PARM_DESC(use_dma,
++				"Disable DMA mode if you encounter touch input crash. "
++				"(default: false, disabled to avoid crash)");
++
+ struct surface3_ts_data {
+ 	struct spi_device *spi;
+ 	struct gpio_desc *gpiod_rst[2];
+@@ -317,6 +323,13 @@ static int surface3_spi_create_pen_input(struct surface3_ts_data *data)
+ 	return 0;
+ }
+ 
++static bool surface3_spi_can_dma(struct spi_controller *ctlr,
++				struct spi_device *spi,
++				struct spi_transfer *tfr)
++{
++	return use_dma;
++}
++
+ static int surface3_spi_probe(struct spi_device *spi)
+ {
+ 	struct surface3_ts_data *data;
+@@ -359,6 +372,19 @@ static int surface3_spi_probe(struct spi_device *spi)
+ 	if (error)
+ 		return error;
+ 
++	/*
++	 * Set up DMA
++	 *
++	 * TODO: Currently, touch input with DMA seems to be broken.
++	 * On 4.19 LTS, touch input will crash after suspend.
++	 * On recent stable kernel (at least after 5.1), touch input will crash after
++	 * the first touch. No problem with PIO on those kernels.
++	 * Maybe we need to configure DMA here.
++	 *
++	 * Link to issue: https://github.com/jakeday/linux-surface/issues/596
++	 */
++	spi->controller->can_dma = surface3_spi_can_dma;
++
+ 	return 0;
+ }
+ 
+-- 
+2.49.0
+
