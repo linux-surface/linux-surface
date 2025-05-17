@@ -1,0 +1,211 @@
+From 156b853c039f830407bea29f01bb6f3489c7c3e1 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 17 Jun 2022 02:14:00 +0200
+Subject: [PATCH] rtc: Add basic support for RTC via Surface System Aggregator
+ Module
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/rtc/Kconfig       |   7 +++
+ drivers/rtc/Makefile      |   1 +
+ drivers/rtc/rtc-surface.c | 129 ++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 137 insertions(+)
+ create mode 100644 drivers/rtc/rtc-surface.c
+
+diff --git a/drivers/rtc/Kconfig b/drivers/rtc/Kconfig
+index 0bbbf778ecfa..bd1d5c0dd6df 100644
+--- a/drivers/rtc/Kconfig
++++ b/drivers/rtc/Kconfig
+@@ -1383,6 +1383,13 @@ config RTC_DRV_NTXEC
+ 	  embedded controller found in certain e-book readers designed by the
+ 	  original design manufacturer Netronix.
+ 
++config RTC_DRV_SURFACE
++	tristate "Microsoft Surface Aggregator RTC"
++	depends on SURFACE_AGGREGATOR
++	depends on SURFACE_AGGREGATOR_BUS
++	help
++	  TODO
++
+ comment "on-CPU RTC drivers"
+ 
+ config RTC_DRV_ASM9260
+diff --git a/drivers/rtc/Makefile b/drivers/rtc/Makefile
+index 489b4ab07068..061afa9db5b6 100644
+--- a/drivers/rtc/Makefile
++++ b/drivers/rtc/Makefile
+@@ -180,6 +180,7 @@ obj-$(CONFIG_RTC_DRV_SUN4V)	+= rtc-sun4v.o
+ obj-$(CONFIG_RTC_DRV_SUN6I)	+= rtc-sun6i.o
+ obj-$(CONFIG_RTC_DRV_SUNPLUS)	+= rtc-sunplus.o
+ obj-$(CONFIG_RTC_DRV_SUNXI)	+= rtc-sunxi.o
++obj-$(CONFIG_RTC_DRV_SURFACE)	+= rtc-surface.o
+ obj-$(CONFIG_RTC_DRV_TEGRA)	+= rtc-tegra.o
+ obj-$(CONFIG_RTC_DRV_TEST)	+= rtc-test.o
+ obj-$(CONFIG_RTC_DRV_TI_K3)	+= rtc-ti-k3.o
+diff --git a/drivers/rtc/rtc-surface.c b/drivers/rtc/rtc-surface.c
+new file mode 100644
+index 000000000000..f6c17c4e98d5
+--- /dev/null
++++ b/drivers/rtc/rtc-surface.c
+@@ -0,0 +1,129 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * AC driver for 7th-generation Microsoft Surface devices via Surface System
++ * Aggregator Module (SSAM).
++ *
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ */
++
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/rtc.h>
++#include <linux/slab.h>
++#include <linux/types.h>
++
++#include <linux/surface_aggregator/device.h>
++
++struct surface_rtc {
++	struct ssam_device *sdev;
++	struct rtc_device *rtc;
++};
++
++SSAM_DEFINE_SYNC_REQUEST_R(__ssam_rtc_get_unix_time, __le32, {
++	.target_category = SSAM_SSH_TC_SAM,
++	.target_id       = SSAM_SSH_TID_SAM,
++	.instance_id     = 0x00,
++	.command_id      = 0x10,
++});
++
++SSAM_DEFINE_SYNC_REQUEST_W(__ssam_rtc_set_unix_time, __le32, {
++	.target_category = SSAM_SSH_TC_SAM,
++	.target_id       = SSAM_SSH_TID_SAM,
++	.instance_id     = 0x00,
++	.command_id      = 0x0f,
++});
++
++static int ssam_rtc_get_unix_time(struct surface_rtc *srtc, u32 *time)
++{
++	__le32 time_le;
++	int status;
++
++	status = __ssam_rtc_get_unix_time(srtc->sdev->ctrl, &time_le);
++	if (status)
++		return status;
++
++	*time = le32_to_cpu(time_le);
++	return 0;
++}
++
++static int ssam_rtc_set_unix_time(struct surface_rtc *srtc, u32 time)
++{
++	__le32 time_le = cpu_to_le32(time);
++
++	return __ssam_rtc_set_unix_time(srtc->sdev->ctrl, &time_le);
++}
++
++static int surface_rtc_read_time(struct device *dev, struct rtc_time *tm)
++{
++	struct surface_rtc *srtc = dev_get_drvdata(dev);
++	int status;
++	u32 time;
++
++	status = ssam_rtc_get_unix_time(srtc, &time);
++	if (status)
++		return status;
++
++	rtc_time64_to_tm(time, tm);
++	return 0;
++}
++
++static int surface_rtc_set_time(struct device *dev, struct rtc_time *tm)
++{
++	struct surface_rtc *srtc = dev_get_drvdata(dev);
++	time64_t time = rtc_tm_to_time64(tm);
++
++	return ssam_rtc_set_unix_time(srtc, (u32)time);
++}
++
++static const struct rtc_class_ops surface_rtc_ops = {
++	.read_time = surface_rtc_read_time,
++	.set_time = surface_rtc_set_time,
++};
++
++static int surface_rtc_probe(struct ssam_device *sdev)
++{
++	struct surface_rtc *srtc;
++
++	srtc = devm_kzalloc(&sdev->dev, sizeof(*srtc), GFP_KERNEL);
++	if (!srtc)
++		return -ENOMEM;
++
++	srtc->sdev = sdev;
++
++	srtc->rtc = devm_rtc_allocate_device(&sdev->dev);
++	if (IS_ERR(srtc->rtc))
++		return PTR_ERR(srtc->rtc);
++
++	srtc->rtc->ops = &surface_rtc_ops;
++	srtc->rtc->range_max = U32_MAX;
++
++	ssam_device_set_drvdata(sdev, srtc);
++
++	return devm_rtc_register_device(srtc->rtc);
++}
++
++static void surface_rtc_remove(struct ssam_device *sdev)
++{
++	/* Device-managed allocations take care of everything... */
++}
++
++static const struct ssam_device_id surface_rtc_match[] = {
++	{ SSAM_SDEV(SAM, SAM, 0x00, 0x00) },
++	{ },
++};
++MODULE_DEVICE_TABLE(ssam, surface_rtc_match);
++
++static struct ssam_device_driver surface_rtc_driver = {
++	.probe = surface_rtc_probe,
++	.remove = surface_rtc_remove,
++	.match_table = surface_rtc_match,
++	.driver = {
++		.name = "surface_rtc",
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++	},
++};
++module_ssam_device_driver(surface_rtc_driver);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("RTC driver for Surface System Aggregator Module");
++MODULE_LICENSE("GPL");
+-- 
+2.49.0
+
+From 3dec366702ebcfb04f7805144eca4c943d19802b Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 20 Apr 2025 01:05:14 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add Surface Laptop 7
+ (ACPI)
+
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index a594d5fcfcfd..07b03aa4fa7f 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -460,6 +460,9 @@ static const struct acpi_device_id ssam_platform_hub_acpi_match[] = {
+ 	/* Surface Laptop 6 */
+ 	{ "MSHW0530", (unsigned long)ssam_node_group_sl6 },
+ 
++	/* Surface Laptop 7 */
++	{ "MSHW0551", (unsigned long)ssam_node_group_sl7 },
++
+ 	/* Surface Laptop Go 1 */
+ 	{ "MSHW0118", (unsigned long)ssam_node_group_slg1 },
+ 
+-- 
+2.49.0
+
