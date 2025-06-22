@@ -1,4 +1,4 @@
-From d70cb56d43efddd10d4263f2af24f52fb81137b9 Mon Sep 17 00:00:00 2001
+From f675a2222ecd97c5b85bf05901e3220ee90c30ba Mon Sep 17 00:00:00 2001
 From: Serge Hallyn <serge.hallyn@canonical.com>
 Date: Fri, 31 May 2013 19:12:12 +0100
 Subject: [PATCH] add sysctl to disallow unprivileged CLONE_NEWUSER by default
@@ -20,7 +20,7 @@ Signed-off-by: Serge Hallyn <serge.hallyn@ubuntu.com>
  3 files changed, 32 insertions(+)
 
 diff --git a/kernel/fork.c b/kernel/fork.c
-index ca2ca3884f76..d9591a8a6ead 100644
+index 168681fc4b25..74abab2c65c1 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
 @@ -119,6 +119,12 @@
@@ -36,7 +36,7 @@ index ca2ca3884f76..d9591a8a6ead 100644
  /*
   * Minimum number of threads to boot the kernel
   */
-@@ -2171,6 +2177,10 @@ __latent_entropy struct task_struct *copy_process(
+@@ -2194,6 +2200,10 @@ __latent_entropy struct task_struct *copy_process(
  	if ((clone_flags & (CLONE_NEWUSER|CLONE_FS)) == (CLONE_NEWUSER|CLONE_FS))
  		return ERR_PTR(-EINVAL);
  
@@ -47,7 +47,7 @@ index ca2ca3884f76..d9591a8a6ead 100644
  	/*
  	 * Thread groups must share signals as well, and detached threads
  	 * can only be started up within the thread group.
-@@ -3324,6 +3334,12 @@ int ksys_unshare(unsigned long unshare_flags)
+@@ -3354,6 +3364,12 @@ int ksys_unshare(unsigned long unshare_flags)
  	if (unshare_flags & CLONE_NEWNS)
  		unshare_flags |= CLONE_FS;
  
@@ -61,21 +61,21 @@ index ca2ca3884f76..d9591a8a6ead 100644
  	if (err)
  		goto bad_unshare_out;
 diff --git a/kernel/sysctl.c b/kernel/sysctl.c
-index cb57da499ebb..5e9ae0e6a727 100644
+index 3b7a7308e35b..cb4bab6a39bf 100644
 --- a/kernel/sysctl.c
 +++ b/kernel/sysctl.c
-@@ -135,6 +135,10 @@ static enum sysctl_writes_mode sysctl_writes_strict = SYSCTL_WRITES_STRICT;
- int sysctl_legacy_va_layout;
- #endif
+@@ -84,6 +84,10 @@ EXPORT_SYMBOL_GPL(sysctl_long_vals);
+ static const int ngroups_max = NGROUPS_MAX;
+ static const int cap_last_cap = CAP_LAST_CAP;
  
 +#ifdef CONFIG_USER_NS
 +extern int unprivileged_userns_clone;
 +#endif
 +
- #endif /* CONFIG_SYSCTL */
+ #ifdef CONFIG_PROC_SYSCTL
  
- /*
-@@ -1617,6 +1621,15 @@ static const struct ctl_table kern_table[] = {
+ /**
+@@ -1595,6 +1599,15 @@ static const struct ctl_table kern_table[] = {
  		.mode		= 0644,
  		.proc_handler	= proc_dointvec,
  	},
@@ -92,7 +92,7 @@ index cb57da499ebb..5e9ae0e6a727 100644
  	{
  		.procname	= "tainted",
 diff --git a/kernel/user_namespace.c b/kernel/user_namespace.c
-index aa0b2e47f2f2..222bb2b40b73 100644
+index 682f40d5632d..bf265ad528f9 100644
 --- a/kernel/user_namespace.c
 +++ b/kernel/user_namespace.c
 @@ -22,6 +22,9 @@
@@ -106,5 +106,5 @@ index aa0b2e47f2f2..222bb2b40b73 100644
  static DEFINE_MUTEX(userns_state_mutex);
  
 -- 
-2.49.0
+2.50.0
 
