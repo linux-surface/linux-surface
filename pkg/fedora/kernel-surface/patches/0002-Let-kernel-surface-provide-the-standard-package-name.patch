@@ -1,6 +1,6 @@
-From 1d878cc13b3d4d5d50ad58b9a871ad2202a9c7ec Mon Sep 17 00:00:00 2001
+From b613bdf0b0520f8046cb837184b56946b5676002 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
-Date: Sat, 22 Jul 2023 10:34:38 +0200
+Date: Tue, 30 Sep 2025 20:09:20 +0200
 Subject: [PATCH 2/5] Let kernel-surface provide the standard package names
 
 Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
@@ -9,26 +9,26 @@ Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
  1 file changed, 5 insertions(+)
 
 diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
-index c11232e74d15..ca6517bdc945 100644
+index 9f48a4e6c91f..e6ef25cb0580 100644
 --- a/redhat/kernel.spec.template
 +++ b/redhat/kernel.spec.template
-@@ -723,6 +723,7 @@ Requires: kernel-modules-uname-r = %{KVERREL}
- Requires: kernel-modules-core-uname-r = %{KVERREL}
- Requires: ((kernel-modules-extra-uname-r = %{KVERREL}) if kernel-modules-extra-matched)
+@@ -734,6 +734,7 @@ Requires: %{name}-modules-uname-r = %{KVERREL}
+ Requires: %{name}-modules-core-uname-r = %{KVERREL}
+ Requires: ((%{name}-modules-extra-uname-r = %{KVERREL}) if %{name}-modules-extra-matched)
  Provides: installonlypkg(kernel)
 +Provides: kernel = %{KVERREL}
  %endif
  
  
-@@ -1440,6 +1441,7 @@ Summary: Development package for building kernel modules to match the %{?2:%{2}
- Provides: kernel%{?1:-%{1}}-devel-%{_target_cpu} = %{specrpmversion}-%{release}\
- Provides: kernel-devel-%{_target_cpu} = %{specrpmversion}-%{release}%{uname_suffix %{?1:+%{1}}}\
- Provides: kernel-devel-uname-r = %{KVERREL}%{uname_suffix %{?1:+%{1}}}\
-+Provides: kernel-devel = %{KVERREL}%{?1:+%{1}}\
+@@ -1484,6 +1485,7 @@ Provides: %{name}%{?1:-%{1}}-devel-%{_target_cpu} = %{specrpmversion}-%{release}
+ Provides: %{name}-devel-%{_target_cpu} = %{specrpmversion}-%{release}%{uname_suffix %{?1}}\
+ Provides: kernel-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+ Provides: %{name}-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
++Provides: kernel-devel = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: installonlypkg(kernel)\
  AutoReqProv: no\
  Requires(pre): findutils\
-@@ -1469,6 +1471,7 @@ against the %{?2:%{2} }kernel package.\
+@@ -1513,6 +1515,7 @@ against the %{?2:%{2} }kernel package.\
  Summary: Meta package to install matching core and devel packages for a given %{?2:%{2} }kernel\
  Requires: %{package_name}%{?1:-%{1}}-devel = %{specrpmversion}-%{release}\
  Requires: %{package_name}%{?1:-%{1}}-core = %{specrpmversion}-%{release}\
@@ -36,7 +36,7 @@ index c11232e74d15..ca6517bdc945 100644
  %description %{?1:%{1}-}devel-matched\
  This meta package is used to install matching core and devel packages for a given %{?2:%{2} }kernel.\
  %{nil}
-@@ -1586,6 +1589,7 @@ Requires: ((kernel-%{1}-modules-extra-uname-r = %{KVERREL}%{uname_suffix %{1}})
+@@ -1630,6 +1633,7 @@ Requires: ((%{name}-%{1}-modules-extra-uname-r = %{KVERREL}%{uname_suffix %{1}})
  Requires: realtime-setup\
  %endif\
  Provides: installonlypkg(kernel)\
@@ -44,14 +44,14 @@ index c11232e74d15..ca6517bdc945 100644
  %description %{1}\
  The meta-package for the %{1} kernel\
  %{nil}
-@@ -1600,6 +1604,7 @@ The meta-package for the %{1} kernel\
+@@ -1648,6 +1652,7 @@ The meta-package for the %{1} kernel\
  Summary: %{variant_summary}\
- Provides: kernel-%{?1:%{1}-}core-uname-r = %{KVERREL}%{uname_suffix %{?1:+%{1}}}\
+ Provides: %{name}-%{?1:%{1}-}core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: installonlypkg(kernel)\
-+Provides: kernel-%{?1:%{1}-}core = %{KVERREL}%{?1:+%{1}}\
++Provides: kernel-%{?1:%{1}-}core = %{KVERREL}%{uname_suffix %{?1}}\
  %if %{-m:1}%{!-m:0}\
- Requires: kernel-core-uname-r = %{KVERREL}%{uname_variant %{?1:+%{1}}}\
- Requires: kernel-%{?1:%{1}-}-modules-core-uname-r = %{KVERREL}%{uname_variant %{?1:+%{1}}}\
+ Requires: %{name}-core-uname-r = %{KVERREL}%{uname_variant %{?1}}\
+ Requires: %{name}-%{?1:%{1}-}-modules-core-uname-r = %{KVERREL}%{uname_variant %{?1}}\
 -- 
-2.50.0
+2.51.0
 
