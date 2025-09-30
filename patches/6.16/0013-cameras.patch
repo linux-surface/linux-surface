@@ -1,4 +1,4 @@
-From a3228469f0d8004a18e50bde7daaff298e0211a6 Mon Sep 17 00:00:00 2001
+From 6d3b7898c2d4ca1e93bca6467377087e59b4fe6e Mon Sep 17 00:00:00 2001
 From: Hans de Goede <hdegoede@redhat.com>
 Date: Sun, 10 Oct 2021 20:56:57 +0200
 Subject: [PATCH] ACPI: delay enumeration of devices with a _DEP pointing to an
@@ -72,9 +72,9 @@ index fb1fe9f3b1a3..5be8893b3912 100644
  	 * Do not enumerate devices with enumeration_by_parent flag set as
  	 * they will be enumerated by their respective parents.
 -- 
-2.50.1
+2.51.0
 
-From b6739021e214bf8a47c1774e9d348712a19117a3 Mon Sep 17 00:00:00 2001
+From 963e4c165afc61c5faba46f8ca20c1d0b2932db7 Mon Sep 17 00:00:00 2001
 From: zouxiaoh <xiaohong.zou@intel.com>
 Date: Fri, 25 Jun 2021 08:52:59 +0800
 Subject: [PATCH] iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs
@@ -100,7 +100,7 @@ Patchset: cameras
  1 file changed, 30 insertions(+)
 
 diff --git a/drivers/iommu/intel/iommu.c b/drivers/iommu/intel/iommu.c
-index 04bf55541281..5a8cac788e5a 100644
+index 98def863f736..15af4773df7e 100644
 --- a/drivers/iommu/intel/iommu.c
 +++ b/drivers/iommu/intel/iommu.c
 @@ -44,6 +44,13 @@
@@ -117,7 +117,7 @@ index 04bf55541281..5a8cac788e5a 100644
  #define IOAPIC_RANGE_START	(0xfee00000)
  #define IOAPIC_RANGE_END	(0xfeefffff)
  #define IOVA_START_ADDR		(0x1000)
-@@ -213,12 +220,14 @@ int intel_iommu_enabled = 0;
+@@ -215,12 +222,14 @@ int intel_iommu_enabled = 0;
  EXPORT_SYMBOL_GPL(intel_iommu_enabled);
  
  static int dmar_map_ipts = 1;
@@ -132,7 +132,7 @@ index 04bf55541281..5a8cac788e5a 100644
  #define IDENTMAP_IPTS		16
  
  const struct iommu_ops intel_iommu_ops;
-@@ -1893,6 +1902,9 @@ static int device_def_domain_type(struct device *dev)
+@@ -1905,6 +1914,9 @@ static int device_def_domain_type(struct device *dev)
  		if ((iommu_identity_mapping & IDENTMAP_AZALIA) && IS_AZALIA(pdev))
  			return IOMMU_DOMAIN_IDENTITY;
  
@@ -142,7 +142,7 @@ index 04bf55541281..5a8cac788e5a 100644
  		if ((iommu_identity_mapping & IDENTMAP_IPTS) && IS_IPTS(pdev))
  			return IOMMU_DOMAIN_IDENTITY;
  	}
-@@ -2185,6 +2197,9 @@ static int __init init_dmars(void)
+@@ -2197,6 +2209,9 @@ static int __init init_dmars(void)
  		iommu_set_root_entry(iommu);
  	}
  
@@ -152,7 +152,7 @@ index 04bf55541281..5a8cac788e5a 100644
  	if (!dmar_map_ipts)
  		iommu_identity_mapping |= IDENTMAP_IPTS;
  
-@@ -4411,6 +4426,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
+@@ -4529,6 +4544,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
  	disable_igfx_iommu = 1;
  }
  
@@ -171,7 +171,7 @@ index 04bf55541281..5a8cac788e5a 100644
  static void quirk_iommu_ipts(struct pci_dev *dev)
  {
  	if (!IS_IPTS(dev))
-@@ -4461,6 +4488,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
+@@ -4579,6 +4606,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163A, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163D, quirk_iommu_igfx);
  
@@ -182,9 +182,9 @@ index 04bf55541281..5a8cac788e5a 100644
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9D3E, quirk_iommu_ipts);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x34E4, quirk_iommu_ipts);
 -- 
-2.50.1
+2.51.0
 
-From d97d4bdb6b030eca0e4f1b9e6d36333cd115b6c9 Mon Sep 17 00:00:00 2001
+From a61ad0677bd36ec052487ab4cef6101d8138d6f1 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
 Date: Sun, 10 Oct 2021 20:57:02 +0200
 Subject: [PATCH] platform/x86: int3472: Enable I2c daisy chain
@@ -219,9 +219,9 @@ index 0133405697dc..9e0763bdc758 100644
  
  	return 0;
 -- 
-2.50.1
+2.51.0
 
-From ac22813bbf6f8879a522658ff81e0eccce9d75c4 Mon Sep 17 00:00:00 2001
+From 39e4ca443f7436678999b2e4c63fe6c7c79b821a Mon Sep 17 00:00:00 2001
 From: Daniel Scally <dan.scally@ideasonboard.com>
 Date: Tue, 21 Mar 2023 13:45:26 +0000
 Subject: [PATCH] media: i2c: Clarify that gain is Analogue gain in OV7251
@@ -258,9 +258,9 @@ index 3226888d77e9..3bfe45b764f7 100644
  				     V4L2_CID_TEST_PATTERN,
  				     ARRAY_SIZE(ov7251_test_pattern_menu) - 1,
 -- 
-2.50.1
+2.51.0
 
-From 0b628eac9ac467c74574b290cd8037ca6b1f45b4 Mon Sep 17 00:00:00 2001
+From 67898bb4c736f5846c66fd7737154cdc0ba5e1cd Mon Sep 17 00:00:00 2001
 From: Daniel Scally <dan.scally@ideasonboard.com>
 Date: Wed, 22 Mar 2023 11:01:42 +0000
 Subject: [PATCH] media: v4l2-core: Acquire privacy led in
@@ -309,9 +309,9 @@ index cb153ce42c45..f11b499e14bb 100644
  	if (ret < 0)
  		goto out_cleanup;
 -- 
-2.50.1
+2.51.0
 
-From e013334172ad4602e22121ee39d1b7f20dbbcdbd Mon Sep 17 00:00:00 2001
+From be89734907a8d9bc31e1ecb96680d7d1bb94150d Mon Sep 17 00:00:00 2001
 From: Kate Hsuan <hpa@redhat.com>
 Date: Tue, 21 Mar 2023 23:37:16 +0800
 Subject: [PATCH] platform: x86: int3472: Add MFD cell for tps68470 LED
@@ -350,9 +350,9 @@ index 9e0763bdc758..0976b267972b 100644
  		for (i = 0; i < board_data->n_gpiod_lookups; i++)
  			gpiod_add_lookup_table(board_data->tps68470_gpio_lookup_tables[i]);
 -- 
-2.50.1
+2.51.0
 
-From a6cd8999b346837ae7c30e4ea252968ac040b46a Mon Sep 17 00:00:00 2001
+From acf6a36fee44848bea5ef5ab5394a42f37c5b9bf Mon Sep 17 00:00:00 2001
 From: Kate Hsuan <hpa@redhat.com>
 Date: Tue, 21 Mar 2023 23:37:17 +0800
 Subject: [PATCH] include: mfd: tps68470: Add masks for LEDA and LEDB
@@ -391,9 +391,9 @@ index 7807fa329db0..2d2abb25b944 100644
 +
  #endif /* __LINUX_MFD_TPS68470_H */
 -- 
-2.50.1
+2.51.0
 
-From 1c74a4a3d26452bdfb6d56afc2c528e48239c8c8 Mon Sep 17 00:00:00 2001
+From 51508796651e42174d2a1105159d66fa4e3ad809 Mon Sep 17 00:00:00 2001
 From: Kate Hsuan <hpa@redhat.com>
 Date: Tue, 21 Mar 2023 23:37:18 +0800
 Subject: [PATCH] leds: tps68470: Add LED control for tps68470
@@ -642,9 +642,9 @@ index 000000000000..35aeb5db89c8
 +MODULE_DESCRIPTION("LED driver for TPS68470 PMIC");
 +MODULE_LICENSE("GPL v2");
 -- 
-2.50.1
+2.51.0
 
-From 24642c6d23f656ba43bc0b858f04731b5eb27819 Mon Sep 17 00:00:00 2001
+From dae5c7687ff0f6becfb72b4144e54f7022e54c11 Mon Sep 17 00:00:00 2001
 From: mojyack <mojyack@gmail.com>
 Date: Tue, 26 Mar 2024 05:55:44 +0900
 Subject: [PATCH] media: i2c: dw9719: fix probe error on surface go 2
@@ -674,5 +674,5 @@ index 032fbcb981f2..e03a1d8cdcb4 100644
  	cci_write(dw9719->regmap, DW9719_CONTROL, DW9719_SHUTDOWN, &ret);
  	fsleep(100);
 -- 
-2.50.1
+2.51.0
 
