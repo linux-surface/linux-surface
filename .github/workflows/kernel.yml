@@ -1,0 +1,134 @@
+name: Update kernel version
+on:
+  schedule:
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Kernel version'
+        required: true
+        type: string
+
+env:
+  UPSTREAM_REPO: gregkh/linux
+  KERNEL_REPO: ${{ github.repository_owner }}/kernel
+
+jobs:
+  # ----------------------------------------
+  # Latest kernel versions
+  # ----------------------------------------
+  get_latest_stable_kernel_version:
+    name: Get latest stable kernel version
+    runs-on: ubuntu-latest
+    steps:
+      # get stable major version from kernel.org release feed
+      - name: Get latest stable version
+        id: get_latest_stable_version
+        if: ${{ github.event_name == 'schedule' }}
+        run: |
+          latest_version=$(curl -s https://www.kernel.org/releases.json | jq -r '.latest_stable.version' | cut -d. -f1-2)
+          echo "version=$latest_version" >> "$GITHUB_OUTPUT"
+
+      # get longterm version from kernel.org release feed
+      - name: Get latest longterm version
+        id: get_latest_longterm_version
+        if: ${{ github.event_name == 'schedule' }}
+        run: |
+          longterm_version=$(curl -s https://www.kernel.org/releases.json | \
+            jq -r '.releases | map(select(.moniker == "longterm")) | .[0].version' | cut -d. -f1-2)
+          echo "version=$longterm_version" >> "$GITHUB_OUTPUT"
+
+      - id: set_output
+        run: |
+          versionsList=(${{ steps.get_latest_stable_version.outputs.version }} \
+          ${{ steps.get_latest_longterm_version.outputs.version }} \
+          ${{ inputs.version }}\
+          )
+          echo "versions=$(jq --compact-output --null-input '$ARGS.positional' --args -- "${versionsList[@]}")" >> "$GITHUB_OUTPUT"
+
+    outputs:
+      versions: ${{ steps.set_output.outputs.versions }}
+  
+  # ----------------------------------------
+  # Minor kernel update
+  # ----------------------------------------
+  minor_kernel_update:
+    name: Do minor kernel update if newer version
+    runs-on: ubuntu-latest
+    if: ${{ success() }}
+    needs: get_latest_stable_kernel_version
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{fromJson(needs.get_latest_stable_kernel_version.outputs.versions)}}
+    steps:
+      - name: Fetch tags from gregkh's kernel repository
+        id: stable_tags
+        run: |
+          tag=$(
+          gh api \
+          /repos/gregkh/linux/tags \
+          --jq '.[].name | select(startswith("v${{ matrix.version }}."))' \
+          | head -n 1
+          )
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+
+      - name: Fetch tags from surface kernel repository
+        id: surface_tags
+        run: |
+          tag=$(
+          gh api \
+          /repos/linux-surface/kernel/tags \
+          --jq '.[].name | select(startswith("v${{ matrix.version }}."))' \
+          | head -n 1 \
+          )
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+      
+      - name: Check if newer minor version is available
+        id: check_version
+        run: |
+          if [ -z "${{ steps.stable_tags.outputs.tag }}" ]; then
+            echo "No stable tag found for kernel ${{ matrix.version }}"
+            echo "There might be an error in fetching tags or the kernel version is not available"
+            exit 1
+          fi
+
+          if [ -z "${{ steps.surface_tags.outputs.tag }}" ]; then
+            echo "No surface tag found for kernel ${{ matrix.version }}"
+            echo "There might be an error in fetching tags or the kernel version is not available"
+            exit 1
+          fi
+
+          # We assume gregkh's kernel is always ahead or equal to surface kernel
+          if [ "${{ steps.stable_tags.outputs.tag }}" != "${{ steps.surface_tags.outputs.tag }}" ]; then
+            echo "Newer stable kernel version found"
+            echo "${{ steps.stable_tags.outputs.tag }} > ${{ steps.surface_tags.outputs.tag }}"
+            echo "rebase=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No newer stable kernel version found"
+            echo "rebase=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rebase kernel
+        if: ${{ steps.check_version.outputs.rebase == 'true' }}
+        run: |
+          git clone -b v${{ matrix.version }}-surface --single-branch --filter=blob:none \
+            https://${{ secrets.LINUX_SURFACE_BOT_TOKEN }}@github.com/${{ env.KERNEL_REPO }}.git repo
+          cd repo
+
+          # Fetch upstream tag
+          git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
+          git fetch --filter=blob:none upstream tag ${{ steps.stable_tags.outputs.tag }}
+
+          # Rebase onto upstream tag
+          git config --global user.name "surfacebot"
+          git config --global user.email "surfacebot@users.noreply.github.com"
+          
+          git rebase ${{ steps.stable_tags.outputs.tag }}
+
+          git push --force-with-lease
+      
