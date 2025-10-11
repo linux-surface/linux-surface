@@ -132,7 +132,6 @@ prepare() {
 build() {
   cd $_srcname
   _make all
-  _make -C tools/bpf/bpftool vmlinux.h feature-clang-bpf-co-re=1
 }
 
 _package() {
@@ -195,7 +194,7 @@ _package-headers() {
 
   echo "Installing build files..."
   install -Dt "$builddir" -m644 .config Makefile Module.symvers System.map \
-    localversion.* version vmlinux tools/bpf/bpftool/vmlinux.h
+    localversion.* version vmlinux
   install -Dt "$builddir/kernel" -m644 kernel/Makefile
   install -Dt "$builddir/arch/x86" -m644 arch/x86/Makefile
   cp -t "$builddir" -a scripts
@@ -203,9 +202,6 @@ _package-headers() {
 
   # required when STACK_VALIDATION is enabled
   install -Dt "$builddir/tools/objtool" tools/objtool/objtool
-
-  # required when DEBUG_INFO_BTF_MODULES is enabled
-  install -Dt "$builddir/tools/bpf/resolve_btfids" tools/bpf/resolve_btfids/resolve_btfids
 
   echo "Installing headers..."
   cp -t "$builddir" -a include
