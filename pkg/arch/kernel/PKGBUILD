@@ -3,7 +3,7 @@
 # Maintainer: Jan Alexander Steffens (heftig) <jan.steffens@gmail.com>
 
 pkgbase=linux-surface
-pkgver=6.16.9.arch1
+pkgver=6.17.1.arch1
 pkgrel=1
 pkgdesc='Linux'
 _shortver=${pkgver%.*}
@@ -19,6 +19,9 @@ makedepends=(
   git
   libelf
   perl
+  rust
+  rust-bindgen
+  rust-src
   tar
   xz
   python
@@ -28,7 +31,10 @@ makedepends=(
 optdepends=('iptsd: Touchscreen support'
             'linux-firmware: Firmware files for Linux'
             'linux-firmware-marvell: Firmware files for Marvell WiFi / Bluetooth')
-options=('!strip')
+options=(
+  !debug
+  !strip
+)
 _srcname=archlinux-linux
 source=(
   "$_srcname::git+https://github.com/archlinux/linux#tag=$_srctag"
@@ -57,25 +63,25 @@ validpgpkeys=(
   '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
   'A2FF3A36AAA56654109064AB19802F8B0D70FC30'  # Jan Alexander Steffens (heftig)
 )
-sha256sums=('0b4d356f46d3f7ed9550bde02582d923c54fec1e9711ae8652ec2883f25c70fc'
-            '746810cf2462423b7f680c5eec9236f71399c02501a58bba8871fab70e693815'
+sha256sums=('647162133ecdbf0b829c8291d41a325ce32df79ad93d89302106773a0cac3c87'
+            '57786a01f3cfaeb696f79bf3b19996f7f787df3df8c6fbf6a9654aced518ec93'
             'ee110be98c41a45302b2b81b037e3c4392ea7f142282e28400ac67b37455d42a'
             '008e37de7e6cf8b9479ef0f0f425a25092646e85d741aedd056e5ff3e1096361'
-            '586a8ef0b697205949c1b34bd0682c58a8fe8aa1fd1eebfe8b3974726e2e8687'
-            'df38a268cfe60e56204d0077c496eba68b5cbaaf7c61348c3e8d979438333dcd'
-            '5e3c0f9fe3ac37a691871ebcb28e131de92a60f85c8493472c0e3512921c94ee'
-            '98c97c77274d453401388092913bf94eaf4de43e352a1af3a413f05e9366bd90'
-            'fbff043a27297e8ca799fd57922f517eefedf512fb9caca8cad4abe21ce06aa8'
-            'c317a3bd310ed8a39d04e9531e512c986b6b53c47dcdba0ae7b9901ffa43feb4'
-            'adfaba77c6e10dc5c7bf346af213cd0fd89b9e7c9411f1ded4a77c2aa9eca2f5'
-            'f9044581ded23904891f19d29bafaa22f990899f57ab282edb1ea21468ba3736'
-            'd694b9daeede5aa1a455018e1ec5c17ecda16b3f69ee24b269b6e13d55767e42'
-            'fcdb74c0d76731c3a9e48952723696334931f11ea4f90688a826511742e72f79'
-            'd98cd22320c7ef5a25c2869247f749d410dbbc699cb5eea391af395f7eae1324'
-            '4e3026416c2b6d090a2cb5d4ca90e48f1d12b754a89beedebab70b51ab0b8bdf'
-            'e7de83a2c5c4bd812744c1e1a43e75fae5e105f5c9360c7b1bca3ce83bf8a761'
-            '4b649582d6dce4853bf39faac75ff103d8b8d62e9979e74a01f28f61fc043e54'
-            '34b70e5dad472978844a02d88bf64d49c81594e431729ec686e30c5a14eb7b8b')
+            '04ad5ce818a39165235d387d428aeb12605be8c5b1e913a0c7a12c9c5edef1c2'
+            '42f639c52f38defda3d5516859c1afc42aa3c162f8f8eb1cbae3677e2a41695f'
+            '3640e5db83140bb62e2183c69cc00bc00fbf22a1d96479481a2b65486f381218'
+            '83c63f25996736426892affda4f75f11dd5d176afa39ee7c52d19c109d9b6e97'
+            '4f0833e207090cef3dc8af42c28e42f91138a5fbbd52b3a21dfcde435fe5d352'
+            '7fda97124a4bbd20077617c9ebd27f550159a82de68c488c689efb19b7dd42ae'
+            '2ce4ddf8715ba5c406ba1143b2082268b6b3ba297b694944c826765340783afe'
+            '79a81118886c06aa35a9963ce39d97bf996cdfae2d35089ba3075c1e7fd2d9b3'
+            '172a6b04b90885f0edd7609b287a534061c639a746c3b7eaf1994df81e7e9084'
+            '43c82fbb7583be29d2e49447e7ee1860745d5cfe2af3fd1439aacbe4aee84522'
+            '10756fbb38b21e4c886826c29b042028a42d42cc064178a53a8389b3945cadf9'
+            '8ef4848edcfd3a284e9a69d297b303023dda27b8482cbd5d7f67a8e59082da1c'
+            '4e893decdb56341e542bc4aed20c9507670e4a68b732cc638bd93ad2ef18b16b'
+            'e46a3593f44b32eb8ef9295412e912716a676eb42d066a65d643ac6b3d6b7ce4'
+            '5660ab754f3ce5ac0a0af746b93b573322f9e940a8ab6f0890aae2e38a86e181')
 
 
 export KBUILD_BUILD_HOST=archlinux
@@ -126,6 +132,7 @@ prepare() {
 build() {
   cd $_srcname
   _make all
+  _make -C tools/bpf/bpftool vmlinux.h feature-clang-bpf-co-re=1
 }
 
 _package() {
@@ -136,12 +143,14 @@ _package() {
     kmod
   )
   optdepends=(
-    'wireless-regdb: to set the correct wireless channels of your country'
     'linux-firmware: firmware images needed for some devices'
+    'scx-scheds: to use sched-ext schedulers'
+    'wireless-regdb: to set the correct wireless channels of your country'
   )
   provides=(
     linux=${_shortver}
     KSMBD-MODULE
+    NTSYNC-MODULE
     VIRTUALBOX-GUEST-MODULES
     WIREGUARD-MODULE
   )
@@ -169,10 +178,10 @@ _package() {
   echo "$pkgbase" | install -Dm644 /dev/stdin "$modulesdir/pkgbase"
 
   echo "Installing modules..."
-  _make INSTALL_MOD_PATH="$pkgdir/usr" INSTALL_MOD_STRIP=1 \
+  ZSTD_CLEVEL=19 _make INSTALL_MOD_PATH="$pkgdir/usr" INSTALL_MOD_STRIP=1 \
     DEPMOD=/doesnt/exist modules_install  # Suppress depmod
 
-  # remove build and source links
+  # remove build link
   rm "$modulesdir"/build
 }
 
@@ -186,13 +195,17 @@ _package-headers() {
 
   echo "Installing build files..."
   install -Dt "$builddir" -m644 .config Makefile Module.symvers System.map \
-    localversion.* version vmlinux
+    localversion.* version vmlinux tools/bpf/bpftool/vmlinux.h
   install -Dt "$builddir/kernel" -m644 kernel/Makefile
   install -Dt "$builddir/arch/x86" -m644 arch/x86/Makefile
   cp -t "$builddir" -a scripts
+  ln -srt "$builddir" "$builddir/scripts/gdb/vmlinux-gdb.py"
 
   # required when STACK_VALIDATION is enabled
   install -Dt "$builddir/tools/objtool" tools/objtool/objtool
+
+  # required when DEBUG_INFO_BTF_MODULES is enabled
+  install -Dt "$builddir/tools/bpf/resolve_btfids" tools/bpf/resolve_btfids/resolve_btfids
 
   echo "Installing headers..."
   cp -t "$builddir" -a include
@@ -202,10 +215,10 @@ _package-headers() {
   install -Dt "$builddir/drivers/md" -m644 drivers/md/*.h
   install -Dt "$builddir/net/mac80211" -m644 net/mac80211/*.h
 
-  # http://bugs.archlinux.org/task/13146
+  # https://bugs.archlinux.org/task/13146
   install -Dt "$builddir/drivers/media/i2c" -m644 drivers/media/i2c/msp3400-driver.h
 
-  # http://bugs.archlinux.org/task/20402
+  # https://bugs.archlinux.org/task/20402
   install -Dt "$builddir/drivers/media/usb/dvb-usb" -m644 drivers/media/usb/dvb-usb/*.h
   install -Dt "$builddir/drivers/media/dvb-frontends" -m644 drivers/media/dvb-frontends/*.h
   install -Dt "$builddir/drivers/media/tuners" -m644 drivers/media/tuners/*.h
@@ -215,6 +228,14 @@ _package-headers() {
 
   echo "Installing KConfig files..."
   find . -name 'Kconfig*' -exec install -Dm644 {} "$builddir/{}" \;
+
+  echo "Installing Rust files..."
+  install -Dt "$builddir/rust" -m644 rust/*.rmeta
+  install -Dt "$builddir/rust" rust/*.so
+
+  echo "Installing unstripped VDSO..."
+  make INSTALL_MOD_PATH="$pkgdir/usr" vdso_install \
+    link=  # Suppress build-id symlinks
 
   echo "Removing unneeded architectures..."
   local arch
@@ -236,7 +257,7 @@ _package-headers() {
   echo "Stripping build tools..."
   local file
   while read -rd '' file; do
-    case "$(file -bi "$file")" in
+    case "$(file -Sib "$file")" in
       application/x-sharedlib\;*)      # Libraries (.so)
         strip -v $STRIP_SHARED "$file" ;;
       application/x-archive\;*)        # Libraries (.a)
