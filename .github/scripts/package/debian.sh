@@ -20,6 +20,8 @@ MAINLINE_BRANCH="cod/mainline"
 
 case "${1:-}" in
 setup-builddeps)
+    export PATH="$HOME/.cargo/bin:$PATH"
+
     SOURCES="$(sed 's/^deb /deb-src /' /etc/apt/sources.list)"
     echo "${SOURCES}" >> /etc/apt/sources.list
 
@@ -29,7 +31,8 @@ setup-builddeps)
     apt-get update
     apt-get upgrade
     apt-get install build-essential fakeroot rsync git wget software-properties-common \
-            zstd lz4 sbsigntool debhelper dpkg-dev dpkg-sig pkg-config
+            zstd lz4 sbsigntool debhelper dpkg-dev dpkg-sig pkg-config \
+            llvm-15 clang-15 libclang-15-dev 
     apt-get build-dep linux
 
     # install python 3.11, required for configuring the kernel via Ubuntu's annotation format
@@ -43,6 +46,11 @@ setup-builddeps)
     rm -f /usr/bin/python3
     ln -s /usr/bin/python3.11 /usr/bin/python
     ln -s /usr/bin/python3.11 /usr/bin/python3
+
+    # install rust dependencies (required for now because of minimum version requirements)
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    rustup component add rust-src rustfmt clippy
+    cargo install --locked bindgen-cli
     ;;
 setup-secureboot)
     if [ -z "${SB_KEY:-}" ]; then
@@ -57,6 +65,8 @@ setup-secureboot)
     cp pkg/keys/surface.crt pkg/debian/kernel/keys/MOK.crt
     ;;
 build-packages)
+    export PATH="$HOME/.cargo/bin:$PATH"
+
     pushd pkg/debian/kernel || exit 1
 
     . version.conf
@@ -109,6 +119,9 @@ build-packages)
 
     # Set kernel localversion
     export LOCALVERSION="${KERNEL_LOCALVERSION}-${KERNEL_REVISION}"
+
+    # Get debug info for rust
+    make rustavailable
 
     make bindeb-pkg -j "$(nproc)"
 
