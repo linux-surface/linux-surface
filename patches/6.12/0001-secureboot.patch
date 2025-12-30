@@ -1,4 +1,4 @@
-From bbcfb18eb05bd92e4501ca35bdfd558c849ddeda Mon Sep 17 00:00:00 2001
+From 01edde8580dac0f700507ca50c66ef77881e4d2d Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 9 Jun 2024 19:48:58 +0200
 Subject: [PATCH] Revert "efi/x86: Set the PE/COFF header's NX compat flag
@@ -33,9 +33,9 @@ index b5c79f43359b..a1bbedd989e4 100644
  	.long	0				# SizeOfStackReserve
  	.long	0				# SizeOfStackCommit
 -- 
-2.47.1
+2.51.0
 
-From 9a796344897d077f1fc977ab026315c2cfcd3960 Mon Sep 17 00:00:00 2001
+From 1498ad5095e16250353ba89021d731afa695fb2f Mon Sep 17 00:00:00 2001
 From: "J. Eduardo" <j.eduardo@gmail.com>
 Date: Sun, 25 Aug 2024 14:17:45 +0200
 Subject: [PATCH] PM: hibernate: Add a lockdown_hibernate parameter
@@ -53,10 +53,10 @@ Patchset: secureboot
  2 files changed, 14 insertions(+), 1 deletion(-)
 
 diff --git a/Documentation/admin-guide/kernel-parameters.txt b/Documentation/admin-guide/kernel-parameters.txt
-index d401577b5a6a..5a812e0b740a 100644
+index e88505e945d5..15961654b652 100644
 --- a/Documentation/admin-guide/kernel-parameters.txt
 +++ b/Documentation/admin-guide/kernel-parameters.txt
-@@ -3066,6 +3066,11 @@
+@@ -3085,6 +3085,11 @@
  			to extract confidential information from the kernel
  			are also disabled.
  
@@ -69,7 +69,7 @@ index d401577b5a6a..5a812e0b740a 100644
  			Set the time limit in jiffies for a lock
  			acquisition.  Acquisitions exceeding this limit
 diff --git a/kernel/power/hibernate.c b/kernel/power/hibernate.c
-index e35829d36039..6d54eb03b63d 100644
+index 85008ead2ac9..48df5cfafde6 100644
 --- a/kernel/power/hibernate.c
 +++ b/kernel/power/hibernate.c
 @@ -37,6 +37,7 @@
@@ -80,7 +80,7 @@ index e35829d36039..6d54eb03b63d 100644
  static int nocompress;
  static int noresume;
  static int nohibernate;
-@@ -92,7 +93,7 @@ void hibernate_release(void)
+@@ -97,7 +98,7 @@ bool hibernation_in_progress(void)
  bool hibernation_available(void)
  {
  	return nohibernate == 0 &&
@@ -89,7 +89,7 @@ index e35829d36039..6d54eb03b63d 100644
  		!secretmem_active() && !cxl_mem_active();
  }
  
-@@ -1426,6 +1427,12 @@ static int __init nohibernate_setup(char *str)
+@@ -1436,6 +1437,12 @@ static int __init nohibernate_setup(char *str)
  	return 1;
  }
  
@@ -102,11 +102,11 @@ index e35829d36039..6d54eb03b63d 100644
  static const char * const comp_alg_enabled[] = {
  #if IS_ENABLED(CONFIG_CRYPTO_LZO)
  	COMPRESSION_ALGO_LZO,
-@@ -1484,3 +1491,4 @@ __setup("hibernate=", hibernate_setup);
+@@ -1494,3 +1501,4 @@ __setup("hibernate=", hibernate_setup);
  __setup("resumewait", resumewait_setup);
  __setup("resumedelay=", resumedelay_setup);
  __setup("nohibernate", nohibernate_setup);
 +__setup("lockdown_hibernate", lockdown_hibernate_setup);
 -- 
-2.47.1
+2.51.0
 

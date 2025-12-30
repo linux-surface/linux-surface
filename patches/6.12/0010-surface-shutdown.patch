@@ -1,7 +1,7 @@
-From e88946a0b6535c5a7e31d30f345551df35ac1ef5 Mon Sep 17 00:00:00 2001
+From 58b71fa568056a685b913aa2eef5334707007c52 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 19 Feb 2023 22:12:24 +0100
-Subject: [PATCH] PCI: Add quirk to prevent calling shutdown method
+Subject: [PATCH] PCI: Add quirk to prevent calling shutdown mehtod
 
 Work around buggy EFI firmware: On some Microsoft Surface devices
 (Surface Pro 9 and Surface Laptop 5) the EFI ResetSystem call with
@@ -23,7 +23,7 @@ Patchset: surface-shutdown
  3 files changed, 40 insertions(+)
 
 diff --git a/drivers/pci/pci-driver.c b/drivers/pci/pci-driver.c
-index 35270172c833..529779994ef6 100644
+index 7e9b6e4d4695..93eefd5493e9 100644
 --- a/drivers/pci/pci-driver.c
 +++ b/drivers/pci/pci-driver.c
 @@ -505,6 +505,9 @@ static void pci_device_shutdown(struct device *dev)
@@ -37,10 +37,10 @@ index 35270172c833..529779994ef6 100644
  
  	if (drv && drv->shutdown)
 diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
-index 8103bc24a54e..e8fa8d810925 100644
+index 18fa918b4e53..7a7613264e3c 100644
 --- a/drivers/pci/quirks.c
 +++ b/drivers/pci/quirks.c
-@@ -6301,3 +6301,39 @@ static void pci_mask_replay_timer_timeout(struct pci_dev *pdev)
+@@ -6338,3 +6338,39 @@ static void pci_mask_replay_timer_timeout(struct pci_dev *pdev)
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_GLI, 0x9750, pci_mask_replay_timer_timeout);
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_GLI, 0x9755, pci_mask_replay_timer_timeout);
  #endif
@@ -81,10 +81,10 @@ index 8103bc24a54e..e8fa8d810925 100644
 +DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x466d, quirk_no_shutdown);  // Thunderbolt 4 NHI
 +DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x46a8, quirk_no_shutdown);  // GPU
 diff --git a/include/linux/pci.h b/include/linux/pci.h
-index 4e77c4230c0a..a4b0e6ef6cfe 100644
+index 242ee3843e10..96753fb66158 100644
 --- a/include/linux/pci.h
 +++ b/include/linux/pci.h
-@@ -467,6 +467,7 @@ struct pci_dev {
+@@ -482,6 +482,7 @@ struct pci_dev {
  	unsigned int	no_command_memory:1;	/* No PCI_COMMAND_MEMORY */
  	unsigned int	rom_bar_overlap:1;	/* ROM BAR disable broken */
  	unsigned int	rom_attr_enabled:1;	/* Display of ROM attribute enabled? */
@@ -93,5 +93,5 @@ index 4e77c4230c0a..a4b0e6ef6cfe 100644
  	atomic_t	enable_cnt;	/* pci_enable_device has been called */
  
 -- 
-2.47.1
+2.51.0
 
