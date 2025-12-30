@@ -1,4 +1,4 @@
-From 1069b63e699910262e7cbc208701c9184075244d Mon Sep 17 00:00:00 2001
+From c622f89197367a28d3fd8f456dcf36621f5c1ac0 Mon Sep 17 00:00:00 2001
 From: "Bart Groeneveld | GPX Solutions B.V" <bart@gpxbv.nl>
 Date: Mon, 5 Dec 2022 16:08:46 +0100
 Subject: [PATCH] acpi: allow usage of acpi_tad on HW-reduced platforms
@@ -21,7 +21,7 @@ Patchset: rtc
  1 file changed, 24 insertions(+), 12 deletions(-)
 
 diff --git a/drivers/acpi/acpi_tad.c b/drivers/acpi/acpi_tad.c
-index 91d7d90c47da..94107bf62251 100644
+index 33418dd6768a..f94bbdc1de06 100644
 --- a/drivers/acpi/acpi_tad.c
 +++ b/drivers/acpi/acpi_tad.c
 @@ -433,6 +433,14 @@ static ssize_t caps_show(struct device *dev, struct device_attribute *attr,
@@ -58,9 +58,9 @@ index 91d7d90c47da..94107bf62251 100644
  };
  
  static ssize_t dc_alarm_store(struct device *dev, struct device_attribute *attr,
-@@ -565,13 +572,18 @@ static void acpi_tad_remove(struct platform_device *pdev)
- 
- 	pm_runtime_get_sync(dev);
+@@ -568,13 +575,18 @@ static void acpi_tad_remove(struct platform_device *pdev)
+ 	if (dd->capabilities & ACPI_TAD_RT)
+ 		sysfs_remove_group(&dev->kobj, &acpi_tad_time_attr_group);
  
 +	if (dd->capabilities & ACPI_TAD_AC_WAKE)
 +		sysfs_remove_group(&dev->kobj, &acpi_tad_ac_attr_group);
@@ -79,7 +79,7 @@ index 91d7d90c47da..94107bf62251 100644
  	if (dd->capabilities & ACPI_TAD_DC_WAKE) {
  		acpi_tad_disable_timer(dev, ACPI_TAD_DC_TIMER);
  		acpi_tad_clear_status(dev, ACPI_TAD_DC_TIMER);
-@@ -613,12 +625,6 @@ static int acpi_tad_probe(struct platform_device *pdev)
+@@ -616,12 +628,6 @@ static int acpi_tad_probe(struct platform_device *pdev)
  		goto remove_handler;
  	}
  
@@ -92,7 +92,7 @@ index 91d7d90c47da..94107bf62251 100644
  	dd = devm_kzalloc(dev, sizeof(*dd), GFP_KERNEL);
  	if (!dd) {
  		ret = -ENOMEM;
-@@ -649,6 +655,12 @@ static int acpi_tad_probe(struct platform_device *pdev)
+@@ -652,6 +658,12 @@ static int acpi_tad_probe(struct platform_device *pdev)
  	if (ret)
  		goto fail;
  
