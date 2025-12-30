@@ -1,4 +1,4 @@
-From 32f4f4868f746f57d765561035e9768da1f89138 Mon Sep 17 00:00:00 2001
+From 9cfe9cb267c9ba855738b6474c22f95ac4445b07 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Tue, 30 Sep 2025 20:10:38 +0200
 Subject: [PATCH 3/5] Let kernel-surface conflict with older versions of the
@@ -10,10 +10,10 @@ Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
  1 file changed, 18 insertions(+)
 
 diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
-index e6ef25cb0580..2211bde2aa5a 100644
+index 23ed1c854ed4..81bb35bb8e36 100644
 --- a/redhat/kernel.spec.template
 +++ b/redhat/kernel.spec.template
-@@ -735,6 +735,10 @@ Requires: %{name}-modules-core-uname-r = %{KVERREL}
+@@ -748,6 +748,10 @@ Requires: %{name}-modules-core-uname-r = %{KVERREL}
  Requires: ((%{name}-modules-extra-uname-r = %{KVERREL}) if %{name}-modules-extra-matched)
  Provides: installonlypkg(kernel)
  Provides: kernel = %{KVERREL}
@@ -24,7 +24,7 @@ index e6ef25cb0580..2211bde2aa5a 100644
  %endif
  
  
-@@ -1487,6 +1491,8 @@ Provides: kernel-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+@@ -1507,6 +1511,8 @@ Provides: kernel-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: %{name}-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: kernel-devel = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: installonlypkg(kernel)\
@@ -33,7 +33,7 @@ index e6ef25cb0580..2211bde2aa5a 100644
  AutoReqProv: no\
  Requires(pre): findutils\
  Requires: findutils\
-@@ -1516,6 +1522,8 @@ Summary: Meta package to install matching core and devel packages for a given %{
+@@ -1536,6 +1542,8 @@ Summary: Meta package to install matching core and devel packages for a given %{
  Requires: %{package_name}%{?1:-%{1}}-devel = %{specrpmversion}-%{release}\
  Requires: %{package_name}%{?1:-%{1}}-core = %{specrpmversion}-%{release}\
  Provides: kernel-devel-matched = %{specrpmversion}-%{release}\
@@ -42,7 +42,7 @@ index e6ef25cb0580..2211bde2aa5a 100644
  %description %{?1:%{1}-}devel-matched\
  This meta package is used to install matching core and devel packages for a given %{?2:%{2} }kernel.\
  %{nil}
-@@ -1564,6 +1572,8 @@ Provides: %{name}%{?1:-%{1}}-modules-extra-uname-r = %{KVERREL}%{uname_suffix %{
+@@ -1592,6 +1600,8 @@ Provides: %{name}%{?1:-%{1}}-modules-extra-uname-r = %{KVERREL}%{uname_suffix %{
  Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
@@ -51,7 +51,7 @@ index e6ef25cb0580..2211bde2aa5a 100644
  %if %{-m:1}%{!-m:0}\
  Requires: %{name}-modules-extra-uname-r = %{KVERREL}%{uname_variant %{?1}}\
  %endif\
-@@ -1587,6 +1597,8 @@ Provides: installonlypkg(kernel-module)\
+@@ -1619,6 +1629,8 @@ Provides: kernel%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: %{name}%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
@@ -60,8 +60,8 @@ index e6ef25cb0580..2211bde2aa5a 100644
  %if %{-m:1}%{!-m:0}\
  Requires: %{name}-modules-uname-r = %{KVERREL}%{uname_variant %{?1}}\
  %endif\
-@@ -1609,6 +1621,8 @@ Provides: %{name}-modules-core = %{specrpmversion}-%{release}%{uname_suffix %{?1
- Provides: installonlypkg(kernel-module)\
+@@ -1645,6 +1657,8 @@ Provides: installonlypkg(kernel-module)\
+ Provides: kernel%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
 +Conflicts: %{package_name}-modules-core < 6.3.7-2\
@@ -69,7 +69,7 @@ index e6ef25cb0580..2211bde2aa5a 100644
  %if %{-m:1}%{!-m:0}\
  Requires: %{name}-modules-core-uname-r = %{KVERREL}%{uname_variant %{?1}}\
  %endif\
-@@ -1632,6 +1646,8 @@ Requires: ((%{name}-%{1}-modules-extra-uname-r = %{KVERREL}%{uname_suffix %{1}})
+@@ -1668,6 +1682,8 @@ Requires: ((%{name}-%{1}-modules-extra-uname-r = %{KVERREL}%{uname_suffix %{1}})
  %if "%{1}" == "rt" || "%{1}" == "rt-debug" || "%{1}" == "rt-64k" || "%{1}" == "rt-64k-debug"\
  Requires: realtime-setup\
  %endif\
@@ -78,7 +78,7 @@ index e6ef25cb0580..2211bde2aa5a 100644
  Provides: installonlypkg(kernel)\
  Provides: kernel = %{KVERREL}+%{1}\
  %description %{1}\
-@@ -1653,6 +1669,8 @@ Summary: %{variant_summary}\
+@@ -1690,6 +1706,8 @@ Provides: kernel-%{?1:%{1}-}core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: %{name}-%{?1:%{1}-}core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: installonlypkg(kernel)\
  Provides: kernel-%{?1:%{1}-}core = %{KVERREL}%{uname_suffix %{?1}}\
@@ -88,5 +88,5 @@ index e6ef25cb0580..2211bde2aa5a 100644
  Requires: %{name}-core-uname-r = %{KVERREL}%{uname_variant %{?1}}\
  Requires: %{name}-%{?1:%{1}-}-modules-core-uname-r = %{KVERREL}%{uname_variant %{?1}}\
 -- 
-2.51.0
+2.52.0
 
