@@ -72,7 +72,7 @@ index f2e032f38162..c45820be8fd0 100644
  	 * Do not enumerate devices with enumeration_by_parent flag set as
  	 * they will be enumerated by their respective parents.
 -- 
-2.51.0
+2.52.0
 
 From c552e13ba9c4e725c8ab68016affe3697a7102d5 Mon Sep 17 00:00:00 2001
 From: zouxiaoh <xiaohong.zou@intel.com>
@@ -182,7 +182,7 @@ index 9e31a5fe1f66..bdd32551c452 100644
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9D3E, quirk_iommu_ipts);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x34E4, quirk_iommu_ipts);
 -- 
-2.51.0
+2.52.0
 
 From 9868645027474ea4be300614971df7bf4fbe0e4a Mon Sep 17 00:00:00 2001
 From: Daniel Scally <djrscally@gmail.com>
@@ -219,7 +219,7 @@ index 0133405697dc..9e0763bdc758 100644
  
  	return 0;
 -- 
-2.51.0
+2.52.0
 
 From add99db7db117172d47c6a3feb318cb83ab7b535 Mon Sep 17 00:00:00 2001
 From: Daniel Scally <dan.scally@ideasonboard.com>
@@ -258,7 +258,7 @@ index 31a42d81e970..0d5a8fd86e67 100644
  				     V4L2_CID_TEST_PATTERN,
  				     ARRAY_SIZE(ov7251_test_pattern_menu) - 1,
 -- 
-2.51.0
+2.52.0
 
 From 4983fa30433b34386e8d43e72e348a00b3d0ef9d Mon Sep 17 00:00:00 2001
 From: Daniel Scally <dan.scally@ideasonboard.com>
@@ -309,7 +309,7 @@ index cb153ce42c45..f11b499e14bb 100644
  	if (ret < 0)
  		goto out_cleanup;
 -- 
-2.51.0
+2.52.0
 
 From 6a40dbaaa72f332b416a2722b93d22f4e7341ad7 Mon Sep 17 00:00:00 2001
 From: Kate Hsuan <hpa@redhat.com>
@@ -350,7 +350,7 @@ index 9e0763bdc758..0976b267972b 100644
  		for (i = 0; i < board_data->n_gpiod_lookups; i++)
  			gpiod_add_lookup_table(board_data->tps68470_gpio_lookup_tables[i]);
 -- 
-2.51.0
+2.52.0
 
 From 501f49d48266ee52109f35a50c7a63a7190d5bff Mon Sep 17 00:00:00 2001
 From: Kate Hsuan <hpa@redhat.com>
@@ -391,7 +391,7 @@ index 7807fa329db0..2d2abb25b944 100644
 +
  #endif /* __LINUX_MFD_TPS68470_H */
 -- 
-2.51.0
+2.52.0
 
 From 93f9dbec991c78763d0abdf567539691b9ef3cab Mon Sep 17 00:00:00 2001
 From: Kate Hsuan <hpa@redhat.com>
@@ -642,7 +642,7 @@ index 000000000000..35aeb5db89c8
 +MODULE_DESCRIPTION("LED driver for TPS68470 PMIC");
 +MODULE_LICENSE("GPL v2");
 -- 
-2.51.0
+2.52.0
 
 From 82a0860d4f7b8226e21577a3956f620d3bbca6c2 Mon Sep 17 00:00:00 2001
 From: mojyack <mojyack@gmail.com>
@@ -674,5 +674,361 @@ index 032fbcb981f2..e03a1d8cdcb4 100644
  	cci_write(dw9719->regmap, DW9719_CONTROL, DW9719_SHUTDOWN, &ret);
  	fsleep(100);
 -- 
-2.51.0
+2.52.0
+
+From df7085a9fcdd1e8c2cf71fa555c2b63f13ae7d66 Mon Sep 17 00:00:00 2001
+From: Tooraj Taraz <tooraj.taraz@yahoo.com>
+Date: Wed, 31 Dec 2025 00:35:50 +0100
+Subject: [PATCH] Add camera support for Surface Pro 9
+
+Experimental camera support for the Surface Pro 9.
+
+Link: https://github.com/linux-surface/linux-surface/pull/1867
+Patchset: cameras
+---
+ drivers/media/i2c/ov13858.c                   | 166 +++++++++++++++++-
+ drivers/media/i2c/ov5693.c                    |   1 +
+ drivers/media/pci/intel/ipu-bridge.c          |   4 +
+ drivers/platform/x86/intel/int3472/discrete.c |  23 +++
+ 4 files changed, 190 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/media/i2c/ov13858.c b/drivers/media/i2c/ov13858.c
+index 7a3fc1d28514..970b224cb466 100644
+--- a/drivers/media/i2c/ov13858.c
++++ b/drivers/media/i2c/ov13858.c
+@@ -2,6 +2,8 @@
+ // Copyright (c) 2017 Intel Corporation.
+ 
+ #include <linux/acpi.h>
++#include <linux/delay.h>
++#include <linux/clk.h>
+ #include <linux/i2c.h>
+ #include <linux/module.h>
+ #include <linux/pm_runtime.h>
+@@ -118,6 +120,14 @@ struct ov13858_mode {
+ 	struct ov13858_reg_list reg_list;
+ };
+ 
++// Or use standard names that might be more correct:
++static const char * const ov13858_supply_names[] = {
++	"avdd",    // Analog voltage
++	"pwr1",    // Digital core voltage
++};
++
++#define OV13858_NUM_SUPPLIES ARRAY_SIZE(ov13858_supply_names)
++
+ /* 4224x3136 needs 1080Mbps/lane, 4 lanes */
+ static const struct ov13858_reg mipi_data_rate_1080mbps[] = {
+ 	/* PLL1 registers */
+@@ -1041,13 +1051,131 @@ struct ov13858 {
+ 
+ 	/* Current mode */
+ 	const struct ov13858_mode *cur_mode;
+-
++	struct regulator_bulk_data supplies[OV13858_NUM_SUPPLIES];
++	struct gpio_desc *reset;
++	struct clk *xvclk;
+ 	/* Mutex for serialized access */
+ 	struct mutex mutex;
+ };
+ 
+ #define to_ov13858(_sd)	container_of(_sd, struct ov13858, sd)
+ 
++
++static int ov13858_get_regulators(struct ov13858 *ov13858)
++{
++	struct i2c_client *client = v4l2_get_subdevdata(&ov13858->sd);
++	unsigned int i;
++
++	for (i = 0; i < OV13858_NUM_SUPPLIES; i++)
++		ov13858->supplies[i].supply = ov13858_supply_names[i];
++
++	return devm_regulator_bulk_get(&client->dev, OV13858_NUM_SUPPLIES,
++				       ov13858->supplies);
++}
++
++static int ov13858_sensor_powerup(struct ov13858 *ov13858)
++{
++	struct i2c_client *client = v4l2_get_subdevdata(&ov13858->sd);
++	int ret;
++
++	dev_info(&client->dev, "Powering up sensor\n");
++
++	/* Assert reset */
++	gpiod_set_value_cansleep(ov13858->reset, 1);
++
++	/* Enable clock FIRST - sensor needs clock to communicate */
++	ret = clk_prepare_enable(ov13858->xvclk);
++	if (ret) {
++		dev_err(&client->dev, "Failed to enable clock: %d\n", ret);
++		return ret;
++	}
++	dev_info(&client->dev, "Clock enabled\n");
++
++	/* Enable regulators */
++	ret = regulator_bulk_enable(OV13858_NUM_SUPPLIES, ov13858->supplies);
++	if (ret) {
++		dev_err(&client->dev, "Failed to enable regulators: %d\n", ret);
++		clk_disable_unprepare(ov13858->xvclk);
++		return ret;
++	}
++
++	dev_info(&client->dev, "Regulators enabled\n");
++
++	/* Wait for power to stabilize */
++	usleep_range(5000, 10000);
++
++	/* De-assert reset */
++	gpiod_set_value_cansleep(ov13858->reset, 0);
++
++	/* Wait for sensor to boot */
++	msleep(20);
++
++	dev_info(&client->dev, "Reset de-asserted, sensor should be ready\n");
++
++	return 0;
++}
++
++static void ov13858_sensor_powerdown(struct ov13858 *ov13858)
++{
++	struct i2c_client *client = v4l2_get_subdevdata(&ov13858->sd);
++
++	dev_info(&client->dev, "Powering down sensor\n");
++
++	/* Assert reset to put sensor in reset state */
++	gpiod_set_value_cansleep(ov13858->reset, 1);
++
++	/* Disable regulators */
++	regulator_bulk_disable(OV13858_NUM_SUPPLIES, ov13858->supplies);
++	dev_info(&client->dev, "Regulators disabled\n");
++
++	/* Disable clock */
++	clk_disable_unprepare(ov13858->xvclk);
++	dev_info(&client->dev, "Clock disabled\n");
++}
++
++static int __maybe_unused ov13858_suspend(struct device *dev)
++{
++	struct i2c_client *client = to_i2c_client(dev);
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct ov13858 *ov13858 = to_ov13858(sd);
++
++	ov13858_sensor_powerdown(ov13858);
++
++	return 0;
++}
++
++static int __maybe_unused ov13858_resume(struct device *dev)
++{
++	struct i2c_client *client = to_i2c_client(dev);
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct ov13858 *ov13858 = to_ov13858(sd);
++	int ret;
++
++	ret = ov13858_sensor_powerup(ov13858);
++	if (ret)
++		return ret;
++
++	return 0;
++}
++
++static const struct dev_pm_ops ov13858_pm_ops = {
++	SET_RUNTIME_PM_OPS(ov13858_suspend, ov13858_resume, NULL)
++};
++
++static int ov13858_get_gpios(struct ov13858 *ov13858)
++{
++	struct i2c_client *client = v4l2_get_subdevdata(&ov13858->sd);
++
++	ov13858->reset = devm_gpiod_get_optional(&client->dev, "reset",
++	                                         GPIOD_OUT_HIGH);
++	if (IS_ERR(ov13858->reset)) {
++		dev_err(&client->dev, "Error fetching reset GPIO\n");
++		return PTR_ERR(ov13858->reset);
++	}
++
++	return 0;
++}
++
+ /* Read registers up to 4 at a time */
+ static int ov13858_read_reg(struct ov13858 *ov13858, u16 reg, u32 len,
+ 			    u32 *val)
+@@ -1499,8 +1627,11 @@ static int ov13858_identify_module(struct ov13858 *ov13858)
+ 	int ret;
+ 	u32 val;
+ 
++	dev_info(&client->dev, "Attempting to read chip ID from register 0x300a\n");
+ 	ret = ov13858_read_reg(ov13858, OV13858_REG_CHIP_ID,
+ 			       OV13858_REG_VALUE_24BIT, &val);
++	dev_info(&client->dev, "Chip ID read result: ret=%d, val=0x%06x (expected 0x%06x)\n",
++	         ret, val, OV13858_CHIP_ID);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -1509,7 +1640,7 @@ static int ov13858_identify_module(struct ov13858 *ov13858)
+ 			OV13858_CHIP_ID, val);
+ 		return -EIO;
+ 	}
+-
++	dev_info(&client->dev, "Chip ID verified successfully!\n");
+ 	return 0;
+ }
+ 
+@@ -1664,6 +1795,7 @@ static int ov13858_probe(struct i2c_client *client)
+ 	u32 val = 0;
+ 
+ 	device_property_read_u32(&client->dev, "clock-frequency", &val);
++	dev_info(&client->dev, "Clock frequency read: %u (expected 19200000)\n", val);
+ 	if (val != 19200000)
+ 		return -EINVAL;
+ 
+@@ -1671,14 +1803,33 @@ static int ov13858_probe(struct i2c_client *client)
+ 	if (!ov13858)
+ 		return -ENOMEM;
+ 
++	/* Get the external clock */
++	ov13858->xvclk = devm_clk_get_optional(&client->dev, "xvclk");
++	if (IS_ERR(ov13858->xvclk))
++		return dev_err_probe(&client->dev, PTR_ERR(ov13858->xvclk),
++		       "failed to get xvclk\n");
++
+ 	/* Initialize subdev */
+ 	v4l2_i2c_subdev_init(&ov13858->sd, client, &ov13858_subdev_ops);
+ 
++	ret = ov13858_get_regulators(ov13858);
++	if (ret)
++		return dev_err_probe(&client->dev, ret,
++		       "Error fetching regulators\n");
++
++	ret = ov13858_get_gpios(ov13858);
++	if (ret)
++		return ret;
++
++	ret = ov13858_sensor_powerup(ov13858);
++	if (ret)
++		return ret;  // No cleanup needed yet, devm handles GPIOs/regulators
++
+ 	/* Check module identity */
+ 	ret = ov13858_identify_module(ov13858);
+ 	if (ret) {
+ 		dev_err(&client->dev, "failed to find sensor: %d\n", ret);
+-		return ret;
++		goto error_power_off;  // Now we need to power down
+ 	}
+ 
+ 	/* Set default mode to max resolution */
+@@ -1686,7 +1837,7 @@ static int ov13858_probe(struct i2c_client *client)
+ 
+ 	ret = ov13858_init_controls(ov13858);
+ 	if (ret)
+-		return ret;
++		goto error_power_off;
+ 
+ 	/* Initialize subdev */
+ 	ov13858->sd.internal_ops = &ov13858_internal_ops;
+@@ -1722,6 +1873,9 @@ static int ov13858_probe(struct i2c_client *client)
+ 
+ error_handler_free:
+ 	ov13858_free_controls(ov13858);
++
++error_power_off:
++	ov13858_sensor_powerdown(ov13858);
+ 	dev_err(&client->dev, "%s failed:%d\n", __func__, ret);
+ 
+ 	return ret;
+@@ -1737,6 +1891,9 @@ static void ov13858_remove(struct i2c_client *client)
+ 	ov13858_free_controls(ov13858);
+ 
+ 	pm_runtime_disable(&client->dev);
++	if (!pm_runtime_status_suspended(&client->dev))
++		ov13858_sensor_powerdown(ov13858);
++	pm_runtime_set_suspended(&client->dev);
+ }
+ 
+ static const struct i2c_device_id ov13858_id_table[] = {
+@@ -1758,6 +1915,7 @@ MODULE_DEVICE_TABLE(acpi, ov13858_acpi_ids);
+ static struct i2c_driver ov13858_i2c_driver = {
+ 	.driver = {
+ 		.name = "ov13858",
++		.pm = &ov13858_pm_ops,
+ 		.acpi_match_table = ACPI_PTR(ov13858_acpi_ids),
+ 	},
+ 	.probe = ov13858_probe,
+diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
+index 485efd15257e..476efd022f6b 100644
+--- a/drivers/media/i2c/ov5693.c
++++ b/drivers/media/i2c/ov5693.c
+@@ -1408,6 +1408,7 @@ static const struct dev_pm_ops ov5693_pm_ops = {
+ 
+ static const struct acpi_device_id ov5693_acpi_match[] = {
+ 	{"INT33BE"},
++	{"OVTI5693"},
+ 	{},
+ };
+ MODULE_DEVICE_TABLE(acpi, ov5693_acpi_match);
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index 4e579352ab2c..ac637207b644 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -60,6 +60,10 @@ static const struct ipu_sensor_config ipu_supported_sensors[] = {
+ 	IPU_SENSOR_CONFIG("INT33BE", 1, 419200000),
+ 	/* Onsemi MT9M114 */
+ 	IPU_SENSOR_CONFIG("INT33F0", 1, 384000000),
++	/* Omnivision OV5693 - Surface Pro 9 */
++	IPU_SENSOR_CONFIG("OVTI5693", 1, 419200000),
++	/* Omnivision OV13858 - Surface Pro 9 */
++	IPU_SENSOR_CONFIG("OVTID858", 4, 540000000),
+ 	/* Omnivision OV2740 */
+ 	IPU_SENSOR_CONFIG("INT3474", 1, 180000000),
+ 	/* Omnivision OV5670 */
+diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
+index bdfb8a800c54..b559112ee763 100644
+--- a/drivers/platform/x86/intel/int3472/discrete.c
++++ b/drivers/platform/x86/intel/int3472/discrete.c
+@@ -205,6 +205,14 @@ static void int3472_get_con_id_and_polarity(struct int3472_discrete_device *int3
+ 		*con_id = "dvdd";
+ 		*gpio_flags = GPIO_ACTIVE_HIGH;
+ 		break;
++	case 0x08:  /* Surface Pro 9 - additional power rail */
++		*con_id = "pwr1";
++		*gpio_flags = GPIO_ACTIVE_HIGH;
++		break;
++	case 0x10:  /* Surface Pro 9 - secondary power rail */
++		*con_id = "pwr2";
++		*gpio_flags = GPIO_ACTIVE_HIGH;
++		break;
+ 	default:
+ 		*con_id = "unknown";
+ 		*gpio_flags = GPIO_ACTIVE_HIGH;
+@@ -307,6 +315,8 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 	case INT3472_GPIO_TYPE_PRIVACY_LED:
+ 	case INT3472_GPIO_TYPE_POWER_ENABLE:
+ 	case INT3472_GPIO_TYPE_HANDSHAKE:
++	case 0x08:  /* Surface Pro 9 power rails */
++	case 0x10:
+ 		gpio = skl_int3472_gpiod_get_from_temp_lookup(int3472, agpio, con_id, gpio_flags);
+ 		if (IS_ERR(gpio)) {
+ 			ret = PTR_ERR(gpio);
+@@ -345,6 +355,19 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 				err_msg = "Failed to map handshake to sensor\n";
+ 
+ 			break;
++		case 0x08:  /* Surface Pro 9 - treat as power*/
++		    dev_info(int3472->dev, "GPIO type 0x%02x detected on pin 0x%02x\n", type, agpio->pin_table[0]);
++		    dev_info(int3472->dev, "  con_id=%s, flags=0x%x\n", con_id, gpio_flags);
++		    ret = skl_int3472_register_regulator(int3472, gpio,
++			 GPIO_REGULATOR_ENABLE_TIME,
++			 con_id, NULL);
++		    dev_info(int3472->dev, "  register_regulator returned: %d\n", ret);
++		    if (ret) {
++			dev_err(int3472->dev, "Failed to register type 0x02x: %d\n", type, ret);
++		    }
++		    break;
++		case 0x10:
++		    break;
+ 		default: /* Never reached */
+ 			ret = -EINVAL;
+ 			break;
+-- 
+2.52.0
 
