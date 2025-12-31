@@ -1,0 +1,246 @@
+From 647ba0853323d287d240377d5ecfa79c9872e96f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ciar=C3=A1n=20Coffey?= <github@ccoffey.ie>
+Date: Fri, 10 Oct 2025 19:04:03 +0100
+Subject: [PATCH] HID: Add hid-surface driver to filter BTN_0 (FN key)
+
+The Surface Aggregator Module firmware incorrectly reports the FN key
+as BTN_0 (button 256) through runtime HID events. This button can get
+stuck in pressed state, flooding the input system and breaking focus
+tracking in KWin Wayland compositor.
+
+Add a new hid-surface driver that filters BTN_0 events using the event
+callback. The FN key should be handled as a hardware modifier and not
+reported to the OS.
+
+Tested on Surface Laptop 4 AMD with KDE Plasma Wayland. After the fix:
+- FN key combinations work correctly (volume, brightness)
+- Focus tracking no longer breaks
+- Mouse clicks work on all windows
+
+Fixes: https://github.com/linux-surface/linux-surface/issues/1851
+Patchset: hid-surface
+---
+ drivers/hid/Kconfig       |  8 ++++
+ drivers/hid/Makefile      |  1 +
+ drivers/hid/hid-surface.c | 90 +++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 99 insertions(+)
+ create mode 100644 drivers/hid/hid-surface.c
+
+diff --git a/drivers/hid/Kconfig b/drivers/hid/Kconfig
+index 184a2b2f9347..d2e308b257b5 100644
+--- a/drivers/hid/Kconfig
++++ b/drivers/hid/Kconfig
+@@ -1141,6 +1141,14 @@ config HID_SUNPLUS
+ 	help
+ 	Support for Sunplus wireless desktop.
+ 
++config HID_SURFACE
++	tristate "Microsoft Surface"
++	depends on SURFACE_AGGREGATOR
++	help
++	Say Y here to enable HID driver for Microsoft Surface integrated
++	keyboard and touchpad. This driver filters out erroneous BTN_0
++	(FN key) events that can cause input focus issues.
++
+ config HID_RMI
+ 	tristate "Synaptics RMI4 device support"
+ 	select RMI4_CORE
+diff --git a/drivers/hid/Makefile b/drivers/hid/Makefile
+index 3190ece25626..4d2891879548 100644
+--- a/drivers/hid/Makefile
++++ b/drivers/hid/Makefile
+@@ -174,6 +174,7 @@ obj-$(CONFIG_INTEL_ISH_HID)	+= intel-ish-hid/
+ obj-$(CONFIG_AMD_SFH_HID)       += amd-sfh-hid/
+ 
+ obj-$(CONFIG_SURFACE_HID_CORE)  += surface-hid/
++obj-$(CONFIG_HID_SURFACE)	+= hid-surface.o
+ 
+ obj-$(CONFIG_INTEL_THC_HID)     += intel-thc-hid/
+ 
+diff --git a/drivers/hid/hid-surface.c b/drivers/hid/hid-surface.c
+new file mode 100644
+index 000000000000..a171ea65672f
+--- /dev/null
++++ b/drivers/hid/hid-surface.c
+@@ -0,0 +1,90 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * HID driver for Microsoft Surface devices
++ *
++ * Copyright (c) 2025 Linux Surface Project
++ */
++
++#include <linux/device.h>
++#include <linux/hid.h>
++#include <linux/input.h>
++#include <linux/module.h>
++
++#include "hid-ids.h"
++
++/*
++ * The Surface Aggregator Module firmware incorrectly reports the FN key
++ * as BTN_0 (button 256). This button can get stuck in pressed state,
++ * flooding the input system and breaking focus tracking in some
++ * compositors. Filter out BTN_0 as FN should be handled as a hardware
++ * modifier, not reported to the OS.
++ */
++static int surface_input_mapping(struct hid_device *hdev, struct hid_input *hi,
++				  struct hid_field *field, struct hid_usage *usage,
++				  unsigned long **bit, int *max)
++{
++	/*
++	 * Filter BTN_0 during input mapping in case it appears in the
++	 * HID descriptor (defense in depth).
++	 */
++	if (usage->type == EV_KEY && usage->code == BTN_0)
++		return -1;  /* Don't map this usage */
++
++	return 0;  /* Use default mapping */
++}
++
++static int surface_event(struct hid_device *hdev, struct hid_field *field,
++			  struct hid_usage *usage, __s32 value)
++{
++	/*
++	 * The Surface Aggregator Module firmware reports the FN key as BTN_0
++	 * at runtime. This button can get stuck in pressed state, flooding
++	 * the input system and breaking focus tracking. Filter out these
++	 * events as FN should be a hardware modifier, not reported to the OS.
++	 */
++	if (usage->type == EV_KEY && usage->code == BTN_0)
++		return 1;  /* Event handled, don't process further */
++
++	return 0;  /* Process event normally */
++}
++
++static int surface_probe(struct hid_device *hdev, const struct hid_device_id *id)
++{
++	int ret;
++
++	ret = hid_parse(hdev);
++	if (ret) {
++		hid_err(hdev, "parse failed\n");
++		return ret;
++	}
++
++	ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
++	if (ret) {
++		hid_err(hdev, "hw start failed\n");
++		return ret;
++	}
++
++	return 0;
++}
++
++static const struct hid_device_id surface_devices[] = {
++	{ HID_DEVICE(BUS_HOST, HID_GROUP_GENERIC,
++		     USB_VENDOR_ID_MICROSOFT, 0x09AE) },  /* Surface Keyboard */
++	{ HID_DEVICE(BUS_HOST, HID_GROUP_GENERIC,
++		     USB_VENDOR_ID_MICROSOFT, 0x09AF) },  /* Surface Mouse/Touchpad */
++	{ }
++};
++MODULE_DEVICE_TABLE(hid, surface_devices);
++
++static struct hid_driver surface_driver = {
++	.name = "surface",
++	.id_table = surface_devices,
++	.probe = surface_probe,
++	.input_mapping = surface_input_mapping,
++	.event = surface_event,
++};
++module_hid_driver(surface_driver);
++
++MODULE_AUTHOR("Linux Surface Project");
++MODULE_DESCRIPTION("Microsoft Surface HID driver");
++MODULE_LICENSE("GPL");
+-- 
+2.52.0
+
+From 1cc181c914274d50fcb69c7c8d7db9a691811f2c Mon Sep 17 00:00:00 2001
+From: LegendaryFire <tristan.balon@outlook.com>
+Date: Wed, 24 Dec 2025 00:54:44 -0800
+Subject: [PATCH] hid/multitouch: Prevent mode set on Surface Laptop Studio 2
+ touch pad
+
+Patchset: hid-surface
+---
+ drivers/hid/hid-multitouch.c | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index 0eb4f7d1228e..8f2ed29b4f35 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -82,6 +82,7 @@ MODULE_LICENSE("GPL");
+ #define MT_QUIRK_APPLE_TOUCHBAR		BIT(23)
+ #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(24)
+ #define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(25)
++#define MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE  BIT(26)
+ 
+ #define MT_INPUTMODE_TOUCHSCREEN	0x02
+ #define MT_INPUTMODE_TOUCHPAD		0x03
+@@ -242,6 +243,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
+ #define MT_CLS_SMART_TECH			0x0113
+ #define MT_CLS_APPLE_TOUCHBAR			0x0114
+ #define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0115
++#define MT_CLS_SURFACE_TOUCHPAD                0x0116
+ #define MT_CLS_SIS				0x0457
+ 
+ #define MT_DEFAULT_MAXCONTACT	10
+@@ -449,6 +451,10 @@ static const struct mt_class mt_classes[] = {
+ 			MT_QUIRK_WIN8_PTP_BUTTONS,
+ 		.export_all_inputs = true
+ 	},
++	{ .name = MT_CLS_SURFACE_TOUCHPAD,
++		.quirks = MT_QUIRK_ALWAYS_VALID |
++			MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE
++	},
+ 	{ }
+ };
+ 
+@@ -2180,11 +2186,30 @@ static void mt_remove(struct hid_device *hdev)
+ 
+ static void mt_on_hid_hw_open(struct hid_device *hdev)
+ {
++	/*
++	 * Some devices (e.g. Surface Laptop Studio 2 touchpad) can get stuck
++	 * non-functional if we change touchpad reporting modes from the HID
++	 * open/close hooks. Avoid mode switching on hw_open/hw_close for
++	 * those devices.
++	 */
++	struct mt_device *td = hid_get_drvdata(hdev);
++	if (td && td->mtclass.quirks & MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE)
++		return;
+ 	mt_set_modes(hdev, HID_LATENCY_NORMAL, TOUCHPAD_REPORT_ALL);
+ }
+ 
+ static void mt_on_hid_hw_close(struct hid_device *hdev)
+ {
++	/*
++	 * Some devices (e.g. Surface Laptop Studio 2 touchpad) can get stuck
++	 * non-functional if we change touchpad reporting modes from the HID
++	 * open/close hooks. Avoid mode switching on hw_open/hw_close for
++	 * those devices.
++	 */
++	struct mt_device *td = hid_get_drvdata(hdev);
++	if (td && td->mtclass.quirks & MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE)
++		return;
++
+ 	mt_set_modes(hdev, HID_LATENCY_HIGH, TOUCHPAD_REPORT_NONE);
+ }
+ 
+@@ -2621,6 +2646,11 @@ static const struct hid_device_id mt_devices[] = {
+ 		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
+ 			USB_VENDOR_ID_MICROSOFT, 0x09c0) },
+ 
++	/* Microsoft Surface touch pad */
++	{ .driver_data = MT_CLS_SURFACE_TOUCHPAD,
++		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
++			USB_VENDOR_ID_MICROSOFT, 0x0C46) },
++
+ 	/* Google MT devices */
+ 	{ .driver_data = MT_CLS_GOOGLE,
+ 		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY, USB_VENDOR_ID_GOOGLE,
+-- 
+2.52.0
+
