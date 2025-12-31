@@ -113,7 +113,7 @@ system("git reset --hard '%s'" % args.package_tag)
 
 # Apply patches
 for patch in patches:
-    system("git am '%s'" % patch)
+    system("git am -3 '%s'" % patch)
 
 # Copy files
 for file in files:
