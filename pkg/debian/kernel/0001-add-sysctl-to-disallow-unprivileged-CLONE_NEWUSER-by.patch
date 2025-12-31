@@ -1,4 +1,4 @@
-From ba645e31140ff6ecd6a8b28f8d72cb5132f60625 Mon Sep 17 00:00:00 2001
+From a01ff076551b58aa0f69b2132018edb4ee432ab2 Mon Sep 17 00:00:00 2001
 From: Serge Hallyn <serge.hallyn@canonical.com>
 Date: Fri, 31 May 2013 19:12:12 +0100
 Subject: [PATCH] add sysctl to disallow unprivileged CLONE_NEWUSER by default
@@ -20,7 +20,7 @@ Signed-off-by: Serge Hallyn <serge.hallyn@ubuntu.com>
  3 files changed, 32 insertions(+)
 
 diff --git a/kernel/fork.c b/kernel/fork.c
-index 6ca8689a83b5..483c28b98e5a 100644
+index 3da0f08615a9..8974312080fe 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
 @@ -123,6 +123,12 @@
@@ -36,7 +36,7 @@ index 6ca8689a83b5..483c28b98e5a 100644
  /*
   * Minimum number of threads to boot the kernel
   */
-@@ -1938,6 +1944,10 @@ __latent_entropy struct task_struct *copy_process(
+@@ -1946,6 +1952,10 @@ __latent_entropy struct task_struct *copy_process(
  	if ((clone_flags & (CLONE_NEWUSER|CLONE_FS)) == (CLONE_NEWUSER|CLONE_FS))
  		return ERR_PTR(-EINVAL);
  
@@ -47,7 +47,7 @@ index 6ca8689a83b5..483c28b98e5a 100644
  	/*
  	 * Thread groups must share signals as well, and detached threads
  	 * can only be started up within the thread group.
-@@ -3105,6 +3115,12 @@ int ksys_unshare(unsigned long unshare_flags)
+@@ -3107,6 +3117,12 @@ int ksys_unshare(unsigned long unshare_flags)
  	if (unshare_flags & CLONE_NEWNS)
  		unshare_flags |= CLONE_FS;
  
@@ -92,12 +92,12 @@ index cb6196e3fa99..c955e49a4b7a 100644
  	{
  		.procname	= "sysctl_writes_strict",
 diff --git a/kernel/user_namespace.c b/kernel/user_namespace.c
-index 682f40d5632d..bf265ad528f9 100644
+index 03cb63883d04..163817801c17 100644
 --- a/kernel/user_namespace.c
 +++ b/kernel/user_namespace.c
-@@ -22,6 +22,9 @@
- #include <linux/bsearch.h>
+@@ -23,6 +23,9 @@
  #include <linux/sort.h>
+ #include <linux/nstree.h>
  
 +/* sysctl */
 +int unprivileged_userns_clone = 1;
@@ -106,5 +106,5 @@ index 682f40d5632d..bf265ad528f9 100644
  static DEFINE_MUTEX(userns_state_mutex);
  
 -- 
-2.51.0
+2.52.0
 
