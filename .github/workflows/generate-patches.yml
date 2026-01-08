@@ -1,0 +1,151 @@
+name: Generate Kernel Patches
+
+on:
+  # Manual trigger with inputs
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Kernel branch to update (e.g., "v6.18-surface")'
+        required: true
+        type: string
+      base_version:
+        description: 'Base version tag (optional, e.g., "v6.18.4"). If not specified, auto-detected with git describe'
+        required: false
+        type: string
+      force:
+        description: 'Force update even if no changes detected'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  generate:
+    name: Generate patches for ${{ inputs.branch }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout linux-surface repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git
+
+      - name: Generate patches
+        id: generate
+        env:
+          KERNEL_BRANCH: ${{ inputs.branch }}
+          BASE_VERSION_TAG: ${{ inputs.base_version }}
+          FORCE_UPDATE: ${{ inputs.force }}
+        run: |
+          bash .github/scripts/autoupdate/generate-patches.sh
+
+      - name: Check if changes exist
+        id: check
+        run: |
+          if [ "${{ steps.generate.outputs.has_changes }}" = "true" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No changes detected, skipping PR creation"
+          fi
+
+      - name: Setup git identity
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          git config user.name "surfacebot"
+          git config user.email "surfacebot@users.noreply.github.com"
+
+      - name: Create branch and commit changes
+        if: steps.check.outputs.has_changes == 'true'
+        id: commit
+        run: |
+          # Extract kernel version and base version from script outputs
+          KERNEL_VERSION="${{ steps.generate.outputs.kernel_version }}"
+          BASE_VERSION="${{ steps.generate.outputs.base_version }}"
+          PATCH_COUNT="${{ steps.generate.outputs.patch_count }}"
+
+          # Create unique branch name with timestamp
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          BRANCH="autoupdate/patches-v${KERNEL_VERSION}-${TIMESTAMP}"
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          echo "kernel_version=${KERNEL_VERSION}" >> $GITHUB_OUTPUT
+          echo "base_version=${BASE_VERSION}" >> $GITHUB_OUTPUT
+
+          # Create and switch to new branch
+          git checkout -b "${BRANCH}"
+
+          # Stage changes in patches directory
+          git add patches/${KERNEL_VERSION}/
+
+          # Check if there are actual changes to commit
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            echo "committed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Create commit message
+          cat > /tmp/commit-msg <<EOF
+          patches/v${KERNEL_VERSION}: Update to ${BASE_VERSION}
+
+          Generated ${PATCH_COUNT} patches from linux-surface/kernel branch ${{ inputs.branch }}
+
+          Base version: ${BASE_VERSION}
+          Branch: ${{ inputs.branch }}
+
+          Automatically generated patches using git-format-patchsets.
+          EOF
+
+          # Commit changes
+          git commit -F /tmp/commit-msg
+
+          echo "committed=true" >> $GITHUB_OUTPUT
+
+      - name: Push branch
+        if: steps.check.outputs.has_changes == 'true' && steps.commit.outputs.committed == 'true'
+        run: |
+          git push -u origin "${{ steps.commit.outputs.branch }}"
+
+      - name: Create Pull Request
+        if: steps.check.outputs.has_changes == 'true' && steps.commit.outputs.committed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+        run: |
+          KERNEL_VERSION="${{ steps.commit.outputs.kernel_version }}"
+          BASE_VERSION="${{ steps.commit.outputs.base_version }}"
+          PATCH_COUNT="${{ steps.generate.outputs.patch_count }}"
+          BRANCH="${{ inputs.branch }}"
+
+          gh pr create \
+            --title "patches/v${KERNEL_VERSION}: Automatic update to ${BASE_VERSION}" \
+            --body "$(cat <<EOF
+          ## Summary
+
+          Automatic patch update for kernel version **v${KERNEL_VERSION}** from the linux-surface/kernel repository.
+
+          ### Details
+          - **Kernel branch**: \`${BRANCH}\`
+          - **Base version**: \`${BASE_VERSION}\`
+          - **Patches generated**: ${PATCH_COUNT}
+          - **Patches directory**: \`patches/${KERNEL_VERSION}/\`
+
+          ### Changes
+          This PR updates kernel patches to the latest version from the \`${BRANCH}\` branch in the [linux-surface/kernel](https://github.com/linux-surface/kernel/tree/${BRANCH}) repository.
+
+          Patches were generated using \`git-format-patchsets\` with flags: \`-t --no-confirm\`
+
+          ## Automation
+
+          Generated automatically by the patch generation workflow.
+
+          ---
+          **Note:** Please review the changes carefully before merging.
+          EOF
+          )" \
+            --base master \
+            --head "${{ steps.commit.outputs.branch }}"
