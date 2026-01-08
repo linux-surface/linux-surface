@@ -1,0 +1,184 @@
+name: Rebase and Build Kernel
+
+on:
+  # Manual trigger with inputs
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Kernel branch to rebase (e.g., "v6.18-surface")'
+        required: true
+        type: string
+      target_tag:
+        description: 'Target version tag (optional, e.g., "v6.18.5"). If not specified, auto-detected.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Dry run mode - skip push and tag operations'
+        required: false
+        type: boolean
+        default: false
+
+# Prevent concurrent rebases of the same branch
+concurrency:
+  group: rebase-kernel-${{ inputs.branch }}
+  cancel-in-progress: false
+
+jobs:
+  rebase-and-build:
+    name: Rebase and build ${{ inputs.branch }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Maximize disk space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 10240  # Reserve 10GB for build
+          remove-dotnet: true
+          remove-android: true
+          remove-docker-images: true
+          remove-haskell: true
+
+      - name: Checkout linux-surface repo
+        uses: actions/checkout@v4
+        with:
+          path: linux-surface
+
+      - name: Clone kernel repository
+        env:
+          KERNEL_BRANCH: ${{ inputs.branch }}
+        run: |
+          git clone --depth=500 --branch="${KERNEL_BRANCH}" \
+            https://github.com/linux-surface/kernel kernel
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            bc \
+            bison \
+            flex \
+            libelf-dev \
+            libssl-dev \
+            libncurses-dev \
+            kmod \
+            cpio
+
+      - name: Setup git identity
+        run: |
+          git config --global user.name "surfacebot"
+          git config --global user.email "surfacebot@users.noreply.github.com"
+
+      - name: Rebase kernel
+        id: rebase
+        env:
+          TARGET_TAG: ${{ inputs.target_tag }}
+        working-directory: kernel
+        run: |
+          bash "${GITHUB_WORKSPACE}/linux-surface/.github/scripts/autoupdate/rebase-kernel.sh"
+
+      - name: Build kernel
+        id: build
+        if: steps.rebase.outputs.success == 'true' && steps.rebase.outputs.already_uptodate != 'true'
+        env:
+          KERNEL_VERSION: ${{ steps.rebase.outputs.kernel_version }}
+          LINUX_SURFACE_DIR: ${{ github.workspace }}/linux-surface
+        working-directory: kernel
+        run: |
+          bash "${GITHUB_WORKSPACE}/linux-surface/.github/scripts/autoupdate/build-kernel.sh"
+
+      - name: Create tag
+        id: create_tag
+        if: steps.rebase.outputs.success == 'true' && steps.rebase.outputs.already_uptodate != 'true' && steps.build.outputs.build_success == 'true' && inputs.dry_run == false
+        env:
+          FULL_VERSION: ${{ steps.rebase.outputs.full_version }}
+        working-directory: kernel
+        run: |
+          SURFACE_TAG="surface/v${FULL_VERSION}"
+          echo "Creating tag: ${SURFACE_TAG}"
+          git tag "${SURFACE_TAG}"
+          echo "surface_tag=${SURFACE_TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Push changes
+        if: steps.rebase.outputs.success == 'true' && steps.rebase.outputs.already_uptodate != 'true' && steps.build.outputs.build_success == 'true' && inputs.dry_run == false
+        env:
+          KERNEL_BRANCH: ${{ inputs.branch }}
+          SURFACE_TAG: ${{ steps.create_tag.outputs.surface_tag }}
+          GITHUB_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+        working-directory: kernel
+        run: |
+          # Configure git to use token authentication
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/linux-surface/kernel.git"
+
+          echo "Force-pushing branch ${KERNEL_BRANCH}..."
+          git push --force-with-lease origin "${KERNEL_BRANCH}"
+
+          echo "Pushing tag ${SURFACE_TAG}..."
+          git push origin "${SURFACE_TAG}"
+
+          echo "Pushing new upstream tags..."
+          git push origin "refs/tags/v*"
+
+      - name: Upload kernel config artifact
+        if: steps.build.outputs.build_success == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-config-${{ inputs.branch }}-${{ steps.rebase.outputs.target_tag }}
+          path: kernel/.config
+          retention-days: 30
+
+      - name: Generate summary
+        if: always()
+        env:
+          REBASE_SUCCESS: ${{ steps.rebase.outputs.success }}
+          ALREADY_UPTODATE: ${{ steps.rebase.outputs.already_uptodate }}
+          BUILD_SUCCESS: ${{ steps.build.outputs.build_success }}
+          KERNEL_BRANCH: ${{ inputs.branch }}
+          TARGET_TAG: ${{ steps.rebase.outputs.target_tag }}
+          FULL_VERSION: ${{ steps.rebase.outputs.full_version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          echo "## Kernel Rebase and Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${REBASE_SUCCESS}" = "true" ]; then
+            if [ "${ALREADY_UPTODATE}" = "true" ]; then
+              echo "✅ **Status:** Already up-to-date" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Branch \`${KERNEL_BRANCH}\` already contains target tag \`${TARGET_TAG}\`" >> $GITHUB_STEP_SUMMARY
+              echo "No rebase was necessary." >> $GITHUB_STEP_SUMMARY
+            elif [ "${BUILD_SUCCESS}" = "true" ]; then
+              echo "✅ **Status:** Success" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "- **Branch:** \`${KERNEL_BRANCH}\`" >> $GITHUB_STEP_SUMMARY
+              echo "- **Target tag:** \`${TARGET_TAG}\`" >> $GITHUB_STEP_SUMMARY
+              echo "- **Full version:** \`${FULL_VERSION}\`" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+
+              if [ "${DRY_RUN}" = "true" ]; then
+                echo "⚠️ **Dry run mode** - Changes were not pushed" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "To push the changes, run again with dry_run=false" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "✅ Changes pushed successfully" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "Run the patch generation workflow to update patches:" >> $GITHUB_STEP_SUMMARY
+                echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+                echo "Workflow: Generate Kernel Patches" >> $GITHUB_STEP_SUMMARY
+                echo "  branch: ${KERNEL_BRANCH}" >> $GITHUB_STEP_SUMMARY
+                echo "  base_version: ${TARGET_TAG}" >> $GITHUB_STEP_SUMMARY
+                echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              fi
+            else
+              echo "❌ **Status:** Build failed" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Rebase succeeded but kernel build failed." >> $GITHUB_STEP_SUMMARY
+              echo "Check the build logs for errors." >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ **Status:** Rebase failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Check the rebase logs for conflict details." >> $GITHUB_STEP_SUMMARY
+          fi
