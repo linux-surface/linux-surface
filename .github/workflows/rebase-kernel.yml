@@ -39,15 +39,18 @@ jobs:
           remove-haskell: true
 
       - name: Checkout linux-surface repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: linux-surface
 
-      - name: Clone kernel repository
-        env:
-          KERNEL_BRANCH: ${{ inputs.branch }}
-        run: |
-          git clone --branch="${KERNEL_BRANCH}" https://github.com/linux-surface/kernel kernel
+      - name: Checkout kernel repository
+        uses: actions/checkout@v6
+        with:
+          repository: linux-surface/kernel
+          path: kernel
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+          token: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
 
       - name: Install build dependencies
         run: |
@@ -103,12 +106,8 @@ jobs:
         env:
           KERNEL_BRANCH: ${{ inputs.branch }}
           SURFACE_TAG: ${{ steps.create_tag.outputs.surface_tag }}
-          GITHUB_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
         working-directory: kernel
         run: |
-          # Configure git to use token authentication
-          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/linux-surface/kernel.git"
-
           echo "Force-pushing branch ${KERNEL_BRANCH}..."
           git push --force-with-lease origin "${KERNEL_BRANCH}"
 
