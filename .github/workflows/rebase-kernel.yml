@@ -12,6 +12,11 @@ on:
         description: 'Target version tag (optional, e.g., "v6.18.5"). If not specified, auto-detected.'
         required: false
         type: string
+      build:
+        description: 'Build kernel to validate rebase'
+        required: false
+        type: boolean
+        default: true
       dry_run:
         description: 'Dry run mode - skip push and tag operations'
         required: false
@@ -81,7 +86,7 @@ jobs:
 
       - name: Build kernel
         id: build
-        if: steps.rebase.outputs.success == 'true' && steps.rebase.outputs.already_uptodate != 'true'
+        if: steps.rebase.outputs.success == 'true' && steps.rebase.outputs.already_uptodate != 'true' && inputs.build == true
         env:
           KERNEL_VERSION: ${{ steps.rebase.outputs.kernel_version }}
           LINUX_SURFACE_DIR: ${{ github.workspace }}/linux-surface
@@ -91,7 +96,7 @@ jobs:
 
       - name: Create tag
         id: create_tag
-        if: steps.rebase.outputs.success == 'true' && steps.rebase.outputs.already_uptodate != 'true' && steps.build.outputs.build_success == 'true' && inputs.dry_run == false
+        if: steps.rebase.outputs.success == 'true' && steps.rebase.outputs.already_uptodate != 'true' && (inputs.build == false || steps.build.outputs.build_success == 'true') && inputs.dry_run == false
         env:
           FULL_VERSION: ${{ steps.rebase.outputs.full_version }}
         working-directory: kernel
@@ -102,7 +107,7 @@ jobs:
           echo "surface_tag=${SURFACE_TAG}" >> "${GITHUB_OUTPUT}"
 
       - name: Push changes
-        if: steps.rebase.outputs.success == 'true' && steps.rebase.outputs.already_uptodate != 'true' && steps.build.outputs.build_success == 'true' && inputs.dry_run == false
+        if: steps.rebase.outputs.success == 'true' && steps.rebase.outputs.already_uptodate != 'true' && (inputs.build == false || steps.build.outputs.build_success == 'true') && inputs.dry_run == false
         env:
           KERNEL_BRANCH: ${{ inputs.branch }}
           SURFACE_TAG: ${{ steps.create_tag.outputs.surface_tag }}
@@ -130,6 +135,7 @@ jobs:
         env:
           REBASE_SUCCESS: ${{ steps.rebase.outputs.success }}
           ALREADY_UPTODATE: ${{ steps.rebase.outputs.already_uptodate }}
+          BUILD_ENABLED: ${{ inputs.build }}
           BUILD_SUCCESS: ${{ steps.build.outputs.build_success }}
           KERNEL_BRANCH: ${{ inputs.branch }}
           TARGET_TAG: ${{ steps.rebase.outputs.target_tag }}
@@ -145,12 +151,19 @@ jobs:
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "Branch \`${KERNEL_BRANCH}\` already contains target tag \`${TARGET_TAG}\`" >> $GITHUB_STEP_SUMMARY
               echo "No rebase was necessary." >> $GITHUB_STEP_SUMMARY
-            elif [ "${BUILD_SUCCESS}" = "true" ]; then
+            elif [ "${BUILD_ENABLED}" = "false" ] || [ "${BUILD_SUCCESS}" = "true" ]; then
               echo "✅ **Status:** Success" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "- **Branch:** \`${KERNEL_BRANCH}\`" >> $GITHUB_STEP_SUMMARY
               echo "- **Target tag:** \`${TARGET_TAG}\`" >> $GITHUB_STEP_SUMMARY
               echo "- **Full version:** \`${FULL_VERSION}\`" >> $GITHUB_STEP_SUMMARY
+
+              if [ "${BUILD_ENABLED}" = "false" ]; then
+                echo "- **Build:** Skipped" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "- **Build:** Passed" >> $GITHUB_STEP_SUMMARY
+              fi
+
               echo "" >> $GITHUB_STEP_SUMMARY
 
               if [ "${DRY_RUN}" = "true" ]; then
