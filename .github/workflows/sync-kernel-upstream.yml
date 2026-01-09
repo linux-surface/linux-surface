@@ -14,6 +14,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Cache kernel repository
+        uses: actions/cache@v4
+        with:
+          path: kernel/.git
+          key: kernel-git-${{ github.run_number }}
+          restore-keys: |
+            kernel-git-
+
+      - name: Clean up old caches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Cleaning up old kernel-git caches (keeping only the latest)..."
+          gh cache list --repo ${{ github.repository }} --key kernel-git- --json id,key,createdAt --limit 100 | \
+            jq -r 'sort_by(.createdAt) | reverse | .[1:] | .[].id' | \
+            xargs -I {} gh cache delete {} --repo ${{ github.repository }} || true
+
       - name: Checkout kernel repository
         uses: actions/checkout@v6
         with:
