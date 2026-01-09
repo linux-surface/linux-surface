@@ -1,4 +1,4 @@
-From 790ea29fa1c48f6ff4cf5bda8ce549c8ee5a740a Mon Sep 17 00:00:00 2001
+From bab8498e8af2474d85f8a6c3f8396dbf9dbf8d2e Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 19 Feb 2023 22:12:24 +0100
 Subject: [PATCH] PCI: Add quirk to prevent calling shutdown method
@@ -23,7 +23,7 @@ Patchset: surface-shutdown
  3 files changed, 40 insertions(+)
 
 diff --git a/drivers/pci/pci-driver.c b/drivers/pci/pci-driver.c
-index 302d61783f6c..4a8a08bd92dd 100644
+index 327b21c48..51dd5e10f 100644
 --- a/drivers/pci/pci-driver.c
 +++ b/drivers/pci/pci-driver.c
 @@ -505,6 +505,9 @@ static void pci_device_shutdown(struct device *dev)
@@ -37,7 +37,7 @@ index 302d61783f6c..4a8a08bd92dd 100644
  
  	if (drv && drv->shutdown)
 diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
-index b9c252aa6fe0..ce4c0da99537 100644
+index b9c252aa6..ce4c0da99 100644
 --- a/drivers/pci/quirks.c
 +++ b/drivers/pci/quirks.c
 @@ -6341,3 +6341,39 @@ static void pci_mask_replay_timer_timeout(struct pci_dev *pdev)
@@ -81,7 +81,7 @@ index b9c252aa6fe0..ce4c0da99537 100644
 +DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x466d, quirk_no_shutdown);  // Thunderbolt 4 NHI
 +DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x46a8, quirk_no_shutdown);  // GPU
 diff --git a/include/linux/pci.h b/include/linux/pci.h
-index bf97d49c23cf..90eead93d825 100644
+index bf97d49c2..90eead93d 100644
 --- a/include/linux/pci.h
 +++ b/include/linux/pci.h
 @@ -487,6 +487,7 @@ struct pci_dev {
@@ -95,7 +95,7 @@ index bf97d49c23cf..90eead93d825 100644
 -- 
 2.52.0
 
-From a4f65698937823a5e3210932c52640ac2115837e Mon Sep 17 00:00:00 2001
+From 1afc88118fa7014d5d6ef99c48d14468393ad422 Mon Sep 17 00:00:00 2001
 From: LegendaryFire <tristan.balon@outlook.com>
 Date: Wed, 7 Jan 2026 01:06:25 +0100
 Subject: [PATCH] PCI: Add Surface Laptop Studio 2 devices to shutdown ops
@@ -108,7 +108,7 @@ Patchset: surface-shutdown
  1 file changed, 13 insertions(+)
 
 diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
-index ce4c0da99537..fdc410bf70e5 100644
+index ce4c0da99..fdc410bf7 100644
 --- a/drivers/pci/quirks.c
 +++ b/drivers/pci/quirks.c
 @@ -6360,6 +6360,13 @@ static const struct dmi_system_id no_shutdown_dmi_table[] = {
