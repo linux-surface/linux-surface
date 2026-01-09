@@ -65,9 +65,12 @@ jobs:
           echo "new_tags=${NEW_TAGS}" >> "${GITHUB_OUTPUT}"
           echo "Found ${NEW_TAGS} new tags"
 
+          # Save new tags list for later processing
+          comm -13 /tmp/origin-tags.txt /tmp/upstream-tags.txt > /tmp/new-tags.txt
+
           # Show some of the new tags (first 10)
           echo "Sample of new tags:"
-          comm -13 /tmp/origin-tags.txt /tmp/upstream-tags.txt 2>/dev/null | head -10 || true
+          cat /tmp/new-tags.txt | head -10
 
           echo "Updating master branch..."
           git checkout -B master origin/master
@@ -89,11 +92,81 @@ jobs:
           echo "Pushing master branch..."
           git push origin master
 
+      - name: Check for maintained branch updates
+        id: check_maintained
+        if: steps.sync.outputs.new_tags != '0'
+        run: |
+          CONFIG_FILE="${GITHUB_WORKSPACE}/linux-surface/.github/data/autoupdate/maintained-branches.conf"
+
+          echo "Reading maintained branches from ${CONFIG_FILE}..."
+
+          # Read config file, skip comments and empty lines
+          BRANCHES_TO_REBASE=""
+
+          while IFS=: read -r BRANCH VERSION; do
+            # Skip comments and empty lines
+            [[ "$BRANCH" =~ ^#.*$ ]] && continue
+            [[ -z "$BRANCH" ]] && continue
+
+            echo "Checking for version ${VERSION} (branch: ${BRANCH})..."
+
+            # Check if any new tags match this version (e.g., v6.18.*, excluding -rc)
+            MATCHING_TAGS=$(grep -E "^v${VERSION}\.[0-9]+$" /tmp/new-tags.txt || true)
+
+            if [ -n "$MATCHING_TAGS" ]; then
+              LATEST_TAG=$(echo "$MATCHING_TAGS" | sort -V | tail -1)
+              echo "  ✓ Found new release for ${BRANCH}: ${LATEST_TAG}"
+              BRANCHES_TO_REBASE="${BRANCHES_TO_REBASE}${BRANCH}:${LATEST_TAG},"
+            else
+              echo "  - No new releases for ${BRANCH}"
+            fi
+          done < "$CONFIG_FILE"
+
+          # Remove trailing comma
+          BRANCHES_TO_REBASE="${BRANCHES_TO_REBASE%,}"
+
+          echo "branches_to_rebase=${BRANCHES_TO_REBASE}" >> "${GITHUB_OUTPUT}"
+
+          if [ -n "$BRANCHES_TO_REBASE" ]; then
+            echo ""
+            echo "Branches to rebase: ${BRANCHES_TO_REBASE}"
+          else
+            echo ""
+            echo "No maintained branches need rebasing"
+          fi
+
+      - name: Trigger rebase workflows
+        if: steps.check_maintained.outputs.branches_to_rebase != ''
+        env:
+          GH_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+          BRANCHES_TO_REBASE: ${{ steps.check_maintained.outputs.branches_to_rebase }}
+        run: |
+          echo "Triggering rebase workflows for updated branches..."
+          echo ""
+
+          IFS=',' read -ra BRANCH_PAIRS <<< "$BRANCHES_TO_REBASE"
+          for pair in "${BRANCH_PAIRS[@]}"; do
+            BRANCH=$(echo "$pair" | cut -d: -f1)
+            TAG=$(echo "$pair" | cut -d: -f2)
+
+            echo "Triggering rebase for ${BRANCH} to ${TAG}..."
+            gh workflow run rebase-kernel.yml \
+              --repo ${{ github.repository }} \
+              --field branch="${BRANCH}" \
+              --field target_tag="${TAG}" \
+              --field build=true \
+              --field dry_run=false
+
+            echo "  ✓ Triggered"
+            echo ""
+          done
+
       - name: Generate summary
         if: always()
         env:
           NEW_TAGS: ${{ steps.sync.outputs.new_tags }}
           MASTER_UPDATED: ${{ steps.sync.outputs.master_updated }}
+          BRANCHES_TO_REBASE: ${{ steps.check_maintained.outputs.branches_to_rebase }}
         run: |
           echo "## Kernel Upstream Sync Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -105,14 +178,27 @@ jobs:
             echo "- **Master branch:** Updated" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
 
-            if [ "${NEW_TAGS:-0}" -gt 0 ]; then
-              echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+            if [ -n "${BRANCHES_TO_REBASE}" ]; then
+              echo "### Automatic Rebases Triggered" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
-              echo "New kernel releases are available. Consider rebasing maintained branches:" >> $GITHUB_STEP_SUMMARY
-              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-              echo "Workflow: Rebase and Build Kernel" >> $GITHUB_STEP_SUMMARY
-              echo "  branch: v6.18-surface  (or other maintained branches)" >> $GITHUB_STEP_SUMMARY
-              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              echo "The following branches will be automatically rebased:" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+
+              IFS=',' read -ra BRANCH_PAIRS <<< "$BRANCHES_TO_REBASE"
+              for pair in "${BRANCH_PAIRS[@]}"; do
+                BRANCH=$(echo "$pair" | cut -d: -f1)
+                TAG=$(echo "$pair" | cut -d: -f2)
+                echo "- **${BRANCH}** → ${TAG}" >> $GITHUB_STEP_SUMMARY
+              done
+
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Check the [Rebase and Build Kernel workflow runs](../../actions/workflows/rebase-kernel.yml) for progress." >> $GITHUB_STEP_SUMMARY
+            elif [ "${NEW_TAGS:-0}" -gt 0 ]; then
+              echo "### New Tags" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "New tags were synced, but none match maintained branch versions." >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "To update maintained branches, edit \`.github/data/autoupdate/maintained-branches.txt\`" >> $GITHUB_STEP_SUMMARY
             fi
           else
             echo "ℹ️ **Status:** No changes" >> $GITHUB_STEP_SUMMARY
