@@ -1,0 +1,104 @@
+name: Sync Kernel with Upstream
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+
+  # Automatic daily sync at 7:30 AM UTC
+  schedule:
+    - cron: '30 7 * * *'
+
+jobs:
+  sync:
+    name: Sync with upstream
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout kernel repository
+        uses: actions/checkout@v6
+        with:
+          repository: linux-surface/kernel
+          path: kernel
+          fetch-depth: 0
+          token: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+
+      - name: Setup git identity
+        run: |
+          git config --global user.name "surfacebot"
+          git config --global user.email "surfacebot@users.noreply.github.com"
+
+      - name: Sync with upstream
+        id: sync
+        working-directory: kernel
+        run: |
+          echo "Getting current origin tags..."
+          git ls-remote --tags origin | awk '{print $2}' | sed 's|refs/tags/||' | grep -v '\^{}' | sort > /tmp/origin-tags.txt
+
+          echo "Adding upstream remote..."
+          git remote add upstream https://github.com/gregkh/linux || true
+
+          echo "Fetching from upstream..."
+          git fetch upstream --tags
+
+          echo "Counting new tags..."
+          # Get tags that exist in upstream but not in origin
+          git ls-remote --tags upstream | awk '{print $2}' | sed 's|refs/tags/||' | grep -v '\^{}' | sort > /tmp/upstream-tags.txt
+          NEW_TAGS=$(comm -13 /tmp/origin-tags.txt /tmp/upstream-tags.txt | wc -l)
+
+          echo "new_tags=${NEW_TAGS}" >> "${GITHUB_OUTPUT}"
+          echo "Found ${NEW_TAGS} new tags"
+
+          # Show some of the new tags (first 10)
+          echo "Sample of new tags:"
+          comm -13 /tmp/origin-tags.txt /tmp/upstream-tags.txt 2>/dev/null | head -10 || true
+
+          echo "Updating master branch..."
+          git checkout -B master origin/master
+          git merge --ff-only upstream/master || {
+            echo "ERROR: Cannot fast-forward master branch"
+            echo "Manual intervention may be required"
+            exit 1
+          }
+
+          echo "master_updated=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Push changes
+        if: steps.sync.outputs.new_tags != '0' || steps.sync.outputs.master_updated == 'true'
+        working-directory: kernel
+        run: |
+          echo "Pushing new tags..."
+          git push origin --tags
+
+          echo "Pushing master branch..."
+          git push origin master
+
+      - name: Generate summary
+        if: always()
+        env:
+          NEW_TAGS: ${{ steps.sync.outputs.new_tags }}
+          MASTER_UPDATED: ${{ steps.sync.outputs.master_updated }}
+        run: |
+          echo "## Kernel Upstream Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${MASTER_UPDATED}" = "true" ]; then
+            echo "✅ **Status:** Success" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **New tags:** ${NEW_TAGS:-0}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Master branch:** Updated" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            if [ "${NEW_TAGS:-0}" -gt 0 ]; then
+              echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "New kernel releases are available. Consider rebasing maintained branches:" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              echo "Workflow: Rebase and Build Kernel" >> $GITHUB_STEP_SUMMARY
+              echo "  branch: v6.18-surface  (or other maintained branches)" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "ℹ️ **Status:** No changes" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Repository is already up-to-date with upstream." >> $GITHUB_STEP_SUMMARY
+          fi
