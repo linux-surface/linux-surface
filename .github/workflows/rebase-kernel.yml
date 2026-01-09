@@ -130,6 +130,22 @@ jobs:
           path: kernel/.config
           retention-days: 30
 
+      - name: Trigger patch generation
+        if: steps.rebase.outputs.success == 'true' && steps.rebase.outputs.already_uptodate != 'true' && (inputs.build == false || steps.build.outputs.build_success == 'true') && inputs.dry_run == false
+        env:
+          GH_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+          KERNEL_BRANCH: ${{ inputs.branch }}
+          TARGET_TAG: ${{ steps.rebase.outputs.target_tag }}
+        run: |
+          echo "Triggering patch generation for ${KERNEL_BRANCH}..."
+
+          gh workflow run generate-patches.yml \
+            --repo ${{ github.repository }} \
+            --field branch="${KERNEL_BRANCH}" \
+            --field base_version="${TARGET_TAG}"
+
+          echo "✓ Patch generation workflow triggered"
+
       - name: Generate summary
         if: always()
         env:
@@ -173,14 +189,11 @@ jobs:
               else
                 echo "✅ Changes pushed successfully" >> $GITHUB_STEP_SUMMARY
                 echo "" >> $GITHUB_STEP_SUMMARY
-                echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+                echo "### Automatic Patch Generation" >> $GITHUB_STEP_SUMMARY
                 echo "" >> $GITHUB_STEP_SUMMARY
-                echo "Run the patch generation workflow to update patches:" >> $GITHUB_STEP_SUMMARY
-                echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-                echo "Workflow: Generate Kernel Patches" >> $GITHUB_STEP_SUMMARY
-                echo "  branch: ${KERNEL_BRANCH}" >> $GITHUB_STEP_SUMMARY
-                echo "  base_version: ${TARGET_TAG}" >> $GITHUB_STEP_SUMMARY
-                echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+                echo "Patch generation workflow has been automatically triggered." >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "Check the [Generate Kernel Patches workflow runs](../../actions/workflows/generate-patches.yml) for progress." >> $GITHUB_STEP_SUMMARY
               fi
             else
               echo "❌ **Status:** Build failed" >> $GITHUB_STEP_SUMMARY
