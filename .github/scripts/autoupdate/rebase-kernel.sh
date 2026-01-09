@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 #
-# Rebase kernel branch onto upstream stable release
+# Rebase kernel branch onto latest stable tag
 #
 # This script must be run from within a linux-surface/kernel git repository.
 # It will:
 # 1. Detect the current base version using git describe
-# 2. Add upstream remote (gregkh/linux)
-# 3. Detect the latest stable tag for the same kernel version
-# 4. Check if already up-to-date using git merge-base
-# 5. Perform rebase onto the target tag
-# 6. Output metadata for subsequent build/tag/push steps
+# 2. Detect the latest stable tag for the same kernel version
+# 3. Check if already up-to-date using git merge-base
+# 4. Perform rebase onto the target tag
+# 5. Output metadata for subsequent build/tag/push steps
 #
 # Environment variables:
 #   TARGET_TAG: (optional) Explicit target tag (e.g., "v6.18.5")
@@ -38,10 +37,7 @@ if ! git rev-parse --git-dir >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "[1/7] Configuring environment..."
-
-# Configuration
-UPSTREAM_REPO="https://github.com/gregkh/linux"
+echo "[1/6] Configuring environment..."
 
 # Configure git identity for rebase operations
 git config user.name "surfacebot"
@@ -50,35 +46,10 @@ git config user.email "surfacebot@users.noreply.github.com"
 echo "Environment configured"
 
 # ============================================================================
-# Phase 2: Add Upstream Remote
+# Phase 2: Detect Current Base Version
 # ============================================================================
 
-echo "[2/7] Adding upstream remote..."
-
-# Remove upstream remote if it already exists
-if git remote get-url upstream >/dev/null 2>&1; then
-    echo "Upstream remote already exists, removing..."
-    git remote remove upstream
-fi
-
-if ! git remote add upstream "${UPSTREAM_REPO}"; then
-    echo "ERROR: Failed to add upstream remote"
-    exit 1
-fi
-
-echo "Fetching upstream tags..."
-if ! git fetch upstream --depth=500 --tags; then
-    echo "ERROR: Failed to fetch upstream tags"
-    exit 1
-fi
-
-echo "Successfully added and fetched upstream remote"
-
-# ============================================================================
-# Phase 3: Detect Current Base Version
-# ============================================================================
-
-echo "[3/7] Detecting current base version..."
+echo "[2/6] Detecting current base version..."
 
 # Use git describe to find the current base version tag
 # Pattern: v[0-9]*.[0-9]* matches vX.Y or vX.Y.Z (e.g., v6.18, v6.18.4, v7.0, v7.0.1)
@@ -114,10 +85,10 @@ fi
 echo "Kernel version: ${KERNEL_VERSION}"
 
 # ============================================================================
-# Phase 4: Target Tag Detection
+# Phase 3: Target Tag Detection
 # ============================================================================
 
-echo "[4/7] Detecting target tag..."
+echo "[3/6] Detecting target tag..."
 
 # Check if TARGET_TAG was provided as input
 if [ -n "${TARGET_TAG:-}" ]; then
@@ -175,10 +146,10 @@ fi
 echo "Full version: ${FULL_VERSION}"
 
 # ============================================================================
-# Phase 5: Ancestor Check (Up-to-Date)
+# Phase 4: Ancestor Check (Up-to-Date)
 # ============================================================================
 
-echo "[5/7] Checking if already up-to-date..."
+echo "[4/6] Checking if already up-to-date..."
 
 # Check if target tag is already an ancestor of HEAD
 if git merge-base --is-ancestor "${TARGET_TAG}" HEAD; then
@@ -208,7 +179,7 @@ echo "Branch needs rebasing onto ${TARGET_TAG}"
 # Phase 6: Perform Rebase
 # ============================================================================
 
-echo "[6/7] Performing rebase..."
+echo "[5/6] Performing rebase..."
 
 echo "Rebasing onto ${TARGET_TAG}..."
 
@@ -245,10 +216,10 @@ fi
 echo "Rebase completed successfully!"
 
 # ============================================================================
-# Phase 7: Output Metadata
+# Phase 6: Output Metadata
 # ============================================================================
 
-echo "[7/7] Setting outputs..."
+echo "[6/6] Setting outputs..."
 
 # Set outputs for GitHub Actions
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
