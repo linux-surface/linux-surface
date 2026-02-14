@@ -1,0 +1,1061 @@
+From 85fe0e17460e2131261b168090701430f460c3c4 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Andr=C3=A9=20Gilerson?= <andre.gilerson@gmail.com>
+Date: Sat, 14 Feb 2026 22:04:05 +0100
+Subject: [PATCH 1/2] Subject: [PATCH] media: Add IMX681 sensor driver and
+ Surface Pro 11 camera  support and some OV13858 changes
+
+Add support for cameras on the Microsoft Surface Pro 11 Business
+(Intel Lunar Lake / IPU7):
+
+- Sony IMX681 front camera driver (3844x2640, RAW10, 2-lane CSI-2).
+  Register sequences reverse-engineered from Windows I2C traces, and
+  other IMX sensors. Uses H-flip (reg 0x0101=0x01) to convert native
+  RGGB Bayer to GRBG matching the Windows AIQB calibration data
+  (might be removed in the future, depending on the AIQB setup).
+
+- OV13858 rear camera improvements:
+  - Return -EPROBE_DEFER when clock-frequency is 0 (ipu-bridge not
+    ready), fixing a probe race condition on Surface devices.
+  - Add get_selection pad op for crop/native size reporting.
+
+- Add IMX681 (SONY0681) entry to ipu-bridge sensor table with
+  969.6 MHz link frequency for IPU7 MIPI CSI-2 enumeration.
+---
+ drivers/media/i2c/Kconfig            |  10 +
+ drivers/media/i2c/Makefile           |   1 +
+ drivers/media/i2c/imx681.c           | 900 +++++++++++++++++++++++++++
+ drivers/media/i2c/ov13858.c          |  28 +-
+ drivers/media/pci/intel/ipu-bridge.c |   2 +
+ 5 files changed, 939 insertions(+), 2 deletions(-)
+ create mode 100644 drivers/media/i2c/imx681.c
+
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index 1f5a3082ead9..df73cc50af9e 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -186,6 +186,16 @@ config VIDEO_IMX283
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called imx283.
+ 
++config VIDEO_IMX681
++	tristate "Sony IMX681 sensor support"
++	select V4L2_CCI_I2C
++	help
++	  This is a V4L2 sensor driver for the Sony IMX681
++	  CMOS image sensor (front camera on Surface Pro 11).
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called imx681.
++
+ config VIDEO_IMX290
+ 	tristate "Sony IMX290 sensor support"
+ 	select REGMAP_I2C
+diff --git a/drivers/media/i2c/Makefile b/drivers/media/i2c/Makefile
+index 5873d29433ee..3e9002ee76b5 100644
+--- a/drivers/media/i2c/Makefile
++++ b/drivers/media/i2c/Makefile
+@@ -51,6 +51,7 @@ obj-$(CONFIG_VIDEO_IMX219) += imx219.o
+ obj-$(CONFIG_VIDEO_IMX258) += imx258.o
+ obj-$(CONFIG_VIDEO_IMX274) += imx274.o
+ obj-$(CONFIG_VIDEO_IMX283) += imx283.o
++obj-$(CONFIG_VIDEO_IMX681) += imx681.o
+ obj-$(CONFIG_VIDEO_IMX290) += imx290.o
+ obj-$(CONFIG_VIDEO_IMX296) += imx296.o
+ obj-$(CONFIG_VIDEO_IMX319) += imx319.o
+diff --git a/drivers/media/i2c/imx681.c b/drivers/media/i2c/imx681.c
+new file mode 100644
+index 000000000000..8a07aaa006bd
+--- /dev/null
++++ b/drivers/media/i2c/imx681.c
+@@ -0,0 +1,900 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Sony IMX681 CMOS Image Sensor Driver
++ *
++ * Front camera on Surface Pro 11 Business (Intel/Lunar Lake).
++ * Register sequences reverse-engineered from Windows I2C traces.
++ *
++ * Copyright (C) 2025
++ */
++
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/pm_runtime.h>
++#include <linux/property.h>
++#include <linux/regulator/consumer.h>
++
++#include <media/v4l2-cci.h>
++#include <media/v4l2-ctrls.h>
++#include <media/v4l2-device.h>
++#include <media/v4l2-fwnode.h>
++
++/* Chip ID register and expected value */
++#define IMX681_REG_CHIP_ID		CCI_REG16(0x0016)
++#define IMX681_CHIP_ID			0x0681
++
++/* Mode select */
++#define IMX681_REG_MODE_SELECT		CCI_REG8(0x0100)
++#define IMX681_MODE_STANDBY		0x00
++#define IMX681_MODE_STREAMING		0x01
++
++/* Group parameter hold */
++#define IMX681_REG_GROUP_HOLD		CCI_REG8(0x0104)
++
++/* Exposure (coarse integration time, 24-bit) */
++#define IMX681_REG_EXPOSURE		CCI_REG24(0x0229)
++#define IMX681_EXPOSURE_MIN		4
++#define IMX681_EXPOSURE_MAX		3173	/* frame_length - 4 */
++#define IMX681_EXPOSURE_OFFSET		4	/* frame_length - exposure_max */
++#define IMX681_EXPOSURE_DEFAULT		1907	/* from Windows trace */
++
++/* Analog gain */
++#define IMX681_REG_ANALOG_GAIN		CCI_REG16(0x0204)
++#define IMX681_ANA_GAIN_MIN		0
++#define IMX681_ANA_GAIN_MAX		1020	/* combined analog+digital */
++#define IMX681_ANA_GAIN_DEFAULT		0
++
++/* Digital gain */
++#define IMX681_REG_DIGITAL_GAIN		CCI_REG16(0x020E)
++#define IMX681_DIG_GAIN_MIN		0x0100	/* 1.0x */
++#define IMX681_DIG_GAIN_MAX		0x0FFF
++#define IMX681_DIG_GAIN_DEFAULT		0x0100
++
++/* Test pattern */
++#define IMX681_REG_TEST_PATTERN		CCI_REG16(0x0600)
++
++/* Frame length (24-bit, for streaming updates) */
++#define IMX681_REG_FRAME_LENGTH		CCI_REG24(0x033D)
++
++/* Image dimensions — native sensor output */
++#define IMX681_WIDTH			3844
++#define IMX681_HEIGHT			2640
++#define IMX681_LINE_LENGTH_PCK		7552	/* 0x1D80 */
++#define IMX681_FRAME_LENGTH_LINES	3177	/* 0x0C69 */
++#define IMX681_FRAME_LENGTH_MAX		0xFFFF	/* 24-bit reg, limit to 16-bit */
++
++/* MIPI lanes */
++#define IMX681_NUM_LANES		2
++
++/*
++ * Link frequency derived from PLL settings in Windows trace:
++ * EXCK=19.2MHz, PLL2_MUL=303, PLL2_PRE_DIV=3
++ * OP output = 19.2 * 303 / 3 = 1939.2 MHz (MIPI bit rate)
++ * Link freq = 1939.2 / 2 (DDR) = 969.6 MHz
++ */
++#define IMX681_LINK_FREQ		969600000LL
++
++/* Pixel rate = link_freq * 2 (DDR) * num_lanes / bpp */
++#define IMX681_PIXEL_RATE		(IMX681_LINK_FREQ * 2 * IMX681_NUM_LANES / 10)
++
++/* Power-on delay after reset deassert */
++#define IMX681_RESET_DELAY_US		1000
++#define IMX681_RESET_DELAY_RANGE_US	1000
++
++/* Post-standby-cancel stabilisation delays */
++#define IMX681_INIT_DELAY_US		10000
++
++#define IMAGE_PAD			0
++
++static const s64 imx681_link_frequencies[] = {
++	IMX681_LINK_FREQ,
++};
++
++/*
++ * Sensor init register sequence, captured from Windows I2C traces.
++ * This configures the sensor for 3844x2640 RAW10 output at ~30fps
++ * with 2-lane MIPI CSI-2, 19.2MHz input clock.
++ */
++static const struct cci_reg_sequence imx681_init_regs[] = {
++	/* Software standby */
++	{ CCI_REG8(0x0100),  0x00 },
++	/* External clock frequency = 19.2 MHz (encoded as MHz * 256) */
++	{ CCI_REG16(0x0136), 0x1333 },
++	/* Vendor specific configuration */
++	{ CCI_REG16(0x002C), 0x0505 },
++	/* CSI-2 signaling mode */
++	{ CCI_REG8(0x0111),  0x02 },
++	/* Image orientation: H-flip to match Windows AIQB (RGGB native → GRBG) */
++	{ CCI_REG8(0x0101),  0x01 },
++	/* Vendor access unlock sequence */
++	{ CCI_REG8(0x30EB),  0x05 },
++	{ CCI_REG8(0x30EB),  0x0C },
++	/* Vendor specific */
++	{ CCI_REG16(0x300A), 0xFFFF },
++	{ CCI_REG16(0x3532), 0xFFFF },
++	/* LINE_LENGTH_PCK = 7552 */
++	{ CCI_REG16(0x0342), 0x1D80 },
++	/* Frame length = 3177 */
++	{ CCI_REG16(0x033E), 0x0C69 },
++	/* Crop window start: X_ADD_STA[7:0]=100, Y_ADD_STA=256 */
++	{ CCI_REG24(0x0345), 0x640100 },
++	/* Crop window end: X_ADD_END[7:0]=103, Y_ADD_END=2895 */
++	{ CCI_REG24(0x0349), 0x670B4F },
++	/* Digital crop / vendor config */
++	{ CCI_REG24(0x040D), 0x040A50 },
++	/* X_OUTPUT_SIZE=3844, Y_OUTPUT_SIZE=2640 */
++	{ CCI_REG32(0x034C), 0x0F040A50 },
++	/* PLL multiplier = 225 */
++	{ CCI_REG8(0x0307),  0xE1 },
++	/* PLL2: pre_div=3, multiplier=303 (0x012F) */
++	{ CCI_REG24(0x030D), 0x03012F },
++	/* Frame duration initial */
++	{ CCI_REG16(0x022A), 0x0C61 },
++	/* Vendor specific registers */
++	{ CCI_REG8(0x7E9B),  0x02 },
++	{ CCI_REG8(0x0368),  0x00 },
++	{ CCI_REG8(0xD383),  0x01 },
++};
++
++/*
++ * First exposure settings applied before stream-on.
++ * Uses group parameter hold to ensure atomic update.
++ */
++static const struct cci_reg_sequence imx681_first_exposure[] = {
++	{ CCI_REG8(0x0104),  0x01 },		/* Group hold ON */
++	{ CCI_REG24(0x033D), 0x000C69 },	/* Frame length = 3177 */
++	{ CCI_REG24(0x0229), 0x000773 },	/* Exposure = 1907 lines */
++	{ CCI_REG16(0x0204), 0x0000 },		/* Analog gain = 0 (1x) */
++	{ CCI_REG16(0x020E), 0x0100 },		/* Digital gain = 1.0x */
++	{ CCI_REG8(0x0104),  0x00 },		/* Group hold OFF */
++};
++
++static const char * const imx681_test_pattern_menu[] = {
++	"Disabled",
++	"Solid Colour",
++	"Eight Vertical Colour Bars",
++	"Colour Bars With Fade to Grey",
++	"Pseudorandom Sequence (PN9)",
++};
++
++static const u32 imx681_mbus_codes[] = {
++	MEDIA_BUS_FMT_SGRBG10_1X10,
++};
++
++/* Regulator supplies */
++static const char * const imx681_supply_names[] = {
++	"avdd",		/* Analog 2.8V */
++	"dvdd",		/* Digital 1.05V */
++	"dovdd",	/* I/O 1.8V */
++};
++
++#define IMX681_NUM_SUPPLIES ARRAY_SIZE(imx681_supply_names)
++
++struct imx681 {
++	struct device *dev;
++	struct regmap *cci;
++
++	struct v4l2_subdev sd;
++	struct media_pad pad;
++
++	struct clk *xclk;
++	struct gpio_desc *reset_gpio;
++	struct regulator_bulk_data supplies[IMX681_NUM_SUPPLIES];
++
++	/* V4L2 Controls */
++	struct v4l2_ctrl_handler ctrl_handler;
++	struct v4l2_ctrl *exposure;
++	struct v4l2_ctrl *vblank;
++	struct v4l2_ctrl *hblank;
++
++	unsigned long link_freq_bitmap;
++};
++
++static inline struct imx681 *to_imx681(struct v4l2_subdev *sd)
++{
++	return container_of_const(sd, struct imx681, sd);
++}
++
++static int imx681_set_ctrl(struct v4l2_ctrl *ctrl)
++{
++	struct imx681 *imx681 = container_of(ctrl->handler, struct imx681,
++					     ctrl_handler);
++	s64 exposure_max;
++	int ret = 0;
++
++	/* Update exposure max when VBLANK changes (even when not streaming) */
++	if (ctrl->id == V4L2_CID_VBLANK) {
++		exposure_max = IMX681_HEIGHT + ctrl->val - IMX681_EXPOSURE_OFFSET;
++		__v4l2_ctrl_modify_range(imx681->exposure,
++					 IMX681_EXPOSURE_MIN, exposure_max,
++					 1, IMX681_EXPOSURE_DEFAULT);
++	}
++
++	/* Only apply controls to hardware when streaming */
++	if (!pm_runtime_get_if_active(imx681->dev))
++		return 0;
++
++	switch (ctrl->id) {
++	case V4L2_CID_VBLANK:
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x01, &ret);
++		cci_write(imx681->cci, IMX681_REG_FRAME_LENGTH,
++			  IMX681_HEIGHT + ctrl->val, &ret);
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x00, &ret);
++		dev_dbg(imx681->dev, "set frame_length: %d, ret=%d\n",
++			IMX681_HEIGHT + ctrl->val, ret);
++		break;
++
++	case V4L2_CID_EXPOSURE:
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x01, &ret);
++		cci_write(imx681->cci, IMX681_REG_EXPOSURE, ctrl->val, &ret);
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x00, &ret);
++		dev_dbg(imx681->dev, "set exposure: %d, ret=%d\n",
++			ctrl->val, ret);
++		break;
++
++	case V4L2_CID_ANALOGUE_GAIN: {
++		/*
++		 * Gain formula: gain = 1024/(1024-code).
++		 * Analog max is code 960 (16x). For codes above 960,
++		 * set analog to max and use digital gain for the rest.
++		 * Digital gain register: 0x0100 = 1.0x, value = gain * 256.
++		 */
++		int ana_code = min(ctrl->val, 960);
++		int dig_reg = IMX681_DIG_GAIN_MIN; /* 0x0100 = 1.0x */
++
++		if (ctrl->val > 960) {
++			/*
++			 * digital = total_gain / analog_gain
++			 *         = (1024/(1024-code)) / (1024/64)
++			 *         = 64 / (1024-code)
++			 * dig_reg = digital * 256 = 16384 / (1024-code)
++			 */
++			dig_reg = 16384 / (1024 - ctrl->val);
++			dig_reg = clamp(dig_reg, (int)IMX681_DIG_GAIN_MIN,
++					(int)IMX681_DIG_GAIN_MAX);
++		}
++
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x01, &ret);
++		cci_write(imx681->cci, IMX681_REG_ANALOG_GAIN, ana_code,
++			  &ret);
++		cci_write(imx681->cci, IMX681_REG_DIGITAL_GAIN, dig_reg,
++			  &ret);
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x00, &ret);
++		dev_dbg(imx681->dev, "set gain code %d: analog=%d digital=0x%x, ret=%d\n",
++			ctrl->val, ana_code, dig_reg, ret);
++		break;
++	}
++
++	case V4L2_CID_DIGITAL_GAIN:
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x01, &ret);
++		cci_write(imx681->cci, IMX681_REG_DIGITAL_GAIN, ctrl->val,
++			  &ret);
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x00, &ret);
++		dev_dbg(imx681->dev, "set digital gain: %d, ret=%d\n",
++			ctrl->val, ret);
++		break;
++
++	case V4L2_CID_TEST_PATTERN:
++		ret = cci_write(imx681->cci, IMX681_REG_TEST_PATTERN,
++				ctrl->val, NULL);
++		break;
++
++	default:
++		dev_dbg(imx681->dev, "unhandled ctrl id: 0x%x val: 0x%x\n",
++			ctrl->id, ctrl->val);
++		break;
++	}
++
++	pm_runtime_put(imx681->dev);
++	return ret;
++}
++
++static const struct v4l2_ctrl_ops imx681_ctrl_ops = {
++	.s_ctrl = imx681_set_ctrl,
++};
++
++static int imx681_enum_mbus_code(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *state,
++				 struct v4l2_subdev_mbus_code_enum *code)
++{
++	if (code->index >= ARRAY_SIZE(imx681_mbus_codes))
++		return -EINVAL;
++
++	code->code = imx681_mbus_codes[code->index];
++	return 0;
++}
++
++static bool imx681_is_valid_mbus_code(u32 code)
++{
++	unsigned int i;
++
++	for (i = 0; i < ARRAY_SIZE(imx681_mbus_codes); i++)
++		if (imx681_mbus_codes[i] == code)
++			return true;
++	return false;
++}
++
++static int imx681_enum_frame_size(struct v4l2_subdev *sd,
++				  struct v4l2_subdev_state *state,
++				  struct v4l2_subdev_frame_size_enum *fse)
++{
++	if (fse->index > 0)
++		return -EINVAL;
++
++	if (!imx681_is_valid_mbus_code(fse->code))
++		return -EINVAL;
++
++	fse->min_width = IMX681_WIDTH;
++	fse->max_width = IMX681_WIDTH;
++	fse->min_height = IMX681_HEIGHT;
++	fse->max_height = IMX681_HEIGHT;
++
++	return 0;
++}
++
++static int imx681_init_state(struct v4l2_subdev *sd,
++			     struct v4l2_subdev_state *state)
++{
++	struct v4l2_mbus_framefmt *format;
++
++	format = v4l2_subdev_state_get_format(state, IMAGE_PAD);
++	format->width = IMX681_WIDTH;
++	format->height = IMX681_HEIGHT;
++	format->code = MEDIA_BUS_FMT_SGRBG10_1X10;
++	format->field = V4L2_FIELD_NONE;
++	format->colorspace = V4L2_COLORSPACE_RAW;
++	format->ycbcr_enc = V4L2_YCBCR_ENC_601;
++	format->quantization = V4L2_QUANTIZATION_FULL_RANGE;
++	format->xfer_func = V4L2_XFER_FUNC_NONE;
++
++	return 0;
++}
++
++static int imx681_set_pad_format(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *state,
++				 struct v4l2_subdev_format *fmt)
++{
++	struct v4l2_mbus_framefmt *format;
++
++	/* Fixed resolution, fixed Bayer order */
++	fmt->format.width = IMX681_WIDTH;
++	fmt->format.height = IMX681_HEIGHT;
++	if (!imx681_is_valid_mbus_code(fmt->format.code))
++		fmt->format.code = imx681_mbus_codes[0];
++	fmt->format.field = V4L2_FIELD_NONE;
++	fmt->format.colorspace = V4L2_COLORSPACE_RAW;
++	fmt->format.ycbcr_enc = V4L2_YCBCR_ENC_601;
++	fmt->format.quantization = V4L2_QUANTIZATION_FULL_RANGE;
++	fmt->format.xfer_func = V4L2_XFER_FUNC_NONE;
++
++	format = v4l2_subdev_state_get_format(state, fmt->pad);
++	*format = fmt->format;
++
++	return 0;
++}
++
++static int imx681_get_selection(struct v4l2_subdev *sd,
++				struct v4l2_subdev_state *state,
++				struct v4l2_subdev_selection *sel)
++{
++	switch (sel->target) {
++	case V4L2_SEL_TGT_CROP:
++	case V4L2_SEL_TGT_CROP_DEFAULT:
++	case V4L2_SEL_TGT_CROP_BOUNDS:
++	case V4L2_SEL_TGT_NATIVE_SIZE:
++		sel->r.top = 0;
++		sel->r.left = 0;
++		sel->r.width = IMX681_WIDTH;
++		sel->r.height = IMX681_HEIGHT;
++		return 0;
++	default:
++		return -EINVAL;
++	}
++}
++
++static int imx681_start_streaming(struct imx681 *imx681)
++{
++	int ret;
++
++	dev_dbg(imx681->dev, "starting stream: %dx%d RAW10 2-lane\n",
++		IMX681_WIDTH, IMX681_HEIGHT);
++
++	/* Write init register sequence */
++	ret = cci_multi_reg_write(imx681->cci, imx681_init_regs,
++				  ARRAY_SIZE(imx681_init_regs), NULL);
++	if (ret) {
++		dev_err(imx681->dev, "failed to write init regs: %d\n", ret);
++		return ret;
++	}
++
++	dev_dbg(imx681->dev, "init registers written successfully\n");
++
++	/* Wait for sensor to stabilise after configuration */
++	usleep_range(IMX681_INIT_DELAY_US, IMX681_INIT_DELAY_US + 1000);
++
++	/* Apply first exposure settings with group hold */
++	ret = cci_multi_reg_write(imx681->cci, imx681_first_exposure,
++				  ARRAY_SIZE(imx681_first_exposure), NULL);
++	if (ret) {
++		dev_err(imx681->dev, "failed to write exposure: %d\n", ret);
++		return ret;
++	}
++
++	/* Apply any pending V4L2 control values */
++	ret = __v4l2_ctrl_handler_setup(imx681->sd.ctrl_handler);
++	if (ret) {
++		dev_err(imx681->dev, "failed to apply controls: %d\n", ret);
++		return ret;
++	}
++
++	/* Start streaming */
++	ret = cci_write(imx681->cci, IMX681_REG_MODE_SELECT,
++			IMX681_MODE_STREAMING, NULL);
++	if (ret) {
++		dev_err(imx681->dev, "failed to start streaming: %d\n", ret);
++		return ret;
++	}
++
++	dev_dbg(imx681->dev, "streaming started\n");
++	return 0;
++}
++
++static int imx681_stop_streaming(struct imx681 *imx681)
++{
++	int ret;
++
++	ret = cci_write(imx681->cci, IMX681_REG_MODE_SELECT,
++			IMX681_MODE_STANDBY, NULL);
++	if (ret)
++		dev_err(imx681->dev, "failed to stop streaming: %d\n", ret);
++
++	return ret;
++}
++
++static int imx681_enable_streams(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *state,
++				 u32 pad, u64 streams_mask)
++{
++	struct imx681 *imx681 = to_imx681(sd);
++	int ret;
++
++	if (pad != IMAGE_PAD)
++		return -EINVAL;
++
++	ret = pm_runtime_get_sync(imx681->dev);
++	if (ret < 0) {
++		pm_runtime_put_noidle(imx681->dev);
++		return ret;
++	}
++
++	ret = imx681_start_streaming(imx681);
++	if (ret)
++		pm_runtime_put_autosuspend(imx681->dev);
++
++	return ret;
++}
++
++static int imx681_disable_streams(struct v4l2_subdev *sd,
++				  struct v4l2_subdev_state *state,
++				  u32 pad, u64 streams_mask)
++{
++	struct imx681 *imx681 = to_imx681(sd);
++
++	if (pad != IMAGE_PAD)
++		return -EINVAL;
++
++	imx681_stop_streaming(imx681);
++	pm_runtime_put_autosuspend(imx681->dev);
++
++	return 0;
++}
++
++static const struct v4l2_subdev_video_ops imx681_video_ops = {
++	.s_stream = v4l2_subdev_s_stream_helper,
++};
++
++static const struct v4l2_subdev_pad_ops imx681_pad_ops = {
++	.enum_mbus_code = imx681_enum_mbus_code,
++	.get_fmt = v4l2_subdev_get_fmt,
++	.set_fmt = imx681_set_pad_format,
++	.get_selection = imx681_get_selection,
++	.enum_frame_size = imx681_enum_frame_size,
++	.enable_streams = imx681_enable_streams,
++	.disable_streams = imx681_disable_streams,
++};
++
++static const struct v4l2_subdev_ops imx681_subdev_ops = {
++	.video = &imx681_video_ops,
++	.pad = &imx681_pad_ops,
++};
++
++static const struct v4l2_subdev_internal_ops imx681_internal_ops = {
++	.init_state = imx681_init_state,
++};
++
++/* Power management */
++static int imx681_power_on(struct device *dev)
++{
++	struct v4l2_subdev *sd = dev_get_drvdata(dev);
++	struct imx681 *imx681 = to_imx681(sd);
++	int ret;
++
++	dev_dbg(imx681->dev, "power on\n");
++
++	ret = regulator_bulk_enable(IMX681_NUM_SUPPLIES, imx681->supplies);
++	if (ret) {
++		dev_err(imx681->dev, "failed to enable regulators: %d\n", ret);
++		return ret;
++	}
++
++	ret = clk_prepare_enable(imx681->xclk);
++	if (ret) {
++		dev_err(imx681->dev, "failed to enable clock: %d\n", ret);
++		goto err_reg_disable;
++	}
++
++	/* Deassert reset (active low) */
++	gpiod_set_value_cansleep(imx681->reset_gpio, 0);
++
++	usleep_range(IMX681_RESET_DELAY_US,
++		     IMX681_RESET_DELAY_US + IMX681_RESET_DELAY_RANGE_US);
++
++	return 0;
++
++err_reg_disable:
++	regulator_bulk_disable(IMX681_NUM_SUPPLIES, imx681->supplies);
++	return ret;
++}
++
++static int imx681_power_off(struct device *dev)
++{
++	struct v4l2_subdev *sd = dev_get_drvdata(dev);
++	struct imx681 *imx681 = to_imx681(sd);
++
++	dev_dbg(imx681->dev, "power off\n");
++
++	/* Assert reset */
++	gpiod_set_value_cansleep(imx681->reset_gpio, 1);
++	clk_disable_unprepare(imx681->xclk);
++	regulator_bulk_disable(IMX681_NUM_SUPPLIES, imx681->supplies);
++
++	return 0;
++}
++
++static int imx681_identify_module(struct imx681 *imx681)
++{
++	u64 val;
++	int ret;
++
++	ret = cci_read(imx681->cci, IMX681_REG_CHIP_ID, &val, NULL);
++	if (ret) {
++		dev_err(imx681->dev,
++			"failed to read chip ID register 0x0016: %d\n", ret);
++		return ret;
++	}
++
++	if (val != IMX681_CHIP_ID) {
++		dev_err(imx681->dev, "chip ID mismatch: 0x%04llx != 0x%04x\n",
++			val, IMX681_CHIP_ID);
++		return -EIO;
++	}
++
++	return 0;
++}
++
++static int imx681_init_controls(struct imx681 *imx681)
++{
++	struct v4l2_ctrl_handler *ctrl_hdlr = &imx681->ctrl_handler;
++	struct v4l2_fwnode_device_properties props;
++	struct v4l2_ctrl *link_freq;
++	s64 hblank, vblank;
++	int ret;
++
++	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 9);
++	if (ret)
++		return ret;
++
++	/* Pixel rate (read-only) */
++	v4l2_ctrl_new_std(ctrl_hdlr, &imx681_ctrl_ops,
++			  V4L2_CID_PIXEL_RATE, IMX681_PIXEL_RATE,
++			  IMX681_PIXEL_RATE, 1, IMX681_PIXEL_RATE);
++
++	/* Link frequency (read-only) */
++	link_freq = v4l2_ctrl_new_int_menu(ctrl_hdlr, &imx681_ctrl_ops,
++					   V4L2_CID_LINK_FREQ,
++					   __fls(imx681->link_freq_bitmap),
++					   __ffs(imx681->link_freq_bitmap),
++					   imx681_link_frequencies);
++	if (link_freq)
++		link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	/* Horizontal blanking (read-only, fixed) */
++	hblank = IMX681_LINE_LENGTH_PCK - IMX681_WIDTH;
++	imx681->hblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx681_ctrl_ops,
++					    V4L2_CID_HBLANK, hblank, hblank,
++					    1, hblank);
++	if (imx681->hblank)
++		imx681->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	/* Vertical blanking (writable to allow longer exposures) */
++	vblank = IMX681_FRAME_LENGTH_LINES - IMX681_HEIGHT;
++	imx681->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx681_ctrl_ops,
++					    V4L2_CID_VBLANK, vblank,
++					    IMX681_FRAME_LENGTH_MAX - IMX681_HEIGHT,
++					    1, vblank);
++
++	/* Exposure */
++	imx681->exposure = v4l2_ctrl_new_std(ctrl_hdlr, &imx681_ctrl_ops,
++					     V4L2_CID_EXPOSURE,
++					     IMX681_EXPOSURE_MIN,
++					     IMX681_EXPOSURE_MAX, 1,
++					     IMX681_EXPOSURE_DEFAULT);
++
++	/* Analog gain */
++	v4l2_ctrl_new_std(ctrl_hdlr, &imx681_ctrl_ops, V4L2_CID_ANALOGUE_GAIN,
++			  IMX681_ANA_GAIN_MIN, IMX681_ANA_GAIN_MAX, 1,
++			  IMX681_ANA_GAIN_DEFAULT);
++
++	/* Digital gain */
++	v4l2_ctrl_new_std(ctrl_hdlr, &imx681_ctrl_ops, V4L2_CID_DIGITAL_GAIN,
++			  IMX681_DIG_GAIN_MIN, IMX681_DIG_GAIN_MAX, 1,
++			  IMX681_DIG_GAIN_DEFAULT);
++
++	/* Test pattern */
++	v4l2_ctrl_new_std_menu_items(ctrl_hdlr, &imx681_ctrl_ops,
++				     V4L2_CID_TEST_PATTERN,
++				     ARRAY_SIZE(imx681_test_pattern_menu) - 1,
++				     0, 0, imx681_test_pattern_menu);
++
++	if (ctrl_hdlr->error) {
++		ret = ctrl_hdlr->error;
++		dev_err(imx681->dev, "control init failed: %d\n", ret);
++		goto error;
++	}
++
++	ret = v4l2_fwnode_device_parse(imx681->dev, &props);
++	if (ret)
++		goto error;
++
++	ret = v4l2_ctrl_new_fwnode_properties(ctrl_hdlr, &imx681_ctrl_ops,
++					      &props);
++	if (ret)
++		goto error;
++
++	imx681->sd.ctrl_handler = ctrl_hdlr;
++	return 0;
++
++error:
++	v4l2_ctrl_handler_free(ctrl_hdlr);
++	return ret;
++}
++
++static int imx681_parse_endpoint(struct imx681 *imx681)
++{
++	struct fwnode_handle *fwnode = dev_fwnode(imx681->dev);
++	struct v4l2_fwnode_endpoint bus_cfg = {
++		.bus_type = V4L2_MBUS_CSI2_DPHY,
++	};
++	struct fwnode_handle *ep;
++	int ret;
++
++	ep = fwnode_graph_get_next_endpoint(fwnode, NULL);
++	if (!ep) {
++		dev_err(imx681->dev, "no endpoint found in firmware node\n");
++		return -ENXIO;
++	}
++
++	ret = v4l2_fwnode_endpoint_alloc_parse(ep, &bus_cfg);
++	fwnode_handle_put(ep);
++	if (ret) {
++		dev_err(imx681->dev, "failed to parse endpoint: %d\n", ret);
++		return ret;
++	}
++
++	if (bus_cfg.bus.mipi_csi2.num_data_lanes != IMX681_NUM_LANES) {
++		dev_err(imx681->dev,
++			"expected %d data lanes, got %d\n",
++			IMX681_NUM_LANES,
++			bus_cfg.bus.mipi_csi2.num_data_lanes);
++		ret = -EINVAL;
++		goto done;
++	}
++
++	ret = v4l2_link_freq_to_bitmap(imx681->dev,
++				       bus_cfg.link_frequencies,
++				       bus_cfg.nr_of_link_frequencies,
++				       imx681_link_frequencies,
++				       ARRAY_SIZE(imx681_link_frequencies),
++				       &imx681->link_freq_bitmap);
++	if (ret)
++		dev_err(imx681->dev, "link frequency mismatch: %d\n", ret);
++
++done:
++	v4l2_fwnode_endpoint_free(&bus_cfg);
++	return ret;
++}
++
++static int imx681_probe(struct i2c_client *client)
++{
++	struct imx681 *imx681;
++	unsigned int i;
++	int ret;
++
++	imx681 = devm_kzalloc(&client->dev, sizeof(*imx681), GFP_KERNEL);
++	if (!imx681)
++		return -ENOMEM;
++
++	imx681->dev = &client->dev;
++
++	/* Initialise V4L2 subdev */
++	v4l2_i2c_subdev_init(&imx681->sd, client, &imx681_subdev_ops);
++
++	/* Initialise CCI regmap for 16-bit register addresses */
++	imx681->cci = devm_cci_regmap_init_i2c(client, 16);
++	if (IS_ERR(imx681->cci)) {
++		ret = PTR_ERR(imx681->cci);
++		dev_err(imx681->dev, "failed to init CCI: %d\n", ret);
++		return ret;
++	}
++
++	/* Get clock (optional - INT3472 provides it on Surface devices) */
++	imx681->xclk = devm_clk_get_optional(imx681->dev, NULL);
++	if (IS_ERR(imx681->xclk))
++		return dev_err_probe(imx681->dev, PTR_ERR(imx681->xclk),
++				     "failed to get clock\n");
++
++	if (imx681->xclk)
++		dev_dbg(imx681->dev, "clock rate: %lu Hz\n",
++			clk_get_rate(imx681->xclk));
++
++	/* Get regulators (optional) */
++	for (i = 0; i < IMX681_NUM_SUPPLIES; i++)
++		imx681->supplies[i].supply = imx681_supply_names[i];
++
++	ret = devm_regulator_bulk_get(imx681->dev, IMX681_NUM_SUPPLIES,
++				      imx681->supplies);
++	if (ret) {
++		dev_dbg(imx681->dev,
++			"regulators not available (expected on ACPI): %d\n",
++			ret);
++		/* Continue without regulators - INT3472 may handle power */
++	}
++
++	/* Get reset GPIO (optional) */
++	imx681->reset_gpio = devm_gpiod_get_optional(imx681->dev, "reset",
++						      GPIOD_OUT_HIGH);
++	if (IS_ERR(imx681->reset_gpio))
++		return dev_err_probe(imx681->dev,
++				     PTR_ERR(imx681->reset_gpio),
++				     "failed to get reset GPIO\n");
++
++	/* Parse CSI-2 endpoint */
++	ret = imx681_parse_endpoint(imx681);
++	if (ret) {
++		dev_err(imx681->dev, "endpoint parse failed: %d\n", ret);
++		return ret;
++	}
++
++	/* Power on and verify chip ID */
++	ret = imx681_power_on(imx681->dev);
++	if (ret) {
++		dev_err(imx681->dev, "power on failed: %d\n", ret);
++		return ret;
++	}
++
++	ret = imx681_identify_module(imx681);
++	if (ret)
++		goto error_power_off;
++
++	/* Enable runtime PM */
++	pm_runtime_set_active(imx681->dev);
++	pm_runtime_get_noresume(imx681->dev);
++	pm_runtime_enable(imx681->dev);
++	pm_runtime_set_autosuspend_delay(imx681->dev, 1000);
++	pm_runtime_use_autosuspend(imx681->dev);
++
++	/* Init V4L2 controls */
++	ret = imx681_init_controls(imx681);
++	if (ret)
++		goto error_pm;
++
++	/* Setup subdev */
++	imx681->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
++	imx681->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
++	imx681->sd.internal_ops = &imx681_internal_ops;
++
++	/* Init media entity */
++	imx681->pad.flags = MEDIA_PAD_FL_SOURCE;
++	ret = media_entity_pads_init(&imx681->sd.entity, 1, &imx681->pad);
++	if (ret) {
++		dev_err(imx681->dev, "media entity init failed: %d\n", ret);
++		goto error_handler_free;
++	}
++
++	imx681->sd.state_lock = imx681->ctrl_handler.lock;
++	ret = v4l2_subdev_init_finalize(&imx681->sd);
++	if (ret < 0) {
++		dev_err(imx681->dev, "subdev init finalize failed: %d\n", ret);
++		goto error_media_entity;
++	}
++
++	ret = v4l2_async_register_subdev_sensor(&imx681->sd);
++	if (ret < 0) {
++		dev_err(imx681->dev,
++			"async register subdev failed: %d\n", ret);
++		goto error_subdev_cleanup;
++	}
++
++	pm_runtime_put_autosuspend(imx681->dev);
++
++	dev_info(imx681->dev,
++		 "IMX681 probed successfully: %dx%d @ %lld Hz link freq\n",
++		 IMX681_WIDTH, IMX681_HEIGHT, IMX681_LINK_FREQ);
++
++	return 0;
++
++error_subdev_cleanup:
++	v4l2_subdev_cleanup(&imx681->sd);
++error_media_entity:
++	media_entity_cleanup(&imx681->sd.entity);
++error_handler_free:
++	v4l2_ctrl_handler_free(imx681->sd.ctrl_handler);
++error_pm:
++	pm_runtime_disable(imx681->dev);
++	pm_runtime_set_suspended(imx681->dev);
++error_power_off:
++	imx681_power_off(imx681->dev);
++	return ret;
++}
++
++static void imx681_remove(struct i2c_client *client)
++{
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct imx681 *imx681 = to_imx681(sd);
++
++	v4l2_async_unregister_subdev(sd);
++	v4l2_subdev_cleanup(&imx681->sd);
++	media_entity_cleanup(&sd->entity);
++	v4l2_ctrl_handler_free(imx681->sd.ctrl_handler);
++
++	pm_runtime_disable(imx681->dev);
++	if (!pm_runtime_status_suspended(imx681->dev))
++		imx681_power_off(imx681->dev);
++	pm_runtime_set_suspended(imx681->dev);
++}
++
++static DEFINE_RUNTIME_DEV_PM_OPS(imx681_pm_ops, imx681_power_off,
++				 imx681_power_on, NULL);
++
++#ifdef CONFIG_ACPI
++static const struct acpi_device_id imx681_acpi_ids[] = {
++	{ "SONY0681" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(acpi, imx681_acpi_ids);
++#endif
++
++static const struct of_device_id imx681_dt_ids[] = {
++	{ .compatible = "sony,imx681" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, imx681_dt_ids);
++
++static struct i2c_driver imx681_i2c_driver = {
++	.driver = {
++		.name = "imx681",
++		.pm = pm_ptr(&imx681_pm_ops),
++		.acpi_match_table = ACPI_PTR(imx681_acpi_ids),
++		.of_match_table = imx681_dt_ids,
++	},
++	.probe = imx681_probe,
++	.remove = imx681_remove,
++};
++module_i2c_driver(imx681_i2c_driver);
++
++MODULE_DESCRIPTION("Sony IMX681 CMOS Image Sensor Driver");
++MODULE_AUTHOR("Andre Gilerson <andre.gilerson@gmail.com>");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/media/i2c/ov13858.c b/drivers/media/i2c/ov13858.c
+index 970b224cb466..85eed707ebdb 100644
+--- a/drivers/media/i2c/ov13858.c
++++ b/drivers/media/i2c/ov13858.c
+@@ -1654,10 +1654,31 @@ static const struct v4l2_subdev_video_ops ov13858_video_ops = {
+ 	.s_stream = ov13858_set_stream,
+ };
+ 
++static int ov13858_get_selection(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *sd_state,
++				 struct v4l2_subdev_selection *sel)
++{
++	/* Pixel array is 4224x3136 (max supported mode) */
++	switch (sel->target) {
++	case V4L2_SEL_TGT_CROP:
++	case V4L2_SEL_TGT_CROP_DEFAULT:
++	case V4L2_SEL_TGT_CROP_BOUNDS:
++	case V4L2_SEL_TGT_NATIVE_SIZE:
++		sel->r.top = 0;
++		sel->r.left = 0;
++		sel->r.width = 4224;
++		sel->r.height = 3136;
++		return 0;
++	default:
++		return -EINVAL;
++	}
++}
++
+ static const struct v4l2_subdev_pad_ops ov13858_pad_ops = {
+ 	.enum_mbus_code = ov13858_enum_mbus_code,
+ 	.get_fmt = ov13858_get_pad_format,
+ 	.set_fmt = ov13858_set_pad_format,
++	.get_selection = ov13858_get_selection,
+ 	.enum_frame_size = ov13858_enum_frame_size,
+ };
+ 
+@@ -1795,9 +1816,12 @@ static int ov13858_probe(struct i2c_client *client)
+ 	u32 val = 0;
+ 
+ 	device_property_read_u32(&client->dev, "clock-frequency", &val);
+-	dev_info(&client->dev, "Clock frequency read: %u (expected 19200000)\n", val);
++	if (val == 0)
++		return dev_err_probe(&client->dev, -EPROBE_DEFER,
++			"clock-frequency not yet available, deferring\n");
+ 	if (val != 19200000)
+-		return -EINVAL;
++		return dev_err_probe(&client->dev, -EINVAL,
++			"unexpected clock-frequency %u (expected 19200000)\n", val);
+ 
+ 	ov13858 = devm_kzalloc(&client->dev, sizeof(*ov13858), GFP_KERNEL);
+ 	if (!ov13858)
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index ac637207b644..ebc1cf3af390 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -64,6 +64,8 @@ static const struct ipu_sensor_config ipu_supported_sensors[] = {
+ 	IPU_SENSOR_CONFIG("OVTI5693", 1, 419200000),
+ 	/* Omnivision OV13858 - Surface Pro 9 */
+ 	IPU_SENSOR_CONFIG("OVTID858", 4, 540000000),
++	/* Sony IMX681 - Surface Pro 11 */
++	IPU_SENSOR_CONFIG("SONY0681", 1, 969600000),
+ 	/* Omnivision OV2740 */
+ 	IPU_SENSOR_CONFIG("INT3474", 1, 180000000),
+ 	/* Omnivision OV5670 */
+-- 
+2.51.0
+From b9727f31209829103a4f1267f583971d0c04cf9c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Andr=C3=A9=20Gilerson?= <andre.gilerson@gmail.com>
+Date: Sat, 14 Feb 2026 23:42:41 +0100
+Subject: [PATCH 2/2] Declare firmware files used by the IPU7 driver so
+ initramfs tools can auto-discover them via modinfo.
+
+---
+ drivers/staging/media/ipu7/ipu7.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/staging/media/ipu7/ipu7.c b/drivers/staging/media/ipu7/ipu7.c
+index ee6b63717ed3..77c474f8a5c0 100644
+--- a/drivers/staging/media/ipu7/ipu7.c
++++ b/drivers/staging/media/ipu7/ipu7.c
+@@ -2777,3 +2777,7 @@ MODULE_AUTHOR("Qingwu Zhang <qingwu.zhang@intel.com>");
+ MODULE_AUTHOR("Intel");
+ MODULE_LICENSE("GPL");
+ MODULE_DESCRIPTION("Intel ipu7 pci driver");
++
++MODULE_FIRMWARE(IPU7_FIRMWARE_NAME);
++MODULE_FIRMWARE(IPU7P5_FIRMWARE_NAME);
++MODULE_FIRMWARE(IPU8_FIRMWARE_NAME);
+-- 
+2.51.0
+
