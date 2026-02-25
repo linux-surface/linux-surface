@@ -1,0 +1,59 @@
+From de9eb5cc5351f5a268eeb26bc8304862fd98b364 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Andr=C3=A9=20Gilerson?= <andre.gilerson@gmail.com>
+Date: Wed, 25 Feb 2026 20:13:23 +0100
+Subject: [PATCH] On the Microsoft Surface Pro 11 Business (Intel Lunar Lake),
+ the EFI ResetSystem call with EFI_RESET_SHUTDOWN fails to power off the
+ system when PCI shutdown callbacks have run for certain devices. Instead of
+ shutting down, the call returns and the system stays on, draining the battery
+ completely overnight.
+
+This is the same class of firmware bug seen on the Surface Pro 9 and
+Surface Laptop 5 (Alder Lake), where Thunderbolt and GPU driver shutdown
+sequences leave the EFI firmware in a state that prevents power off.
+
+Register PCI fixups for the five Lunar Lake devices who trigger the bug:
+- 8086:a831  Thunderbolt 4 USB Controller
+- 8086:a833  Thunderbolt 4 NHI
+- 8086:a84e  Thunderbolt 4 PCI Express Root Port #0
+- 8086:a84f  Thunderbolt 4 PCI Express Root Port #1
+- 8086:64a0  GPU (Intel Arc Graphics 130V/140V)
+
+Gate the fixups through by a DMI Table matching the Surface Pro 11 Intel
+variant (vendor + product name + SKU) so they to do not affect other systems.
+---
+ drivers/pci/quirks.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
+index 104fba45ac76..a82748aac37c 100644
+--- a/drivers/pci/quirks.c
++++ b/drivers/pci/quirks.c
+@@ -6358,6 +6358,15 @@ static const struct dmi_system_id no_shutdown_dmi_table[] = {
+ 			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Laptop 5"),
+ 		},
+ 	},
++	{
++                .ident = "Microsoft Surface Pro 11th Edition with Intel",
++                .matches = {
++                       	DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++                       	DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro"),
++                	DMI_MATCH(DMI_PRODUCT_SKU,
++                       		"Surface_Pro_11th_Edition_With_Intel"),
++               },
++       },
+ 	{}
+ };
+ 
+@@ -6375,3 +6384,9 @@ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x461f, quirk_no_shutdown);  // Thu
+ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x462f, quirk_no_shutdown);  // Thunderbolt 4 PCI Express Root Port
+ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x466d, quirk_no_shutdown);  // Thunderbolt 4 NHI
+ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x46a8, quirk_no_shutdown);  // GPU
++DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0xa831, quirk_no_shutdown);  // LNL Thunderbolt 4 USB Controller
++DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0xa833, quirk_no_shutdown);  // LNL Thunderbolt 4 NHI
++DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0xa84e, quirk_no_shutdown);  // LNL Thunderbolt 4 PCI Express Root Port
++DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0xa84f, quirk_no_shutdown);  // LNL Thunderbolt 4 PCI Express Root Port
++DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x64a0, quirk_no_shutdown);  // LNL GPU
++
+-- 
+2.51.0
+
