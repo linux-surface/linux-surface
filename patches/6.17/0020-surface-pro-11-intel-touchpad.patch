@@ -1,0 +1,88 @@
+From 2fe4ef920eb77f19f166fe273a27df0d5a26791e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Andr=C3=A9=20Gilerson?= <andre.gilerson@gmail.com>
+Date: Fri, 27 Feb 2026 09:46:45 +0100
+Subject: [PATCH] The Surface Pro 11 (Intel/Lunar Lake) Type Cover touchpad
+ (045E:0C8D) reports Pad Type = 1 (PRESSUREPAD) in its HID feature report and
+ exposes 3 HID buttons (Button 1, 2, 3). This causes hid-multitouch to not set
+ INPUT_PROP_BUTTONPAD, because:
+
+1. The HID_DG_BUTTONTYPE check requires MT_BUTTONTYPE_CLICKPAD (0), but
+   the firmware reports 1.
+2. The fallback check requires buttons_count == 1, but the device has 3.
+
+Without INPUT_PROP_BUTTONPAD, libinput cannot offer area-based or
+clickfinger right-click, and clickpad-specific gestures (click with one
+finger, drag with another) do not work.
+
+Add MT_QUIRK_FORCE_BUTTONPAD and a device-specific class
+MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER_11 that forces clickpad mode for
+this device. The new class inherits all quirks from the existing Surface
+Type Cover class.
+---
+ drivers/hid/hid-multitouch.c | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index 14d088fdabed..e029b08275b1 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -81,6 +81,7 @@ MODULE_LICENSE("GPL");
+ #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(24)
+ #define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(25)
+ #define MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE  BIT(26)
++#define MT_QUIRK_FORCE_BUTTONPAD	BIT(27)
+ 
+ #define MT_INPUTMODE_TOUCHSCREEN	0x02
+ #define MT_INPUTMODE_TOUCHPAD		0x03
+@@ -240,6 +241,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
+ #define MT_CLS_APPLE_TOUCHBAR			0x0114
+ #define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0115
+ #define MT_CLS_SURFACE_TOUCHPAD                0x0116
++#define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER_11	0x0117
+ #define MT_CLS_SIS				0x0457
+ 
+ #define MT_DEFAULT_MAXCONTACT	10
+@@ -451,6 +453,18 @@ static const struct mt_class mt_classes[] = {
+ 		.quirks = MT_QUIRK_ALWAYS_VALID |
+ 			MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE
+ 	},
++	{ .name = MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER_11,
++		.quirks = MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT |
++			MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH |
++			MT_QUIRK_ALWAYS_VALID |
++			MT_QUIRK_IGNORE_DUPLICATES |
++			MT_QUIRK_HOVERING |
++			MT_QUIRK_CONTACT_CNT_ACCURATE |
++			MT_QUIRK_STICKY_FINGERS |
++			MT_QUIRK_WIN8_PTP_BUTTONS |
++			MT_QUIRK_FORCE_BUTTONPAD,
++		.export_all_inputs = true
++	},
+ 	{ }
+ };
+ 
+@@ -1404,6 +1418,9 @@ static int mt_touch_input_configured(struct hid_device *hdev,
+ 	    (app->buttons_count == 1))
+ 		td->is_buttonpad = true;
+ 
++	if (app->quirks & MT_QUIRK_FORCE_BUTTONPAD)
++		td->is_buttonpad = true;
++
+ 	if (td->is_buttonpad)
+ 		__set_bit(INPUT_PROP_BUTTONPAD, input->propbit);
+ 
+@@ -2604,6 +2621,11 @@ static const struct hid_device_id mt_devices[] = {
+ 		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
+ 			USB_VENDOR_ID_MICROSOFT, 0x0C46) },
+ 
++	/* Microsoft Surface Pro 11 Type Cover touchpad */
++	{ .driver_data = MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER_11,
++		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
++			USB_VENDOR_ID_MICROSOFT, 0x0C8D) },
++
+ 	/* Google MT devices */
+ 	{ .driver_data = MT_CLS_GOOGLE,
+ 		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY, USB_VENDOR_ID_GOOGLE,
+-- 
+2.51.0
+
