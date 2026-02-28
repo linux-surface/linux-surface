@@ -11,7 +11,7 @@ pipeline is active.
 
 A systemd service that blanks the display before `systemd-suspend.service` runs.
 It locks all sessions (causing GNOME to blank the display via proper DPMS) and waits
-2 seconds for the display hardware to fully power down.
+5 seconds for the display hardware to fully power down.
 
 This must be a systemd service (not a sleep hook) because sleep hooks run after
 `user.slice` is frozen — at which point GNOME cannot process the DPMS request.
@@ -28,11 +28,16 @@ Then run `sudo update-grub`.
 ## Installation
 
 ```bash
+# Display-blanking service
 sudo cp surface-pre-suspend.sh /usr/local/bin/
 sudo chmod +x /usr/local/bin/surface-pre-suspend.sh
 sudo cp surface-display-off.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable surface-display-off.service
+
+# SAM wakeup (power button + keyboard wake)
+sudo cp 99-surface-sam-wakeup.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
 ```
 
 ## Kernel patch
@@ -42,6 +47,6 @@ The lid wake GPE (0x2E) patch should also be applied — see
 
 ## Wake sources
 
-- **Power button**: works
+- **Power button**: works (requires SAM wakeup udev rule)
 - **Lid open**: works (requires GPE 0x2E patch + `surface_gpe` module)
-- **Keyboard**: does not wake (Type Cover uses SAM/UART, not USB)
+- **Keyboard**: works (requires SAM wakeup udev rule)
