@@ -1,0 +1,203 @@
+diff --git a/sound/soc/intel/boards/sof_sdw.c b/sound/soc/intel/boards/sof_sdw.c
+index c013e31d098e..683658612ca2 100644
+--- a/sound/soc/intel/boards/sof_sdw.c
++++ b/sound/soc/intel/boards/sof_sdw.c
+@@ -879,15 +879,21 @@ static int create_sdw_dailink(struct snd_soc_card *card,
+ 		}
+ 
+ 		/* create stream name according to first link id */
+-		if (ctx->append_dai_type)
++		if (ctx->append_dai_type) {
+ 			name = devm_kasprintf(dev, GFP_KERNEL,
+ 					      sdw_stream_name[stream + 2],
+ 					      ffs(sof_end->link_mask) - 1,
+ 					      type_strings[sof_end->dai_info->dai_type]);
+-		else
++		} else if (sof_end->dai_info->dai_type == SOC_SDW_DAI_TYPE_AMP) {
++			/* Force SmartAmp name for amplifiers to match topology expectations */
++			name = devm_kasprintf(dev, GFP_KERNEL, "%s-%s",
++					      stream == SNDRV_PCM_STREAM_PLAYBACK ? "Playback" : "Capture",
++					      type_strings[SOC_SDW_DAI_TYPE_AMP]);
++		} else {
+ 			name = devm_kasprintf(dev, GFP_KERNEL,
+ 					      sdw_stream_name[stream],
+ 					      ffs(sof_end->link_mask) - 1);
++		}
+ 		if (!name)
+ 			return -ENOMEM;
+ 
+diff --git a/sound/soc/intel/common/soc-acpi-intel-lnl-match.c b/sound/soc/intel/common/soc-acpi-intel-lnl-match.c
+index 937a74a5d523..de606463492a 100644
+--- a/sound/soc/intel/common/soc-acpi-intel-lnl-match.c
++++ b/sound/soc/intel/common/soc-acpi-intel-lnl-match.c
+@@ -8,6 +8,7 @@
+ 
+ #include <sound/soc-acpi.h>
+ #include <sound/soc-acpi-intel-match.h>
++#include <linux/dmi.h>
+ #include "sof-function-topology-lib.h"
+ #include "soc-acpi-intel-sdca-quirks.h"
+ #include "soc-acpi-intel-sdw-mockup-match.h"
+@@ -419,6 +420,41 @@ static const struct snd_soc_acpi_adr_device rt1320_1_group1_adr[] = {
+ 	}
+ };
+ 
++static const struct snd_soc_acpi_endpoint rt1320_amp_mic_endpoints[] = {
++	/* AMP Endpoint */
++	{
++		.num = 0,
++		.aggregated = 0,
++		.group_position = 0,
++		.group_id = 0,
++	},
++	/* DMIC Endpoint */
++	{
++		.num = 1,
++		.aggregated = 0,
++		.group_position = 0,
++		.group_id = 0,
++	},
++};
++
++static const struct snd_soc_acpi_adr_device rt1320_0_single_adr[] = {
++	{
++		.adr = 0x000030025D132001ull,
++		.num_endpoints = 1,
++		.endpoints = &single_endpoint,
++		.name_prefix = "rt1320-1"
++	}
++};
++
++static const struct snd_soc_acpi_adr_device rt1320_0_amp_mic_adr[] = {
++	{
++		.adr = 0x000030025D132001ull,
++		.num_endpoints = ARRAY_SIZE(rt1320_amp_mic_endpoints),
++		.endpoints = rt1320_amp_mic_endpoints,
++		.name_prefix = "rt1320-1"
++	}
++};
++
+ static const struct snd_soc_acpi_adr_device rt1320_2_group2_adr[] = {
+ 	{
+ 		.adr = 0x000231025D132001ull,
+@@ -543,6 +579,24 @@ static const struct snd_soc_acpi_link_adr lnl_cs42l43_l2_cs35l56x6_l13[] = {
+ 	{}
+ };
+ 
++static const struct snd_soc_acpi_link_adr lnl_sdw_rt1320_l0[] = {
++	{
++		.mask = BIT(0),
++		.num_adr = ARRAY_SIZE(rt1320_0_single_adr),
++		.adr_d = rt1320_0_single_adr,
++	},
++	{}
++};
++
++static const struct snd_soc_acpi_link_adr lnl_sdw_rt1320_l0_amp_mic[] = {
++	{
++		.mask = BIT(0),
++		.num_adr = ARRAY_SIZE(rt1320_0_amp_mic_adr),
++		.adr_d = rt1320_0_amp_mic_adr,
++	},
++	{}
++};
++
+ static const struct snd_soc_acpi_link_adr lnl_rvp[] = {
+ 	{
+ 		.mask = BIT(0),
+@@ -686,7 +740,25 @@ static const struct snd_soc_acpi_link_adr lnl_sdw_rt712_vb_l2_rt1320_l1[] = {
+ 
+ /* this table is used when there is no I2S codec present */
+ /* this table is used when there is no I2S codec present */
++static bool surface_lnl_rt1320_check(void *arg)
++{
++	if (dmi_match(DMI_SYS_VENDOR, "Microsoft Corporation") &&
++	    (dmi_match(DMI_PRODUCT_NAME, "Surface Pro for Business 11th Edition with Intel") ||
++	     dmi_match(DMI_PRODUCT_NAME, "Surface Pro 11th Edition with Intel")))
++		return true;
++
++	return false;
++}
++
+ struct snd_soc_acpi_mach snd_soc_acpi_intel_lnl_sdw_machines[] = {
++	{
++		.link_mask = BIT(0),
++		.links = lnl_sdw_rt1320_l0_amp_mic,
++		.drv_name = "sof_sdw",
++		.sof_tplg_filename = "sof-lnl-rt1320-l0.tplg",
++		.machine_check = surface_lnl_rt1320_check,
++		.get_function_tplg_files = sof_sdw_get_tplg_files,
++	},
+ 	/* mockup tests need to be first */
+ 	{
+ 		.link_mask = GENMASK(3, 0),
+diff --git a/sound/soc/sdw_utils/soc_sdw_utils.c b/sound/soc/sdw_utils/soc_sdw_utils.c
+index 4feff8f27a43..1b951cc449fa 100644
+--- a/sound/soc/sdw_utils/soc_sdw_utils.c
++++ b/sound/soc/sdw_utils/soc_sdw_utils.c
+@@ -290,8 +290,15 @@ struct asoc_sdw_codec_info codec_info_list[] = {
+ 				.widgets = generic_spk_widgets,
+ 				.num_widgets = ARRAY_SIZE(generic_spk_widgets),
+ 			},
++			{
++				.direction = {false, true},
++				.dai_name = "rt1320-aif2",
++				.dai_type = SOC_SDW_DAI_TYPE_MIC,
++				.dailink = {SOC_SDW_UNUSED_DAI_ID, SOC_SDW_DMIC_DAI_ID},
++				.rtd_init = asoc_sdw_rt_dmic_rtd_init,
++			},
+ 		},
+-		.dai_num = 1,
++		.dai_num = 2,
+ 	},
+ 	{
+ 		.part_id = 0x714,
+diff --git a/sound/soc/soc-acpi.c b/sound/soc/soc-acpi.c
+index 270f9777942f..aeca2a7dd0ba 100644
+--- a/sound/soc/soc-acpi.c
++++ b/sound/soc/soc-acpi.c
+@@ -126,14 +126,14 @@ struct snd_soc_acpi_mach *snd_soc_acpi_codec_list(void *arg)
+ EXPORT_SYMBOL_GPL(snd_soc_acpi_codec_list);
+ 
+ #define SDW_CODEC_ADR_MASK(_adr) ((_adr) & (SDW_DISCO_LINK_ID_MASK | SDW_VERSION_MASK | \
+-				  SDW_MFG_ID_MASK | SDW_PART_ID_MASK))
++				  SDW_MFG_ID_MASK | SDW_PART_ID_MASK | SDW_CLASS_ID_MASK))
+ 
+ /* Check if all Slaves defined on the link can be found */
+ bool snd_soc_acpi_sdw_link_slaves_found(struct device *dev,
+ 					const struct snd_soc_acpi_link_adr *link,
+ 					struct sdw_peripherals *peripherals)
+ {
+-	unsigned int part_id, link_id, unique_id, mfg_id, version;
++	unsigned int part_id, link_id, unique_id, mfg_id, version, class_id;
+ 	int i, j, k;
+ 
+ 	for (i = 0; i < link->num_adr; i++) {
+@@ -144,6 +144,7 @@ bool snd_soc_acpi_sdw_link_slaves_found(struct device *dev,
+ 		part_id = SDW_PART_ID(adr);
+ 		link_id = SDW_DISCO_LINK_ID(adr);
+ 		version = SDW_VERSION(adr);
++		class_id = SDW_CLASS_ID(adr);
+ 
+ 		for (j = 0; j < peripherals->num_peripherals; j++) {
+ 			struct sdw_slave *peripheral = peripherals->array[j];
+@@ -152,7 +153,8 @@ bool snd_soc_acpi_sdw_link_slaves_found(struct device *dev,
+ 			if (peripheral->bus->link_id == link_id &&
+ 			    peripheral->id.part_id == part_id &&
+ 			    peripheral->id.mfg_id == mfg_id &&
+-			    peripheral->id.sdw_version == version)
++			    peripheral->id.sdw_version == version &&
++			    peripheral->id.class_id == class_id)
+ 				reported_part_count++;
+ 		}
+ 
+@@ -163,7 +165,8 @@ bool snd_soc_acpi_sdw_link_slaves_found(struct device *dev,
+ 			if (peripheral->bus->link_id != link_id ||
+ 			    peripheral->id.part_id != part_id ||
+ 			    peripheral->id.mfg_id != mfg_id ||
+-			    peripheral->id.sdw_version != version)
++			    peripheral->id.sdw_version != version ||
++			    peripheral->id.class_id != class_id)
+ 				continue;
+ 
+ 			/* find out how many identical parts are expected */
