@@ -28,16 +28,21 @@ Then run `sudo update-grub`.
 ## Installation
 
 ```bash
-# Display-blanking service
+# Display-blanking service (prevents hang on suspend)
 sudo cp surface-pre-suspend.sh /usr/local/bin/
 sudo chmod +x /usr/local/bin/surface-pre-suspend.sh
 sudo cp surface-display-off.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable surface-display-off.service
 
-# SAM wakeup (power button + keyboard wake)
-sudo cp 99-surface-sam-wakeup.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
+# Resume inhibitor (prevents immediate re-suspend from lid switch bounce)
+sudo cp surface-resume-inhibit.service /etc/systemd/system/
+
+# Make lid switch respect the inhibitor
+sudo mkdir -p /etc/systemd/logind.conf.d
+sudo cp logind-surface-lid-debounce.conf /etc/systemd/logind.conf.d/
+
+sudo systemctl daemon-reload
+sudo systemctl enable surface-display-off.service surface-resume-inhibit.service
+sudo systemctl restart systemd-logind
 ```
 
 ## Kernel patch
@@ -47,6 +52,6 @@ The lid wake GPE (0x2E) patch should also be applied — see
 
 ## Wake sources
 
-- **Power button**: works (requires SAM wakeup udev rule)
+- **Power button**: works by default (direct GPIO)
 - **Lid open**: works (requires GPE 0x2E patch + `surface_gpe` module)
-- **Keyboard**: works (requires SAM wakeup udev rule)
+- **Keyboard**: does not wake (Type Cover uses SAM/UART; enabling SAM wakeup causes spurious self-wakes)
