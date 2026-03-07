@@ -1,4 +1,4 @@
-From fcc0ca5789466264c908c7a793ee86f7848d3460 Mon Sep 17 00:00:00 2001
+From 4bf41a1c274e5a0bd33c2686b3d5ae676b31a876 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ciar=C3=A1n=20Coffey?= <github@ccoffey.ie>
 Date: Fri, 10 Oct 2025 19:04:03 +0100
 Subject: [PATCH] HID: Add hid-surface driver to filter BTN_0 (FN key)
@@ -27,10 +27,10 @@ Patchset: hid-surface
  create mode 100644 drivers/hid/hid-surface.c
 
 diff --git a/drivers/hid/Kconfig b/drivers/hid/Kconfig
-index 184a2b2f9..d2e308b25 100644
+index b148be159c6b..fd70eb54a0ea 100644
 --- a/drivers/hid/Kconfig
 +++ b/drivers/hid/Kconfig
-@@ -1141,6 +1141,14 @@ config HID_SUNPLUS
+@@ -1142,6 +1142,14 @@ config HID_SUNPLUS
  	help
  	Support for Sunplus wireless desktop.
  
@@ -46,7 +46,7 @@ index 184a2b2f9..d2e308b25 100644
  	tristate "Synaptics RMI4 device support"
  	select RMI4_CORE
 diff --git a/drivers/hid/Makefile b/drivers/hid/Makefile
-index 3190ece25..4d2891879 100644
+index 3190ece25626..4d2891879548 100644
 --- a/drivers/hid/Makefile
 +++ b/drivers/hid/Makefile
 @@ -174,6 +174,7 @@ obj-$(CONFIG_INTEL_ISH_HID)	+= intel-ish-hid/
@@ -59,7 +59,7 @@ index 3190ece25..4d2891879 100644
  
 diff --git a/drivers/hid/hid-surface.c b/drivers/hid/hid-surface.c
 new file mode 100644
-index 000000000..a171ea656
+index 000000000000..a171ea65672f
 --- /dev/null
 +++ b/drivers/hid/hid-surface.c
 @@ -0,0 +1,90 @@
@@ -154,9 +154,9 @@ index 000000000..a171ea656
 +MODULE_DESCRIPTION("Microsoft Surface HID driver");
 +MODULE_LICENSE("GPL");
 -- 
-2.52.0
+2.53.0
 
-From 49aefa6d21438030fd0b59bbccaff01540ee679b Mon Sep 17 00:00:00 2001
+From f558115833c7f39820424ffbf9b9b05fde7ef26f Mon Sep 17 00:00:00 2001
 From: LegendaryFire <tristan.balon@outlook.com>
 Date: Wed, 24 Dec 2025 00:54:44 -0800
 Subject: [PATCH] hid/multitouch: Prevent mode set on Surface Laptop Studio 2
@@ -168,26 +168,26 @@ Patchset: hid-surface
  1 file changed, 30 insertions(+)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index c4179f6c3..d59fe2185 100644
+index 1d245e998687..4d09710df6ba 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
-@@ -82,6 +82,7 @@ MODULE_LICENSE("GPL");
- #define MT_QUIRK_APPLE_TOUCHBAR		BIT(23)
- #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(24)
- #define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(25)
-+#define MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE  BIT(26)
+@@ -83,6 +83,7 @@ MODULE_LICENSE("GPL");
+ #define MT_QUIRK_YOGABOOK9I		BIT(24)
+ #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(25)
+ #define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(26)
++#define MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE  BIT(27)
  
  #define MT_INPUTMODE_TOUCHSCREEN	0x02
  #define MT_INPUTMODE_TOUCHPAD		0x03
-@@ -242,6 +243,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
- #define MT_CLS_SMART_TECH			0x0113
+@@ -244,6 +245,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
  #define MT_CLS_APPLE_TOUCHBAR			0x0114
- #define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0115
-+#define MT_CLS_SURFACE_TOUCHPAD                0x0116
+ #define MT_CLS_YOGABOOK9I			0x0115
+ #define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0116
++#define MT_CLS_SURFACE_TOUCHPAD                0x0117
  #define MT_CLS_SIS				0x0457
  
  #define MT_DEFAULT_MAXCONTACT	10
-@@ -450,6 +452,10 @@ static const struct mt_class mt_classes[] = {
+@@ -460,6 +462,10 @@ static const struct mt_class mt_classes[] = {
  			MT_QUIRK_WIN8_PTP_BUTTONS,
  		.export_all_inputs = true
  	},
@@ -198,7 +198,7 @@ index c4179f6c3..d59fe2185 100644
  	{ }
  };
  
-@@ -2181,11 +2187,30 @@ static void mt_remove(struct hid_device *hdev)
+@@ -2247,11 +2253,30 @@ static void mt_remove(struct hid_device *hdev)
  
  static void mt_on_hid_hw_open(struct hid_device *hdev)
  {
@@ -229,7 +229,7 @@ index c4179f6c3..d59fe2185 100644
  	mt_set_modes(hdev, HID_LATENCY_HIGH, TOUCHPAD_REPORT_NONE);
  }
  
-@@ -2622,6 +2647,11 @@ static const struct hid_device_id mt_devices[] = {
+@@ -2697,6 +2722,11 @@ static const struct hid_device_id mt_devices[] = {
  		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
  			USB_VENDOR_ID_MICROSOFT, 0x09c0) },
  
@@ -242,5 +242,5 @@ index c4179f6c3..d59fe2185 100644
  	{ .driver_data = MT_CLS_GOOGLE,
  		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY, USB_VENDOR_ID_GOOGLE,
 -- 
-2.52.0
+2.53.0
 
