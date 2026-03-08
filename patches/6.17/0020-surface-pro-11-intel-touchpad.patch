@@ -1,0 +1,117 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Andr=C3=A9=20Gilerson?= <andre.gilerson@gmail.com>
+Date: Mon, 03 Mar 2026 12:00:00 +0100
+Subject: [PATCH] HID: multitouch: Surface Pro 11 Type Cover touchpad support
+
+The Surface Pro 11 (Intel/Lunar Lake) Type Cover touchpad (045E:0C8D)
+needs three fixes:
+
+1. Force clickpad mode: The firmware reports Pad Type = 1 (PRESSUREPAD)
+   and exposes 3 HID buttons, so hid-multitouch's clickpad detection
+   fails. Add MT_QUIRK_FORCE_BUTTONPAD to force INPUT_PROP_BUTTONPAD.
+
+2. Enable firmware palm rejection: The touchpad firmware detects palms
+   and reports Confidence=0 per-contact, but MT_QUIRK_CONFIDENCE was
+   only enabled for a whitelist of Win8 classes. Add the Surface Type
+   Cover 11 class to the whitelist so the kernel reports MT_TOOL_PALM
+   to libinput.
+
+3. Expose whole-pad force sensor: The HID descriptor includes a 16-bit
+   force measurement field (Usage Page 0x20 Sensor, Usage 0x0494) that
+   was being discarded. Map it to ABS_PRESSURE, guarded by
+   MT_QUIRK_FORCE_BUTTONPAD so only the Surface class is affected.
+---
+ drivers/hid/hid-multitouch.c | 34 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index 14d088fdabed..2c0a773b2dca 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -81,6 +81,7 @@ MODULE_LICENSE("GPL");
+ #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(24)
+ #define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(25)
+ #define MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE  BIT(26)
++#define MT_QUIRK_FORCE_BUTTONPAD	BIT(27)
+
+ #define MT_INPUTMODE_TOUCHSCREEN	0x02
+ #define MT_INPUTMODE_TOUCHPAD		0x03
+@@ -240,6 +241,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
+ #define MT_CLS_APPLE_TOUCHBAR			0x0114
+ #define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0115
+ #define MT_CLS_SURFACE_TOUCHPAD                0x0116
++#define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER_11	0x0117
+ #define MT_CLS_SIS				0x0457
+
+ #define MT_DEFAULT_MAXCONTACT	10
+@@ -451,6 +453,18 @@ static const struct mt_class mt_classes[] = {
+ 		.quirks = MT_QUIRK_ALWAYS_VALID |
+ 			MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE
+ 	},
++	{ .name = MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER_11,
++		.quirks = MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT |
++			MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH |
++			MT_QUIRK_ALWAYS_VALID |
++			MT_QUIRK_IGNORE_DUPLICATES |
++			MT_QUIRK_HOVERING |
++			MT_QUIRK_CONTACT_CNT_ACCURATE |
++			MT_QUIRK_STICKY_FINGERS |
++			MT_QUIRK_WIN8_PTP_BUTTONS |
++			MT_QUIRK_FORCE_BUTTONPAD,
++		.export_all_inputs = true
++	},
+ 	{ }
+ };
+
+@@ -854,7 +868,8 @@ static int mt_touch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
+ 			if ((cls->name == MT_CLS_WIN_8 ||
+ 			     cls->name == MT_CLS_WIN_8_FORCE_MULTI_INPUT ||
+ 			     cls->name == MT_CLS_WIN_8_FORCE_MULTI_INPUT_NSMU ||
+-			     cls->name == MT_CLS_WIN_8_DISABLE_WAKEUP) &&
++			     cls->name == MT_CLS_WIN_8_DISABLE_WAKEUP ||
++			     cls->name == MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER_11) &&
+ 				(field->application == HID_DG_TOUCHPAD ||
+ 				 field->application == HID_DG_TOUCHSCREEN))
+ 				app->quirks |= MT_QUIRK_CONFIDENCE;
+@@ -975,6 +990,16 @@ static int mt_touch_input_mapping(struct hid_device *hdev, struct hid_input *hi,
+ 	case 0xff000000:
+ 		/* we do not want to map these: no input-oriented meaning */
+ 		return -1;
++
++	case HID_UP_SENSOR:
++		/* Microsoft Surface Type Cover: whole-pad force sensor */
++		if ((usage->hid & HID_USAGE) == 0x0494 &&
++		    (app->quirks & MT_QUIRK_FORCE_BUTTONPAD)) {
++			hid_map_usage(hi, usage, bit, max, EV_ABS, ABS_PRESSURE);
++			set_abs(hi->input, ABS_PRESSURE, field, cls->sn_pressure);
++			return 1;
++		}
++		return -1;
+ 	}
+
+ 	return 0;
+@@ -1404,6 +1429,9 @@ static int mt_touch_input_configured(struct hid_device *hdev,
+ 	    (app->buttons_count == 1))
+ 		td->is_buttonpad = true;
+
++	if (app->quirks & MT_QUIRK_FORCE_BUTTONPAD)
++		td->is_buttonpad = true;
++
+ 	if (td->is_buttonpad)
+ 		__set_bit(INPUT_PROP_BUTTONPAD, input->propbit);
+
+@@ -2604,6 +2632,11 @@ static const struct hid_device_id mt_devices[] = {
+ 		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
+ 			USB_VENDOR_ID_MICROSOFT, 0x0C46) },
+
++	/* Microsoft Surface Pro 11 Type Cover touchpad */
++	{ .driver_data = MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER_11,
++		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
++			USB_VENDOR_ID_MICROSOFT, 0x0C8D) },
++
+ 	/* Google MT devices */
+ 	{ .driver_data = MT_CLS_GOOGLE,
+ 		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY, USB_VENDOR_ID_GOOGLE,
+--
+2.51.0
+
