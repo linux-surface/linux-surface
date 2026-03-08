@@ -39,6 +39,14 @@ Then run `sudo update-grub`.
 ## Installation
 
 ```bash
+sudo ./install.sh          # install all components
+sudo ./install.sh --dry-run # preview what would be done
+sudo ./install.sh --remove  # uninstall
+```
+
+Or manually:
+
+```bash
 # Display-blanking service (prevents hang on suspend)
 sudo cp surface-pre-suspend.sh /usr/local/bin/
 sudo chmod +x /usr/local/bin/surface-pre-suspend.sh
@@ -53,10 +61,13 @@ sudo cp logind-surface-lid-debounce.conf /etc/systemd/logind.conf.d/
 
 sudo systemctl daemon-reload
 sudo systemctl enable surface-display-off.service surface-resume-inhibit.service
-sudo systemctl restart systemd-logind
 
 # Power tuning: Intel WiFi firmware-level power saving
 sudo cp iwlwifi-powersave.conf /etc/modprobe.d/
+
+# Reboot for logind config to take effect
+# WARNING: Do NOT run 'systemctl restart systemd-logind' from a graphical
+# session — it kills all sessions and crashes GNOME.
 ```
 
 ## Hibernate / Suspend-then-Hibernate

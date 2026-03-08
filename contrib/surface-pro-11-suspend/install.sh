@@ -79,7 +79,7 @@ if $DRY_RUN; then
     dry "=== Would run ==="
     dry "  systemctl daemon-reload"
     dry "  systemctl enable surface-display-off.service surface-resume-inhibit.service"
-    dry "  systemctl restart systemd-logind"
+    dry "  (logind config takes effect on next reboot)"
 
     echo ""
     dry "=== Current installation state ==="
@@ -157,15 +157,15 @@ systemctl daemon-reload
 systemctl enable surface-display-off.service surface-resume-inhibit.service
 info "Services enabled."
 
-systemctl restart systemd-logind
-info "Logind restarted."
-
 echo ""
 info "Done! Suspend fix is active."
 echo ""
 echo "Make sure these kernel parameters are set in /etc/default/grub:"
 echo "  acpi_sleep=nonvs acpi_osi=\"Windows 2020\" button.lid_init_state=open"
 echo "  pcie_aspm=force pcie_aspm.policy=powersupersave"
+echo ""
+warn "The logind config change requires a reboot (or 'sudo systemctl restart systemd-logind'"
+warn "from a text console — restarting logind kills all graphical sessions)."
 echo ""
 echo "To uninstall:"
 echo "  sudo $0 --remove"
