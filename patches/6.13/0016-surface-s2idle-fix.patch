@@ -1,7 +1,8 @@
 From a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0 Mon Sep 17 00:00:00 2001
 From: removed for privacy
 Date: Thu, 27 Feb 2026 10:00:00 +1000
-Subject: [PATCH] platform/surface: Add s2idle/hibernate fix v5.3b for Surface Laptop 5
+Subject: [PATCH] platform/surface: Add s2idle/hibernate fix v5.3c for Surface
+ Laptop 5
 
 INTC1055 pinctrl power-gating during s2idle corrupts pin 213's PADCFG0
 RXINV bit. The flipped bit fires a spurious SCI on GPE 0x52. In the
@@ -25,12 +26,12 @@ GNOME, KDE) can apply its own lid policy. The module does not call
 pm_suspend() on lid close; suspend policy is left to the desktop
 environment.
 
-v5.3b adds full hibernate support with RTC-based time synchronization,
-post-resume wifi bounce recovery, display reconnect fix, freeze/thaw
-PM ops for complete suspend-to-disk protection, GPIORXDIS toggle for
-pin input re-latch after VNN corruption, display/backlight recovery
-on s2idle resume when PADCFG corruption is detected, and accurate
-sleep duration tracking via ktime_get_boottime().
+v5.3c fixes failsafe death sleep (power button path now checks
+lid_close_reported before starting resync), adds lock_sessions()
+before all failsafe re-suspend paths so screen is locked after
+rapid-wake VNN cycles, and adds lid_close_reported safety checks
+in lid_resync_fn to abort if the poller detected lid open during
+backoff.
 
 Link: https://github.com/linux-surface/linux-surface/issues/1782
 Signed-off-by: removed for privacy
@@ -38,8 +39,8 @@ Patchset: surface-s2idle-fix
 ---
  drivers/platform/surface/Kconfig              |  14 +
  drivers/platform/surface/Makefile             |   1 +
- drivers/platform/surface/surface_s2idle_fix.c | 2017 +
- 3 files changed, 2032 insertions(+)
+ drivers/platform/surface/surface_s2idle_fix.c | 2111 +
+ 3 files changed, 2126 insertions(+)
  create mode 100644 drivers/platform/surface/surface_s2idle_fix.c
 
 diff --git a/drivers/platform/surface/Kconfig b/drivers/platform/surface/Kconfig
@@ -76,10 +77,10 @@ index 53344ea75..b1c2d3e4f 100644
 +obj-$(CONFIG_SURFACE_S2IDLE_FIX)	+= surface_s2idle_fix.o
 diff --git a/drivers/platform/surface/surface_s2idle_fix.c b/drivers/platform/surface/surface_s2idle_fix.c
 new file mode 100644
-index 000000000..1045b4812
+index 000000000..99c56d409
 --- /dev/null
 +++ b/drivers/platform/surface/surface_s2idle_fix.c
-@@ -0,0 +1,2017 @@
+@@ -0,0 +1,2111 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * surface_s2idle_fix.c - Fix s2idle/hibernate death sleep on Surface Laptop 5
@@ -360,6 +361,14 @@ index 000000000..1045b4812
 +	}
 +}
 +
++static void lock_sessions(void)
++{
++	static char *argv[] = { "/usr/bin/loginctl", "lock-sessions", NULL };
++	static char *envp[] = { "HOME=/root", "PATH=/usr/bin:/bin", NULL };
++
++	call_usermodehelper(argv[0], argv, envp, UMH_NO_WAIT);
++}
++
 +static inline void __iomem *pin_addr(const struct pin_context *pin)
 +{
 +	return com4_base + pin->offset;
@@ -457,19 +466,22 @@ index 000000000..1045b4812
 +	}
 +
 +	if (modified) {
-+		u32 tmp;
-+
 +		wmb(); /* ensure all writes committed */
 +
 +		/* Toggle GPIORXDIS to force pin input buffer re-latch.
 +		 * VNN power-gating can corrupt the input buffer state,
 +		 * not just the config registers. Without this, RXSTATE
-+		 * may read stale/wrong values after PADCFG restoration. */
-+		tmp = readl(pin_addr(pin) + PADCFG0_OFF);
-+		writel(tmp | PADCFG0_GPIORXDIS, pin_addr(pin) + PADCFG0_OFF);
++		 * may read stale/wrong values after PADCFG restoration.
++		 *
++		 * XOR flips GPIORXDIS to the opposite of saved state,
++		 * then we write back saved state. This guarantees a
++		 * real toggle regardless of the saved GPIORXDIS value,
++		 * and leaves the pin in the correct final state. */
++		writel(pin->padcfg0 ^ PADCFG0_GPIORXDIS,
++		       pin_addr(pin) + PADCFG0_OFF);
 +		wmb();
 +		udelay(10);
-+		writel(tmp & ~PADCFG0_GPIORXDIS, pin_addr(pin) + PADCFG0_OFF);
++		writel(pin->padcfg0, pin_addr(pin) + PADCFG0_OFF);
 +		wmb();
 +		udelay(100); /* let RXSTATE settle */
 +	}
@@ -1023,6 +1035,16 @@ index 000000000..1045b4812
 +	stats.gpio_recovery_polls++;
 +
 +	if (rxstate) {
++		/* Poller may have detected lid open since resync was scheduled.
++		 * If lid_close_reported is false, user opened the lid, abort. */
++		if (!lid_close_reported) {
++			pr_info("lid resync: RXSTATE=1 but poller saw open, "
++				"aborting resync\n");
++			report_lid_state(0);
++			lid_resync_active = false;
++			return;
++		}
++
 +		unsigned int delay = get_resuspend_delay_ms();
 +
 +		stats.lid_resyncs++;
@@ -1039,8 +1061,18 @@ index 000000000..1045b4812
 +			}
 +		}
 +
++		/* Final safety: re-check poller state right before suspending */
++		if (!lid_close_reported) {
++			pr_info("lid resync: lid opened during backoff (poller), "
++				"aborting\n");
++			report_lid_state(0);
++			lid_resync_active = false;
++			return;
++		}
++
 +		pr_info("lid resync: still closed, re-suspending\n");
 +		report_lid_state(1);
++		lock_sessions();
 +		failsafe_in_progress = true;
 +		pm_suspend(PM_SUSPEND_TO_IDLE);
 +		failsafe_in_progress = false;
@@ -1071,7 +1103,7 @@ index 000000000..1045b4812
 +		atomic_set(&power_button_seen, 0);
 +		failsafe_suspends = 0;
 +
-+		if (lid_was_closed_at_suspend) {
++		if (lid_was_closed_at_suspend && lid_close_reported) {
 +			pr_info("failsafe: power button wake, lid closed, "
 +				"starting resync\n");
 +			stats.gpio_recovery_polls = 0;
@@ -1081,7 +1113,11 @@ index 000000000..1045b4812
 +				msecs_to_jiffies(LID_RESYNC_INTERVAL_MS));
 +		} else {
 +			report_lid_state(0);
-+			pr_info("failsafe: power button wake, lid open\n");
++			pr_info("failsafe: power button wake, lid %s "
++				"(was_closed=%d reported=%d)\n",
++				lid_close_reported ? "closed" : "open",
++				lid_was_closed_at_suspend,
++				lid_close_reported);
 +			consecutive_rapid_wakes = 0;
 +			lid_was_closed_at_suspend = false;
 +		}
@@ -1095,16 +1131,38 @@ index 000000000..1045b4812
 +		return;
 +	}
 +
-+	/* Check current lid state */
++	/* Check current lid state. After s2idle VNN power-gating, the
++	 * RXSTATE latch can be stale for ~10 seconds while the analog
++	 * pad circuitry recovers. A single read right after wake almost
++	 * always shows 0 (open) even if the lid is physically closed.
++	 * Poll with retries to let RXSTATE settle before giving up. */
 +	lid = &tracked_pins[LID_TRACKED_INDEX];
 +	if (lid->valid && com4_base) {
-+		u32 now = readl(pin_addr(lid) + PADCFG0_OFF);
-+		if (!(now & PADCFG0_GPIORXSTATE)) {
++		int retries;
++		bool lid_open = true;
++
++		for (retries = 0; retries < 5; retries++) {
++			u32 now = readl(pin_addr(lid) + PADCFG0_OFF);
++
++			if (now & PADCFG0_GPIORXSTATE) {
++				pr_info("failsafe: RXSTATE recovered "
++					"after %ds, lid still closed\n",
++					retries * 2);
++				lid_open = false;
++				break;
++			}
++			if (retries < 4)
++				msleep(2000);
++		}
++
++		if (lid_open) {
 +			report_lid_state(0);
 +			consecutive_rapid_wakes = 0;
 +			failsafe_suspends = 0;
 +			lid_was_closed_at_suspend = false;
-+			pr_info("failsafe: lid currently open, staying awake\n");
++			pr_info("failsafe: lid confirmed open after "
++				"%ds settle, staying awake\n",
++				retries * 2);
 +			return;
 +		}
 +	}
@@ -1123,6 +1181,7 @@ index 000000000..1045b4812
 +		failsafe_suspends, FAILSAFE_MAX_RETRIES);
 +
 +	report_lid_state(1);
++	lock_sessions();
 +	failsafe_in_progress = true;
 +	pm_suspend(PM_SUSPEND_TO_IDLE);
 +	failsafe_in_progress = false;
@@ -1183,8 +1242,10 @@ index 000000000..1045b4812
 +	s64 sleep_ms;
 +	unsigned int resuspend_delay;
 +
-+	/* Final PADCFG + HOSTSW_OWN check */
-+	fix_padcfg_corruption(path_name);
++	/* HOSTSW_OWN check (no PADCFG corruption check here: ACPI's resume
++	 * methods legitimately toggle RXINV, so comparing against the
++	 * pre-suspend saved state would produce false positives.
++	 * Real VNN corruption is already handled by resume_noirq.) */
 +	check_hostsw_own(path_name);
 +
 +	/* Unmask fallback */
@@ -1451,40 +1512,74 @@ index 000000000..1045b4812
 +		return NOTIFY_DONE;
 +
 +	switch (action) {
-+	case PM_SUSPEND_PREPARE:
-+		if (suspend_to_lock && !lid_close_reported) {
-+			static char *lock_argv[] = {
-+				"/usr/bin/loginctl", "lock-sessions", NULL
-+			};
-+			static char *net_argv[] = {
-+				"/usr/bin/nmcli", "networking", "off", NULL
-+			};
-+			static char *envp[] = {
-+				"HOME=/root",
-+				"PATH=/usr/bin:/bin",
-+				NULL
-+			};
++	case PM_SUSPEND_PREPARE: {
++		/* Read actual GPIO to decide lid state. lid_close_reported
++		 * is set by the 2s poller which always loses the race to
++		 * the GPE-driven ACPI button driver, so logind triggers
++		 * pm_suspend before the poller updates the flag.
++		 *
++		 * GPIORXSTATE (bit 1) is the RAW pad input, unaffected
++		 * by RXINV. Confirmed via DSDT: _L52 sets RXINV = GGIV
++		 * (bit 1), so if GPIORXSTATE were post-RXINV the open
++		 * case would produce wrong LIDS.
++		 *
++		 * Re-latch first in case a previous s2idle cycle left
++		 * the input buffer stale from VNN power-gating. */
++		bool lid_physically_closed = false;
 +
-+			pr_info("suspend_to_lock: lid open, converting suspend to lock\n");
-+			call_usermodehelper(lock_argv[0], lock_argv, envp,
-+					   UMH_NO_WAIT);
-+			call_usermodehelper(net_argv[0], net_argv, envp,
-+					   UMH_NO_WAIT);
++		if (suspend_to_lock && !failsafe_in_progress) {
++			struct pin_context *lid =
++				&tracked_pins[LID_TRACKED_INDEX];
 +
-+			lock_bl_dev = backlight_device_get_by_name(
-+					"intel_backlight");
-+			if (lock_bl_dev)
-+				lock_saved_brightness =
-+					lock_bl_dev->props.brightness;
-+			schedule_delayed_work(&lock_blank_work,
-+					      msecs_to_jiffies(2000));
++			if (lid->valid && com4_base) {
++				u32 padcfg0 = readl(pin_addr(lid)
++						    + PADCFG0_OFF);
++				lid_physically_closed = !!(padcfg0
++						& PADCFG0_GPIORXSTATE);
++				pr_info("suspend_to_lock: PADCFG0=0x%08x "
++					"RXSTATE=%d RXINV=%d -> %s\n",
++					padcfg0,
++					!!(padcfg0 & PADCFG0_GPIORXSTATE),
++					!!(padcfg0 & PADCFG0_RXINV),
++					lid_physically_closed ?
++					"lid closed, allowing suspend" :
++					"lid open, intercepting");
++			}
 +
-+			lock_display_off = true;
-+			return NOTIFY_BAD;
++			if (!lid_physically_closed) {
++				static char *net_argv[] = {
++					"/usr/bin/nmcli", "networking",
++					"off", NULL
++				};
++				static char *envp[] = {
++					"HOME=/root",
++					"PATH=/usr/bin:/bin",
++					NULL
++				};
++
++				pr_info("suspend_to_lock: lid open "
++					"(GPIO confirmed), converting "
++					"suspend to lock\n");
++				lock_sessions();
++				call_usermodehelper(net_argv[0], net_argv,
++						   envp, UMH_NO_WAIT);
++
++				lock_bl_dev = backlight_device_get_by_name(
++						"intel_backlight");
++				if (lock_bl_dev)
++					lock_saved_brightness =
++						lock_bl_dev->props.brightness;
++				schedule_delayed_work(&lock_blank_work,
++						      msecs_to_jiffies(2000));
++
++				lock_display_off = true;
++				return NOTIFY_BAD;
++			}
 +		}
 +		stats.suspend_cycles++;
 +		fix_pre_sleep_common("suspend");
 +		break;
++	}
 +
 +	case PM_HIBERNATION_PREPARE:
 +		stats.hibernate_cycles++;
@@ -2030,7 +2125,7 @@ index 000000000..1045b4812
 +	schedule_delayed_work(&lid_poll_work,
 +			      msecs_to_jiffies(LID_POLL_INTERVAL_MS));
 +
-+	pr_info("v5.3b loaded: SCI=%d, %d pins tracked, "
++	pr_info("v5.3c loaded: SCI=%d, %d pins tracked, "
 +		"PADCFG0=0x%08x RXINV=%d RXSTATE=%d, "
 +		"pwr=%s lps0=%s debugfs=%s\n",
 +		sci_irq, num_tracked_pins, initial_padcfg0,
@@ -2081,7 +2176,7 @@ index 000000000..1045b4812
 +		com4_base = NULL;
 +	}
 +
-+	pr_info("v5.3b unloaded: %u suspends, %u hibernates, "
++	pr_info("v5.3c unloaded: %u suspends, %u hibernates, "
 +		"%u PADCFG restores, %u multi-pin fixes, "
 +		"%u HOSTSW_OWN fixes, %u spurious wakes\n",
 +		stats.suspend_cycles, stats.hibernate_cycles,
@@ -2094,8 +2189,9 @@ index 000000000..1045b4812
 +
 +MODULE_LICENSE("GPL");
 +MODULE_AUTHOR("Surface Linux Debug");
-+MODULE_DESCRIPTION("Fix s2idle/hibernate death sleep on Surface Laptop 5 (v5.3b)");
-+MODULE_VERSION("5.3a");
++MODULE_DESCRIPTION("Fix s2idle/hibernate death sleep on Surface Laptop 5 (v5.3c)");
++MODULE_VERSION("5.3c");
 +MODULE_ALIAS("dmi:*:svnMicrosoftCorporation:pnSurfaceLaptop5:*");
---
-2.43.0
+-- 
+2.47.2
+
