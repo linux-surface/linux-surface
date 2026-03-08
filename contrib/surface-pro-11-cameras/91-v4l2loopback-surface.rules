@@ -1,0 +1,14 @@
+# Surface Pro 11 camera udev rules
+#
+# 1. Hide the 32 raw IPU7 ISYS capture nodes from applications.
+#    These are non-functional V4L2 devices that confuse Firefox, Zoom, etc.
+#    Set mode 0600 root:root so only root can access them. Remove uaccess/seat
+#    tags to prevent logind from re-adding user ACLs. Clear V4L capabilities
+#    so PipeWire won't enumerate them.
+#    The camera bridge script re-grants ACLs before starting the HAL.
+ATTR{name}=="Intel IPU7 ISYS Capture *", OWNER="root", GROUP="root", MODE="0600", TAG-="uaccess", TAG-="seat", TAG="", ENV{ID_V4L_CAPABILITIES}=""
+ATTR{name}=="Intel IPU7 ISYS Capture *", RUN+="/bin/setfacl -b /dev/%k"
+
+# 2. Ensure v4l2loopback devices are tagged as capture devices for snap/portal access.
+ATTR{name}=="Surface_Front_Camera", TAG+="uaccess", TAG+="seat", ENV{ID_V4L_CAPABILITIES}=":capture:"
+ATTR{name}=="Surface_Rear_Camera", TAG+="uaccess", TAG+="seat", ENV{ID_V4L_CAPABILITIES}=":capture:"
