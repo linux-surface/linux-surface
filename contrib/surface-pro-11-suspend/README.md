@@ -20,10 +20,21 @@ This must be a systemd service (not a sleep hook) because sleep hooks run after
 
 Add to GRUB (`/etc/default/grub`):
 ```
-GRUB_CMDLINE_LINUX_DEFAULT="quiet splash acpi_sleep=nonvs acpi_osi=\"Windows 2020\""
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash acpi_sleep=nonvs acpi_osi=\"Windows 2020\" button.lid_init_state=open pcie_aspm=force pcie_aspm.policy=powersupersave"
 ```
 
 Then run `sudo update-grub`.
+
+- `acpi_sleep=nonvs` — prevents hang during s2idle entry
+- `acpi_osi="Windows 2020"` — enables S0ix support in ACPI firmware
+- `button.lid_init_state=open` — fixes display not turning on after power button wake.
+  The ACPI `_LID` method returns stale "closed" state after s2idle because the GPU's
+  cached lid state (`GFX0.CLID`) is not updated during suspend. This causes GNOME to
+  think the lid is closed and not activate the display. Setting `lid_init_state=open`
+  forces the lid to report as open on every resume.
+- `pcie_aspm=force pcie_aspm.policy=powersupersave` — enables PCIe ASPM L1.2 substates
+  for maximum power savings. Matches Windows `ASPM=MaxSaving` policy which is set across
+  all power schemes (including High Performance) on the Surface Pro 11.
 
 ## Installation
 
@@ -43,7 +54,58 @@ sudo cp logind-surface-lid-debounce.conf /etc/systemd/logind.conf.d/
 sudo systemctl daemon-reload
 sudo systemctl enable surface-display-off.service surface-resume-inhibit.service
 sudo systemctl restart systemd-logind
+
+# Power tuning: Intel WiFi firmware-level power saving
+sudo cp iwlwifi-powersave.conf /etc/modprobe.d/
 ```
+
+## Hibernate / Suspend-then-Hibernate
+
+By default, the Surface Pro 11 uses s2idle (suspend-to-idle) which draws ~351 mW
+(~0.8%/hr, ~5 days standby). For longer standby, you can enable **suspend-then-hibernate**:
+the system suspends with s2idle first, then automatically hibernates (writes RAM to swap
+and powers off completely) after a configurable delay.
+
+### Setup
+
+```bash
+# Interactive setup (auto-detects swap, prompts for delay)
+sudo ./surface-hibernate-setup.sh
+
+# Or specify options directly
+sudo ./surface-hibernate-setup.sh --delay=1h
+
+# Use a specific swap device
+sudo ./surface-hibernate-setup.sh --swap=/dev/sda2 --delay=2h
+```
+
+A reboot is required after setup for the GRUB/initramfs changes to take effect.
+
+### What it configures
+
+- **GRUB**: Adds `resume=UUID=...` (and `resume_offset=...` for swap files) to kernel command line
+- **initramfs**: Updated to include resume support
+- **sleep.conf**: Sets `HibernateDelaySec` (time in s2idle before hibernating)
+- **logind.conf**: Changes lid switch action to `suspend-then-hibernate`
+
+### Testing
+
+After reboot:
+```bash
+# Test hibernate directly
+sudo systemctl hibernate
+
+# Test suspend-then-hibernate
+sudo systemctl suspend-then-hibernate
+```
+
+### Uninstall
+
+```bash
+sudo ./surface-hibernate-setup.sh --uninstall
+```
+
+This removes all configuration files, updates GRUB/initramfs, and restores default behavior.
 
 ## Kernel patch
 
