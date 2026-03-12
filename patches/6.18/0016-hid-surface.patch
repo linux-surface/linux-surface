@@ -1,4 +1,4 @@
-From 4bf41a1c274e5a0bd33c2686b3d5ae676b31a876 Mon Sep 17 00:00:00 2001
+From 77ff006f6475aca9c238326ddff58b9a9e8e2d0d Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ciar=C3=A1n=20Coffey?= <github@ccoffey.ie>
 Date: Fri, 10 Oct 2025 19:04:03 +0100
 Subject: [PATCH] HID: Add hid-surface driver to filter BTN_0 (FN key)
@@ -156,7 +156,7 @@ index 000000000000..a171ea65672f
 -- 
 2.53.0
 
-From f558115833c7f39820424ffbf9b9b05fde7ef26f Mon Sep 17 00:00:00 2001
+From 1ec42aabd82bca6a0c0abfd13cb36c0f0e93328e Mon Sep 17 00:00:00 2001
 From: LegendaryFire <tristan.balon@outlook.com>
 Date: Wed, 24 Dec 2025 00:54:44 -0800
 Subject: [PATCH] hid/multitouch: Prevent mode set on Surface Laptop Studio 2
@@ -164,30 +164,30 @@ Subject: [PATCH] hid/multitouch: Prevent mode set on Surface Laptop Studio 2
 
 Patchset: hid-surface
 ---
- drivers/hid/hid-multitouch.c | 30 ++++++++++++++++++++++++++++++
- 1 file changed, 30 insertions(+)
+ drivers/hid/hid-multitouch.c | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 1d245e998687..4d09710df6ba 100644
+index ee9c073af9b4..4f7603e56c10 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
-@@ -83,6 +83,7 @@ MODULE_LICENSE("GPL");
- #define MT_QUIRK_YOGABOOK9I		BIT(24)
- #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(25)
- #define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(26)
-+#define MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE  BIT(27)
+@@ -84,6 +84,7 @@ MODULE_LICENSE("GPL");
+ #define MT_QUIRK_KEEP_LATENCY_ON_CLOSE	BIT(25)
+ #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(26)
+ #define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(27)
++#define MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE  BIT(28)
  
  #define MT_INPUTMODE_TOUCHSCREEN	0x02
  #define MT_INPUTMODE_TOUCHPAD		0x03
-@@ -244,6 +245,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
- #define MT_CLS_APPLE_TOUCHBAR			0x0114
+@@ -247,6 +248,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
  #define MT_CLS_YOGABOOK9I			0x0115
- #define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0116
-+#define MT_CLS_SURFACE_TOUCHPAD                0x0117
+ #define MT_CLS_EGALAX_P80H84			0x0116
+ #define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0117
++#define MT_CLS_SURFACE_TOUCHPAD                0x0118
  #define MT_CLS_SIS				0x0457
  
  #define MT_DEFAULT_MAXCONTACT	10
-@@ -460,6 +462,10 @@ static const struct mt_class mt_classes[] = {
+@@ -477,6 +479,10 @@ static const struct mt_class mt_classes[] = {
  			MT_QUIRK_WIN8_PTP_BUTTONS,
  		.export_all_inputs = true
  	},
@@ -198,7 +198,7 @@ index 1d245e998687..4d09710df6ba 100644
  	{ }
  };
  
-@@ -2247,11 +2253,30 @@ static void mt_remove(struct hid_device *hdev)
+@@ -2266,12 +2272,29 @@ static void mt_remove(struct hid_device *hdev)
  
  static void mt_on_hid_hw_open(struct hid_device *hdev)
  {
@@ -222,14 +222,13 @@ index 1d245e998687..4d09710df6ba 100644
 +	 * open/close hooks. Avoid mode switching on hw_open/hw_close for
 +	 * those devices.
 +	 */
-+	struct mt_device *td = hid_get_drvdata(hdev);
+ 	struct mt_device *td = hid_get_drvdata(hdev);
 +	if (td && td->mtclass.quirks & MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE)
 +		return;
-+
- 	mt_set_modes(hdev, HID_LATENCY_HIGH, TOUCHPAD_REPORT_NONE);
- }
  
-@@ -2697,6 +2722,11 @@ static const struct hid_device_id mt_devices[] = {
+ 	if (td->mtclass.quirks & MT_QUIRK_KEEP_LATENCY_ON_CLOSE)
+ 		mt_set_modes(hdev, HID_LATENCY_NORMAL, TOUCHPAD_REPORT_NONE);
+@@ -2730,6 +2753,11 @@ static const struct hid_device_id mt_devices[] = {
  		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
  			USB_VENDOR_ID_MICROSOFT, 0x09c0) },
  

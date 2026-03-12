@@ -1,4 +1,4 @@
-From ac09d90b18735c08f468036d4463748f98079b1e Mon Sep 17 00:00:00 2001
+From d57e717c711d9d85f60b34787f041063e1e9e031 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 18 Feb 2023 01:02:49 +0100
 Subject: [PATCH] USB: quirks: Add USB_QUIRK_DELAY_INIT for Surface Go 3
@@ -39,7 +39,7 @@ index c4d85089d19b..3d0d35c72189 100644
 -- 
 2.53.0
 
-From d15dc69b0a2269a35fee0523996600992957a164 Mon Sep 17 00:00:00 2001
+From 23de036a4048527398fa6e8435a66b9968b818a9 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 5 Nov 2020 13:09:45 +0100
 Subject: [PATCH] hid/multitouch: Turn off Type Cover keyboard backlight when
@@ -75,7 +75,7 @@ Patchset: surface-typecover
  1 file changed, 98 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 4dcb1d43df27..41e73a6aeed3 100644
+index af19e089b012..ab040ea64e28 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -35,7 +35,10 @@
@@ -97,11 +97,11 @@ index 4dcb1d43df27..41e73a6aeed3 100644
  
  #include "hid-haptic.h"
  
-@@ -77,12 +81,15 @@ MODULE_LICENSE("GPL");
- #define MT_QUIRK_ORIENTATION_INVERT	BIT(22)
+@@ -78,12 +82,15 @@ MODULE_LICENSE("GPL");
  #define MT_QUIRK_APPLE_TOUCHBAR		BIT(23)
  #define MT_QUIRK_YOGABOOK9I		BIT(24)
-+#define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(25)
+ #define MT_QUIRK_KEEP_LATENCY_ON_CLOSE	BIT(25)
++#define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(26)
  
  #define MT_INPUTMODE_TOUCHSCREEN	0x02
  #define MT_INPUTMODE_TOUCHPAD		0x03
@@ -113,7 +113,7 @@ index 4dcb1d43df27..41e73a6aeed3 100644
  enum latency_mode {
  	HID_LATENCY_NORMAL = 0,
  	HID_LATENCY_HIGH = 1,
-@@ -185,6 +192,8 @@ struct mt_device {
+@@ -186,6 +193,8 @@ struct mt_device {
  
  	struct list_head applications;
  	struct list_head reports;
@@ -122,17 +122,17 @@ index 4dcb1d43df27..41e73a6aeed3 100644
  };
  
  static void mt_post_parse_default_settings(struct mt_device *td,
-@@ -231,6 +240,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
- #define MT_CLS_SMART_TECH			0x0113
+@@ -234,6 +243,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
  #define MT_CLS_APPLE_TOUCHBAR			0x0114
  #define MT_CLS_YOGABOOK9I			0x0115
-+#define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0116
+ #define MT_CLS_EGALAX_P80H84			0x0116
++#define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0117
  #define MT_CLS_SIS				0x0457
  
  #define MT_DEFAULT_MAXCONTACT	10
-@@ -436,6 +446,16 @@ static const struct mt_class mt_classes[] = {
- 			MT_QUIRK_YOGABOOK9I,
- 		.export_all_inputs = true
+@@ -453,6 +463,16 @@ static const struct mt_class mt_classes[] = {
+ 			MT_QUIRK_IGNORE_DUPLICATES |
+ 			MT_QUIRK_CONTACT_CNT_ACCURATE,
  	},
 +	{ .name = MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER,
 +		.quirks = MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT |
@@ -147,7 +147,7 @@ index 4dcb1d43df27..41e73a6aeed3 100644
  	{ }
  };
  
-@@ -1909,6 +1929,69 @@ static void mt_expired_timeout(struct timer_list *t)
+@@ -1928,6 +1948,69 @@ static void mt_expired_timeout(struct timer_list *t)
  	clear_bit_unlock(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
  }
  
@@ -217,7 +217,7 @@ index 4dcb1d43df27..41e73a6aeed3 100644
  static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  {
  	int ret, i;
-@@ -1937,6 +2020,9 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+@@ -1956,6 +2039,9 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  	td->inputmode_value = MT_INPUTMODE_TOUCHSCREEN;
  	hid_set_drvdata(hdev, td);
  
@@ -227,7 +227,7 @@ index 4dcb1d43df27..41e73a6aeed3 100644
  	INIT_LIST_HEAD(&td->applications);
  	INIT_LIST_HEAD(&td->reports);
  
-@@ -1975,8 +2061,10 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+@@ -1994,8 +2080,10 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  	timer_setup(&td->release_timer, mt_expired_timeout, 0);
  
  	ret = hid_parse(hdev);
@@ -239,7 +239,7 @@ index 4dcb1d43df27..41e73a6aeed3 100644
  
  	if (mtclass->name == MT_CLS_APPLE_TOUCHBAR &&
  	    !hid_find_field(hdev, HID_INPUT_REPORT,
-@@ -1990,8 +2078,10 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+@@ -2009,8 +2097,10 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  		hdev->quirks |= HID_QUIRK_NOGET;
  
  	ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
@@ -251,7 +251,7 @@ index 4dcb1d43df27..41e73a6aeed3 100644
  
  	ret = sysfs_create_group(&hdev->dev.kobj, &mt_attribute_group);
  	if (ret)
-@@ -2052,6 +2142,7 @@ static void mt_remove(struct hid_device *hdev)
+@@ -2071,6 +2161,7 @@ static void mt_remove(struct hid_device *hdev)
  {
  	struct mt_device *td = hid_get_drvdata(hdev);
  
@@ -259,7 +259,7 @@ index 4dcb1d43df27..41e73a6aeed3 100644
  	timer_delete_sync(&td->release_timer);
  
  	sysfs_remove_group(&hdev->dev.kobj, &mt_attribute_group);
-@@ -2505,6 +2596,11 @@ static const struct hid_device_id mt_devices[] = {
+@@ -2538,6 +2629,11 @@ static const struct hid_device_id mt_devices[] = {
  		HID_USB_DEVICE(USB_VENDOR_ID_APPLE,
  			USB_DEVICE_ID_APPLE_TOUCHBAR_DISPLAY) },
  
@@ -274,7 +274,7 @@ index 4dcb1d43df27..41e73a6aeed3 100644
 -- 
 2.53.0
 
-From 9c77a5c88f6899ea31e32f54cf4deb192e74f67e Mon Sep 17 00:00:00 2001
+From 9c94ebf4630a38563fc50f553e9293666943c538 Mon Sep 17 00:00:00 2001
 From: PJungkamp <p.jungkamp@gmail.com>
 Date: Fri, 25 Feb 2022 12:04:25 +0100
 Subject: [PATCH] hid/multitouch: Add support for surface pro type cover tablet
@@ -303,18 +303,18 @@ Patchset: surface-typecover
  1 file changed, 122 insertions(+), 26 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 41e73a6aeed3..1d245e998687 100644
+index ab040ea64e28..ee9c073af9b4 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
-@@ -82,6 +82,7 @@ MODULE_LICENSE("GPL");
- #define MT_QUIRK_APPLE_TOUCHBAR		BIT(23)
+@@ -83,6 +83,7 @@ MODULE_LICENSE("GPL");
  #define MT_QUIRK_YOGABOOK9I		BIT(24)
- #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(25)
-+#define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(26)
+ #define MT_QUIRK_KEEP_LATENCY_ON_CLOSE	BIT(25)
+ #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(26)
++#define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(27)
  
  #define MT_INPUTMODE_TOUCHSCREEN	0x02
  #define MT_INPUTMODE_TOUCHPAD		0x03
-@@ -89,6 +90,8 @@ MODULE_LICENSE("GPL");
+@@ -90,6 +91,8 @@ MODULE_LICENSE("GPL");
  #define MT_BUTTONTYPE_CLICKPAD		0
  
  #define MS_TYPE_COVER_FEATURE_REPORT_USAGE	0xff050086
@@ -323,7 +323,7 @@ index 41e73a6aeed3..1d245e998687 100644
  
  enum latency_mode {
  	HID_LATENCY_NORMAL = 0,
-@@ -448,6 +451,7 @@ static const struct mt_class mt_classes[] = {
+@@ -465,6 +468,7 @@ static const struct mt_class mt_classes[] = {
  	},
  	{ .name = MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER,
  		.quirks = MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT |
@@ -331,7 +331,7 @@ index 41e73a6aeed3..1d245e998687 100644
  			MT_QUIRK_ALWAYS_VALID |
  			MT_QUIRK_IGNORE_DUPLICATES |
  			MT_QUIRK_HOVERING |
-@@ -1474,6 +1478,9 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
+@@ -1492,6 +1496,9 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
  	    field->application != HID_CP_CONSUMER_CONTROL &&
  	    field->application != HID_GD_WIRELESS_RADIO_CTLS &&
  	    field->application != HID_GD_SYSTEM_MULTIAXIS &&
@@ -341,7 +341,7 @@ index 41e73a6aeed3..1d245e998687 100644
  	    !(field->application == HID_VD_ASUS_CUSTOM_MEDIA_KEYS &&
  	      application->quirks & MT_QUIRK_ASUS_CUSTOM_UP))
  		return -1;
-@@ -1501,6 +1508,21 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
+@@ -1519,6 +1526,21 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
  		return 1;
  	}
  
@@ -363,7 +363,7 @@ index 41e73a6aeed3..1d245e998687 100644
  	if (rdata->is_mt_collection)
  		return mt_touch_input_mapping(hdev, hi, field, usage, bit, max,
  					      application);
-@@ -1527,6 +1549,7 @@ static int mt_input_mapped(struct hid_device *hdev, struct hid_input *hi,
+@@ -1545,6 +1567,7 @@ static int mt_input_mapped(struct hid_device *hdev, struct hid_input *hi,
  {
  	struct mt_device *td = hid_get_drvdata(hdev);
  	struct mt_report_data *rdata;
@@ -371,7 +371,7 @@ index 41e73a6aeed3..1d245e998687 100644
  
  	rdata = mt_find_report_data(td, field->report);
  	if (rdata && rdata->is_mt_collection) {
-@@ -1534,6 +1557,19 @@ static int mt_input_mapped(struct hid_device *hdev, struct hid_input *hi,
+@@ -1552,6 +1575,19 @@ static int mt_input_mapped(struct hid_device *hdev, struct hid_input *hi,
  		return -1;
  	}
  
@@ -391,7 +391,7 @@ index 41e73a6aeed3..1d245e998687 100644
  	/* let hid-core decide for the others */
  	return 0;
  }
-@@ -1543,11 +1579,21 @@ static int mt_event(struct hid_device *hid, struct hid_field *field,
+@@ -1561,11 +1597,21 @@ static int mt_event(struct hid_device *hid, struct hid_field *field,
  {
  	struct mt_device *td = hid_get_drvdata(hid);
  	struct mt_report_data *rdata;
@@ -413,7 +413,7 @@ index 41e73a6aeed3..1d245e998687 100644
  	return 0;
  }
  
-@@ -1762,6 +1808,42 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app)
+@@ -1780,6 +1826,42 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app)
  		app->quirks &= ~MT_QUIRK_CONTACT_CNT_ACCURATE;
  }
  
@@ -456,7 +456,7 @@ index 41e73a6aeed3..1d245e998687 100644
  static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
  {
  	struct mt_device *td = hid_get_drvdata(hdev);
-@@ -1819,6 +1901,13 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
+@@ -1838,6 +1920,13 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
  		/* force BTN_STYLUS to allow tablet matching in udev */
  		__set_bit(BTN_STYLUS, hi->input->keybit);
  		break;
@@ -470,7 +470,7 @@ index 41e73a6aeed3..1d245e998687 100644
  	default:
  		suffix = "UNKNOWN";
  		break;
-@@ -1929,30 +2018,6 @@ static void mt_expired_timeout(struct timer_list *t)
+@@ -1948,30 +2037,6 @@ static void mt_expired_timeout(struct timer_list *t)
  	clear_bit_unlock(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
  }
  
@@ -501,7 +501,7 @@ index 41e73a6aeed3..1d245e998687 100644
  static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
  {
  	struct usb_device *udev = hid_to_usb_dev(hdev);
-@@ -1961,8 +2026,9 @@ static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
+@@ -1980,8 +2045,9 @@ static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
  	/* Wake up the device in case it's already suspended */
  	pm_runtime_get_sync(&udev->dev);
  
@@ -513,7 +513,7 @@ index 41e73a6aeed3..1d245e998687 100644
  		hid_err(hdev, "couldn't find backlight field\n");
  		goto out;
  	}
-@@ -2120,13 +2186,24 @@ static int mt_suspend(struct hid_device *hdev, pm_message_t state)
+@@ -2139,13 +2205,24 @@ static int mt_suspend(struct hid_device *hdev, pm_message_t state)
  
  static int mt_reset_resume(struct hid_device *hdev)
  {
@@ -538,7 +538,7 @@ index 41e73a6aeed3..1d245e998687 100644
  	/* Some Elan legacy devices require SET_IDLE to be set on resume.
  	 * It should be safe to send it to other devices too.
  	 * Tested on 3M, Stantum, Cypress, Zytronic, eGalax, and Elan panels. */
-@@ -2135,12 +2212,31 @@ static int mt_resume(struct hid_device *hdev)
+@@ -2154,12 +2231,31 @@ static int mt_resume(struct hid_device *hdev)
  
  	mt_set_modes(hdev, HID_LATENCY_NORMAL, TOUCHPAD_REPORT_ALL);
  
