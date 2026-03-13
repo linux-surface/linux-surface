@@ -1,4 +1,4 @@
-From f7f864a34eb97847097e2250129a8b04dfeb8bff Mon Sep 17 00:00:00 2001
+From 9b58106e19b6de4e9acf3c65f13e5b23083a59f4 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Tue, 30 Sep 2025 20:12:29 +0200
 Subject: [PATCH 4/6] Install scripts and service files for keeping the surface
@@ -10,10 +10,10 @@ Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
  1 file changed, 33 insertions(+)
 
 diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
-index 81bb35bb8e36..67aaf5883051 100644
+index c5748edf9301..f26b37b3354d 100644
 --- a/redhat/kernel.spec.template
 +++ b/redhat/kernel.spec.template
-@@ -1161,6 +1161,11 @@ Source4000: README.rst
+@@ -1221,6 +1221,11 @@ Source4000: README.rst
  Source4001: rpminspect.yaml
  Source4002: gating.yaml
  
@@ -25,7 +25,7 @@ index 81bb35bb8e36..67aaf5883051 100644
  ## Patches needed for building this package
  
  %if !%{nopatches}
-@@ -1199,6 +1204,7 @@ Requires(pre): %{initrd_prereq}\
+@@ -1263,6 +1268,7 @@ Requires(pre): %{initrd_prereq}\
  Requires(pre): ((linux-firmware >= 20150904-56.git6ebf5d57) if linux-firmware)\
  Recommends: linux-firmware\
  Recommends: iptsd\
@@ -33,7 +33,7 @@ index 81bb35bb8e36..67aaf5883051 100644
  Requires(preun): systemd >= 200\
  Conflicts: xfsprogs < 4.3.0-1\
  Conflicts: xorg-x11-drv-vmmouse < 13.0.99\
-@@ -1213,6 +1219,13 @@ AutoProv: yes\
+@@ -1277,6 +1283,13 @@ AutoProv: yes\
  %{nil}
  
  
@@ -47,7 +47,7 @@ index 81bb35bb8e36..67aaf5883051 100644
  %package doc
  Summary: Various documentation bits found in the kernel source
  Group: Documentation
-@@ -3475,6 +3488,11 @@ find Documentation -type d | xargs chmod u+w
+@@ -3688,6 +3701,11 @@ find Documentation -type d | xargs chmod u+w
  
  cd linux-%{KVERREL}
  
@@ -59,7 +59,7 @@ index 81bb35bb8e36..67aaf5883051 100644
  # re-define RPM_VMLINUX_H, because it doesn't carry over from %build
  RPM_VMLINUX_H="$(cat ../vmlinux_h_path)"
  
-@@ -3784,6 +3802,15 @@ popd
+@@ -4111,6 +4129,15 @@ popd
  ### scripts
  ###
  
@@ -73,9 +73,9 @@ index 81bb35bb8e36..67aaf5883051 100644
 +%systemd_postun_with_restart linux-surface-default-watchdog.path
 +
  %if %{with_tools}
- %post -n %{package_name}-tools-libs
+ %post -n %{name}-tools-libs
  /sbin/ldconfig
-@@ -4266,6 +4293,12 @@ fi\
+@@ -4657,6 +4684,12 @@ fi\
  %{_libexecdir}/kselftests
  %endif
  
@@ -86,8 +86,8 @@ index 81bb35bb8e36..67aaf5883051 100644
 +%{_presetdir}/90-linux-surface-default-watchdog.preset
 +
  # empty meta-package
- %if %{with_up_base}
+ %if %{with_stock_base}
  %ifnarch %nobuildarches noarch
 -- 
-2.52.0
+2.53.0
 

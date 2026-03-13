@@ -1,4 +1,4 @@
-From 3a68edfb0846e4fea4a947cb70bf3c2eb181ad47 Mon Sep 17 00:00:00 2001
+From 583461fb19d94847a2a2e8b904b57accfdd54ad6 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Tue, 30 Sep 2025 20:09:20 +0200
 Subject: [PATCH 2/6] Let kernel-surface provide the standard package names
@@ -9,18 +9,18 @@ Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
  1 file changed, 34 insertions(+)
 
 diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
-index 042a9736e324..23ed1c854ed4 100644
+index 505f440e04af..d92ef1a8d86a 100644
 --- a/redhat/kernel.spec.template
 +++ b/redhat/kernel.spec.template
-@@ -747,6 +747,7 @@ Requires: %{name}-modules-uname-r = %{KVERREL}
- Requires: %{name}-modules-core-uname-r = %{KVERREL}
- Requires: ((%{name}-modules-extra-uname-r = %{KVERREL}) if %{name}-modules-extra-matched)
+@@ -784,6 +784,7 @@ Requires: ((%{name}-modules-extra-uname-r = %{KVERREL}) if %{name}-modules-extra
+ # Prefer the plain kernel-core pkg as core-uname-r provider
+ Suggests: %{name}-core = %{specversion}-%{release}
  Provides: installonlypkg(kernel)
 +Provides: kernel = %{KVERREL}
  %endif
  
  
-@@ -1184,7 +1185,9 @@ The %{package_name} meta package
+@@ -1248,7 +1249,9 @@ The %{name} meta package
  Provides: kernel = %{specversion}-%{pkg_release}\
  Provides: %{name} = %{specversion}-%{pkg_release}\
  %endif\
@@ -30,7 +30,7 @@ index 042a9736e324..23ed1c854ed4 100644
  Provides: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires(pre): %{kernel_prereq}\
-@@ -1223,6 +1226,7 @@ Summary: Header files for the Linux kernel for use by glibc
+@@ -1287,6 +1290,7 @@ Summary: Header files for the Linux kernel for use by glibc
  Obsoletes: glibc-kernheaders < 3.0-46
  Provides: glibc-kernheaders = 3.0-46
  %if 0%{?gemini}
@@ -38,7 +38,7 @@ index 042a9736e324..23ed1c854ed4 100644
  Provides: %{name}-headers = %{specversion}-%{release}
  Obsoletes: kernel-headers < %{specversion}
  %endif
-@@ -1238,6 +1242,7 @@ glibc package.
+@@ -1302,6 +1306,7 @@ glibc package.
  %package cross-headers
  Summary: Header files for the Linux kernel for use by cross-glibc
  %if 0%{?gemini}
@@ -46,7 +46,7 @@ index 042a9736e324..23ed1c854ed4 100644
  Provides: %{name}-cross-headers = %{specversion}-%{release}
  Obsoletes: kernel-cross-headers < %{specversion}
  %endif
-@@ -1477,6 +1482,7 @@ Linux kernel, suitable for the kabi-dw tool.
+@@ -1582,6 +1587,7 @@ Linux kernel, suitable for the kabi-dw tool.
  %package %{?1:%{1}-}debuginfo\
  Summary: Debug information for package %{name}%{?1:-%{1}}\
  Requires: %{name}-debuginfo-common-%{_target_cpu} = %{specrpmversion}-%{release}\
@@ -54,7 +54,7 @@ index 042a9736e324..23ed1c854ed4 100644
  Provides: %{name}%{?1:-%{1}}-debuginfo-%{_target_cpu} = %{specrpmversion}-%{release}\
  Provides: installonlypkg(kernel)\
  AutoReqProv: no\
-@@ -1493,10 +1499,13 @@ This is required to use SystemTap with %{name}%{?1:-%{1}}-%{KVERREL}.\
+@@ -1605,10 +1611,13 @@ This is required to use SystemTap with %{name}%{?1:-%{1}}-%{KVERREL}.\
  %define kernel_devel_package(m) \
  %package %{?1:%{1}-}devel\
  Summary: Development package for building kernel modules to match the %{?2:%{2} }kernel\
@@ -68,15 +68,15 @@ index 042a9736e324..23ed1c854ed4 100644
  Provides: installonlypkg(kernel)\
  AutoReqProv: no\
  Requires(pre): findutils\
-@@ -1526,6 +1535,7 @@ against the %{?2:%{2} }kernel package.\
+@@ -1638,6 +1647,7 @@ against the %{?2:%{2} }kernel package.\
  Summary: Meta package to install matching core and devel packages for a given %{?2:%{2} }kernel\
- Requires: %{package_name}%{?1:-%{1}}-devel = %{specrpmversion}-%{release}\
- Requires: %{package_name}%{?1:-%{1}}-core = %{specrpmversion}-%{release}\
+ Requires: %{name}%{?1:-%{1}}-devel = %{specrpmversion}-%{release}\
+ Requires: %{name}%{?1:-%{1}}-core = %{specrpmversion}-%{release}\
 +Provides: kernel-devel-matched = %{specrpmversion}-%{release}\
  %description %{?1:%{1}-}devel-matched\
  This meta package is used to install matching core and devel packages for a given %{?2:%{2} }kernel.\
  %{nil}
-@@ -1545,10 +1555,14 @@ This meta package provides a single reference that other packages can Require to
+@@ -1657,10 +1667,14 @@ This meta package provides a single reference that other packages can Require to
  %package %{?1:%{1}-}modules-internal\
  Summary: Extra kernel modules to match the %{?2:%{2} }kernel\
  Group: System Environment/Kernel\
@@ -91,7 +91,7 @@ index 042a9736e324..23ed1c854ed4 100644
  Provides: %{name}%{?1:-%{1}}-modules-internal-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
-@@ -1566,10 +1580,14 @@ This package provides kernel modules for the %{?2:%{2} }kernel package for Red H
+@@ -1684,10 +1698,14 @@ This package provides kernel modules for the %{?2:%{2} }kernel package for Red H
  %define kernel_modules_extra_package(m) \
  %package %{?1:%{1}-}modules-extra\
  Summary: Extra kernel modules to match the %{?2:%{2} }kernel\
@@ -106,7 +106,7 @@ index 042a9736e324..23ed1c854ed4 100644
  Provides: %{name}%{?1:-%{1}}-modules-extra-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
-@@ -1590,10 +1608,14 @@ This package provides less commonly used kernel modules for the %{?2:%{2} }kerne
+@@ -1714,10 +1732,14 @@ This package provides less commonly used kernel modules for the %{?2:%{2} }kerne
  %define kernel_modules_package(m) \
  %package %{?1:%{1}-}modules\
  Summary: kernel modules to match the %{?2:%{2}-}core kernel\
@@ -121,7 +121,7 @@ index 042a9736e324..23ed1c854ed4 100644
  Provides: %{name}%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
-@@ -1613,10 +1635,14 @@ This package provides commonly used kernel modules for the %{?2:%{2}-}core kerne
+@@ -1737,10 +1759,14 @@ This package provides commonly used kernel modules for the %{?2:%{2}-}core kerne
  %define kernel_modules_core_package(m) \
  %package %{?1:%{1}-}modules-core\
  Summary: Core kernel modules to match the %{?2:%{2}-}core kernel\
@@ -136,7 +136,7 @@ index 042a9736e324..23ed1c854ed4 100644
  Provides: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  %if %{-m:1}%{!-m:0}\
-@@ -1643,6 +1669,7 @@ Requires: ((%{name}-%{1}-modules-extra-uname-r = %{KVERREL}%{uname_suffix %{1}})
+@@ -1769,6 +1795,7 @@ Suggests: %{name}-%{1}-core = %{specversion}-%{release}\
  Requires: realtime-setup\
  %endif\
  Provides: installonlypkg(kernel)\
@@ -144,7 +144,7 @@ index 042a9736e324..23ed1c854ed4 100644
  %description %{1}\
  The meta-package for the %{1} kernel\
  %{nil}
-@@ -1659,8 +1686,10 @@ The meta-package for the %{1} kernel\
+@@ -1790,8 +1817,10 @@ The meta-package for the %{1} kernel\
  %define kernel_variant_package(n:mo) \
  %package %{?1:%{1}-}core\
  Summary: %{variant_summary}\
@@ -155,7 +155,7 @@ index 042a9736e324..23ed1c854ed4 100644
  %if %{-m:1}%{!-m:0}\
  Requires: %{name}-core-uname-r = %{KVERREL}%{uname_variant %{?1}}\
  Requires: %{name}-%{?1:%{1}-}-modules-core-uname-r = %{KVERREL}%{uname_variant %{?1}}\
-@@ -1685,6 +1714,7 @@ Requires: %{name}-%{?1:%{1}-}-modules-core-uname-r = %{KVERREL}%{uname_variant %
+@@ -1816,6 +1845,7 @@ Requires: %{name}-%{?1:%{1}-}-modules-core-uname-r = %{KVERREL}%{uname_variant %
  %package %{?1:%{1}-}uki-virt\
  Summary: %{variant_summary} unified kernel image for virtual machines\
  Provides: installonlypkg(kernel)\
@@ -163,7 +163,7 @@ index 042a9736e324..23ed1c854ed4 100644
  Provides: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires(pre): %{kernel_prereq}\
-@@ -1709,10 +1739,14 @@ Requires(pre): systemd >= 254-1\
+@@ -1853,10 +1883,14 @@ Conflicts: %{name}%{?1:-%{1}}-core = %{specrpmversion}-%{release}\
  %package %{?1:%{1}-}modules-partner\
  Summary: Extra kernel modules to match the %{?2:%{2} }kernel\
  Group: System Environment/Kernel\
@@ -179,5 +179,5 @@ index 042a9736e324..23ed1c854ed4 100644
  Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
 -- 
-2.52.0
+2.53.0
 
