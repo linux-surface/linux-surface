@@ -1,0 +1,101 @@
+#!/bin/bash
+# Bridges the Surface Go 2 front camera (via libcamera/IPU3) to /dev/video42
+# so that V4L2-only apps (Chrome, Zoom, cheese, OBS, etc.) can use it.
+#
+# Requires: v4l2loopback module loaded with video_nr=42
+#           libcamera, gstreamer1.0-tools, ffmpeg
+
+set -euo pipefail
+
+LOOPBACK_DEV="${LOOPBACK_DEV:-/dev/video42}"
+# The front camera's libcamera name is literally "\_SB_.PCI0.LNK1" (ACPI path).
+# GStreamer's pipeline parser interprets backslashes, so we need to pass it "\\_"
+# which, in a bash double-quoted string, requires four backslashes.
+CAMERA_NAME="${CAMERA_NAME:-\\\\_SB_.PCI0.LNK1}"
+WIDTH="${WIDTH:-1280}"
+HEIGHT="${HEIGHT:-720}"
+FPS="${FPS:-30}"
+
+# Path to the ov8865 v4l2-subdev. Discovered dynamically because the sub-device
+# index isn't stable across boots — walk /sys/class/video4linux/v4l-subdev*/name.
+find_ov8865_subdev() {
+    local f
+    for f in /sys/class/video4linux/v4l-subdev*/name; do
+        [[ -r $f ]] || continue
+        if grep -q '^ov8865 ' "$f"; then
+            basename "$(dirname "$f")" | sed 's|^|/dev/|'
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Exposure / gain parameters for the ov8865 sensor. libcamera's uncalibrated
+# IPA doesn't configure AGC for this sensor, so the sensor driver leaves
+# exposure at its default minimum (~32) which yields an unusably dark image.
+# We reach through to the sub-device and set them ourselves. Overridable.
+SENSOR_EXPOSURE="${SENSOR_EXPOSURE:-2400}"     # range [2..2462], driver default 32
+SENSOR_GAIN="${SENSOR_GAIN:-1024}"             # range [128..2048], step 128
+
+# Post-processing filter that runs in ffmpeg between the raw libcamera frames
+# and /dev/video42. Applied in this order:
+#   1. colorchannelmixer rebalances R/G/B because uncalibrated libcamera leaves
+#      a strong green cast (IPU3's default CCM is identity, and the ov8865's
+#      RGGB Bayer pattern is green-heavy).
+#   2. eq tunes brightness/contrast/saturation to taste.
+#   3. format=yuv420p forces the output back to a pixel format v4l2 can consume
+#      (colorchannelmixer upgrades internally to yuv444p).
+# Override BRIDGE_FILTER to taste.
+BRIDGE_FILTER="${BRIDGE_FILTER:-colorchannelmixer=rr=1.2:gg=0.95:bb=1.3,eq=brightness=0.12:contrast=1.15:saturation=0.92:gamma=1.1,format=yuv420p}"
+
+if [[ ! -e "$LOOPBACK_DEV" ]]; then
+    echo "ERROR: $LOOPBACK_DEV does not exist. Is v4l2loopback loaded?" >&2
+    exit 1
+fi
+
+SUBDEV=$(find_ov8865_subdev || true)
+if [[ -n "${SUBDEV:-}" ]] && [[ -e "$SUBDEV" ]]; then
+    # Best-effort: set sensor exposure/gain. Failures are non-fatal — if the
+    # sensor driver rejects the value we still capture, just dimly.
+    v4l2-ctl --device="$SUBDEV" \
+        --set-ctrl=exposure="$SENSOR_EXPOSURE" \
+        --set-ctrl=analogue_gain="$SENSOR_GAIN" >/dev/null 2>&1 || true
+fi
+
+# Clean up child processes on exit
+cleanup() {
+    local rc=$?
+    [[ -n "${GST_PID:-}" ]] && kill -TERM "$GST_PID" 2>/dev/null || true
+    [[ -n "${FFMPEG_PID:-}" ]] && kill -TERM "$FFMPEG_PID" 2>/dev/null || true
+    wait 2>/dev/null || true
+    exit $rc
+}
+trap cleanup EXIT INT TERM
+
+# Pipe: libcamera (via gstreamer) → raw I420/yuv420p → ffmpeg → v4l2loopback
+# I420 (yuv420p) is used because the idle-keeper service also writes yuv420p,
+# so v4l2loopback's format stays identical across the idle<->bridge swap and
+# any reader that's already streaming doesn't see a format change.
+PIPE=$(mktemp -u /tmp/surface-cam-bridge.XXXXXX.fifo)
+mkfifo "$PIPE"
+trap 'rm -f "$PIPE"; cleanup' EXIT INT TERM
+
+# GStreamer just decodes libcamera -> raw I420 frames into the fifo. All the
+# color/exposure correction happens in the ffmpeg stage below, because ffmpeg
+# has a richer filter set (colorchannelmixer, eq) than GStreamer's videobalance.
+gst-launch-1.0 -q libcamerasrc "camera-name=${CAMERA_NAME}" \
+    ! "video/x-raw,width=${WIDTH},height=${HEIGHT},format=NV12" \
+    ! videoconvert \
+    ! "video/x-raw,format=I420,width=${WIDTH},height=${HEIGHT}" \
+    ! fdsink fd=1 > "$PIPE" &
+GST_PID=$!
+
+ffmpeg -loglevel warning -hide_banner \
+    -f rawvideo -pixel_format yuv420p -video_size "${WIDTH}x${HEIGHT}" -framerate "${FPS}" \
+    -i "$PIPE" \
+    -vf "$BRIDGE_FILTER" \
+    -f v4l2 "$LOOPBACK_DEV" &
+FFMPEG_PID=$!
+
+# Exit as soon as either child dies
+wait -n "$GST_PID" "$FFMPEG_PID"
