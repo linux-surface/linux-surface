@@ -154,7 +154,10 @@ for config in configs:
 
         print("Applying %s" % line.rstrip("\n"))
 
-        with open("redhat/configs/custom-overrides/generic/%s" % NAME, "w") as f:
+        with open("redhat/configs/custom-overrides/generic/x86/%s" % NAME, "w") as f:
+            f.write(line)
+
+        with open("redhat/configs/custom-overrides/generic/arm/aarch64/%s" % NAME, "w") as f:
             f.write(line)
 
 system("git add redhat/configs/custom-overrides/generic")
