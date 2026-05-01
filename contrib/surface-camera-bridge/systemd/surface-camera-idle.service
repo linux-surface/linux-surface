@@ -1,0 +1,24 @@
+[Unit]
+Description=Surface camera idle keeper (black frame to /dev/video42, no hardware)
+After=systemd-modules-load.service
+Requires=systemd-modules-load.service
+# When the real bridge starts, systemd stops this one.
+Conflicts=surface-camera-bridge.service
+
+[Service]
+Type=simple
+# Write a 5fps black YUYV frame to /dev/video42 so readers can always STREAMON.
+# Uses proper v4l2 streaming API via ffmpeg (not io-mode=rw) — this is the only
+# mode that allows simultaneous readers.
+ExecStart=/usr/bin/ffmpeg -nostdin -loglevel warning -hide_banner \
+    -f lavfi -i color=c=black:size=1280x720:rate=5 \
+    -pix_fmt yuv420p -f v4l2 /dev/video42
+Restart=on-failure
+RestartSec=1
+SupplementaryGroups=video
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

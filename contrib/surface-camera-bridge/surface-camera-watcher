@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""
+surface-camera-watcher: transitions /dev/video42 between an always-on idle
+writer and the real libcamera bridge, based on whether any external process
+has the device open.
+
+Architecture:
+- surface-camera-idle.service writes a black frame at 5fps to /dev/video42.
+  This keeps /dev/video42 continuously streamable, so readers (Chrome, Zoom,
+  cheese, etc.) never get EIO on VIDIOC_STREAMON. No hardware touched; the
+  camera LED stays off.
+- surface-camera-bridge.service runs the libcamera pipeline — this is the
+  "real" writer that actually captures from the front camera hardware.
+  Running it turns the camera LED on.
+- The two services Conflict= on each other; starting one stops the other.
+- This watcher polls /proc/*/fd for external openers of /dev/video42. When
+  one appears, it starts the bridge (idle gets auto-stopped). When the last
+  external opener has been gone for IDLE_GRACE seconds, it starts the idle
+  service (bridge gets auto-stopped and the camera LED turns off).
+
+Readers keep their stream-on'd fds across the swap; their DQBUF blocks for
+~0.5-1s during the swap and then unblocks with real frames.
+"""
+import os
+import signal
+import subprocess
+import sys
+import time
+
+CAMERA_DEV = os.environ.get("CAMERA_DEV", "/dev/video42")
+BRIDGE_SERVICE = os.environ.get("BRIDGE_SERVICE", "surface-camera-bridge.service")
+IDLE_SERVICE = os.environ.get("IDLE_SERVICE", "surface-camera-idle.service")
+POLL_INTERVAL = float(os.environ.get("POLL_INTERVAL", "0.1"))
+IDLE_GRACE = float(os.environ.get("IDLE_GRACE", "3.0"))
+
+CG_BRIDGE = f"/sys/fs/cgroup/system.slice/{BRIDGE_SERVICE}/cgroup.procs"
+CG_IDLE = f"/sys/fs/cgroup/system.slice/{IDLE_SERVICE}/cgroup.procs"
+
+
+def log(msg: str) -> None:
+    # systemd-journald captures stdout from Type=simple units.
+    print(f"watcher: {msg}", flush=True)
+
+
+def fd_holders(dev_path: str) -> set[str]:
+    """Return the set of PIDs (as str) that have `dev_path` open on any fd."""
+    holders: set[str] = set()
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return holders
+    for pid in entries:
+        if not pid.isdigit():
+            continue
+        fd_dir = f"/proc/{pid}/fd"
+        try:
+            fds = os.listdir(fd_dir)
+        except (OSError, PermissionError):
+            continue
+        for fd in fds:
+            try:
+                target = os.readlink(f"{fd_dir}/{fd}")
+            except OSError:
+                continue
+            if target == dev_path:
+                holders.add(pid)
+                break
+    return holders
+
+
+def read_cgroup_pids(path: str) -> set[str]:
+    try:
+        with open(path, "r") as f:
+            return set(f.read().split())
+    except (OSError, FileNotFoundError):
+        return set()
+
+
+def bridge_cgroup_pids() -> set[str]:
+    return read_cgroup_pids(CG_BRIDGE)
+
+
+def idle_cgroup_pids() -> set[str]:
+    return read_cgroup_pids(CG_IDLE)
+
+
+def service_state(name: str) -> str:
+    """Return 'active', 'activating', 'inactive', 'failed', etc."""
+    r = subprocess.run(
+        ["systemctl", "is-active", name], capture_output=True, text=True
+    )
+    return r.stdout.strip() or "unknown"
+
+
+def start_service(name: str) -> None:
+    subprocess.run(["systemctl", "start", name], check=False)
+
+
+_stopping = False
+
+
+def _handle_stop(signum, frame):
+    global _stopping
+    _stopping = True
+
+
+def main() -> int:
+    if not os.path.exists(CAMERA_DEV):
+        log(f"ERROR: {CAMERA_DEV} does not exist; is v4l2loopback loaded?")
+        return 1
+
+    signal.signal(signal.SIGTERM, _handle_stop)
+    signal.signal(signal.SIGINT, _handle_stop)
+
+    log(
+        f"starting; watching {CAMERA_DEV}, "
+        f"poll={POLL_INTERVAL}s grace={IDLE_GRACE}s "
+        f"bridge={BRIDGE_SERVICE} idle={IDLE_SERVICE}"
+    )
+
+    # Ensure something is writing at boot: if neither service is running,
+    # start idle so /dev/video42 has a writer.
+    if (
+        service_state(BRIDGE_SERVICE) != "active"
+        and service_state(IDLE_SERVICE) != "active"
+    ):
+        log("boot state: starting idle writer")
+        start_service(IDLE_SERVICE)
+
+    last_seen_external = 0.0
+    had_external = False
+    target_mode: str | None = None  # track last-requested service to avoid spam
+
+    while not _stopping:
+        now = time.monotonic()
+        holders = fd_holders(CAMERA_DEV)
+        # A holder is "external" iff it's not in either managed service's cgroup.
+        own_pids = bridge_cgroup_pids() | idle_cgroup_pids()
+        external = holders - own_pids
+
+        if external:
+            last_seen_external = now
+            if not had_external:
+                log(f"external opener(s): {sorted(external)}")
+                had_external = True
+            if target_mode != "bridge":
+                log(f"start {BRIDGE_SERVICE}")
+                start_service(BRIDGE_SERVICE)
+                target_mode = "bridge"
+        else:
+            if had_external:
+                log("no external openers (waiting for idle grace)")
+                had_external = False
+            if target_mode != "idle" and (now - last_seen_external) > IDLE_GRACE:
+                log(f"idle grace elapsed; start {IDLE_SERVICE}")
+                start_service(IDLE_SERVICE)
+                target_mode = "idle"
+
+        time.sleep(POLL_INTERVAL)
+
+    log("shutting down on signal")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
