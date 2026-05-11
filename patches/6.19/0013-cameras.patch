@@ -1057,7 +1057,56 @@ index f5456330b..3418ff475 100644
 +	},
  	{} /* Terminating entry */
  };
- 
--- 
+
+--
 2.53.0
 
+From 0000000000000000000000000000000000000001 Mon Sep 17 00:00:00 2001
+From: Sakari Ailus <sakari.ailus@linux.intel.com>
+Date: Thu, 26 Mar 2026 17:49:09 +0000
+Subject: [PATCH] media: i2c: dw9719: Add I2C device ID table
+
+The I2C device id table is necessary as the device may be, besides
+through system firmware, also instantiated in the IPU bridge so
+matching takes place using the I2C device id table.
+
+Without this table, Surface devices using the dw9719 VCM (voice coil
+motor for autofocus) fail to bind the VCM driver. On Surface Book 2
+and similar devices, this prevents the ipu3-cio2 notifier from
+completing, leaving cameras without media links and with no V4L2
+subdevice nodes — so libcamera reports no cameras.
+
+Link: https://lore.kernel.org/all/20260326174909.2746696-1-sakari.ailus@linux.intel.com/
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+Patchset: cameras
+---
+ drivers/media/i2c/dw9719.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/i2c/dw9719.c b/drivers/media/i2c/dw9719.c
+--- a/drivers/media/i2c/dw9719.c
++++ b/drivers/media/i2c/dw9719.c
+@@ -454,6 +454,15 @@ static const struct of_device_id dw9719_of_table[] = {
+ };
+ MODULE_DEVICE_TABLE(of, dw9719_of_table);
+
++static const struct i2c_device_id dw9719_id_table[] = {
++	{ .name = "dw9718s", .driver_data = (kernel_ulong_t)DW9718S },
++	{ .name = "dw9719", .driver_data = (kernel_ulong_t)DW9719 },
++	{ .name = "dw9761", .driver_data = (kernel_ulong_t)DW9761 },
++	{ .name = "dw9800k", .driver_data = (kernel_ulong_t)DW9800K },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, dw9719_id_table);
++
+ static DEFINE_RUNTIME_DEV_PM_OPS(dw9719_pm_ops, dw9719_suspend, dw9719_resume,
+ 				 NULL);
+
+@@ -466,4 +475,5 @@ static struct i2c_driver dw9719_i2c_driver = {
+ 	.probe = dw9719_probe,
+ 	.remove = dw9719_remove,
++	.id_table = dw9719_id_table,
+ };
+ module_i2c_driver(dw9719_i2c_driver);
+--
+2.53.0
