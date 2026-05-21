@@ -43,6 +43,7 @@ build-packages)
     # setup git
     git config --global user.name "surfacebot"
     git config --global user.email "surfacebot@users.noreply.github.com"
+    git config --global maintenance.auto false #prevent maintenance that exhausts runner resources
 
     # Build source RPM packages
     python3 build-linux-surface.py --mode srpm --ark-dir kernel-ark --outdir srpm
