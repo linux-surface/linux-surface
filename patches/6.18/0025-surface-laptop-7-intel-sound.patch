@@ -1,0 +1,190 @@
+From c8c4874ec046792b31dbb3c9dd1a8c8f0bbd3fbf Mon Sep 17 00:00:00 2001
+From: Eamonn Hayden <eamonnhayden@gmail.com>
+Date: Mon, 25 May 2026 14:59:36 +0100
+Subject: [PATCH] ALSA: soc: intel: Add SoundWire audio support for Surface
+ Laptop 7 (Intel)
+
+Add machine driver support for the Microsoft Surface Laptop 7 (Intel
+Lunar Lake) SoundWire audio topology: RT1320 speaker amplifier on
+SoundWire link 0 (ADR 0x000030025D132001, class_id=0x01) and RT721
+SDCA headset codec on link 3 (ADR 0x000330025D072101).
+
+The SL7 has a single physical RT1320 chip (class_id=0x01); the ACPI
+DSDT also declares a ghost device (class_id=0x00) which never attaches
+on the bus. Introduce rt1320_0_single_adr (non-aggregated, single
+endpoint) to avoid including the unresponsive device in the aggregated
+stream and to prevent DPN_PortCtrl register write failures.
+
+Add RT721 SDCA UAJ codec entry (version_id=3, jack aif1) to
+codec_info_list and force SimpleJack stream naming in sof_sdw when
+append_dai_type=false, so DAI link names match the SOF topology files
+(sof-sdca-1amp-id2.tplg + sof-sdca-jack-id0.tplg).
+
+Tested on Surface Laptop for Business 7th Edition (Intel Ultra 2,
+Lunar Lake) running CachyOS with kernel 6.19.8-arch1.
+
+Patchset: surface-laptop7-intel
+---
+ sound/soc/intel/boards/sof_sdw.c              |  16 +++-
+ .../intel/common/soc-acpi-intel-lnl-match.c   |  60 ++++++++++
+ sound/soc/sdw_utils/soc_sdw_utils.c           |  22 ++++
+ 3 files changed, 95 insertions(+), 3 deletions(-)
+
+diff --git a/sound/soc/intel/boards/sof_sdw.c b/sound/soc/intel/boards/sof_sdw.c
+index 50b838be24e9..e378721aabc3 100644
+--- a/sound/soc/intel/boards/sof_sdw.c
++++ b/sound/soc/intel/boards/sof_sdw.c
+@@ -924,15 +924,27 @@ static int create_sdw_dailink(struct snd_soc_card *card,
+ 		}
+ 
+ 		/* create stream name according to first link id */
+-		if (ctx->append_dai_type)
++		if (ctx->append_dai_type) {
+ 			name = devm_kasprintf(dev, GFP_KERNEL,
+ 					      sdw_stream_name[stream + 2],
+ 					      ffs(sof_end->link_mask) - 1,
+ 					      type_strings[sof_end->dai_info->dai_type]);
+-		else
++		} else if (sof_end->dai_info->dai_type == SOC_SDW_DAI_TYPE_AMP) {
++			/* Force SmartAmp name for amplifiers to match topology expectations */
++			name = devm_kasprintf(dev, GFP_KERNEL, "%s-%s",
++					      stream == SNDRV_PCM_STREAM_PLAYBACK ? "Playback" : "Capture",
++					      type_strings[SOC_SDW_DAI_TYPE_AMP]);
++		} else if (sof_end->dai_info->dai_type == SOC_SDW_DAI_TYPE_JACK) {
++			/* Force SimpleJack name for jacks to match topology expectations */
++			name = devm_kasprintf(dev, GFP_KERNEL,
++					      sdw_stream_name[stream + 2],
++					      ffs(sof_end->link_mask) - 1,
++					      type_strings[sof_end->dai_info->dai_type]);
++		} else {
+ 			name = devm_kasprintf(dev, GFP_KERNEL,
+ 					      sdw_stream_name[stream],
+ 					      ffs(sof_end->link_mask) - 1);
++		}
+ 		if (!name)
+ 			return -ENOMEM;
+ 
+diff --git a/sound/soc/intel/common/soc-acpi-intel-lnl-match.c b/sound/soc/intel/common/soc-acpi-intel-lnl-match.c
+index 937a74a5d523..da1f3f0658f4 100644
+--- a/sound/soc/intel/common/soc-acpi-intel-lnl-match.c
++++ b/sound/soc/intel/common/soc-acpi-intel-lnl-match.c
+@@ -8,6 +8,7 @@
+ 
+ #include <sound/soc-acpi.h>
+ #include <sound/soc-acpi-intel-match.h>
++#include <linux/dmi.h>
+ #include "sof-function-topology-lib.h"
+ #include "soc-acpi-intel-sdca-quirks.h"
+ #include "soc-acpi-intel-sdw-mockup-match.h"
+@@ -419,6 +420,55 @@ static const struct snd_soc_acpi_adr_device rt1320_1_group1_adr[] = {
+ 	}
+ };
+ 
++static const struct snd_soc_acpi_endpoint rt721_endpoints[] = {
++	/* UAJ only — endpoint 0 = headset jack (aif1) */
++	{ .num = 0, .aggregated = 0, .group_position = 0, .group_id = 0, },
++};
++
++static const struct snd_soc_acpi_adr_device rt721_3_single_adr[] = {
++	{
++		.adr = 0x000330025D072101ull,
++		.num_endpoints = ARRAY_SIZE(rt721_endpoints),
++		.endpoints = rt721_endpoints,
++		.name_prefix = "rt721"
++	}
++};
++
++static const struct snd_soc_acpi_adr_device rt1320_0_single_adr[] = {
++	{
++		.adr = 0x000030025D132001ull,
++		.num_endpoints = 1,
++		.endpoints = &single_endpoint,
++		.name_prefix = "rt1320-1"
++	}
++};
++
+ static const struct snd_soc_acpi_adr_device rt1320_2_group2_adr[] = {
+ 	{
+ 		.adr = 0x000231025D132001ull,
+@@ -543,6 +593,38 @@ static const struct snd_soc_acpi_link_adr lnl_cs42l43_l2_cs35l56x6_l13[] = {
+ 	{}
+ };
+ 
++static const struct snd_soc_acpi_link_adr lnl_sdw_rt1320_l0_rt721_l3[] = {
++	{
++		.mask = BIT(0),
++		.num_adr = ARRAY_SIZE(rt1320_0_single_adr),
++		.adr_d = rt1320_0_single_adr,
++	},
++	{
++		.mask = BIT(3),
++		.num_adr = ARRAY_SIZE(rt721_3_single_adr),
++		.adr_d = rt721_3_single_adr,
++	},
++	{}
++};
++
+ static const struct snd_soc_acpi_link_adr lnl_rvp[] = {
+ 	{
+ 		.mask = BIT(0),
+@@ -686,7 +768,42 @@ static const struct snd_soc_acpi_link_adr lnl_sdw_rt712_vb_l2_rt1320_l1[] = {
+ 
+ /* this table is used when there is no I2S codec present */
+ /* this table is used when there is no I2S codec present */
++static bool surface_lnl_sl7_check(void *arg)
++{
++	(void)arg;
++	if (dmi_match(DMI_SYS_VENDOR, "Microsoft Corporation") &&
++	    (dmi_match(DMI_PRODUCT_NAME, "Surface Laptop for Business 7th Edition with Intel") ||
++	     dmi_match(DMI_PRODUCT_NAME, "Surface Laptop 7th Edition with Intel")))
++		return true;
++	return false;
++}
++
+ struct snd_soc_acpi_mach snd_soc_acpi_intel_lnl_sdw_machines[] = {
++	{
++		.link_mask = BIT(0) | BIT(3),
++		.links = lnl_sdw_rt1320_l0_rt721_l3,
++		.drv_name = "sof_sdw",
++		.sof_tplg_filename = "sof-lnl-dummy.tplg",
++		.machine_check = surface_lnl_sl7_check,
++		.get_function_tplg_files = sof_sdw_get_tplg_files,
++	},
+ 	/* mockup tests need to be first */
+ 	{
+ 		.link_mask = GENMASK(3, 0),
+diff --git a/sound/soc/sdw_utils/soc_sdw_utils.c b/sound/soc/sdw_utils/soc_sdw_utils.c
+index d03072cd13cb..cbaaff012e6f 100644
+--- a/sound/soc/sdw_utils/soc_sdw_utils.c
++++ b/sound/soc/sdw_utils/soc_sdw_utils.c
+@@ -451,6 +451,27 @@ struct asoc_sdw_codec_info codec_info_list[] = {
+ 		},
+ 		.dai_num = 3,
+ 	},
++	{
++		.part_id = 0x721,
++		.name_prefix = "rt721",
++		.version_id = 3,
++		.dais = {
++			{
++				.direction = {true, true},
++				.dai_name = "rt721-sdca-aif1",
++				.dai_type = SOC_SDW_DAI_TYPE_JACK,
++				.dailink = {SOC_SDW_JACK_OUT_DAI_ID, SOC_SDW_JACK_IN_DAI_ID},
++				.init = asoc_sdw_rt_sdca_jack_init,
++				.exit = asoc_sdw_rt_sdca_jack_exit,
++				.rtd_init = asoc_sdw_rt_sdca_jack_rtd_init,
++				.controls = generic_jack_controls,
++				.num_controls = ARRAY_SIZE(generic_jack_controls),
++				.widgets = generic_jack_widgets,
++				.num_widgets = ARRAY_SIZE(generic_jack_widgets),
++			},
++		},
++		.dai_num = 1,
++	},
+ 	{
+ 		.part_id = 0x722,
+ 		.name_prefix = "rt722",
+-- 
+2.54.0
+
