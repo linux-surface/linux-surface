@@ -1,0 +1,116 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Danny D. <d3z.the.dev@gmail.com>
+Date: Sat, 30 May 2026 00:00:00 +0000
+Subject: [PATCH] quickspi: reset touch IC on resume to fix dead touchscreen on
+ SP10
+
+On my Surface Pro 10 the touchscreen dies after the device goes to sleep
+and comes back, and the only way to get it back is a reboot. It works fine
+on 6.14 but breaks on every kernel after that, once the intel-quickspi
+driver took over.
+
+The machine only ever suspends through s2idle - /sys/power/mem_sleep shows
+"[s2idle]" and has no "deep"/S3 entry - and the touch IC loses power during
+that s2idle suspend, the same as it does over hibernation. On resume the
+driver only sends a HIDSPI_ON command and restores interrupts/DMA, assuming
+the chip kept its state, so the descriptor read fails with "recv failed:
+-11" and the touchscreen stays dead. quickspi_restore() (the hibernation
+path) already does the right thing and runs a full reset_tic().
+
+This makes resume do the same, but only when the device is not a wake
+source: a wake-enabled device keeps its power and state across suspend, so
+it stays on the light HIDSPI_ON path and wake-on-touch is not disturbed.
+Devices that lose power (like the SP10) go through the full reset.
+
+Tested on my SP10 over a bunch of s2idle suspend/resume cycles, the
+touchscreen keeps working now.
+
+Link: https://github.com/linux-surface/linux-surface/issues/1799
+Signed-off-by: Danny D. <d3z.the.dev@gmail.com>
+---
+diff --git a/drivers/hid/intel-thc-hid/intel-quickspi/pci-quickspi.c b/drivers/hid/intel-thc-hid/intel-quickspi/pci-quickspi.c
+index ad6bd59..d5a6461 100644
+--- a/drivers/hid/intel-thc-hid/intel-quickspi/pci-quickspi.c
++++ b/drivers/hid/intel-thc-hid/intel-quickspi/pci-quickspi.c
+@@ -778,22 +778,73 @@ static int quickspi_resume(struct device *device)
+ 	if (ret)
+ 		return ret;
+ 
+-	thc_interrupt_config(qsdev->thc_hw);
++	/*
++	 * If the device is a wake source, its power and state are preserved
++	 * across suspend, so only restore the THC context and power it back
++	 * on. Resetting it here would discard a pending wake touch event and
++	 * break wake-on-touch.
++	 *
++	 * Otherwise the touch IC may have lost power across suspend (e.g. on
++	 * the Surface Pro 10), the same way it does across hibernation, so it
++	 * has to go through the full reset flow to be re-enumerated.
++	 */
++	if (device_may_wakeup(qsdev->dev)) {
++		thc_interrupt_config(qsdev->thc_hw);
++
++		thc_interrupt_enable(qsdev->thc_hw, true);
++
++		ret = thc_dma_configure(qsdev->thc_hw);
++		if (ret)
++			return ret;
++
++		ret = thc_interrupt_quiesce(qsdev->thc_hw, false);
++		if (ret)
++			return ret;
++
++		return quickspi_set_power(qsdev, HIDSPI_ON);
++	}
+ 
+-	thc_interrupt_enable(qsdev->thc_hw, true);
++	thc_spi_input_output_address_config(qsdev->thc_hw,
++					    qsdev->input_report_hdr_addr,
++					    qsdev->input_report_bdy_addr,
++					    qsdev->output_report_addr);
+ 
+-	ret = thc_dma_configure(qsdev->thc_hw);
++	ret = thc_spi_read_config(qsdev->thc_hw, qsdev->spi_freq_val,
++				  qsdev->spi_read_io_mode,
++				  qsdev->spi_read_opcode,
++				  qsdev->spi_packet_size);
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = thc_interrupt_quiesce(qsdev->thc_hw, false);
++	ret = thc_spi_write_config(qsdev->thc_hw, qsdev->spi_freq_val,
++				   qsdev->spi_write_io_mode,
++				   qsdev->spi_write_opcode,
++				   qsdev->spi_packet_size,
++				   qsdev->performance_limit);
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = quickspi_set_power(qsdev, HIDSPI_ON);
++	thc_interrupt_config(qsdev->thc_hw);
++
++	thc_interrupt_enable(qsdev->thc_hw, true);
++
++	/* The TIC may lose power across system suspend, reset it to recover */
++	ret = reset_tic(qsdev);
++	if (ret)
++		return ret;
++
++	ret = thc_dma_configure(qsdev->thc_hw);
+ 	if (ret)
+ 		return ret;
+ 
++	thc_ltr_config(qsdev->thc_hw,
++		       qsdev->active_ltr_val,
++		       qsdev->low_power_ltr_val);
++
++	thc_change_ltr_mode(qsdev->thc_hw, THC_LTR_MODE_ACTIVE);
++
++	qsdev->state = QUICKSPI_ENABLED;
++
+ 	return 0;
+ }
+ 
+-- 
+2.45.0
+
