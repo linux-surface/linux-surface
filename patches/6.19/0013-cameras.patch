@@ -1061,3 +1061,144 @@ index f5456330b..3418ff475 100644
 -- 
 2.53.0
 
+
+From da86337de2afb132ecbdf3365c1bd6787cee602e Mon Sep 17 00:00:00 2001
+From: Jurison Murati <eng.juri@gmail.com>
+Date: Wed, 10 Jun 2026 01:14:41 +0200
+Subject: [PATCH 1/2] media: i2c: ov8865: Program the mode on stream start if
+ needed
+
+The sensor registers are only written in the runtime PM resume
+handler; ov8865_set_fmt() merely stores the requested mode, relying on
+the sensor being runtime suspended between uses so that the next
+resume applies it.
+
+That assumption breaks when something keeps the sensor powered. On
+IPU3 platforms, ipu_bridge instantiates the VCM device with a
+DL_FLAG_PM_RUNTIME device link to the sensor, so a userspace process
+holding the VCM subdev open (e.g. wireplumber's camera monitor) pins
+the sensor runtime-active. A subsequent set_fmt() then never reaches
+the hardware: the sensor keeps streaming the mode programmed on the
+last resume while the CSI-2 receiver expects the newly negotiated
+format.
+
+On a Surface Book 2 (IPU3, ov8865 + dw9719 VCM), requesting the
+3264x2448 mode while the hardware was left programmed for the
+1632x1224 binned mode makes ipu3-cio2 report "frame sync error" and
+"payload length is 10340352, received 2585088" (exactly one binned
+frame) for every frame, and the inverse case stalls the stream after
+a single frame. Camera applications end up displaying one bogus frame
+forever.
+
+Track the mode actually programmed into the hardware, invalidate it
+when the sensor is powered off, and reprogram the sensor on stream
+start whenever it does not match the negotiated mode, re-applying the
+control values afterwards.
+
+Signed-off-by: Jurison Murati <eng.juri@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index a8586df..d019ffd 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -670,6 +670,10 @@ struct ov8865_state {
+ 	const struct ov8865_mode *mode;
+ 	u32 mbus_code;
+ 
++	/* Mode currently programmed into the hardware, NULL when unpowered. */
++	const struct ov8865_mode *hw_mode;
++	u32 hw_mbus_code;
++
+ 	bool streaming;
+ };
+ 
+@@ -2383,6 +2387,9 @@ static int ov8865_sensor_init(struct ov8865_sensor *sensor)
+ 		return ret;
+ 	}
+ 
++	sensor->state.hw_mode = sensor->state.mode;
++	sensor->state.hw_mbus_code = sensor->state.mbus_code;
++
+ 	return 0;
+ }
+ 
+@@ -2618,6 +2625,25 @@ static int ov8865_s_stream(struct v4l2_subdev *subdev, int enable)
+ 	}
+ 
+ 	mutex_lock(&sensor->mutex);
++
++	/*
++	 * If something else kept the sensor powered (e.g. the VCM's PM
++	 * device link holding it active), runtime resume did not run when
++	 * streaming was requested and the hardware may still be programmed
++	 * for a previous mode. Reprogram it to match the current state.
++	 */
++	if (enable && (state->hw_mode != state->mode ||
++		       state->hw_mbus_code != state->mbus_code)) {
++		ret = ov8865_sensor_init(sensor);
++		if (!ret)
++			ret = __v4l2_ctrl_handler_setup(&sensor->ctrls.handler);
++		if (ret) {
++			mutex_unlock(&sensor->mutex);
++			pm_runtime_put(sensor->dev);
++			return ret;
++		}
++	}
++
+ 	ret = ov8865_sw_standby(sensor, !enable);
+ 	mutex_unlock(&sensor->mutex);
+ 
+@@ -2895,6 +2921,8 @@ static int ov8865_suspend(struct device *dev)
+ 	ret = ov8865_sensor_power(sensor, false);
+ 	if (ret)
+ 		ov8865_sw_standby(sensor, false);
++	else
++		state->hw_mode = NULL;
+ 
+ complete:
+ 	mutex_unlock(&sensor->mutex);
+-- 
+2.54.0
+
+
+From c6432f54839f6704e7e13447cc40926c5b9cbef6 Mon Sep 17 00:00:00 2001
+From: Jurison Murati <eng.juri@gmail.com>
+Date: Wed, 10 Jun 2026 01:14:41 +0200
+Subject: [PATCH 2/2] media: i2c: ov8865: Drop PM runtime reference if stream
+ start fails
+
+ov8865_s_stream() takes a runtime PM reference when enabling the
+stream, but returns without releasing it if ov8865_sw_standby()
+fails, leaving the reference unbalanced and the sensor powered
+indefinitely.
+
+Signed-off-by: Jurison Murati <eng.juri@gmail.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index d019ffd..e00a6c6 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -2647,8 +2647,11 @@ static int ov8865_s_stream(struct v4l2_subdev *subdev, int enable)
+ 	ret = ov8865_sw_standby(sensor, !enable);
+ 	mutex_unlock(&sensor->mutex);
+ 
+-	if (ret)
++	if (ret) {
++		if (enable)
++			pm_runtime_put(sensor->dev);
+ 		return ret;
++	}
+ 
+ 	state->streaming = !!enable;
+ 
+-- 
+2.54.0
+
