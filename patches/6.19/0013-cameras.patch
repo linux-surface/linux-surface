@@ -1061,3 +1061,84 @@ index f5456330b..3418ff475 100644
 -- 
 2.53.0
 
+
+From b7ea7a2658e1c92afcfe0092f5d4e909fabeb5ef Mon Sep 17 00:00:00 2001
+From: Arsalan Naeem <naeemarsalan@gmail.com>
+Date: Thu, 11 Jun 2026 17:30:22 -0400
+Subject: [PATCH] media: i2c: ov5693: program MIPI_CTRL00 for IPU6 (Surface Pro
+ 8/9 and Go 4 front cameras)
+
+The mainline ov5693 driver never writes MIPI_CTRL00 (register 0x4800),
+leaving it at its 0x00 power-on default. That default is accepted by the
+IPU3 ISP, where this sensor is used as the front camera on the Surface
+Pro 5/6/7, so the sensor works there. On the Surface Pro 8 the same
+sensor is wired to an IPU6 whose MIPI D-PHY does not lock onto the link
+with MIPI_CTRL00 == 0x00: the sensor reports streaming and the PHY powers
+up, but the receiver never gets any CSI-2 packets and capture times out
+("stream stop time out", zero packets, no SOT/CRC errors).
+
+Writing MIPI_CTRL00 = 0x2d before stream-on -- the value the vendor
+(Windows) driver programs for this module -- configures the CSI-2
+clock-lane behaviour the IPU6 expects, and the front camera then streams
+(verified at ~28 fps via libcamera on a Surface Pro 8, kernel 6.19).
+
+The same write has since been confirmed to fix the identical symptom on
+the other IPU6 Surface devices that use this sensor as the front camera:
+the Surface Go 4 (ov5693 at INT33BE, ~28.6 fps) and the Surface Pro 9
+(ov5693 at OVTI5693; that ACPI HID is already added by the "Add camera
+support for Surface Pro 9" patch earlier in this patchset, so no match
+table change is needed here).
+
+The value was reverse-engineered from the Surface Pro 8 Windows ov5693.sys
+register table; its exact bit meaning is taken from the vendor driver
+rather than a datasheet. It is written unconditionally, so it should be
+checked on the IPU3 Surface devices (Pro 5/6/7) before this is relied
+upon there.
+
+Link: https://github.com/linux-surface/linux-surface/issues/1893
+Link: https://github.com/linux-surface/linux-surface/issues/2154
+Link: https://github.com/linux-surface/linux-surface/issues/1892
+Patchset: cameras
+Signed-off-by: Arsalan Naeem <naeemarsalan@gmail.com>
+---
+ drivers/media/i2c/ov5693.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
+index 4cc796b..83c2ea9 100644
+--- a/drivers/media/i2c/ov5693.c
++++ b/drivers/media/i2c/ov5693.c
+@@ -110,6 +110,10 @@
+ #define OV5693_MIN_CROP_WIDTH			2
+ #define OV5693_MIN_CROP_HEIGHT			2
+ 
++/* MIPI control */
++#define OV5693_MIPI_CTRL00_REG			CCI_REG8(0x4800)
++#define OV5693_MIPI_CTRL00_IPU6			0x2d
++
+ /* Test Pattern */
+ #define OV5693_TEST_PATTERN_REG			CCI_REG8(0x5e00)
+ #define OV5693_TEST_PATTERN_ENABLE		BIT(7)
+@@ -611,6 +615,19 @@ static int ov5693_enable_streaming(struct ov5693_device *ov5693, bool enable)
+ {
+ 	int ret = 0;
+ 
++	/*
++	 * Program MIPI_CTRL00 (CSI-2 clock-lane control) before starting the
++	 * stream. The 0x00 power-on default is accepted by the IPU3 ISP (where
++	 * this sensor is used on the Surface Pro 5-7) but leaves the IPU6 D-PHY
++	 * (Surface Pro 8/9, Surface Go 4) unable to lock onto the link: the
++	 * sensor streams yet the receiver gets no CSI-2 data and capture times
++	 * out. 0x2d matches the value the vendor (Windows) driver writes and
++	 * lets the IPU6 receive frames.
++	 */
++	if (enable)
++		cci_write(ov5693->regmap, OV5693_MIPI_CTRL00_REG,
++			  OV5693_MIPI_CTRL00_IPU6, &ret);
++
+ 	cci_write(ov5693->regmap, OV5693_SW_STREAM_REG,
+ 		  enable ? OV5693_START_STREAMING : OV5693_STOP_STREAMING,
+ 		  &ret);
+-- 
+2.54.0
+
