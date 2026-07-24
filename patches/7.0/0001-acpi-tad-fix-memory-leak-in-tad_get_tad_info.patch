@@ -1,0 +1,63 @@
+From cf4f94786e871908d0c8f3587525679534320b0e Mon Sep 17 00:00:00 2001
+From: RowdyRagamuffin <stevenandree@outlook.com>
+Date: Fri, 24 Jul 2026 00:24:06 +0800
+Subject: [PATCH 1/5] acpi: tad: fix memory leak in tad_get_tad_info()
+
+---
+ drivers/acpi/acpi_tad.c | 33 ++++++++++++++++++---------------
+ 1 file changed, 18 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/acpi/acpi_tad.c b/drivers/acpi/acpi_tad.c
+index fc43df083..8f035e19a 100644
+--- a/drivers/acpi/acpi_tad.c
++++ b/drivers/acpi/acpi_tad.c
+@@ -569,16 +569,24 @@ static ssize_t dc_status_show(struct device *dev, struct device_attribute *attr,
+ 
+ static DEVICE_ATTR_RW(dc_status);
+ 
+-static struct attribute *acpi_tad_attrs[] = {
+-	&dev_attr_caps.attr,
+-	&dev_attr_ac_alarm.attr,
+-	&dev_attr_ac_policy.attr,
+-	&dev_attr_ac_status.attr,
+-	&dev_attr_dc_alarm.attr,
+-	&dev_attr_dc_policy.attr,
+-	&dev_attr_dc_status.attr,
+-	&dev_attr_time.attr,
+-	NULL,
++static struct attribute *acpi_tad_attrs[] = {                                                                                                                      
++    &dev_attr_caps.attr,                                                                                                                                              
++    NULL,                                                                                                                                                             
++};                                                                                                                                                                 
++                                                                                                                                                                       
++static const struct attribute_group acpi_tad_attr_group = {                                                                                                        
++    .attrs = acpi_tad_attrs,                                                                                                                                          
++};                                                                                                                                                                 
++                                                                                                                                                                       
++static struct attribute *acpi_tad_ac_attrs[] = {                                                                                                                   
++    &dev_attr_ac_alarm.attr,                                                                                                                                          
++    &dev_attr_ac_policy.attr,                                                                                                                                         
++    &dev_attr_ac_status.attr,                                                                                                                                         
++    NULL,                                                                                                                                                             
++};                                                                                                                                                                 
++                                                                                                                                                                       
++static const struct attribute_group acpi_tad_ac_attr_group = {                                                                                                     
++    .attrs = acpi_tad_ac_attrs,                                                                                                                                       
+ };
+ 
+ static umode_t acpi_tad_attr_is_visible(struct kobject *kobj,
+@@ -835,11 +843,6 @@ static int acpi_tad_probe(struct platform_device *pdev)
+ 		return -ENODEV;
+ 	}
+ 
+-	if (!acpi_has_method(handle, "_PRW")) {
+-		dev_info(dev, "Missing _PRW\n");
+-		caps &= ~(ACPI_TAD_AC_WAKE | ACPI_TAD_DC_WAKE);
+-	}
+-
+ 	if (!(caps & ACPI_TAD_AC_WAKE))
+ 		caps &= ~ACPI_TAD_DC_WAKE;
+ 
+-- 
+2.53.0
+
