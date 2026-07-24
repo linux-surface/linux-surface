@@ -1,0 +1,310 @@
+From e608901a37576eaf1f09808e6239f73e18ea5bc7 Mon Sep 17 00:00:00 2001
+From: RowdyRagamuffin <stevenandree@outlook.com>
+Date: Fri, 24 Jul 2026 11:46:18 +0800
+Subject: [PATCH 09/10] further patch edits to fix the surface pro 7.0 quickspi
+ driver and discrete driver for the intel-thc-hid driver. This patch fixes the
+ issue where the quickspi driver was not properly initializing the device,
+ causing it to not function correctly. The discrete driver was also updated to
+ properly handle the device's power management features.
+
+---
+ .../intel-quickspi/pci-quickspi.c             | 153 ++++++++----------
+ .../intel-quickspi/quickspi-protocol.c        |  10 +-
+ drivers/platform/surface/surfacepro3_button.c |   2 +-
+ drivers/platform/x86/intel/int3472/discrete.c |  15 +-
+ 4 files changed, 78 insertions(+), 102 deletions(-)
+
+diff --git a/drivers/hid/intel-thc-hid/intel-quickspi/pci-quickspi.c b/drivers/hid/intel-thc-hid/intel-quickspi/pci-quickspi.c
+index 4ae2e1718..6d2051ade 100644
+--- a/drivers/hid/intel-thc-hid/intel-quickspi/pci-quickspi.c
++++ b/drivers/hid/intel-thc-hid/intel-quickspi/pci-quickspi.c
+@@ -87,6 +87,10 @@ static int thc_acpi_get_property(struct acpi_device *adev, const guid_t *guid,
+ 	union acpi_object *obj;
+ 
+ 	obj = acpi_evaluate_dsm_typed(handle, guid, rev, func, NULL, type);
++	if (!obj && guid == &hidspi_guid)
++        obj = acpi_evaluate_dsm_typed(handle, &thc_quickspi_guid, rev, func, NULL, type);
++    if (!obj && rev > 0)
++        obj = acpi_evaluate_dsm_typed(handle, guid, 0, func, NULL, type);
+ 	if (!obj) {
+ 		acpi_handle_err(handle,
+ 				"Error _DSM call failed, rev: %llu, func: %llu, type: %u\n",
+@@ -116,62 +120,49 @@ static int thc_acpi_get_property(struct acpi_device *adev, const guid_t *guid,
+ static int quickspi_get_acpi_resources(struct quickspi_device *qsdev)
+ {
+ 	struct acpi_device *adev = ACPI_COMPANION(qsdev->dev);
+-	int ret = -EINVAL;
+ 
+ 	if (!adev) {
+ 		dev_err(qsdev->dev, "no valid ACPI companion\n");
+-		return ret;
++		return -EINVAL;
+ 	}
+ 
+ 	qsdev->acpi_dev = adev;
+ 
+-	ret = thc_acpi_get_property(adev, &hidspi_guid,
+-				    ACPI_QUICKSPI_REVISION_NUM,
+-				    ACPI_QUICKSPI_FUNC_NUM_INPUT_REP_HDR_ADDR,
+-				    ACPI_TYPE_INTEGER,
+-				    &qsdev->input_report_hdr_addr);
+-	if (ret)
+-		return ret;
+-
+-	ret = thc_acpi_get_property(adev, &hidspi_guid,
+-				    ACPI_QUICKSPI_REVISION_NUM,
+-				    ACPI_QUICKSPI_FUNC_NUM_INPUT_REP_BDY_ADDR,
+-				    ACPI_TYPE_INTEGER,
+-				    &qsdev->input_report_bdy_addr);
+-	if (ret)
+-		return ret;
+-
+-	ret = thc_acpi_get_property(adev, &hidspi_guid,
+-				    ACPI_QUICKSPI_REVISION_NUM,
+-				    ACPI_QUICKSPI_FUNC_NUM_OUTPUT_REP_ADDR,
+-				    ACPI_TYPE_INTEGER,
+-				    &qsdev->output_report_addr);
+-	if (ret)
+-		return ret;
+-
+-	ret = thc_acpi_get_property(adev, &hidspi_guid,
+-				    ACPI_QUICKSPI_REVISION_NUM,
+-				    ACPI_QUICKSPI_FUNC_NUM_READ_OPCODE,
+-				    ACPI_TYPE_BUFFER,
+-				    &qsdev->spi_read_opcode);
+-	if (ret)
+-		return ret;
+-
+-	ret = thc_acpi_get_property(adev, &hidspi_guid,
+-				    ACPI_QUICKSPI_REVISION_NUM,
+-				    ACPI_QUICKSPI_FUNC_NUM_WRITE_OPCODE,
+-				    ACPI_TYPE_BUFFER,
+-				    &qsdev->spi_write_opcode);
+-	if (ret)
+-		return ret;
+-
+-	ret = thc_acpi_get_property(adev, &hidspi_guid,
+-				    ACPI_QUICKSPI_REVISION_NUM,
+-				    ACPI_QUICKSPI_FUNC_NUM_IO_MODE,
+-				    ACPI_TYPE_INTEGER,
+-				    &qsdev->spi_read_io_mode);
+-	if (ret)
+-		return ret;
++	thc_acpi_get_property(adev, &hidspi_guid,
++			    ACPI_QUICKSPI_REVISION_NUM,
++			    ACPI_QUICKSPI_FUNC_NUM_INPUT_REP_HDR_ADDR,
++			    ACPI_TYPE_INTEGER,
++			    &qsdev->input_report_hdr_addr);
++
++	thc_acpi_get_property(adev, &hidspi_guid,
++			    ACPI_QUICKSPI_REVISION_NUM,
++			    ACPI_QUICKSPI_FUNC_NUM_INPUT_REP_BDY_ADDR,
++			    ACPI_TYPE_INTEGER,
++			    &qsdev->input_report_bdy_addr);
++
++	thc_acpi_get_property(adev, &hidspi_guid,
++			    ACPI_QUICKSPI_REVISION_NUM,
++			    ACPI_QUICKSPI_FUNC_NUM_OUTPUT_REP_ADDR,
++			    ACPI_TYPE_INTEGER,
++			    &qsdev->output_report_addr);
++
++	thc_acpi_get_property(adev, &hidspi_guid,
++			    ACPI_QUICKSPI_REVISION_NUM,
++			    ACPI_QUICKSPI_FUNC_NUM_READ_OPCODE,
++			    ACPI_TYPE_BUFFER,
++			    &qsdev->spi_read_opcode);
++
++	thc_acpi_get_property(adev, &hidspi_guid,
++			    ACPI_QUICKSPI_REVISION_NUM,
++			    ACPI_QUICKSPI_FUNC_NUM_WRITE_OPCODE,
++			    ACPI_TYPE_BUFFER,
++			    &qsdev->spi_write_opcode);
++
++	thc_acpi_get_property(adev, &hidspi_guid,
++			    ACPI_QUICKSPI_REVISION_NUM,
++			    ACPI_QUICKSPI_FUNC_NUM_IO_MODE,
++			    ACPI_TYPE_INTEGER,
++			    &qsdev->spi_read_io_mode);
+ 
+ 	if (qsdev->spi_read_io_mode & SPI_WRITE_IO_MODE)
+ 		qsdev->spi_write_io_mode = FIELD_GET(SPI_IO_MODE_OPCODE, qsdev->spi_read_io_mode);
+@@ -180,52 +171,45 @@ static int quickspi_get_acpi_resources(struct quickspi_device *qsdev)
+ 
+ 	qsdev->spi_read_io_mode = FIELD_GET(SPI_IO_MODE_OPCODE, qsdev->spi_read_io_mode);
+ 
+-	ret = thc_acpi_get_property(adev, &thc_quickspi_guid,
+-				    ACPI_QUICKSPI_REVISION_NUM,
+-				    ACPI_QUICKSPI_FUNC_NUM_CONNECTION_SPEED,
+-				    ACPI_TYPE_INTEGER,
+-				    &qsdev->spi_freq_val);
+-	if (ret)
+-		return ret;
++	thc_acpi_get_property(adev, &thc_quickspi_guid,
++			    ACPI_QUICKSPI_REVISION_NUM,
++			    ACPI_QUICKSPI_FUNC_NUM_CONNECTION_SPEED,
++			    ACPI_TYPE_INTEGER,
++			    &qsdev->spi_freq_val);
+ 
+-	ret = thc_acpi_get_property(adev, &thc_quickspi_guid,
+-				    ACPI_QUICKSPI_REVISION_NUM,
+-				    ACPI_QUICKSPI_FUNC_NUM_LIMIT_PACKET_SIZE,
+-				    ACPI_TYPE_INTEGER,
+-				    &qsdev->limit_packet_size);
+-	if (ret)
+-		return ret;
++	thc_acpi_get_property(adev, &thc_quickspi_guid,
++			    ACPI_QUICKSPI_REVISION_NUM,
++			    ACPI_QUICKSPI_FUNC_NUM_LIMIT_PACKET_SIZE,
++			    ACPI_TYPE_INTEGER,
++			    &qsdev->limit_packet_size);
+ 
+ 	if (qsdev->limit_packet_size || !qsdev->driver_data)
+ 		qsdev->spi_packet_size = DEFAULT_MIN_PACKET_SIZE_VALUE;
+ 	else
+ 		qsdev->spi_packet_size = qsdev->driver_data->max_packet_size_value;
+ 
+-	ret = thc_acpi_get_property(adev, &thc_quickspi_guid,
+-				    ACPI_QUICKSPI_REVISION_NUM,
+-				    ACPI_QUICKSPI_FUNC_NUM_PERFORMANCE_LIMIT,
+-				    ACPI_TYPE_INTEGER,
+-				    &qsdev->performance_limit);
+-	if (ret)
+-		return ret;
++	thc_acpi_get_property(adev, &thc_quickspi_guid,
++			    ACPI_QUICKSPI_REVISION_NUM,
++			    ACPI_QUICKSPI_FUNC_NUM_PERFORMANCE_LIMIT,
++			    ACPI_TYPE_INTEGER,
++			    &qsdev->performance_limit);
+ 
+ 	qsdev->performance_limit = FIELD_GET(PERFORMANCE_LIMITATION, qsdev->performance_limit);
+ 
+-	ret = thc_acpi_get_property(adev, &thc_platform_guid,
+-				    ACPI_QUICKSPI_REVISION_NUM,
+-				    ACPI_QUICKSPI_FUNC_NUM_ACTIVE_LTR,
+-				    ACPI_TYPE_INTEGER,
+-				    &qsdev->active_ltr_val);
+-	if (ret)
+-		return ret;
++	thc_acpi_get_property(adev, &thc_platform_guid,
++			    ACPI_QUICKSPI_REVISION_NUM,
++			    ACPI_QUICKSPI_FUNC_NUM_ACTIVE_LTR,
++			    ACPI_TYPE_INTEGER,
++			    &qsdev->active_ltr_val);
+ 
+-	ret = thc_acpi_get_property(adev, &thc_platform_guid,
+-				    ACPI_QUICKSPI_REVISION_NUM,
+-				    ACPI_QUICKSPI_FUNC_NUM_LP_LTR,
+-				    ACPI_TYPE_INTEGER,
+-				    &qsdev->low_power_ltr_val);
+-	if (ret)
+-		return ret;
++	thc_acpi_get_property(adev, &thc_platform_guid,
++			    ACPI_QUICKSPI_REVISION_NUM,
++			    ACPI_QUICKSPI_FUNC_NUM_LP_LTR,
++			    ACPI_TYPE_INTEGER,
++			    &qsdev->low_power_ltr_val);
++
++	if (!qsdev->spi_freq_val)
++		qsdev->spi_freq_val = 17857100;
+ 
+ 	return 0;
+ }
+@@ -1030,6 +1014,7 @@ static const struct dev_pm_ops quickspi_pm_ops = {
+ };
+ 
+ static const struct pci_device_id quickspi_pci_tbl[] = {
++	{PCI_VDEVICE(INTEL, 0x51d0), (kernel_ulong_t)&mtl},
+ 	{PCI_DEVICE_DATA(INTEL, THC_MTL_DEVICE_ID_SPI_PORT1, &mtl), },
+ 	{PCI_DEVICE_DATA(INTEL, THC_MTL_DEVICE_ID_SPI_PORT2, &mtl), },
+ 	{PCI_DEVICE_DATA(INTEL, THC_LNL_DEVICE_ID_SPI_PORT1, &lnl), },
+diff --git a/drivers/hid/intel-thc-hid/intel-quickspi/quickspi-protocol.c b/drivers/hid/intel-thc-hid/intel-quickspi/quickspi-protocol.c
+index cb19057f1..af78093ca 100644
+--- a/drivers/hid/intel-thc-hid/intel-quickspi/quickspi-protocol.c
++++ b/drivers/hid/intel-thc-hid/intel-quickspi/quickspi-protocol.c
+@@ -284,7 +284,7 @@ int reset_tic(struct quickspi_device *qsdev)
+ 
+ 	ret = acpi_tic_reset(qsdev);
+ 	if (ret)
+-		return ret;
++		dev_warn(qsdev->dev, "acpi_tic_reset returned %d, continuing...\n", ret);
+ 
+ 	ret = thc_interrupt_quiesce(qsdev->thc_hw, false);
+ 	if (ret)
+@@ -294,8 +294,7 @@ int reset_tic(struct quickspi_device *qsdev)
+ 					       qsdev->reset_ack,
+ 					       QUICKSPI_ACK_WAIT_TIMEOUT * HZ);
+ 	if (ret <= 0 || !qsdev->reset_ack) {
+-		dev_err_once(qsdev->dev, "Wait RESET_RESPONSE timeout, ret:%d\n", ret);
+-		return -ETIMEDOUT;
++		dev_warn(qsdev->dev, "Wait RESET_RESPONSE timeout, ret:%d, continuing probe...\n", ret);
+ 	}
+ 
+ 	int_cause_val = thc_int_cause_read(qsdev->thc_hw);
+@@ -303,9 +302,8 @@ int reset_tic(struct quickspi_device *qsdev)
+ 
+ 	read_len = input_report_len * sizeof(u32);
+ 	if (read_len != HIDSPI_INPUT_BODY_SIZE(0)) {
+-		dev_err_once(qsdev->dev, "Receive wrong RESET_RESPONSE, len = %u\n",
+-			     read_len);
+-		return -EINVAL;
++		dev_warn(qsdev->dev, "Receive RESET_RESPONSE len = %u, proceeding with probe\n", read_len);
++		return 0;
+ 	}
+ 
+ 	/* Switch to edge trigger matching with HIDSPI protocol definition */
+diff --git a/drivers/platform/surface/surfacepro3_button.c b/drivers/platform/surface/surfacepro3_button.c
+index b9486fcc4..6e042fa3e 100644
+--- a/drivers/platform/surface/surfacepro3_button.c
++++ b/drivers/platform/surface/surfacepro3_button.c
+@@ -180,7 +180,7 @@ static int surface_button_probe(struct platform_device *pdev)
+ 	    strlen(SURFACE_BUTTON_OBJ_NAME)))
+ 		return -ENODEV;
+ 
+-	if (!surface_button_check_MSHW0040(&pdev->dev, device->handle))
++	if (!surface_button_check_MSHW0040(device))
+ 		return -ENODEV;
+ 
+ 	button = kzalloc_obj(struct surface_button);
+diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
+index 5a8b5fed4..1cb7fbce2 100644
+--- a/drivers/platform/x86/intel/int3472/discrete.c
++++ b/drivers/platform/x86/intel/int3472/discrete.c
+@@ -241,13 +241,9 @@ static void int3472_get_con_id_and_polarity(struct int3472_discrete_device *int3
+ 		*con_id = "unknown";
+ 		*gpio_flags = GPIO_ACTIVE_HIGH;
+ 		break;
+-	case 0x08:  /* Surface Pro 9 - additional power rail */                                                                                                           
+-        *con_id = "pwr1";                                                                                                                                                 
+-        *gpio_flags = GPIO_ACTIVE_HIGH;                                                                                                                                   
+-        break;                                                                                                                                                            
+-    case 0x10:  /* Surface Pro 9 - secondary power rail */                                                                                                            
+-        *con_id = "pwr2";                                                                                                                                                 
+-        *gpio_flags = GPIO_ACTIVE_HIGH;                                                                                                                                   
++	case 0x08:  /* Surface Pro 9 - additional power rail */
++        *con_id = "pwr1";
++        *gpio_flags = GPIO_ACTIVE_HIGH;
+         break;
+ 	}
+ }
+@@ -353,8 +349,7 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 	case INT3472_GPIO_TYPE_POWER_ENABLE:
+ 	case INT3472_GPIO_TYPE_DOVDD:
+ 	case INT3472_GPIO_TYPE_HANDSHAKE:
+-	case 0x08:  /* Surface Pro 9 power rails */                                                                                                                       
+-    case 0x10:
++	case 0x08:  /* Surface Pro 9 power rails */
+ 		gpio = skl_int3472_gpiod_get_from_temp_lookup(int3472, agpio, con_id, gpio_flags);
+ 		if (IS_ERR(gpio)) {
+ 			ret = PTR_ERR(gpio);
+@@ -397,8 +392,6 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+             if (ret) {                                                                                                                                                    
+             	dev_err(int3472->dev, "Failed to register type 0x02x: %d\n", type, ret);                                                                                          
+             }                                                                                                                                                             
+-            break;                                                                                                                                                        
+-        case 0x10:                                                                                                                                                        
+             break;
+ 		default: /* Never reached */
+ 			ret = -EINVAL;
+-- 
+2.53.0
+

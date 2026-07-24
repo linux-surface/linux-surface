@@ -1,0 +1,84 @@
+From 9eceb69248ac2aca5eebea48843a5b0657aa4f7a Mon Sep 17 00:00:00 2001
+From: RowdyRagamuffin <stevenandree@outlook.com>
+Date: Fri, 24 Jul 2026 20:15:39 +0800
+Subject: [PATCH 10/10] drivers/hid/ithc: Fix PM suspend/resume to preserve
+ hid_device across s2idle
+
+Preserve struct ithc and hid_device during power management suspend/resume
+instead of calling devres_release_group. This prevents userspace daemons
+(such as iptsd) holding open /dev/hidraw from causing deadlocks/black screen
+freezes upon wake from deep s2idle.
+
+Tooling Note: Patch series porting, conflict resolution, C driver fixes,
+and hardware verification were supported by Google DeepMind Antigravity AI
+agentic pair programming tooling.
+
+Signed-off-by: RowdyRagamuffin <stevenandree@outlook.com>
+---
+ drivers/hid/ithc/ithc-main.c | 30 ++++++++++++++++++------------
+ 1 file changed, 18 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/hid/ithc/ithc-main.c b/drivers/hid/ithc/ithc-main.c
+index 094d878d6..2555d14ad 100644
+--- a/drivers/hid/ithc/ithc-main.c
++++ b/drivers/hid/ithc/ithc-main.c
+@@ -372,38 +372,44 @@ static void ithc_remove(struct pci_dev *pci)
+ static int ithc_suspend(struct device *dev)
+ {
+ 	struct pci_dev *pci = to_pci_dev(dev);
++	struct ithc *ithc = pci_get_drvdata(pci);
++
+ 	pci_dbg(pci, "pm suspend\n");
+-	devres_release_group(dev, ithc_start);
++	if (ithc) {
++		if (ithc->irq >= 0)
++			disable_irq(ithc->irq);
++		timer_delete_sync(&ithc->idle_timer);
++	}
+ 	return 0;
+ }
+ 
+ static int ithc_resume(struct device *dev)
+ {
+ 	struct pci_dev *pci = to_pci_dev(dev);
++	struct ithc *ithc = pci_get_drvdata(pci);
++
+ 	pci_dbg(pci, "pm resume\n");
+-	return ithc_start(pci);
++	if (ithc) {
++		ithc_reset(ithc);
++		if (ithc->irq >= 0)
++			enable_irq(ithc->irq);
++	}
++	return 0;
+ }
+ 
+ static int ithc_freeze(struct device *dev)
+ {
+-	struct pci_dev *pci = to_pci_dev(dev);
+-	pci_dbg(pci, "pm freeze\n");
+-	devres_release_group(dev, ithc_start);
+-	return 0;
++	return ithc_suspend(dev);
+ }
+ 
+ static int ithc_thaw(struct device *dev)
+ {
+-	struct pci_dev *pci = to_pci_dev(dev);
+-	pci_dbg(pci, "pm thaw\n");
+-	return ithc_start(pci);
++	return ithc_resume(dev);
+ }
+ 
+ static int ithc_restore(struct device *dev)
+ {
+-	struct pci_dev *pci = to_pci_dev(dev);
+-	pci_dbg(pci, "pm restore\n");
+-	return ithc_start(pci);
++	return ithc_resume(dev);
+ }
+ 
+ static struct pci_driver ithc_driver = {
+-- 
+2.53.0
+

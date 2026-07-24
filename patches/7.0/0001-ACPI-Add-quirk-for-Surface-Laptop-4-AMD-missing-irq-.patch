@@ -1,0 +1,67 @@
+From 43f6a91004e0a6e34841d09fdeec5f9eb66773a7 Mon Sep 17 00:00:00 2001
+From: Sachi King <nakato@nakato.io>
+Date: Sat, 29 May 2021 17:47:38 +1000
+Subject: [PATCH 01/10] ACPI: Add quirk for Surface Laptop 4 AMD missing irq 7
+ override
+
+This patch is the work of Thomas Gleixner <tglx@linutronix.de> and is
+copied from:
+https://lore.kernel.org/lkml/87lf8ddjqx.ffs@nanos.tec.linutronix.de/
+
+This patch adds a quirk to the ACPI setup to patch in the the irq 7 pin
+setup that is missing in the laptops ACPI table.
+
+This patch was used for validation of the issue, and is not a proper
+fix, but is probably a better temporary hack than continuing to probe
+the Legacy PIC and run with the PIC in an unknown state.
+
+Patchset: amd-gpio
+---
+ arch/x86/kernel/acpi/boot.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/arch/x86/kernel/acpi/boot.c b/arch/x86/kernel/acpi/boot.c
+index ceba24f65..b9bb37486 100644
+--- a/arch/x86/kernel/acpi/boot.c
++++ b/arch/x86/kernel/acpi/boot.c
+@@ -22,6 +22,7 @@
+ #include <linux/efi-bgrt.h>
+ #include <linux/serial_core.h>
+ #include <linux/pgtable.h>
++#include <linux/dmi.h>
+ 
+ #include <xen/xen.h>
+ 
+@@ -1176,6 +1177,17 @@ static void __init mp_config_acpi_legacy_irqs(void)
+ 	}
+ }
+ 
++static const struct dmi_system_id surface_quirk[] __initconst = {
++	{
++		.ident = "Microsoft Surface Laptop 4 (AMD)",
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_SKU, "Surface_Laptop_4_1952:1953")
++		},
++	},
++	{}
++};
++
+ /*
+  * Parse IOAPIC related entries in MADT
+  * returns 0 on success, < 0 on error
+@@ -1232,6 +1244,11 @@ static int __init acpi_parse_madt_ioapic_entries(void)
+ 		acpi_sci_ioapic_setup(acpi_gbl_FADT.sci_interrupt, 0, 0,
+ 				      acpi_gbl_FADT.sci_interrupt);
+ 
++	if (dmi_check_system(surface_quirk)) {
++		pr_warn("Surface hack: Override irq 7\n");
++		mp_override_legacy_irq(7, 3, 3, 7);
++	}
++
+ 	/* Fill in identity legacy mappings where no override */
+ 	mp_config_acpi_legacy_irqs();
+ 
+-- 
+2.53.0
+
