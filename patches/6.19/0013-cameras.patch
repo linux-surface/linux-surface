@@ -689,8 +689,9 @@ Patchset: cameras
  drivers/media/i2c/ov13858.c                   | 158 +++++++++++++++++-
  drivers/media/i2c/ov5693.c                    |   1 +
  drivers/media/pci/intel/ipu-bridge.c          |   4 +
- drivers/platform/x86/intel/int3472/discrete.c |  23 +++
- 4 files changed, 184 insertions(+), 2 deletions(-)
+ drivers/platform/x86/intel/int3472/discrete.c |  22 +++
+ include/linux/platform_data/x86/int3472.h     |   4 ++--
+ 5 files changed, 185 insertions(+), 4 deletions(-)
 
 diff --git a/drivers/media/i2c/ov13858.c b/drivers/media/i2c/ov13858.c
 index 162b49046..85cd0c98a 100644
@@ -967,7 +968,7 @@ index b2b710094..f5456330b 100644
  	IPU_SENSOR_CONFIG("INT3474", 1, 180000000),
  	/* Omnivision OV5670 */
 diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
-index 1505fc3ef..20962e8ac 100644
+index 1505fc3ef..f0b72b1c1 100644
 --- a/drivers/platform/x86/intel/int3472/discrete.c
 +++ b/drivers/platform/x86/intel/int3472/discrete.c
 @@ -229,6 +229,14 @@ static void int3472_get_con_id_and_polarity(struct int3472_discrete_device *int3
@@ -978,8 +979,8 @@ index 1505fc3ef..20962e8ac 100644
 +		*con_id = "pwr1";
 +		*gpio_flags = GPIO_ACTIVE_HIGH;
 +		break;
-+	case 0x10:  /* Surface Pro 9 - secondary power rail */
-+		*con_id = "pwr2";
++	case 0x10:  /* Matches mainline v7.0 INT3472_GPIO_TYPE_DOVDD naming */
++		*con_id = "dovdd";
 +		*gpio_flags = GPIO_ACTIVE_HIGH;
 +		break;
  	default:
@@ -994,11 +995,12 @@ index 1505fc3ef..20962e8ac 100644
  		gpio = skl_int3472_gpiod_get_from_temp_lookup(int3472, agpio, con_id, gpio_flags);
  		if (IS_ERR(gpio)) {
  			ret = PTR_ERR(gpio);
-@@ -363,6 +373,19 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+@@ -363,6 +373,18 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
  				err_msg = "Failed to register regulator\n";
  
  			break;
 +		case 0x08:  /* Surface Pro 9 - treat as power*/
++		case 0x10:  /* "dovdd" - register a regulator like 0x08 */
 +		    dev_info(int3472->dev, "GPIO type 0x%02x detected on pin 0x%02x\n", type, agpio->pin_table[0]);
 +		    dev_info(int3472->dev, "  con_id=%s, flags=0x%x\n", con_id, gpio_flags);
 +		    ret = skl_int3472_register_regulator(int3472, gpio,
@@ -1009,11 +1011,24 @@ index 1505fc3ef..20962e8ac 100644
 +			dev_err(int3472->dev, "Failed to register type 0x02x: %d\n", type, ret);
 +		    }
 +		    break;
-+		case 0x10:
-+		    break;
  		default: /* Never reached */
  			ret = -EINVAL;
  			break;
+diff --git a/include/linux/platform_data/x86/int3472.h b/include/linux/platform_data/x86/int3472.h
+index b1b837583..7000dd8f4 100644
+--- a/include/linux/platform_data/x86/int3472.h
++++ b/include/linux/platform_data/x86/int3472.h
+@@ -33,8 +33,8 @@
+ #define INT3472_MAX_SENSOR_GPIOS				3
+ #define INT3472_MAX_REGULATORS					3
+ 
+-/* E.g. "avdd\0" */
+-#define GPIO_SUPPLY_NAME_LENGTH				5
++/* E.g. "dovdd\0" */
++#define GPIO_SUPPLY_NAME_LENGTH				6
+ /* 12 chars for acpi_dev_name() + "-", e.g. "ABCD1234:00-" */
+ #define GPIO_REGULATOR_NAME_LENGTH				(12 + GPIO_SUPPLY_NAME_LENGTH)
+ /* lower- and upper-case mapping */
 -- 
 2.53.0
 
@@ -1520,12 +1535,13 @@ index 28b192c..77e7183 100644
 From fe6f21c96e7657d16a16c8df1eb82c7e9d46d19c Mon Sep 17 00:00:00 2001
 From: "D. Manresa" <d.manresa@electronica-submarina.com>
 Date: Thu, 27 Aug 2026 23:03:33 +0200
-Subject: [PATCH] platform/x86: int3472: map the Surface Pro 7+ IR and rear
+Subject: [PATCH] platform/x86: int3472: map the Surface Pro 7+ and Pro 8
  sensor rails
 
-Two power-sequencing gaps keep the Surface Pro 7+ IR (OV7251, INT347E)
-and rear (OV8865, INT347A) cameras from powering on; both sensors fail
-their first I2C access with -EREMOTEIO (-121):
+Three power-sequencing gaps keep the Surface Pro 7+ IR (OV7251,
+INT347E) and rear (OV8865, INT347A) cameras and the Surface Pro 8
+infrared camera (ST VD55G0, SMO55F0) from powering on; the affected
+sensors fail their first I2C access with -EREMOTEIO (-121):
 
 1. The INT347E declares its single gated rail as a power-enable GPIO,
    which is registered as an "avdd" regulator by default. The ov7251
@@ -1540,26 +1556,40 @@ their first I2C access with -EREMOTEIO (-121):
    not come up unless this rail is actually driven. Register it under
    a supply name the ov8865 driver requests, default "dvdd". Which of
    the driver's supplies it feeds on this board is not knowable from
-   ACPI, so the name is a module parameter (ov8865_pwr1_con_id). Note
-   GPIO_SUPPLY_NAME_LENGTH is 5 (4 chars + NUL), so "dovdd" - the
-   other candidate - does not currently fit any mapping.
+   ACPI, so the name is a module parameter (ov8865_pwr1_con_id). The
+   default "dvdd" is what the in-tree ov8865 driver requests; with
+   GPIO_SUPPLY_NAME_LENGTH raised to 6 in this patchset, "dovdd" -
+   the other candidate - fits as well.
+
+3. The Surface Pro 8 infrared sensor (ST VD55G0, HID SMO55F0) declares
+   its rails as GPIO types 0x10, 0x0b and 0x12, which the generic
+   handling registers as "dovdd", "avdd" and "dvdd". The VD55G0
+   driver requests its supplies as vcore, vddio and vana, so the
+   regulators exist but are never claimed and the GPIOs are never
+   driven. Add per-HID int3472_gpio_map[] entries renaming them
+   (0x10 -> "vddio", 0x0b -> "vana", 0x12 -> "vcore"); the map
+   lookup runs before the generic type switch, so these win.
+   Supplies verified by regulator consumer binding on a Surface
+   Pro 8 by @fildunsky (linux-surface PR #2252).
 
 Verified on a Surface Pro 7+: with both rails mapped the OV7251 and
 OV8865 probe and stream; without either one the respective sensor
-fails probe with -121.
+fails probe with -121. The SMO55F0 mappings were verified on a
+Surface Pro 8 by the reporter of PR #2252 (regulator claimed by
+i2c-SMO55F0:00, rail driven, illuminated frames captured).
 
 Signed-off-by: D. Manresa <d.manresa@electronica-submarina.com>
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
 Patchset: cameras
 ---
- drivers/platform/x86/intel/int3472/discrete.c | 35 +++++++++++++++++++
- 1 file changed, 35 insertions(+)
+ drivers/platform/x86/intel/int3472/discrete.c | 62 +++++++++++++++++++
+ 1 file changed, 62 insertions(+)
 
 diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
-index 20962e8..674820b 100644
+index f0b72b1..cc9c4d3 100644
 --- a/drivers/platform/x86/intel/int3472/discrete.c
 +++ b/drivers/platform/x86/intel/int3472/discrete.c
-@@ -157,6 +157,20 @@ static const struct int3472_gpio_map int3472_gpio_map[] = {
+@@ -157,6 +157,47 @@ static const struct int3472_gpio_map int3472_gpio_map[] = {
  		.type_to = INT3472_GPIO_TYPE_RESET,
  		.con_id = "enable",
  	},
@@ -1577,10 +1607,37 @@ index 20962e8..674820b 100644
 +		.con_id = "vdda",
 +		.enable_time_us = GPIO_REGULATOR_ENABLE_TIME,
 +	},
++	{	/*
++		 * The Surface Pro 8's infrared sensor (ST VD55G0, SMO55F0)
++		 * requests its supplies as vcore, vddio and vana, so the
++		 * generic "dovdd"/"avdd"/"dvdd" rails are never claimed and
++		 * probe dies with -121. Supplies verified by regulator
++		 * consumer binding on Surface Pro 8, see PR #2252.
++		 */
++		.hid = "SMO55F0",
++		.type_from = 0x10,
++		.type_to = 0x10,
++		.con_id = "vddio",
++		.enable_time_us = GPIO_REGULATOR_ENABLE_TIME,
++	},
++	{
++		.hid = "SMO55F0",
++		.type_from = INT3472_GPIO_TYPE_POWER_ENABLE,
++		.type_to = INT3472_GPIO_TYPE_POWER_ENABLE,
++		.con_id = "vana",
++		.enable_time_us = GPIO_REGULATOR_ENABLE_TIME,
++	},
++	{
++		.hid = "SMO55F0",
++		.type_from = INT3472_GPIO_TYPE_HANDSHAKE,
++		.type_to = INT3472_GPIO_TYPE_HANDSHAKE,
++		.con_id = "vcore",
++		.enable_time_us = GPIO_REGULATOR_ENABLE_TIME,
++	},
  	{	/* ov08x40's handshake pin needs a 45 ms delay on some HP laptops */
  		.hid = "OVTI08F4",
  		.type_from = INT3472_GPIO_TYPE_HANDSHAKE,
-@@ -166,6 +180,19 @@ static const struct int3472_gpio_map int3472_gpio_map[] = {
+@@ -166,6 +207,19 @@ static const struct int3472_gpio_map int3472_gpio_map[] = {
  	},
  };
  
@@ -1589,8 +1646,8 @@ index 20962e8..674820b 100644
 + * vendor-specific type 0x08, which no upstream code handles. The sensor needs
 + * it: with only the type 0x0B rail ("avdd") powered the first I2C write dies
 + * with -121. Which of the ov8865 driver's supplies it actually feeds is a
-+ * guess, so keep it settable. Note that GPIO_SUPPLY_NAME_LENGTH is 5, so
-+ * "dovdd" -- the other candidate -- does not even fit.
++ * guess, so keep it settable. The default "dvdd" is what the in-tree ov8865
++ * driver requests; GPIO_SUPPLY_NAME_LENGTH is 6 here, so "dovdd" fits too.
 + */
 +static char *ov8865_pwr1_con_id = "dvdd";
 +module_param(ov8865_pwr1_con_id, charp, 0644);
@@ -1600,7 +1657,7 @@ index 20962e8..674820b 100644
  static void int3472_get_con_id_and_polarity(struct int3472_discrete_device *int3472, u8 *type,
  					    const char **con_id, unsigned long *gpio_flags,
  					    unsigned int *enable_time_us)
-@@ -173,6 +200,14 @@ static void int3472_get_con_id_and_polarity(struct int3472_discrete_device *int3
+@@ -173,6 +227,14 @@ static void int3472_get_con_id_and_polarity(struct int3472_discrete_device *int3
  	struct acpi_device *adev = int3472->sensor;
  	unsigned int i;
  
