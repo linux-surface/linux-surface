@@ -689,8 +689,9 @@ Patchset: cameras
  drivers/media/i2c/ov13858.c                   | 158 +++++++++++++++++-
  drivers/media/i2c/ov5693.c                    |   1 +
  drivers/media/pci/intel/ipu-bridge.c          |   4 +
- drivers/platform/x86/intel/int3472/discrete.c |  23 +++
- 4 files changed, 184 insertions(+), 2 deletions(-)
+ drivers/platform/x86/intel/int3472/discrete.c |  22 +++
+ include/linux/platform_data/x86/int3472.h     |   4 ++--
+ 5 files changed, 185 insertions(+), 4 deletions(-)
 
 diff --git a/drivers/media/i2c/ov13858.c b/drivers/media/i2c/ov13858.c
 index 162b49046..85cd0c98a 100644
@@ -967,7 +968,7 @@ index b2b710094..f5456330b 100644
  	IPU_SENSOR_CONFIG("INT3474", 1, 180000000),
  	/* Omnivision OV5670 */
 diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
-index 1505fc3ef..20962e8ac 100644
+index 1505fc3ef..f0b72b1c1 100644
 --- a/drivers/platform/x86/intel/int3472/discrete.c
 +++ b/drivers/platform/x86/intel/int3472/discrete.c
 @@ -229,6 +229,14 @@ static void int3472_get_con_id_and_polarity(struct int3472_discrete_device *int3
@@ -978,8 +979,8 @@ index 1505fc3ef..20962e8ac 100644
 +		*con_id = "pwr1";
 +		*gpio_flags = GPIO_ACTIVE_HIGH;
 +		break;
-+	case 0x10:  /* Surface Pro 9 - secondary power rail */
-+		*con_id = "pwr2";
++	case 0x10:  /* Matches mainline v7.0 INT3472_GPIO_TYPE_DOVDD naming */
++		*con_id = "dovdd";
 +		*gpio_flags = GPIO_ACTIVE_HIGH;
 +		break;
  	default:
@@ -994,11 +995,12 @@ index 1505fc3ef..20962e8ac 100644
  		gpio = skl_int3472_gpiod_get_from_temp_lookup(int3472, agpio, con_id, gpio_flags);
  		if (IS_ERR(gpio)) {
  			ret = PTR_ERR(gpio);
-@@ -363,6 +373,19 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+@@ -363,6 +373,18 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
  				err_msg = "Failed to register regulator\n";
  
  			break;
 +		case 0x08:  /* Surface Pro 9 - treat as power*/
++		case 0x10:  /* "dovdd" - register a regulator like 0x08 */
 +		    dev_info(int3472->dev, "GPIO type 0x%02x detected on pin 0x%02x\n", type, agpio->pin_table[0]);
 +		    dev_info(int3472->dev, "  con_id=%s, flags=0x%x\n", con_id, gpio_flags);
 +		    ret = skl_int3472_register_regulator(int3472, gpio,
@@ -1009,11 +1011,24 @@ index 1505fc3ef..20962e8ac 100644
 +			dev_err(int3472->dev, "Failed to register type 0x02x: %d\n", type, ret);
 +		    }
 +		    break;
-+		case 0x10:
-+		    break;
  		default: /* Never reached */
  			ret = -EINVAL;
  			break;
+diff --git a/include/linux/platform_data/x86/int3472.h b/include/linux/platform_data/x86/int3472.h
+index b1b837583..7000dd8f4 100644
+--- a/include/linux/platform_data/x86/int3472.h
++++ b/include/linux/platform_data/x86/int3472.h
+@@ -33,8 +33,8 @@
+ #define INT3472_MAX_SENSOR_GPIOS				3
+ #define INT3472_MAX_REGULATORS					3
+ 
+-/* E.g. "avdd\0" */
+-#define GPIO_SUPPLY_NAME_LENGTH				5
++/* E.g. "dovdd\0" */
++#define GPIO_SUPPLY_NAME_LENGTH				6
+ /* 12 chars for acpi_dev_name() + "-", e.g. "ABCD1234:00-" */
+ #define GPIO_REGULATOR_NAME_LENGTH				(12 + GPIO_SUPPLY_NAME_LENGTH)
+ /* lower- and upper-case mapping */
 -- 
 2.53.0
 
@@ -1060,4 +1075,603 @@ index f5456330b..3418ff475 100644
  
 -- 
 2.53.0
+
+From d5253e9181f6d392468dfcd454ffdd98fe7a13ee Mon Sep 17 00:00:00 2001
+From: "D. Manresa" <d.manresa@electronica-submarina.com>
+Date: Thu, 27 Aug 2026 23:03:33 +0200
+Subject: [PATCH] media: i2c: ov5693: make the 2x2-binned mode stream on IPU6
+
+The driver's 1296x972 binned mode has never streamed on IPU6 machines
+(Surface Pro 7+/8/9, Go 4): the receiver reports "Transfer FIFO
+overflow" or "Frame sync error" and no frame ever completes. Because of
+that, every IPU6 setup has had to read the sensor at full 2592x1944 and
+downscale, throwing away two stops of light and pinning the AGC at its
+maximum analogue gain (127 vs ~15) - the familiar "working but unusably
+noisy" IPU6 front camera. Fix the mode by porting what the vendor
+(Windows) driver ov5693.sys programs differently, extracted from its
+mode tables:
+
+- Per-mode MIPI PLL (0x30b3: 0x70 binned / 0x83 full) and six per-mode
+  analogue readout registers. Mainline writes only the full-resolution
+  values, once, globally; the binned readout then overflows the
+  receiver's FIFO.
+
+- Readout geometry with spare pixels: cropping exactly the output size
+  starves the sensor's internal ISP and every frame fails CSI-2 framing
+  ("Frame sync error"). The vendor reads the whole pixel array, bins it
+  to 1312x978, and places the 1296x972 output via the ISP window
+  offsets. The parity of the Y offset selects the vertical Bayer phase
+  (even = the advertised BGGR, odd = GRBG); it is exposed as a module
+  parameter (binned_y_offset, default 2) because libcamera's software
+  ISP wants the advertised phase while pipelines built around the
+  Windows tuning (Intel's IPU6 HAL/PSYS) expect the vendor's odd
+  offset.
+
+- Mode-dependent vertical-flip bits: with binning, setting both FORMAT1
+  flip bits corrupts the CSI-2 framing and the ISP bit alone does not
+  flip; only the sensor-side bit both streams and flips. Re-apply the
+  vflip control when the mode is configured, since the correct bits
+  depend on the selected mode.
+
+- Cap the frame rate at 30 fps: the auto-picked 60 fps VTS for the
+  binned mode exceeds what the slower binned MIPI PLL can carry (the
+  vendor runs this mode at VTS 1984 / 30 fps).
+
+- Program MIPI_CTRL00 (0x4800) = 0x2d before stream-on. The 0x00
+  power-on default is fine on IPU3 but leaves the IPU6 D-PHY unable to
+  lock: the sensor streams yet no CSI-2 data arrives.
+
+Also document the black-level pedestal next to the BLC init values: the
+sensor keeps ~16 LSB (10-bit) at every analogue gain, while OEM .aiqb
+calibrations state 64.9 because Windows' ISYS delivers RAW10 aligned to
+12 bits.
+
+Verified on a Surface Pro 7+ (IPU6, Tiger Lake): 1296x972 at 30 fps,
+analogue gain in normal indoor light drops from 127 (maximum) to ~15,
+both through libcamera's software ISP and through Intel's IPU6 HAL on
+top of the hardware ISP. Reference setup and measurements:
+https://github.com/dmanresa-saes/surface-ipu6-cameras
+
+Signed-off-by: D. Manresa <d.manresa@electronica-submarina.com>
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov5693.c | 168 ++++++++++++++++++++++++++++++++++---
+ 1 file changed, 156 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
+index 02236f3..ee81b4d 100644
+--- a/drivers/media/i2c/ov5693.c
++++ b/drivers/media/i2c/ov5693.c
+@@ -82,6 +82,17 @@
+ #define OV5693_OFFSET_START_X_REG		CCI_REG16(0x3810)
+ #define OV5693_OFFSET_START_Y_REG		CCI_REG16(0x3812)
+ 
++/*
++ * ISP window Y offset used in the binned mode. Parity selects the Bayer
++ * phase of the output: 2 (even) keeps the advertised BGGR phase and is what
++ * libcamera's software ISP expects; 3 (odd, the Windows value) yields the
++ * GRBG phase that the IPU6 PSYS program groups from the Windows tuning
++ * expect. Switch with: modprobe ov5693 binned_y_offset=3
++ */
++static int binned_y_offset = 2;
++module_param(binned_y_offset, int, 0644);
++MODULE_PARM_DESC(binned_y_offset, "binned-mode ISP window Y offset (2=softISP/BGGR, 3=PSYS/GRBG)");
++
+ #define OV5693_SUB_INC_X_REG			CCI_REG8(0x3814)
+ #define OV5693_SUB_INC_Y_REG			CCI_REG8(0x3815)
+ 
+@@ -110,6 +121,10 @@
+ #define OV5693_MIN_CROP_WIDTH			2
+ #define OV5693_MIN_CROP_HEIGHT			2
+ 
++/* MIPI control */
++#define OV5693_MIPI_CTRL00_REG			CCI_REG8(0x4800)
++#define OV5693_MIPI_CTRL00_IPU6			0x2d
++
+ /* Test Pattern */
+ #define OV5693_TEST_PATTERN_REG			CCI_REG8(0x5e00)
+ #define OV5693_TEST_PATTERN_ENABLE		BIT(7)
+@@ -285,6 +300,15 @@ static const struct cci_reg_sequence ov5693_global_regs[] = {
+ 	{CCI_REG8(0x3a04), 0x06},
+ 	{CCI_REG8(0x3a05), 0x14},
+ 	{CCI_REG8(0x3e07), 0x20},
++	/*
++	 * BLC: same values the Windows driver writes. The sensor keeps its
++	 * black pedestal at ~16 LSB (10-bit) at every analogue gain (measured
++	 * with dark captures; adding the remaining Windows BLC registers
++	 * 0x4002/0x4005/0x400c/0x400d/0x404e/0x404f does not change that).
++	 * Note the OEM .aiqb black-level calibration says 64.9 because it is
++	 * expressed at the 12-bit alignment Windows' ISYS DMA delivers
++	 * (16.2 <<2); see REPRODUCIR.md section 10.
++	 */
+ 	{CCI_REG8(0x4000), 0x08},
+ 	{CCI_REG8(0x4001), 0x04},
+ 	{CCI_REG8(0x4004), 0x08},
+@@ -353,15 +377,36 @@ static const u8 ov5693_test_pattern_bits[] = {
+ 
+ /* V4L2 Controls Functions */
+ 
++/*
++ * Which FORMAT1 bits express a vertical flip depends on the readout mode.
++ *
++ * At full resolution both the sensor-side and the ISP-side bit are used, as
++ * the datasheet describes. With 2x2 binning, setting both corrupts the CSI-2
++ * framing: an IPU6 receiver reports "Frame sync error" on every frame and no
++ * data arrives at all. The ISP bit alone streams cleanly but does not
++ * actually flip the picture, so the sensor-side bit alone is the one that
++ * both streams and flips. It also inverts the vertical Bayer phase, which
++ * the even ISP window offset in ov5693_mode_configure() keeps in place --
++ * measured on a Surface Pro 7+ against the full-resolution orientation.
++ */
++static u8 ov5693_flip_vert_bits(struct ov5693_device *ov5693)
++{
++	if (ov5693->mode.binning_y)
++		return OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
++
++	return OV5693_FORMAT1_FLIP_VERT_ISP_EN |
++	       OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
++}
++
+ static int ov5693_flip_vert_configure(struct ov5693_device *ov5693,
+ 				      bool enable)
+ {
+-	u8 bits = OV5693_FORMAT1_FLIP_VERT_ISP_EN |
++	u8 mask = OV5693_FORMAT1_FLIP_VERT_ISP_EN |
+ 		  OV5693_FORMAT1_FLIP_VERT_SENSOR_EN;
+ 	int ret;
+ 
+-	ret = cci_update_bits(ov5693->regmap, OV5693_FORMAT1_REG, bits,
+-			      enable ? bits : 0, NULL);
++	ret = cci_update_bits(ov5693->regmap, OV5693_FORMAT1_REG, mask,
++			      enable ? ov5693_flip_vert_bits(ov5693) : 0, NULL);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -549,17 +594,73 @@ static const struct v4l2_ctrl_ops ov5693_ctrl_ops = {
+ 
+ /* System Control Functions */
+ 
++/*
++ * Registers the vendor (Windows) driver programs differently for the full
++ * resolution and the 2x2 binned readout, taken from the mode tables in
++ * ov5693.sys.
++ *
++ * The mainline driver writes only the full-resolution values, once, from
++ * ov5693_global_regs, and never revisits them. Selecting the binned mode
++ * therefore leaves the sensor with a MIPI PLL multiplier (0x30b3) and
++ * analogue readout timing meant for twice the line length. On an IPU6 the
++ * receiver then reports "Transfer FIFO overflow" and every frame arrives
++ * empty, which is why the binned mode has been unusable -- and why the
++ * sensor has had to be read at full resolution and downscaled, costing two
++ * stops of light and forcing the AGC to its maximum analogue gain.
++ */
++static const struct cci_reg_sequence ov5693_mode_full_regs[] = {
++	{CCI_REG8(0x30b3), 0x83},	/* MIPI PLL multiplier */
++	{CCI_REG8(0x3620), 0x54},
++	{CCI_REG8(0x3621), 0xc7},
++	{CCI_REG8(0x3622), 0x0f},
++	{CCI_REG8(0x3708), 0xe2},
++	{CCI_REG8(0x3709), 0xc3},
++	{CCI_REG8(0x371f), 0x0c},
++};
++
++static const struct cci_reg_sequence ov5693_mode_binned_regs[] = {
++	{CCI_REG8(0x30b3), 0x70},	/* MIPI PLL multiplier */
++	{CCI_REG8(0x3600), 0xbc},	/* analogue, vendor sets it binned-only */
++	{CCI_REG8(0x3620), 0x44},
++	{CCI_REG8(0x3621), 0xb5},
++	{CCI_REG8(0x3622), 0x0c},
++	{CCI_REG8(0x3708), 0xe6},
++	{CCI_REG8(0x3709), 0xc7},
++	{CCI_REG8(0x371f), 0x1f},
++};
++
+ static int ov5693_mode_configure(struct ov5693_device *ov5693)
+ {
+ 	const struct ov5693_mode *mode = &ov5693->mode;
++	bool binned = mode->binning_x || mode->binning_y;
+ 	int ret = 0;
+ 
++	/*
++	 * Readout geometry. At full resolution this is the crop rectangle
++	 * selected over the media API, with the sensor-ISP window offsets at
++	 * zero.
++	 *
++	 * The binned mode instead copies the vendor driver: read the whole
++	 * pixel array (0..2623 x 0..1955), bin it to 1312x978, and let the
++	 * ISP window offsets place the 1296x972 output inside that. The
++	 * vertical offset is 2 rather than the vendor's 3: an odd offset
++	 * shifts the Bayer phase by one row (everything decodes magenta and
++	 * green); the vendor ISP knows the resulting phase, a V4L2 receiver
++	 * assumes it unchanged. The
++	 * obvious alternative -- keeping the 2592x1944 crop so the binned
++	 * readout exactly equals the output size with zero offset -- leaves
++	 * the sensor ISP without spare pixels around the window, and the
++	 * frames it emits then fail CSI-2 framing ("Frame sync error" on the
++	 * IPU6, no frame ever completes).
++	 */
++
+ 	/* Crop Start X */
+-	cci_write(ov5693->regmap, OV5693_CROP_START_X_REG, mode->crop.left,
+-		  &ret);
++	cci_write(ov5693->regmap, OV5693_CROP_START_X_REG,
++		  binned ? 0 : mode->crop.left, &ret);
+ 
+ 	/* Offset X */
+-	cci_write(ov5693->regmap, OV5693_OFFSET_START_X_REG, 0, &ret);
++	cci_write(ov5693->regmap, OV5693_OFFSET_START_X_REG,
++		  binned ? 8 : 0, &ret);
+ 
+ 	/* Output Size X */
+ 	cci_write(ov5693->regmap, OV5693_OUTPUT_SIZE_X_REG, mode->format.width,
+@@ -567,18 +668,20 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
+ 
+ 	/* Crop End X */
+ 	cci_write(ov5693->regmap, OV5693_CROP_END_X_REG,
+-		  mode->crop.left + mode->crop.width, &ret);
++		  binned ? OV5693_NATIVE_WIDTH - 1 :
++			   mode->crop.left + mode->crop.width, &ret);
+ 
+ 	/* Horizontal Total Size */
+ 	cci_write(ov5693->regmap, OV5693_TIMING_HTS_REG, OV5693_FIXED_PPL,
+ 		  &ret);
+ 
+ 	/* Crop Start Y */
+-	cci_write(ov5693->regmap, OV5693_CROP_START_Y_REG, mode->crop.top,
+-		  &ret);
++	cci_write(ov5693->regmap, OV5693_CROP_START_Y_REG,
++		  binned ? 0 : mode->crop.top, &ret);
+ 
+-	/* Offset Y */
+-	cci_write(ov5693->regmap, OV5693_OFFSET_START_Y_REG, 0, &ret);
++	/* Offset Y: parity picks the Bayer phase, see binned_y_offset. */
++	cci_write(ov5693->regmap, OV5693_OFFSET_START_Y_REG,
++		  binned ? binned_y_offset : 0, &ret);
+ 
+ 	/* Output Size Y */
+ 	cci_write(ov5693->regmap, OV5693_OUTPUT_SIZE_Y_REG, mode->format.height,
+@@ -586,7 +689,8 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
+ 
+ 	/* Crop End Y */
+ 	cci_write(ov5693->regmap, OV5693_CROP_END_Y_REG,
+-		  mode->crop.top + mode->crop.height, &ret);
++		  binned ? OV5693_NATIVE_HEIGHT - 1 :
++			   mode->crop.top + mode->crop.height, &ret);
+ 
+ 	/* Subsample X increase */
+ 	cci_write(ov5693->regmap, OV5693_SUB_INC_X_REG,
+@@ -604,6 +708,24 @@ static int ov5693_mode_configure(struct ov5693_device *ov5693)
+ 			OV5693_FORMAT2_HBIN_EN,
+ 			mode->binning_x ? OV5693_FORMAT2_HBIN_EN : 0, &ret);
+ 
++	/*
++	 * The set of FORMAT1 bits that means "vertical flip" changes with the
++	 * readout mode, so re-apply the control now that binning is known.
++	 */
++	if (ov5693->ctrls.vflip && ov5693->ctrls.vflip->val)
++		cci_update_bits(ov5693->regmap, OV5693_FORMAT1_REG,
++				OV5693_FORMAT1_FLIP_VERT_ISP_EN |
++				OV5693_FORMAT1_FLIP_VERT_SENSOR_EN,
++				ov5693_flip_vert_bits(ov5693), &ret);
++
++	/* PLL and analogue readout timing follow the readout mode. */
++	if (mode->binning_x || mode->binning_y)
++		cci_multi_reg_write(ov5693->regmap, ov5693_mode_binned_regs,
++				    ARRAY_SIZE(ov5693_mode_binned_regs), &ret);
++	else
++		cci_multi_reg_write(ov5693->regmap, ov5693_mode_full_regs,
++				    ARRAY_SIZE(ov5693_mode_full_regs), &ret);
++
+ 	return ret;
+ }
+ 
+@@ -611,6 +733,18 @@ static int ov5693_enable_streaming(struct ov5693_device *ov5693, bool enable)
+ {
+ 	int ret = 0;
+ 
++	/*
++	 * Program MIPI_CTRL00 (CSI-2 clock-lane control) before starting the
++	 * stream. The 0x00 power-on default is accepted by the IPU3 ISP but
++	 * leaves the IPU6 D-PHY (Surface Pro 7+/8/9) unable to lock onto the
++	 * link: the sensor streams yet the receiver gets no CSI-2 data and
++	 * capture times out. 0x2d matches the value the vendor (Windows)
++	 * driver writes and lets the IPU6 receive frames.
++	 */
++	if (enable)
++		cci_write(ov5693->regmap, OV5693_MIPI_CTRL00_REG,
++			  OV5693_MIPI_CTRL00_IPU6, &ret);
++
+ 	cci_write(ov5693->regmap, OV5693_SW_STREAM_REG,
+ 		  enable ? OV5693_START_STREAMING : OV5693_STOP_STREAMING,
+ 		  &ret);
+@@ -762,6 +896,16 @@ static unsigned int __ov5693_calc_vts(u32 height)
+ 
+ 	tgt_fps = rounddown(OV5693_PIXEL_RATE / OV5693_FIXED_PPL / height, 30);
+ 
++	/*
++	 * Cap at 30fps. Left alone this picks 60fps for the 2x2 binned mode,
++	 * which halves VTS to 1038 -- and the binned readout runs off a slower
++	 * MIPI PLL (0x30b3), so the link cannot carry twice the frame rate:
++	 * the IPU6 reports "Frame sync error" and no frame ever completes. The
++	 * vendor driver runs the same mode at VTS 1984. Staying at 30fps also
++	 * keeps the exposure ceiling, which is VTS bound, where it was.
++	 */
++	tgt_fps = min(tgt_fps, 30U);
++
+ 	return ALIGN_DOWN(OV5693_PIXEL_RATE / OV5693_FIXED_PPL / tgt_fps, 2);
+ }
+ 
+-- 
+2.43.0
+
+From 63db2dfcb98746ba6bc40c96945f736f29b42a1b Mon Sep 17 00:00:00 2001
+From: "D. Manresa" <d.manresa@electronica-submarina.com>
+Date: Thu, 27 Aug 2026 23:03:33 +0200
+Subject: [PATCH] media: i2c: ov7251: drive the IR illuminator while streaming
+
+On the Surface (Windows Hello) IR cameras the illuminator hangs off the
+OV7251's strobe output and nothing in ACPI describes it: the INT3472
+for this camera declares only a power-enable and a reset GPIO. Without
+programming the strobe the sensor sees a completely black scene - the
+module sits behind an IR-pass filter and room lighting emits next to
+nothing in the infrared.
+
+Two registers matter, both taken from the mode tables of the vendor's
+ov7251.sys:
+
+  0x3005  pad output enable; 0x08 routes the strobe to the illuminator.
+  0x3b81  strobe pattern, one bit per frame. The vendor writes 0xff for
+          its illuminated modes and 0xa5 for the rest. This driver's
+          global init programs 0xa5 (10100101), so even with the pad
+          enabled the illuminator fires on half the frames: the LED
+          blinks visibly and every second frame comes out black.
+
+Turn the illuminator on at stream-on and off at stream-off, so it is
+lit exactly while an application is consuming frames. Enabled
+automatically for ACPI id INT347E (the Surface discrete-INT3472 IR
+module); a module parameter (ir_led) allows forcing it either way for
+other designs where the wiring is unknown.
+
+Verified on a Surface Pro 7+: IR frames are black without this, usable
+for face enrolment/recognition with it.
+
+Signed-off-by: D. Manresa <d.manresa@electronica-submarina.com>
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov7251.c | 60 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 60 insertions(+)
+
+diff --git a/drivers/media/i2c/ov7251.c b/drivers/media/i2c/ov7251.c
+index 28b192c..77e7183 100644
+--- a/drivers/media/i2c/ov7251.c
++++ b/drivers/media/i2c/ov7251.c
+@@ -23,6 +23,30 @@
+ #include <media/v4l2-fwnode.h>
+ #include <media/v4l2-subdev.h>
+ 
++/*
++ * The Windows-Hello IR illuminator hangs off the sensor's strobe output.
++ * Nothing in ACPI describes it -- the INT3472 for this camera declares only a
++ * power-enable and a reset GPIO -- so without programming it here the sensor
++ * sees a completely black scene: the module sits behind an IR-pass filter and
++ * room lighting emits next to nothing in the infrared.
++ *
++ * Two registers matter, both read out of the mode tables in the vendor's
++ * ov7251.sys:
++ *
++ *   0x3005  pad output value; 0x08 routes the strobe to the illuminator.
++ *   0x3b81  strobe pattern, one bit per frame. The vendor writes 0xff for its
++ *           illuminated modes and 0xa5 for the rest. 0xa5 is 10100101, so the
++ *           illuminator fires on half the frames: the LED blinks visibly and
++ *           every second frame comes out black. This driver's global init
++ *           programs 0xa5, hence the need to override it.
++ */
++#define OV7251_PAD_OUT1			0x3005
++#define OV7251_PAD_OUT1_IR_LED		0x08
++#define OV7251_STROBE_PATTERN		0x3b81
++#define OV7251_STROBE_EVERY_FRAME	0xff
++#define OV7251_STROBE_HALF_FRAMES	0xa5
++
++
+ #define OV7251_SC_MODE_SELECT		0x0100
+ #define OV7251_SC_MODE_SELECT_SW_STANDBY	0x0
+ #define OV7251_SC_MODE_SELECT_STREAMING		0x1
+@@ -1334,6 +1358,36 @@ static int ov7251_get_selection(struct v4l2_subdev *sd,
+ 	return 0;
+ }
+ 
++static int ir_led = -1;
++module_param(ir_led, int, 0644);
++MODULE_PARM_DESC(ir_led,
++		 "IR illuminator while streaming: -1 auto (on for ACPI INT347E), 0 off, 1 on");
++
++static bool ov7251_has_ir_led(struct ov7251 *ov7251)
++{
++	if (ir_led >= 0)
++		return ir_led;
++
++	return acpi_dev_hid_uid_match(ACPI_COMPANION(ov7251->dev), "INT347E", NULL);
++}
++
++static int ov7251_ir_led_set(struct ov7251 *ov7251, bool on)
++{
++	int ret;
++
++	if (!ov7251_has_ir_led(ov7251))
++		return 0;
++
++	ret = ov7251_write_reg(ov7251, OV7251_PAD_OUT1,
++			       on ? OV7251_PAD_OUT1_IR_LED : 0);
++	if (ret)
++		return ret;
++
++	return ov7251_write_reg(ov7251, OV7251_STROBE_PATTERN,
++				on ? OV7251_STROBE_EVERY_FRAME :
++				     OV7251_STROBE_HALF_FRAMES);
++}
++
+ static int ov7251_s_stream(struct v4l2_subdev *subdev, int enable)
+ {
+ 	struct ov7251 *ov7251 = to_ov7251(subdev);
+@@ -1372,7 +1426,13 @@ static int ov7251_s_stream(struct v4l2_subdev *subdev, int enable)
+ 				       OV7251_SC_MODE_SELECT_STREAMING);
+ 		if (ret)
+ 			goto err_power_down;
++
++		ret = ov7251_ir_led_set(ov7251, true);
++		if (ret)
++			goto err_power_down;
+ 	} else {
++		ov7251_ir_led_set(ov7251, false);
++
+ 		ret = ov7251_write_reg(ov7251, OV7251_SC_MODE_SELECT,
+ 				       OV7251_SC_MODE_SELECT_SW_STANDBY);
+ 		pm_runtime_put(ov7251->dev);
+-- 
+2.43.0
+
+From fe6f21c96e7657d16a16c8df1eb82c7e9d46d19c Mon Sep 17 00:00:00 2001
+From: "D. Manresa" <d.manresa@electronica-submarina.com>
+Date: Thu, 27 Aug 2026 23:03:33 +0200
+Subject: [PATCH] platform/x86: int3472: map the Surface Pro 7+ and Pro 8
+ sensor rails
+
+Three power-sequencing gaps keep the Surface Pro 7+ IR (OV7251,
+INT347E) and rear (OV8865, INT347A) cameras and the Surface Pro 8
+infrared camera (ST VD55G0, SMO55F0) from powering on; the affected
+sensors fail their first I2C access with -EREMOTEIO (-121):
+
+1. The INT347E declares its single gated rail as a power-enable GPIO,
+   which is registered as an "avdd" regulator by default. The ov7251
+   driver requests its supplies as vdda/vddd/vdddo (per the DT
+   bindings), so it gets a dummy regulator and the sensor is never
+   powered. Add an int3472_gpio_map[] entry renaming it to "vdda",
+   like the existing INT347E reset-GPIO quirk above it.
+
+2. The INT347A declares a second power rail with the vendor-specific
+   GPIO type 0x08. The generic handling registers it under a "pwr1"
+   name that no sensor driver consumes; on the Pro 7+ the OV8865 does
+   not come up unless this rail is actually driven. Register it under
+   a supply name the ov8865 driver requests, default "dvdd". Which of
+   the driver's supplies it feeds on this board is not knowable from
+   ACPI, so the name is a module parameter (ov8865_pwr1_con_id). The
+   default "dvdd" is what the in-tree ov8865 driver requests; with
+   GPIO_SUPPLY_NAME_LENGTH raised to 6 in this patchset, "dovdd" -
+   the other candidate - fits as well.
+
+3. The Surface Pro 8 infrared sensor (ST VD55G0, HID SMO55F0) declares
+   its rails as GPIO types 0x10, 0x0b and 0x12, which the generic
+   handling registers as "dovdd", "avdd" and "dvdd". The VD55G0
+   driver requests its supplies as vcore, vddio and vana, so the
+   regulators exist but are never claimed and the GPIOs are never
+   driven. Add per-HID int3472_gpio_map[] entries renaming them
+   (0x10 -> "vddio", 0x0b -> "vana", 0x12 -> "vcore"); the map
+   lookup runs before the generic type switch, so these win.
+   Supplies verified by regulator consumer binding on a Surface
+   Pro 8 by @fildunsky (linux-surface PR #2252).
+
+Verified on a Surface Pro 7+: with both rails mapped the OV7251 and
+OV8865 probe and stream; without either one the respective sensor
+fails probe with -121. The SMO55F0 mappings were verified on a
+Surface Pro 8 by the reporter of PR #2252 (regulator claimed by
+i2c-SMO55F0:00, rail driven, illuminated frames captured).
+
+Signed-off-by: D. Manresa <d.manresa@electronica-submarina.com>
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/discrete.c | 62 +++++++++++++++++++
+ 1 file changed, 62 insertions(+)
+
+diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
+index f0b72b1..cc9c4d3 100644
+--- a/drivers/platform/x86/intel/int3472/discrete.c
++++ b/drivers/platform/x86/intel/int3472/discrete.c
+@@ -157,6 +157,47 @@ static const struct int3472_gpio_map int3472_gpio_map[] = {
+ 		.type_to = INT3472_GPIO_TYPE_RESET,
+ 		.con_id = "enable",
+ 	},
++	{	/*
++		 * Surface Pro 7+ (and other IPU6 designs) wire the OV7251's
++		 * single gated rail to the INT3472 power-enable GPIO, but the
++		 * ov7251 driver / DT-bindings name their supplies vdda, vddd
++		 * and vdddo. Without this the regulator is registered as
++		 * "avdd", the driver finds no supply at all, and the sensor is
++		 * never powered: probe dies on the first I2C write with -121.
++		 */
++		.hid = "INT347E",
++		.type_from = INT3472_GPIO_TYPE_POWER_ENABLE,
++		.type_to = INT3472_GPIO_TYPE_POWER_ENABLE,
++		.con_id = "vdda",
++		.enable_time_us = GPIO_REGULATOR_ENABLE_TIME,
++	},
++	{	/*
++		 * The Surface Pro 8's infrared sensor (ST VD55G0, SMO55F0)
++		 * requests its supplies as vcore, vddio and vana, so the
++		 * generic "dovdd"/"avdd"/"dvdd" rails are never claimed and
++		 * probe dies with -121. Supplies verified by regulator
++		 * consumer binding on Surface Pro 8, see PR #2252.
++		 */
++		.hid = "SMO55F0",
++		.type_from = 0x10,
++		.type_to = 0x10,
++		.con_id = "vddio",
++		.enable_time_us = GPIO_REGULATOR_ENABLE_TIME,
++	},
++	{
++		.hid = "SMO55F0",
++		.type_from = INT3472_GPIO_TYPE_POWER_ENABLE,
++		.type_to = INT3472_GPIO_TYPE_POWER_ENABLE,
++		.con_id = "vana",
++		.enable_time_us = GPIO_REGULATOR_ENABLE_TIME,
++	},
++	{
++		.hid = "SMO55F0",
++		.type_from = INT3472_GPIO_TYPE_HANDSHAKE,
++		.type_to = INT3472_GPIO_TYPE_HANDSHAKE,
++		.con_id = "vcore",
++		.enable_time_us = GPIO_REGULATOR_ENABLE_TIME,
++	},
+ 	{	/* ov08x40's handshake pin needs a 45 ms delay on some HP laptops */
+ 		.hid = "OVTI08F4",
+ 		.type_from = INT3472_GPIO_TYPE_HANDSHAKE,
+@@ -166,6 +207,19 @@ static const struct int3472_gpio_map int3472_gpio_map[] = {
+ 	},
+ };
+ 
++/*
++ * Surface Pro 7+ declares a second power-enable GPIO for the OV8865 with the
++ * vendor-specific type 0x08, which no upstream code handles. The sensor needs
++ * it: with only the type 0x0B rail ("avdd") powered the first I2C write dies
++ * with -121. Which of the ov8865 driver's supplies it actually feeds is a
++ * guess, so keep it settable. The default "dvdd" is what the in-tree ov8865
++ * driver requests; GPIO_SUPPLY_NAME_LENGTH is 6 here, so "dovdd" fits too.
++ */
++static char *ov8865_pwr1_con_id = "dvdd";
++module_param(ov8865_pwr1_con_id, charp, 0644);
++MODULE_PARM_DESC(ov8865_pwr1_con_id,
++		 "supply name for the OV8865's type 0x08 power-enable GPIO");
++
+ static void int3472_get_con_id_and_polarity(struct int3472_discrete_device *int3472, u8 *type,
+ 					    const char **con_id, unsigned long *gpio_flags,
+ 					    unsigned int *enable_time_us)
+@@ -173,6 +227,14 @@ static void int3472_get_con_id_and_polarity(struct int3472_discrete_device *int3
+ 	struct acpi_device *adev = int3472->sensor;
+ 	unsigned int i;
+ 
++	if (*type == 0x08 && acpi_dev_hid_uid_match(adev, "INT347A", NULL)) {
++		*type = INT3472_GPIO_TYPE_POWER_ENABLE;
++		*con_id = ov8865_pwr1_con_id;
++		*gpio_flags = GPIO_ACTIVE_HIGH;
++		*enable_time_us = GPIO_REGULATOR_ENABLE_TIME;
++		return;
++	}
++
+ 	for (i = 0; i < ARRAY_SIZE(int3472_gpio_map); i++) {
+ 		/*
+ 		 * Map the firmware-provided GPIO to whatever a driver expects
+-- 
+2.43.0
 
