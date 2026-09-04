@@ -2,7 +2,7 @@
 
 When using the proprietary `nvidia` driver the Surface Studio 1's PixelSense Display does not report a proper EDID DisplayID Block with Tiled Display Topology Data to the running system. Consequently, the PixelSense Display will be treated as two separate physical monitors. The problem appears to rest with the `nvidia` driver and not with the Linux kernel.
 
-This tweak provides two modified EDID blobs so Surface Studio 1 systems will recognize the PixelSense Display as one physical monitor on X11 and when using the `nvfbdev` framebuffer device driver. Unfortunately due to issues also appearing to rest with the `nvidia` driver this tweak will not work for Wayland sessions. The EDID blobs were copied from `/sys/class/drm/{card1-eDP-1,card1-eDP-2}/edid` and modified using [Custom Resolution Utility](https://www.monitortests.com/forum/Thread-Custom-Resolution-Utility-CRU) to add Tiled Display Topology Data to the blobs.
+This tweak provides two modified EDID blobs so Surface Studio 1 systems will recognize the PixelSense Display as one physical monitor on X11 and when using the `nvfbdev` framebuffer device driver. The EDID blobs were copied from `/sys/class/drm/{card1-eDP-1,card1-eDP-2}/edid` and modified using [Custom Resolution Utility](https://www.monitortests.com/forum/Thread-Custom-Resolution-Utility-CRU) to add Tiled Display Topology Data to the blobs.
 
 ## Installation
 
@@ -23,7 +23,7 @@ This tweak provides two modified EDID blobs so Surface Studio 1 systems will rec
 
 ## Notes
 
-* While the modified EDID blobs will treat the PixelSense Display as one physical monitor on X11 and when using the `nvfbdev` framebuffer device driver, this tweak will not work for Wayland sessions. This also appears to be an issue with the proprietary `nvidia` driver, not with the Linux kernel.
+* This tweak will not work for Wayland sessions. This also appears to be an issue with the proprietary `nvidia` driver, not with the Linux kernel.
 
 * Please refer to your distribution's documentation to find the appropriate method to add the `drm.edid_firmware` boot argument to your system. `grubby` is used on Fedora. Other distributions may have different methods.
 
