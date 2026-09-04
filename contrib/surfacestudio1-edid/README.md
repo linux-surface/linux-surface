@@ -1,4 +1,4 @@
-# Surface Studio 1 modified EDID binaries for the PixelSense Display
+# Recognize the Surface Studio 1's PixelSense Display as one physical monitor
 
 When using the proprietary `nvidia` driver the Surface Studio 1's PixelSense Display does not report a proper EDID DisplayID Block with Tiled Display Topology Data to the running system. Consequently, the PixelSense Display will be treated as two separate physical monitors. The problem appears to rest with the `nvidia` driver and not with the Linux kernel.
 
