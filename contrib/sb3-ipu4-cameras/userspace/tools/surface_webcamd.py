@@ -2,10 +2,13 @@
 """Always-on Surface Book 3 webcams — live frames, no placeholders, no terminal.
 
 IPU4 = one sensor at a time. Front (ov5693) is the default camera.
-Resolve loopbacks by card name: Surface-Front, Surface-Back
-(/dev/video* numbers may be 60/61 or swapped).
+Resolve loopbacks by card name: Surface-Front, Surface-Back, Surface-IR-Howdy
+(/dev/video* numbers may be 60/61/62 or swapped).
 Back STREAMON only when something actually opens Surface-Back.
-IR never STREAMON — Howdy is force-disabled until a later commit.
+IR STREAMON only when Surface-IR-Howdy has a reader (Howdy preempts Front/Back).
+IR LED: continuous ON while IR streams (no visible blink). Status tracks howdy vs preview.
+
+SURFACE_WEBCAM_IR=1 enables IR (required for Howdy). Set 0 to keep IR off.
 """
 from __future__ import annotations
 
@@ -28,6 +31,10 @@ sys.path.insert(0, os.path.join(ROOT, "lib"))
 import ipu_guard as ig  # noqa: E402
 import surface_cam as sc  # noqa: E402
 
+# Howdy commit: default ON when env unset; explicit 0/false disables.
+_ir_env = os.environ.get("SURFACE_WEBCAM_IR", "1")
+IR_ENABLED = _ir_env not in ("0", "false", "False", "")
+
 def resolve_loopbacks() -> dict[str, str]:
     """Resolve by card name — Front should be the lowest number (V4L2 default)."""
     found: dict[str, str] = {}
@@ -46,8 +53,11 @@ def resolve_loopbacks() -> dict[str, str]:
             found["front"] = f"/dev/{ent.name}"
         elif name == "Surface-Back":
             found["back"] = f"/dev/{ent.name}"
+        elif name == "Surface-IR-Howdy":
+            found["ir"] = f"/dev/{ent.name}"
     found.setdefault("front", "/dev/video60")
     found.setdefault("back", "/dev/video61")
+    found.setdefault("ir", "/dev/video62")
     return found
 
 
@@ -55,11 +65,21 @@ DEV = resolve_loopbacks()
 CAP = {
     "front": {"w": 1296, "h": 972, "sensor": "ov5693", "crop_r": 16, "crop_b": 12, "crop_l": 8},
     "back": {"w": 1632, "h": 1224, "sensor": "ov8865", "crop_r": 16, "crop_b": 8, "crop_l": 8},
+    "ir": {"w": 640, "h": 480, "sensor": "ov7251", "crop_r": 0, "crop_b": 0, "crop_l": 0},
 }
-OUT_W, OUT_H, FPS = 1920, 1080, 30
+# Front/back = FHD. IR = native after rot90 (640×480 → 480×640) — no FHD upscale.
+OUT = {
+    "front": (1920, 1080),
+    "back": (1920, 1080),
+    "ir": (480, 640),
+}
+OUT_W, OUT_H = OUT["front"]  # legacy alias for front/back paths
+FPS = 30
 STREAM_LINE_OFF = 4
 HINT = Path("/run/surface-webcam/active")
 STATUS = Path("/run/surface-webcam/status")
+IR_OWNER = Path("/run/surface-webcam/ir_owner")  # preview | howdy | idle
+IR_LED_MODE = Path("/run/surface-webcam/ir_led_mode")  # steady | blink | off
 # Legacy marker — no longer blocks Front. Unlinked at start.
 BACK_USED = Path("/run/surface-ipu/back-used")
 # Windows powers ISYS down between cameras (~2–3 s) and rearms PHY from scratch.
@@ -198,7 +218,7 @@ class LockedTone:
             lo, hi = self.lo, self.hi
         z = np.maximum(x - lo, 0.0)
         mid = max(hi - lo, 16.0)
-        # Reinhard: hi → ~165, 1023 → ~240 — twarz zostaje, OLED nie idzie w 255
+        # Reinhard: hi → ~165, 1023 → ~240 — face kept, OLED highlights not crushed to 255
         b = mid * 0.55
         a = 165.0 * (mid + b) / mid
         y = a * z / (z + b)
@@ -215,7 +235,8 @@ def detect_line_off(raw: bytes) -> int:
     if len(raw) < 4:
         return STREAM_LINE_OFF
     di, wcl, wch, ecc = raw[0], raw[1], raw[2], raw[3]
-    if wcl == 0 and wch == 0 and di in (0x2B, 0x30, 0x50) and ecc in (0x00, 0x80):
+    # 0x2B/0x30/0x50 classic; 0x40 = VC1|DT0 seen on SB3 ov7251 face frames
+    if wcl == 0 and wch == 0 and di in (0x2B, 0x30, 0x40, 0x50) and ecc in (0x00, 0x80):
         return 4
     return 0
 
@@ -249,8 +270,17 @@ def decode(
     if len(raw) < need:
         raw = raw + bytes(need - len(raw))
     line_off = detect_line_off(raw)
+    # Proven face decode always uses line_off=4 (ir-face-clean.jpg).
+    if cam.ir:
+        line_off = 4
     if raw_good_line_frac(raw, h, stride, line_off) < 0.40:
         return None
+    if cam.ir:
+        grey = sc.finish_ir(
+            sc.unpack_mipi10_ir(raw[:need], w, h, stride, line_off=line_off), cam
+        )
+        # Native 480×640 after rot90 — no letterbox / FHD upscale.
+        return grey
     img16 = sc.unpack_mipi10_u16(raw[:need], w, h, stride, line_off=line_off)
     try:
         bgr16 = cv2.cvtColor(img16, cam.bayer or cv2.COLOR_BayerRG2BGR_EA)
@@ -301,7 +331,9 @@ def _fd_has_capture(fd: int) -> bool:
     return bool(dcaps & V4L2_CAP_VIDEO_CAPTURE)
 
 
-def _open_loopback(dev: str) -> int:
+def _open_loopback(dev: str, w: int | None = None, h: int | None = None) -> int:
+    ow = OUT_W if w is None else w
+    oh = OUT_H if h is None else h
     last_err: OSError | None = None
     for attempt in range(4):
         subprocess.run(["v4l2-ctl", "-d", dev, "-c", "keep_format=0"], capture_output=True)
@@ -311,9 +343,9 @@ def _open_loopback(dev: str) -> int:
                 "-d",
                 dev,
                 "--set-fmt-video-out",
-                f"width={OUT_W},height={OUT_H},pixelformat=YUYV",
+                f"width={ow},height={oh},pixelformat=YUYV",
                 "--set-fmt-video",
-                f"width={OUT_W},height={OUT_H},pixelformat=YUYV",
+                f"width={ow},height={oh},pixelformat=YUYV",
                 "--set-parm",
                 str(FPS),
             ],
@@ -380,38 +412,45 @@ def _holds_dev(pid_dir: Path, dev: str) -> bool:
     return False
 
 
-_LOADING: bytes | None = None
+_LOADING: dict[tuple[int, int], bytes] = {}
 
 
-def loading_yuyv() -> bytes:
+def out_size(name: str) -> tuple[int, int]:
+    return OUT.get(name, OUT["front"])
+
+
+def loading_yuyv(name: str = "front") -> bytes:
     """Dark frame with a caption — not a frozen sensor still. exclusive_caps stays Capture."""
-    global _LOADING
-    if _LOADING is not None:
-        return _LOADING
-    bgr = np.full((OUT_H, OUT_W, 3), 18, dtype=np.uint8)
+    ow, oh = out_size(name)
+    key = (ow, oh)
+    cached = _LOADING.get(key)
+    if cached is not None:
+        return cached
+    bgr = np.full((oh, ow, 3), 18, dtype=np.uint8)
     text = "loading"
-    scale, thick = 2.0, 3
+    scale = 2.0 if ow >= 960 else 0.7
+    thick = 3 if ow >= 960 else 1
     (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_DUPLEX, scale, thick)
     tw = (tw + 1) & ~1
-    x = ((OUT_W - tw) // 2) & ~1
-    y = (OUT_H + th) // 2
+    x = ((ow - tw) // 2) & ~1
+    y = (oh + th) // 2
     # no LINE_AA — antialias + YUYV 4:2:2 used to render as 'loodding'
     cv2.putText(
         bgr, text, (x, y), cv2.FONT_HERSHEY_DUPLEX, scale, (210, 210, 210), thick, cv2.LINE_8
     )
-    _LOADING = sc.bgr_or_grey_to_yuyv(bgr)
-    return _LOADING
+    frame = sc.bgr_or_grey_to_yuyv(bgr)
+    _LOADING[key] = frame
+    return frame
 
 
 def load_hold_frames() -> dict[str, bytes]:
-    """No last-frame cache — loading frame only."""
+    """No last-frame cache — loading frame only (per-cam size)."""
     try:
         for p in CACHE_DIR.glob("*.yuyv"):
             p.unlink()
     except OSError:
         pass
-    frame = loading_yuyv()
-    return {"front": frame, "back": frame}
+    return {n: loading_yuyv(n) for n in ("front", "back", "ir")}
 
 
 def save_hold_frame(name: str, yuyv: bytes) -> None:
@@ -481,8 +520,101 @@ def readers_of(dev: str) -> set[int]:
     return out
 
 
+def _cmd_looks_like_howdy(cmd: str) -> bool:
+    """Match real Howdy / enroll / PAM — not harness scripts named *test-howdy-*."""
+    c = cmd.lower()
+    if "test-howdy-switch" in c or "test-ir-switch" in c:
+        return False
+    needles = (
+        "pam_howdy",
+        "howdy/cli",
+        "/usr/bin/howdy",
+        "/bin/howdy",
+        "surface-howdy-add",
+        "surface-howdy-hold",
+        "surface-howdy-test",
+        "surface-howdy-enroll",
+        "surface-howdy-gate",
+    )
+    if any(n in c for n in needles):
+        return True
+    # bare `howdy` token (argv0 or path segment), not substring of unrelated words
+    import re
+    return re.search(r"(^|[\s/])howdy([\s./]|$)", c) is not None
+
+
+def _pid_is_howdy(pid: int) -> bool:
+    """True if this pid or any ancestor cmdline mentions howdy / surface-howdy."""
+    seen: set[int] = set()
+    cur = pid
+    while cur > 1 and cur not in seen:
+        seen.add(cur)
+        try:
+            cmd = Path(f"/proc/{cur}/cmdline").read_bytes().replace(b"\0", b" ").decode(
+                "utf-8", "ignore"
+            )
+        except OSError:
+            break
+        if _cmd_looks_like_howdy(cmd):
+            return True
+        try:
+            for line in Path(f"/proc/{cur}/status").read_text().splitlines():
+                if line.startswith("PPid:"):
+                    cur = int(line.split()[1])
+                    break
+            else:
+                break
+        except (OSError, ValueError, IndexError):
+            break
+    return False
+
+
+def howdy_holding_ir() -> bool:
+    """True when Howdy (or enroll) holds the IR loopback — LED blink mode."""
+    ir = DEV.get("ir")
+    if not ir:
+        return False
+    return any(_pid_is_howdy(pid) for pid in readers_of(ir))
+
+
+def enforce_ir_mutex() -> str:
+    """Exclusive IR: Howdy OR preview/browser — never both.
+
+    When Howdy holds IR, drop non-Howdy readers (Chrome/Firefox/ffmpeg/apps).
+    Returns owner: howdy | preview | idle.
+    """
+    ir = DEV.get("ir")
+    if not ir:
+        return "idle"
+    readers = readers_of(ir)
+    if not readers:
+        try:
+            IR_OWNER.write_text("idle\n")
+        except OSError:
+            pass
+        return "idle"
+    howdy_pids = {p for p in readers if _pid_is_howdy(p)}
+    other_pids = readers - howdy_pids
+    if howdy_pids:
+        for pid in other_pids:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                print(f"IR mutex: dropped preview pid={pid} (Howdy owns IR)", flush=True)
+            except OSError:
+                pass
+        owner = "howdy"
+    else:
+        owner = "preview"
+    try:
+        IR_OWNER.write_text(owner + "\n")
+    except OSError:
+        pass
+    return owner
+
+
 def pick_wanted(current: str, has_seed: bool) -> str:
     pw = pw_running_cams()
+    ir = bool(readers_of(DEV["ir"]) or ("ir" in pw))
     bk = bool(readers_of(DEV["back"]) or ("back" in pw))
     fr = bool(readers_of(DEV["front"]) or ("front" in pw))
     hint = ""
@@ -493,9 +625,12 @@ def pick_wanted(current: str, has_seed: bool) -> str:
             hint = ""
         if hint not in DEV:
             hint = ""
+    # Howdy / IR readers always preempt Front and Back (when IR is enabled).
+    if IR_ENABLED and ir:
+        return "ir"
     # HINT only tie-breaks Front/Back when someone is actually reading.
     # The hint file alone must not keep STREAMON — otherwise the LED stays on after tests.
-    if fr and bk and hint:
+    if fr and bk and hint in ("front", "back"):
         return hint
     if fr:
         return "front"
@@ -517,7 +652,7 @@ class Capture:
         self.stop = threading.Event()
         self.cap: subprocess.Popen | None = None
         self.name = "front"
-        self.last_yuyv: dict[str, bytes | None] = {"front": None, "back": None}
+        self.last_yuyv: dict[str, bytes | None] = {"front": None, "back": None, "ir": None}
         self.stats = {"got": 0, "drop": 0, "dec": 0, "out": 0}
         self._threads: list[threading.Thread] = []
         self._from_back = False
@@ -526,6 +661,46 @@ class Capture:
         self._backoff_until = 0.0
         self._front_sterile = False
         self._need_cycle = False
+        self._ir_led_stop = threading.Event()
+        self._ir_led_thread: threading.Thread | None = None
+
+    def _stop_ir_led(self) -> None:
+        self._ir_led_stop.set()
+        if self._ir_led_thread and self._ir_led_thread.is_alive():
+            self._ir_led_thread.join(timeout=1.0)
+        self._ir_led_thread = None
+        sc.ir_led(False)
+        try:
+            IR_LED_MODE.write_text("off\n")
+        except OSError:
+            pass
+
+    def _start_ir_led(self) -> None:
+        """Arm IR flood once after STREAMON — long strobe span (looks continuous).
+
+        Do not re-run ir-led-on in a loop: rewriting I2C mid-stream causes visible flicker.
+        """
+        self._stop_ir_led()
+        self._ir_led_stop.clear()
+        sc.ir_led(True)
+        try:
+            IR_LED_MODE.write_text("steady\n")
+        except OSError:
+            pass
+
+        def _run() -> None:
+            # Status only — LED stays armed until halt()
+            while not self._ir_led_stop.is_set():
+                try:
+                    mode = "howdy-steady" if howdy_holding_ir() else "steady"
+                    IR_LED_MODE.write_text(mode + "\n")
+                except OSError:
+                    pass
+                if self._ir_led_stop.wait(5.0):
+                    break
+
+        self._ir_led_thread = threading.Thread(target=_run, daemon=True, name="ir-led")
+        self._ir_led_thread.start()
 
     def start(self, name: str) -> None:
         reap_orphan_holds(keep_pid=self.cap.pid if self.cap else None)
@@ -535,12 +710,18 @@ class Capture:
         cam = sc.CAMS[name]
         cfg = CAP[name]
         sensor = cfg["sensor"]
-        other = "ov8865" if sensor == "ov5693" else "ov5693"
-        sc._sensor_pm_write(other, "auto")
-        sc.sensor_runtime_cycle(other, timeout=6.0)
+        for other in ("ov5693", "ov8865", "ov7251"):
+            if other == sensor:
+                continue
+            sc._sensor_pm_write(other, "auto")
+            sc.sensor_runtime_cycle(other, timeout=6.0)
         # Like Windows: ISYS must sleep between cameras (~2–3 s),
         # then isys_setup_hw rearms AFE from scratch. Do not block Front.
-        if name == "front" or self._from_back or self._need_cycle or self._front_sterile:
+        # IR: do NOT suspend ISYS before Front-warm→IR — that cold-starts CSI and yields 0 DQBUF.
+        if name == "ir":
+            print(f"IR: skip switch-cycle (isys={isys_runtime()})", flush=True)
+            self._front_sterile = False
+        elif name == "front" or self._from_back or self._need_cycle or self._front_sterile:
             print(f"switch-cycle before {name} (isys={isys_runtime()})", flush=True)
             wait_switch_cycle()
             self._front_sterile = False
@@ -556,7 +737,51 @@ class Capture:
                 raise RuntimeError(
                     f"{sensor} not suspended ({sc.sensor_runtime_status(sensor)})"
                 )
-        # media_setup+STREAMON immediately — extra sleep after power-on poisoned DPHY
+        # IR: Front warm → ONE STREAMON @ Windows ConfigMipiClk layout
+        # (+0x34=1155, +0x3c=1269). Do not STREAMOFF 0-DQBUF / all-0xFF.
+        if name == "ir":
+            try:
+                spid = int(Path("/run/surface-ipu/ir-sterile-hold.pid").read_text().strip())
+                if Path(f"/proc/{spid}").exists():
+                    raise RuntimeError(
+                        f"IR sterile hold pid={spid} still STREAMON — power cycle needed"
+                    )
+            except (OSError, ValueError):
+                pass
+            try:
+                print("IR warm: CAMS=front surface-cam-capture", flush=True)
+                warm = subprocess.run(
+                    ["/usr/local/bin/surface-cam-capture"],
+                    env={**os.environ, "CAMS": "front", "OUT": "/tmp/camtest-ir-warm"},
+                    timeout=20,
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                time.sleep(0.5)
+                print(f"IR Front-warm done rc={warm.returncode}", flush=True)
+            except Exception as e:
+                print(f"IR Front-warm skipped: {e}", flush=True)
+            Path("/sys/module/intel_ipu4p_isys/parameters/sb3_ir_clk_ticks").write_text("1155")
+            Path("/sys/module/intel_ipu4p_isys/parameters/sb3_ir_data_ticks").write_text("1269")
+            print("IR STREAMON @ Windows +0x34=1155 +0x3c=1269", flush=True)
+
+        if name == "ir":
+            Path("/sys/module/intel_ipu4p_isys/parameters/sb3_ir_clk_ticks").write_text("1155")
+            Path("/sys/module/intel_ipu4p_isys/parameters/sb3_ir_data_ticks").write_text("1269")
+        # Refuse new STREAMON if ISYS already EIO (avoids deeper hang)
+        if name in ("ir", "front"):
+            try:
+                fd = os.open(
+                    "/dev/video5" if name == "ir" else "/dev/video10",
+                    os.O_RDWR | os.O_NONBLOCK,
+                )
+                os.close(fd)
+            except OSError as e:
+                Path("/run/surface-ipu/isys-dead").write_text(
+                    f"{time.strftime('%Y-%m-%dT%H:%M:%S')} open fail {e}\n"
+                )
+                raise RuntimeError(f"ISYS dead before {name} STREAMON: {e}") from e
         dev = sc.media_setup(cam, cfg["w"], cfg["h"])
         sc.set_sensor_exposure(sensor, cam.exposure, cam.gain)
         if name == "back":
@@ -577,6 +802,20 @@ class Capture:
                     ],
                     capture_output=True,
                 )
+        if name == "ir":
+            # Extra blanking gives headroom for strobe span ≈ exposure (steadier LED).
+            sub = sc.find_subdev("ov7251")
+            if sub:
+                subprocess.run(
+                    [
+                        "v4l2-ctl",
+                        "-d",
+                        sub,
+                        "--set-ctrl",
+                        f"exposure={cam.exposure},analogue_gain={cam.gain},vertical_blanking=400",
+                    ],
+                    capture_output=True,
+                )
         stride = sc.get_stride(dev, cfg["w"])
         # raw_hold writes bytesused-data_offset (typically stride*h).
         # stride*h-4 desynchronized Bayer (red maze / stripe).
@@ -593,11 +832,21 @@ class Capture:
         hold = os.path.join(ROOT, "tools", "raw_hold")
         fourcc = cam.fourcc if len(cam.fourcc) == 4 else "pBAA"
         v4l_cmd = [hold, dev, str(cfg["w"]), str(cfg["h"]), fourcc]
+        err_path = Path("/run/surface-webcam") / f"raw_hold-{name}.err"
+        try:
+            err_f = err_path.open("wb")
+        except OSError:
+            err_f = subprocess.DEVNULL
         self.cap = subprocess.Popen(
             v4l_cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=err_f,
         )
+        if err_f is not subprocess.DEVNULL:
+            try:
+                err_f.close()
+            except OSError:
+                pass
         assert self.cap.stdout
         try:
             fcntl.fcntl(self.cap.stdout.fileno(), fcntl.F_SETPIPE_SZ, 1 << 21)
@@ -665,12 +914,21 @@ class Capture:
 
         def _decode() -> None:
             last = None
+            ae_n = 0
+            ae_exp = int(cam.exposure)
+            ae_gain = int(cam.gain)
+            ae_last_t = 0.0
             while not self.stop.is_set():
                 raw = latest_raw[0]
                 if raw is None or raw is last:
                     time.sleep(0.002)
                     continue
                 last = raw
+                # IR: first seconds after STREAMON are often 0xFF; keep STREAMON, skip decode.
+                if name == "ir":
+                    sample = raw[::64]
+                    if sample and (sum(sample) / len(sample)) > 240:
+                        continue
                 bgr = decode(
                     cam,
                     raw,
@@ -684,6 +942,52 @@ class Capture:
                 )
                 if bgr is None:
                     continue
+                # Drop near-black IR frames — hold last good YUYV (stops black flashes).
+                if name == "ir":
+                    ow, oh = out_size(name)
+                    expect = ow * oh * 2
+                    mean = float(np.mean(bgr))
+                    prev_y = self.last_yuyv.get(name)
+                    if mean < 8.0 and prev_y is not None and len(prev_y) == expect:
+                        continue
+                    if bgr.shape[0] != oh or bgr.shape[1] != ow:
+                        # Should already be 480x640; refuse wrong geometry.
+                        continue
+                # Slow IR AE only — hunting every few frames looked like LED blink.
+                if name == "ir":
+                    ae_n += 1
+                    now = time.monotonic()
+                    if ae_n >= 45 and now - ae_last_t >= 1.2:
+                        ae_last_t = now
+                        try:
+                            img16 = sc.unpack_mipi10_u16(
+                                raw, cfg["w"], cfg["h"], stride, line_off=4
+                            )
+                            hh, ww = img16.shape
+                            crop = img16[hh // 5 : (4 * hh) // 5, ww // 5 : (4 * ww) // 5]
+                            p95 = float(np.percentile(crop, 95))
+                            sat = float((crop > 900).mean())
+                            if p95 >= 80:  # ignore sterile/dark alternate frames
+                                if sat > 0.015 or p95 > 700:
+                                    new_exp = max(35, ae_exp - 15)
+                                    new_gain = max(8, ae_gain - 2) if ae_exp <= 45 else ae_gain
+                                elif p95 < 220:
+                                    new_exp = min(160, ae_exp + 8)
+                                    new_gain = ae_gain
+                                else:
+                                    new_exp, new_gain = ae_exp, ae_gain
+                                if new_exp != ae_exp or new_gain != ae_gain:
+                                    sc.set_sensor_exposure("ov7251", new_exp, new_gain)
+                                    ae_exp, ae_gain = new_exp, new_gain
+                                    cam.exposure, cam.gain = new_exp, new_gain
+                                    sc.ir_led(True)
+                                    print(
+                                        f"IR AE slow exp={ae_exp} gain={ae_gain} "
+                                        f"p95={p95:.0f} sat={sat:.3f}",
+                                        flush=True,
+                                    )
+                        except Exception as e:
+                            print(f"IR AE skip: {e}", flush=True)
                 yuyv = sc.bgr_or_grey_to_yuyv(bgr)
                 self.last_yuyv[name] = yuyv
                 self.stats["dec"] += 1
@@ -694,6 +998,17 @@ class Capture:
         ]
         for t in self._threads:
             t.start()
+        if name == "ir":
+            # ir-led-on: long span after STREAMON (mode table has short blink pulse)
+            self._start_ir_led()
+            # Mode table / s_stream can overwrite span once — re-arm after first frames
+            def _rear_led() -> None:
+                time.sleep(0.6)
+                if not self.stop.is_set() and self.name == "ir":
+                    sc.ir_led(True)
+                    print("IR LED re-armed (span≈exposure)", flush=True)
+
+            threading.Thread(target=_rear_led, daemon=True, name="ir-led-rear").start()
 
     def halt(self, force: bool = False) -> bool:
         """Clean STREAMOFF (TERM, never SIGKILL). False = do not start the next STREAMON.
@@ -704,19 +1019,35 @@ class Capture:
         if prev not in CAP and self.cap is None:
             return True
         already_off = self.cap is not None and self.cap.poll() is not None
-        # The danger is no DQBUF (got=0). 0xFF after DPHY unlock are already
-        # received frames — STREAMOFF does not kill ISYS on those, but it blocks Back.
-        zero_front = (
-            prev == "front"
+        # 0-frame STREAMOFF on Front/IR kills ISYS.
+        # All-0xFF IR (dec=0) = DPHY never locked — STREAMOFF also kills ISYS (2026-09-28).
+        zero_stream = (
+            prev in ("front", "ir")
             and self.stats.get("got", 0) < 5
             and self.cap is not None
             and not already_off
         )
-        if zero_front:
+        ir_unlocked_ff = (
+            prev == "ir"
+            and self.stats.get("got", 0) >= 5
+            and self.stats.get("dec", 0) == 0
+            and self.cap is not None
+            and not already_off
+        )
+        if zero_stream or ir_unlocked_ff:
+            why = "0-frame" if zero_stream else "all-0xFF (dec=0)"
             print(
-                "refuse STREAMOFF of 0-frame Front — that kills ISYS (LED stays)",
+                f"refuse STREAMOFF of {why} {prev} — that kills ISYS",
                 flush=True,
             )
+            try:
+                Path("/run/surface-ipu").mkdir(parents=True, exist_ok=True)
+                if self.cap and self.cap.pid:
+                    Path("/run/surface-ipu/ir-sterile-hold.pid").write_text(
+                        f"{self.cap.pid}\n"
+                    )
+            except OSError:
+                pass
             return False
         skip_health = False
         if already_off and prev == "front" and self.stats.get("dec", 0) == 0:
@@ -746,14 +1077,17 @@ class Capture:
         sc._sensor_pm_write(sensor, "auto")
         sc.sensor_runtime_cycle(sensor, timeout=6.0)
         set_privacy_led(prev, False)
-        if prev == "back":
+        if prev == "ir":
+            self._stop_ir_led()
+            self._need_cycle = True
+        elif prev == "back":
             self._from_back = True
             self._need_cycle = True
             time.sleep(0.3)
         elif prev == "front":
             self._need_cycle = True
         if prev in self.last_yuyv:
-            self.last_yuyv[prev] = loading_yuyv()
+            self.last_yuyv[prev] = loading_yuyv(prev)
         if skip_health:
             return True
         ok, msg = ig.health_check()
@@ -764,13 +1098,27 @@ class Capture:
 
 
 def reap_orphan_holds(keep_pid: int | None = None) -> None:
-    """KillMode=process can leave raw_hold on video10 — ov5693 then never suspends."""
+    """KillMode=process can leave raw_hold on video10 — ov5693 then never suspends.
+
+    Never TERM IR (video5 / Y10) holds: STREAMOFF of 0-DQBUF kills ISYS.
+    """
     me = os.getpid()
+    protect: set[int] = set()
+    if keep_pid:
+        protect.add(keep_pid)
+    try:
+        protect.add(int(Path("/run/surface-ipu/ir-sterile-hold.pid").read_text().strip()))
+    except (OSError, ValueError):
+        pass
+    try:
+        protect.add(int(Path("/run/surface-ipu/ir-hold.pid").read_text().strip()))
+    except (OSError, ValueError):
+        pass
     for ent in Path("/proc").iterdir():
         if not ent.name.isdigit():
             continue
         pid = int(ent.name)
-        if pid in (me, keep_pid):
+        if pid in (me, *protect):
             continue
         try:
             cmd = (ent / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "ignore")
@@ -780,6 +1128,10 @@ def reap_orphan_holds(keep_pid: int | None = None) -> None:
         if os.path.basename(exe) != "raw_hold":
             continue
         if "/dev/video" not in cmd:
+            continue
+        # IR capture node — leave STREAMON forever if sterile
+        if "/dev/video5" in cmd or "Y10" in cmd:
+            print(f"keep IR raw_hold pid={pid} (no STREAMOFF)", flush=True)
             continue
         print(f"TERM orphan raw_hold pid={pid} {cmd[:120]}", flush=True)
         try:
@@ -796,7 +1148,7 @@ def main() -> None:
         pass
     global DEV
     DEV.update(resolve_loopbacks())
-    print(f"loopbacks front={DEV['front']} back={DEV['back']}", flush=True)
+    print(f"loopbacks front={DEV['front']} back={DEV['back']} ir={DEV['ir']}", flush=True)
     try:
         BACK_USED.unlink(missing_ok=True)
     except OSError:
@@ -812,7 +1164,9 @@ def main() -> None:
 
     fds: dict[str, int] = {}
     for name, dev in DEV.items():
-        fds[name] = _open_loopback(dev)
+        ow, oh = out_size(name)
+        fds[name] = _open_loopback(dev, ow, oh)
+        print(f"loopback {name} {dev} {ow}x{oh}", flush=True)
 
     cap = Capture()
     cap.name = "idle"
@@ -820,6 +1174,7 @@ def main() -> None:
     last_switch = time.monotonic()
     last_front_rd = 0.0
     last_back_rd = 0.0
+    last_ir_rd = 0.0
     stop = threading.Event()
     if not ok:
         cap._hold_only = True
@@ -837,8 +1192,9 @@ def main() -> None:
                 pass
         DEV.update(resolve_loopbacks())
         try:
-            fds[name] = _open_loopback(DEV[name])
-            print(f"loopback writer {name} {DEV[name]}", flush=True)
+            ow, oh = out_size(name)
+            fds[name] = _open_loopback(DEV[name], ow, oh)
+            print(f"loopback writer {name} {DEV[name]} {ow}x{oh}", flush=True)
         except OSError as e:
             fds[name] = -1
             print(f"loopback reopen {name} {e}", flush=True)
@@ -860,7 +1216,11 @@ def main() -> None:
                     _reopen(name)
                     last_full[name] = time.monotonic()
                     continue
-                yuyv = cap.last_yuyv.get(name) or loading_yuyv()
+                yuyv = cap.last_yuyv.get(name) or loading_yuyv(name)
+                ow, oh = out_size(name)
+                expect = ow * oh * 2
+                if len(yuyv) != expect:
+                    yuyv = loading_yuyv(name)
                 n = _write_yuyv(fd, yuyv)
                 if n == len(yuyv):
                     last_full[name] = time.monotonic()
@@ -882,7 +1242,8 @@ def main() -> None:
     t_log = time.monotonic()
     n_log = 0
     print(
-        "webcamd up idle (LED off, loopback seeded so Chrome lists cameras)",
+        f"webcamd up idle (LED off, IR={'on' if IR_ENABLED else 'off'}, "
+        "loopback seeded so Chrome lists cameras)",
         flush=True,
     )
     while not stop.is_set():
@@ -890,10 +1251,18 @@ def main() -> None:
         if now - t_log >= 2.0:
             dec = cap.stats["dec"]
             inst = (dec - n_log) / max(now - t_log, 1e-6)
+            owner = enforce_ir_mutex()
+            led_mode = "off"
+            try:
+                led_mode = IR_LED_MODE.read_text().strip() or "off"
+            except OSError:
+                pass
             extra = (
                 f"n={dec} unique_fps={inst:.1f} drop={cap.stats['drop']} "
                 f"out={cap.stats['out']} cam={cap.name} "
+                f"ir_owner={owner} ir_led={led_mode} "
                 f"rf={sorted(readers_of(DEV['front']))} rb={sorted(readers_of(DEV['back']))} "
+                f"ri={sorted(readers_of(DEV['ir']))} "
                 f"pw={sorted(pw_running_cams())}"
             )
             print(f"LIVE {extra}", flush=True)
@@ -906,6 +1275,11 @@ def main() -> None:
             last_front_rd = now
         if readers_of(DEV["back"]) or "back" in pw:
             last_back_rd = now
+        if readers_of(DEV["ir"]) or "ir" in pw:
+            last_ir_rd = now
+        # Mutex check every loop tick while IR is in play
+        if IR_ENABLED and (readers_of(DEV["ir"]) or "ir" in pw or cap.name == "ir"):
+            enforce_ir_mutex()
         if cap._hold_only:
             time.sleep(0.25)
             continue
@@ -915,13 +1289,16 @@ def main() -> None:
         if now - last_switch >= hold:
             want = pick_wanted(cap.name, has_seed)
             # Chrome/PipeWire drops the fd briefly — do not idle mid-session.
-            if (
+            if now - last_ir_rd < LINGER_S and IR_ENABLED and cap.stats.get("dec", 0) > 0:
+                want = "ir"
+            elif (
                 now - last_front_rd < LINGER_S
                 and not cap._front_sterile
                 and cap.stats.get("dec", 0) > 0
+                and want != "ir"
             ):
                 want = "front"
-            elif now - last_back_rd < LINGER_S and cap.stats.get("dec", 0) > 0:
+            elif now - last_back_rd < LINGER_S and cap.stats.get("dec", 0) > 0 and want != "ir":
                 want = "back"
             # STREAMON is live with zero frames — do NOT STREAMOFF a live Front (kills ISYS).
             if (
@@ -946,6 +1323,46 @@ def main() -> None:
                 )
                 last_switch = time.monotonic()
                 continue
+            # IR: 0xFF frames still increment got — keep STREAMON (decode skips them).
+            # Only sterile if zero DQBUF for a long time or raw_hold died.
+            if cap.name == "ir" and cap.stats.get("dec", 0) == 0:
+                dead = cap.cap is None or cap.cap.poll() is not None
+                age = time.monotonic() - last_switch
+                got = cap.stats.get("got", 0)
+                if dead:
+                    print("IR raw_hold died — halt/backoff", flush=True)
+                    if not cap.halt(force=True):
+                        print("IR hold refused STREAMOFF — stay hold-only", flush=True)
+                        cap._hold_only = True
+                        cap._backoff_until = time.monotonic() + 3600
+                        last_switch = time.monotonic()
+                        continue
+                    cap.name = "idle"
+                    cap._backoff_until = time.monotonic() + FAIL_BACKOFF
+                    last_switch = time.monotonic()
+                    continue
+                if got == 0 and age > 12.0:
+                    print(
+                        "IR STREAMON sterile (0 DQBUF 12s) — refuse STREAMOFF, hold-only",
+                        flush=True,
+                    )
+                    if not cap.halt(force=True):
+                        print(
+                            "idle blocked — keep STREAMON and name="
+                            f"{cap.name} (sterile hold)",
+                            flush=True,
+                        )
+                        cap._hold_only = True
+                        cap._backoff_until = time.monotonic() + 3600
+                        last_switch = time.monotonic()
+                        continue
+                    # halt allowed STREAMOFF (unexpected) — still back off
+                    cap.name = "idle"
+                    cap._backoff_until = time.monotonic() + FAIL_BACKOFF
+                    last_switch = time.monotonic()
+                    continue
+                if got > 0 and age > 2.0 and age < 2.5:
+                    print(f"IR locked DQBUF got={got} (waiting non-0xFF decode)", flush=True)
             if want == cap.name:
                 pass
             elif want == "idle":
@@ -957,11 +1374,17 @@ def main() -> None:
                             f"{cap.name}",
                             flush=True,
                         )
+                        # all-0xFF / 0-frame IR: stop idle storm, wait for reboot
+                        if cap.name == "ir" and cap.stats.get("dec", 0) == 0:
+                            cap._hold_only = True
+                            cap._backoff_until = time.monotonic() + 3600
+                            print("IR hold-only (dec=0) — no idle storm", flush=True)
                         last_switch = time.monotonic()
                         continue
                     cap.name = "idle"
                 set_privacy_led("front", False)
                 set_privacy_led("back", False)
+                cap._stop_ir_led()
                 # after a fast guvcview close reopen the writer — Back back on the camera list
                 for lb in DEV:
                     _reopen(lb)
@@ -971,7 +1394,7 @@ def main() -> None:
                     continue
                 print(
                     f"switch {cap.name} → {want} readers f={sorted(readers_of(DEV['front']))} "
-                    f"b={sorted(readers_of(DEV['back']))}",
+                    f"b={sorted(readers_of(DEV['back']))} i={sorted(readers_of(DEV['ir']))}",
                     flush=True,
                 )
                 if cap.name != "idle" and not cap.halt():
@@ -999,6 +1422,7 @@ def main() -> None:
     cap.halt(force=True)
     set_privacy_led("front", False)
     set_privacy_led("back", False)
+    cap._stop_ir_led()
     for fd in fds.values():
         try:
             os.close(fd)

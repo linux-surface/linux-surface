@@ -101,6 +101,20 @@ def node_ok(path: str, timeout_sec: float = 1.5) -> bool:
     return False
 
 
+def _kernel_power_cycle_required() -> bool:
+    """True if the current boot already logged isys power cycle required."""
+    try:
+        r = subprocess.run(
+            ["journalctl", "-k", "-b", "-q", "-o", "cat", "--grep", "isys power cycle required"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return bool((r.stdout or "").strip())
+
+
 def health_check() -> tuple[bool, str]:
     if psys_loaded():
         return False, "FORBIDDEN: intel_ipu4p_psys (SoftISP) is loaded — unload/blacklist it"
@@ -113,6 +127,9 @@ def health_check() -> tuple[bool, str]:
     missing = [p for p in HEALTH_NODES if not os.path.exists(p)]
     if missing:
         return False, f"missing nodes: {missing}"
+    if _kernel_power_cycle_required():
+        _mark_dead("kernel: isys power cycle required")
+        return False, "ISYS power cycle required — reboot"
     # Do not open video0/video10 — after 0-frame Front, open() needs a power cycle.
     return True, "ok"
 

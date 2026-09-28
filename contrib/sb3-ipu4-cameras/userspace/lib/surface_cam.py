@@ -91,7 +91,7 @@ CAMS = {
         "ir",
         "ov7251 3-0060",
         "Intel IPU4 CSI-2 1",
-        "Intel IPU4 CSI-2 1 capture 1",
+        "Intel IPU4 CSI-2 1 capture 0",
         "Y10_1X10",
         "Y10 ",
         [(640, 480)],
@@ -101,11 +101,10 @@ CAMS = {
         flip_h=False,
         rotate180=False,
         ir=True,
-        # ov7251 — brighter for webcam (LED must be ON before stream)
-        exposure=90,
-        gain=18,
+        exposure=95,
+        gain=14,
         target_mean=70.0,
-        csi_src_pad=2,
+        csi_src_pad=1,
     ),
 }
 
@@ -268,7 +267,8 @@ def auto_expose(
     fl = frame_bytes(stride, h, cam, w)
     # per-sensor limits
     if cam.ir or name == "ov7251":
-        exp_lo, exp_hi, gain_lo, gain_hi, gstep = 30, 90, 6, 18, 2
+        # LED on + face at ~30 cm saturates above ~90/16 — keep range low
+        exp_lo, exp_hi, gain_lo, gain_hi, gstep = 16, 80, 4, 16, 2
     elif name == "ov5693":
         # Front: exposure max≈1030, analogue_gain 1..127
         exp_lo, exp_hi, gain_lo, gain_hi, gstep = 200, 1030, 8, 120, 8
@@ -327,10 +327,25 @@ def auto_expose(
 
 
 def ir_led(on: bool = True) -> None:
+    """Arm / disarm IR flood (Windows Hello strobe dump). Span matches ~exposure."""
     bin_path = "/usr/local/bin/ir-led-on"
     if not os.path.isfile(bin_path):
         return
-    subprocess.run([bin_path] if on else [bin_path, "off"], check=False, capture_output=True)
+    if on:
+        # Default span inside ir-led-on matches Windows 0x01f4 when no arg —
+        # pass exposure-scaled width so pulse tracks integration (less flicker).
+        cam = CAMS.get("ir")
+        # Never shorter than Windows Hello dump (0x01f4) — short span = visible blink
+        span = 0x01f4
+        if cam is not None:
+            span = max(0x01f4, min(0x05f0, int(cam.exposure) + 200))
+        subprocess.run(
+            [bin_path, "on", hex(span)],
+            check=False,
+            capture_output=True,
+        )
+    else:
+        subprocess.run([bin_path, "off"], check=False, capture_output=True)
 
 
 def rearm_sb3_afe(bb: int = 10) -> None:
@@ -509,10 +524,9 @@ def unpack_mipi10(raw: bytes, w: int, h: int, stride: int, line_off: int = LINE_
 
 
 def unpack_mipi10_ir(raw: bytes, w: int, h: int, stride: int, line_off: int = LINE_OFF) -> np.ndarray:
-    """IR: fixed 10-bit→8-bit scale (percentile always blows the forehead with vignetting)."""
+    """IR: fixed 10-bit→8-bit — headroom for close face without crushing midtones."""
     img16 = unpack_mipi10_u16(raw, w, h, stride, line_off)
-    # typical LED peak ≈600–750; leave headroom instead of stretching to 255
-    return np.clip(img16.astype(np.float32) * (255.0 / 620.0), 0, 255).astype(np.uint8)
+    return np.clip(img16.astype(np.float32) * (255.0 / 720.0), 0, 255).astype(np.uint8)
 
 
 unpack_mipi10_grey = unpack_mipi10
@@ -725,20 +739,22 @@ def autofocus_back(
 
 
 def finish_ir(grey: np.ndarray, cam: Cam) -> np.ndarray:
-    """Light post — aggressive nlmeans/bilateral turned the face into streaks."""
+    """Light post — OV7251 is fixed-focus; recover a bit of edge without halos."""
     grey = _orient(grey, cam)
-    grey = cv2.medianBlur(grey, 3)
-    # soft LED hotspot rolloff (do not smooth the whole face)
+    # No medianBlur — it was the main softener on already-soft IR optics.
     gf = grey.astype(np.float32)
-    hi = gf > 200
-    gf[hi] = 200 + (gf[hi] - 200) * 0.35
+    # Smooth knee (not hard plateaus) so close LED face keeps skin texture
+    hi = gf > 185
+    gf[hi] = 185.0 + (gf[hi] - 185.0) * 0.45
     grey = np.clip(gf, 0, 255).astype(np.uint8)
-    clahe = cv2.createCLAHE(clipLimit=1.05, tileGridSize=(8, 8))
-    grey = cv2.addWeighted(grey, 0.82, clahe.apply(grey), 0.18, 0)
-    # very light sharpen (Howdy likes eye/nose edges)
-    blur = cv2.GaussianBlur(grey, (0, 0), 0.6)
-    grey = cv2.addWeighted(grey, 1.2, blur, -0.2, 0)
-    return grey
+    clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(8, 8))
+    grey = cv2.addWeighted(grey, 0.88, clahe.apply(grey), 0.12, 0)
+    # Two-scale unsharp: mid (face contours) + fine (eyes/nose for Howdy)
+    mid = cv2.GaussianBlur(grey, (0, 0), 0.85)
+    grey = cv2.addWeighted(grey, 1.30, mid, -0.30, 0)
+    fine = cv2.GaussianBlur(grey, (0, 0), 0.40)
+    grey = cv2.addWeighted(grey, 1.16, fine, -0.16, 0)
+    return np.clip(grey, 0, 255).astype(np.uint8)
 
 
 def frame_from_raw_sharp(cam: Cam, raw: bytes, w: int, h: int, stride: int) -> np.ndarray:

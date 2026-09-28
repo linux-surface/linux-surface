@@ -133,7 +133,11 @@ else
   rm -f "$MARKER/cameras-ready"
 fi
 
+# Refresh IR device_path only — never force disabled=true (that broke PAM face auth).
 /usr/local/sbin/surface-howdy-gate.sh || true
+if [[ "$ok" -eq 1 ]] && systemctl is-active --quiet surface-webcam.service 2>/dev/null; then
+  /usr/local/sbin/surface-howdy-gate.sh --enable || true
+fi
 # Howdy is started by a watch/path unit — not from here (deadlock)
 echo "late done ok=$ok auth=$auth"
 exit 0
