@@ -142,12 +142,12 @@ index b7923dbef..2d7098f8e 100644
 +MODULE_PARM_DESC(sb3_ir_timing_quirk,
 +		 "Surface Book 3: fixed CSI RX timing on IR (ov7251) port");
 +
-+static unsigned int sb3_ir_clk_ticks = 1155;
++static unsigned int sb3_ir_clk_ticks = 1300;
 +module_param(sb3_ir_clk_ticks, uint, 0644);
 +MODULE_PARM_DESC(sb3_ir_clk_ticks,
 +		 "SB3 IR: CSI RX SETTLE_CLANE override (0=keep calc)");
 +
-+static unsigned int sb3_ir_data_ticks = 1269;
++static unsigned int sb3_ir_data_ticks = 1400;
 +module_param(sb3_ir_data_ticks, uint, 0644);
 +MODULE_PARM_DESC(sb3_ir_data_ticks,
 +		 "SB3 IR: CSI RX SETTLE_DLANE override (0=keep calc)");
@@ -289,11 +289,11 @@ index b7923dbef..2d7098f8e 100644
  }
  
 +/*
-+ * Leftover HS 0x302 survives STREAMOFF, suspend and rmmod. A short pulse
-+ * (400 us) did not clear the latch. Long AFE off, no DLL (DLL with no MIPI
-+ * clock = ULPS / 0 frames).
++ * Leftover HS survives STREAMOFF/suspend/rmmod: Front 0x302, IR 0x101.
++ * Short pulse (400 us) did not clear the latch. Long AFE off, no DLL
++ * (DLL with no MIPI clock = ULPS / 0 frames).
 + */
-+static void ipu4p_csi2_pulse_front_afe(struct ipu_isys_csi2 *csi2)
++static void ipu4p_csi2_pulse_afe(struct ipu_isys_csi2 *csi2)
 +{
 +	void __iomem *isp_base;
 +	unsigned int bb;
@@ -384,11 +384,12 @@ index b7923dbef..2d7098f8e 100644
  		writel(val, csi2->base + CSI2_REG_CSI_RX_CONFIG);
  
  		writel(0, csi2->base + CSI2_REG_CSI_RX_ENABLE);
-+		/* Front: HS stays 0x302 after STREAMOFF → next STREAMON = 0 frames. */
-+		if (csi2->index == 2) {
-+			ipu4p_csi2_pulse_front_afe(csi2);
++		/* Front HS 0x302 / IR HS 0x101 after STREAMOFF → next STREAMON = 0 frames. */
++		if (csi2->index == 1 || csi2->index == 2) {
++			ipu4p_csi2_pulse_afe(csi2);
 +			dev_info(&isys->adev->dev,
-+				 "csi 2 disable: hs=0x%x after AFE\n",
++				 "csi %u disable: hs=0x%x after AFE\n",
++				 csi2->index,
 +				 readl(csi2->base +
 +				       CSI2_REG_CSI_RX_STATUS_DLANE_HS));
 +		}
@@ -438,6 +439,8 @@ index b7923dbef..2d7098f8e 100644
 -		    (timing.dsettle,
 -		     csi2->base + CSI2_REG_CSI_RX_DLY_CNT_SETTLE_DLANE(i));
 +	if (ipu4p_csi2_apply_sb3_ir_timing(csi2, nlanes)) {
++		writel(0, csi2->base + CSI2_REG_CSI_RX_DLY_CNT_TERMEN_CLANE);
++		writel(0, csi2->base + CSI2_REG_CSI_RX_DLY_CNT_TERMEN_DLANE(0));
 +		writel(lane_reg, csi2->base + CSI2_REG_CSI_RX_NOF_ENABLED_LANES);
 +	} else {
 +		for (i = 0; i < nlanes; i++) {
@@ -460,15 +463,17 @@ index b7923dbef..2d7098f8e 100644
 +	 * → 2-11 lines, then 0xFF and DPHY non-recoverable.
 +	 * Back (4-lane, continuous clock) stays at 0x3.
 +	 */
-+	if (csi2->index == 2)
++	/* Front + IR: no byte-clk-gate (non-continuous). Back keeps gate. */
++	if (csi2->index == 1 || csi2->index == 2)
 +		val |= CSI2_CSI_RX_CONFIG_RELEASE_LP11;
 +	else
 +		val |= CSI2_CSI_RX_CONFIG_DISABLE_BYTE_CLK_GATING |
 +		       CSI2_CSI_RX_CONFIG_RELEASE_LP11;
  	writel(val, csi2->base + CSI2_REG_CSI_RX_CONFIG);
-+	if (csi2->index == 2)
++	if (csi2->index == 1 || csi2->index == 2)
 +		dev_info(&csi2->isys->adev->dev,
-+			 "csi2-2: rx_config=0x%x (no byte-clk-gate)\n", val);
++			 "csi2-%u: rx_config=0x%x (no byte-clk-gate)\n",
++			 csi2->index, val);
 +
 +	/* Do not touch 0x14: on CSI-2 2 this is CPHY_PORTCFG_CTL, not SYNC_SEL. */
  
