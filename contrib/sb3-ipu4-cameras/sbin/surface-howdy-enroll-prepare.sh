@@ -14,8 +14,8 @@ resolve_ir() {
       return 0
     fi
   done
+  [[ -e /dev/video66 ]] && { echo /dev/video66; return 0; }
   [[ -e /dev/video62 ]] && { echo /dev/video62; return 0; }
-  [[ -e /dev/video60 ]] && { echo /dev/video60; return 0; }
   return 1
 }
 

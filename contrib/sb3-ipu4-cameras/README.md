@@ -1,16 +1,17 @@
-# Surface Book 3 — IPU4P cameras (Commit 2: RGB + IR / Howdy)
+# Surface Book 3 — IPU4P cameras (RGB profiles + IR / Howdy)
 
 linux-surface still lists Book 3 cameras as unsupported. This overlay does
 **not** belong in `patches/6.19/` — that series is INT3472 / IPU3 probe
 ordering and has no `intel_ipu4p` sources.
 
 RGB Front (OV5693) and Back (OV8865) plus IR (OV7251) are exposed as ordinary
-V4L2 webcams (`Surface-Front`, `Surface-Back`, `Surface-IR-Howdy`) through
-v4l2loopback + `surface_webcamd`. Browsers see 1920×1080 YUYV for RGB and
-native **480×640** YUYV for IR (after rot90). Raw IPU nodes stay root-only.
+V4L2 webcams through **7** v4l2loopback devices + `surface_webcamd`
+(SP7-style Standard / HQ / Fast profiles). Default is
+`Surface-Front-Standard` (native 4:3, no FHD stretch). IR is native
+**480×640** YUYV. Raw IPU nodes stay root-only.
 
 Howdy uses `Surface-IR-Howdy` only. See **[HOWDY.md](HOWDY.md)** for PAM,
-enroll UI, LED behaviour, and first-boot (no face model) safety.
+enroll UI, LED behaviour, profiles, AE/AF, and first-boot safety.
 
 ## Apply order (kernel)
 
@@ -20,14 +21,19 @@ enroll UI, LED behaviour, and first-boot (no face model) safety.
 
 ## Userspace
 
-| Device | Sensor | Loopback name | Format |
-|--------|--------|---------------|--------|
-| Front RGB (default) | OV5693 | `Surface-Front` | 1920×1080 YUYV |
-| Back RGB | OV8865 | `Surface-Back` | 1920×1080 YUYV |
-| IR Howdy | OV7251 | `Surface-IR-Howdy` | 480×640 YUYV |
+| Device label | Sensor | Output YUYV | Aspect | Target FPS |
+|---|---|---:|---|---:|
+| `Surface-Front-Standard` (default) | OV5693 | 1296×972 | 4:3 | 30 |
+| `Surface-Front-HQ` | OV5693 | 2592×1944 | 4:3 | 15 |
+| `Surface-Front-Fast` | OV5693 | 1296×728 | 16:9 | 60 |
+| `Surface-Back-Standard` | OV8865 | 1632×1224 | 4:3 | 30 |
+| `Surface-Back-HQ` | OV8865 | 3264×2448 | 4:3 | 15 |
+| `Surface-Back-Fast` | OV8865 | 800×450 | 16:9 | 60 |
+| `Surface-IR-Howdy` | OV7251 | 480×640 | 3:4 | ~30 |
 
 IPU4 streams **one sensor at a time**. Webcamd switches when an app holds a
-loopback. IR LED is steady while IR streams (Howdy or preview).
+loopback. Continuous AE on Front/Back; live contrast AF on Back (DW9719).
+IR LED is steady while IR streams (Howdy or preview).
 
 ## Install (Fedora, RHEL, Debian, Ubuntu, Arch, openSUSE)
 
@@ -53,7 +59,7 @@ Menu entry: **Howdy — Add Face Profile**.
 
 ```
 install.sh                 one-command installer (detects dnf/apt/pacman/zypper)
-HOWDY.md                   Howdy / IR commit-2 behaviour
+HOWDY.md                   Howdy / IR + RGB profile behaviour
 kernel/                    firmware + kernel build
 userspace/                 → /opt/surface-cameras
 sbin/ bin/ desktop/ systemd/ udev/ modprobe.d/ selinux/

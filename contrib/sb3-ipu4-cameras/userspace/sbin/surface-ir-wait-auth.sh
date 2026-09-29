@@ -21,7 +21,8 @@ for ent in /sys/class/video4linux/video*; do
     break
   fi
 done
-[[ -z "$IR" && -e /dev/video60 ]] && IR=/dev/video60
+[[ -z "$IR" && -e /dev/video66 ]] && IR=/dev/video66
+[[ -z "$IR" && -e /dev/video62 ]] && IR=/dev/video62
 [[ -n "$IR" ]] || exit 0
 
 echo ir > /run/surface-webcam/active 2>/dev/null || true

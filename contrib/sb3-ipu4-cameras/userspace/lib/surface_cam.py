@@ -21,6 +21,15 @@ from typing import Optional
 import numpy as np
 
 try:
+    from pycompat import CV2_V5, MODERN_PY, bgr_to_yuyv_u8  # noqa: F401
+except ImportError:
+    CV2_V5 = False
+    MODERN_PY = False
+
+    def bgr_to_yuyv_u8(img):  # type: ignore
+        raise ImportError("pycompat")
+
+try:
     import cv2
 except ImportError as e:
     raise SystemExit("python3-opencv is required") from e
@@ -68,8 +77,8 @@ CAMS = {
         # rotate180+flip_h ≡ flip_v — keep flip_v directly
         flip_v=True,
         # ov8865: exposure max≈632, analogue_gain step 128 (128..2048)
-        exposure=560,
-        gain=384,
+        exposure=600,
+        gain=512,
         target_mean=100.0,
     ),
     "front": Cam(
@@ -232,23 +241,36 @@ def ov5693_force_mipi_stream(on: bool) -> None:
         time.sleep(0.012)
 
 
+# ov8865 analog WB — slight cut vs old 1200/1100 (magenta whites).
+OV8865_RED_BALANCE = 1050
+OV8865_BLUE_BALANCE = 980
+
+
+def set_ov8865_wb(
+    red: int = OV8865_RED_BALANCE, blue: int = OV8865_BLUE_BALANCE
+) -> None:
+    sub = find_subdev("ov8865")
+    if not sub:
+        return
+    subprocess.run(
+        ["v4l2-ctl", "-d", sub, "--set-ctrl", f"red_balance={red},blue_balance={blue}"],
+        check=False,
+        capture_output=True,
+    )
+
+
 def set_sensor_exposure(sensor_name: str, exposure: int, gain: int) -> None:
     sub = find_subdev(sensor_name)
     if not sub:
         return
-    sensor_runtime_on(sensor_name)
+    # Already streaming: do not poke runtime (privacy LED / resume churn).
+    if sensor_runtime_status(sensor_name) != "active":
+        sensor_runtime_on(sensor_name)
     subprocess.run(
         ["v4l2-ctl", "-d", sub, "--set-ctrl", f"exposure={exposure},analogue_gain={gain}"],
         check=False,
         capture_output=True,
     )
-    # warm bias only if the sensor has those controls (ov8865)
-    if sensor_name == "ov8865":
-        subprocess.run(
-            ["v4l2-ctl", "-d", sub, "--set-ctrl", "red_balance=1200,blue_balance=1100"],
-            check=False,
-            capture_output=True,
-        )
 
 
 def auto_expose(
@@ -630,13 +652,22 @@ _focus_fd = None  # keep VCM powered (dw9719 applies focus only when runtime-act
 
 
 def focus_open() -> Optional[str]:
-    """Open the VCM subdev — without it focus_absolute is a no-op (PM)."""
+    """Open the VCM subdev — without it focus_absolute is a no-op (PM).
+
+    Some kernels reject open() on dw9719 with EINVAL; still return the device
+    path so v4l2-ctl can try set-ctrl. Never raise — AF must not abort STREAMON.
+    """
     global _focus_fd
     lens = find_focus_subdev()
     if not lens:
         return None
     if _focus_fd is None:
-        _focus_fd = os.open(lens, os.O_RDWR | os.O_NONBLOCK)
+        try:
+            _focus_fd = os.open(lens, os.O_RDWR | os.O_NONBLOCK)
+        except OSError as e:
+            # Keep going — v4l2-ctl opens its own fd; holding PM is best-effort.
+            print(f"focus_open hold skip ({lens}): {e}", flush=True)
+            _focus_fd = None
     return lens
 
 
@@ -655,12 +686,17 @@ def set_focus(pos: int) -> bool:
     if not lens:
         return False
     pos = int(max(0, min(1023, pos)))
-    r = subprocess.run(
-        ["v4l2-ctl", "-d", lens, "--set-ctrl", f"focus_absolute={pos}"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        r = subprocess.run(
+            ["v4l2-ctl", "-d", lens, "--set-ctrl", f"focus_absolute={pos}"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"set_focus skip: {e}", flush=True)
+        return False
     return r.returncode == 0
 
 
@@ -674,6 +710,84 @@ def contrast_score(img: np.ndarray, roi: Optional[tuple[int, int, int, int]] = N
         y0, y1, x0, x1 = roi
         g = g[y0:y1, x0:x1]
     return float(cv2.Laplacian(g, cv2.CV_64F).var())
+
+
+def fit_frame(
+    bgr: np.ndarray,
+    out_w: int,
+    out_h: int,
+    mode: str = "native",
+) -> np.ndarray:
+    """Scale without stretch. native = resize keeping full frame; crop = center 16:9 (etc.).
+
+    Output dimensions are forced even (YUYV 4:2:2).
+    """
+    ow = max(2, int(out_w) & ~1)
+    oh = max(2, int(out_h) & ~1)
+    if bgr.ndim == 2:
+        h, w = bgr.shape
+    else:
+        h, w = bgr.shape[:2]
+    if mode == "crop":
+        target_ar = ow / float(oh)
+        src_ar = w / float(h) if h else target_ar
+        if src_ar > target_ar + 1e-6:
+            nw = int(round(h * target_ar)) & ~1
+            nw = max(2, min(nw, w & ~1))
+            x0 = ((w - nw) // 2) & ~1
+            bgr = bgr[:, x0 : x0 + nw] if bgr.ndim == 2 else bgr[:, x0 : x0 + nw, :]
+        elif src_ar < target_ar - 1e-6:
+            nh = int(round(w / target_ar)) & ~1
+            nh = max(2, min(nh, h))
+            y0 = (h - nh) // 2
+            bgr = bgr[y0 : y0 + nh, :] if bgr.ndim == 2 else bgr[y0 : y0 + nh, :, :]
+        if bgr.ndim == 2:
+            h, w = bgr.shape
+        else:
+            h, w = bgr.shape[:2]
+    if w == ow and h == oh:
+        return bgr
+    interp = cv2.INTER_AREA if (w * h) > (ow * oh) else cv2.INTER_LINEAR
+    return cv2.resize(bgr, (ow, oh), interpolation=interp)
+
+
+def af_roi(h: int, w: int) -> tuple[int, int, int, int]:
+    """Lower-left ROI (avoid bright windows) for contrast AF."""
+    return (h // 2, (5 * h) // 6, w // 6, w // 2)
+
+
+def ae_limits_for(sensor_name: str, ir: bool = False) -> tuple[int, int, int, int, int]:
+    """exp_lo, exp_hi, gain_lo, gain_hi, gstep — same bounds as auto_expose."""
+    if ir or sensor_name == "ov7251":
+        return 16, 80, 4, 16, 2
+    if sensor_name == "ov5693":
+        return 200, 1030, 8, 120, 8
+    return 200, 632, 128, 1024, 128
+
+
+def continuous_ae_rgb(
+    sensor_name: str,
+    mean: float,
+    sat: float,
+    exp: int,
+    gain: int,
+    target: float = 100.0,
+) -> tuple[int, int]:
+    """One continuous-AE step from center-crop mean/sat (Front/Back live path)."""
+    exp_lo, exp_hi, gain_lo, gain_hi, gstep = ae_limits_for(sensor_name)
+    if sat > 0.02 or mean > target + 35:
+        new_exp = max(exp_lo, exp - max(12, exp // 12))
+        new_gain = gain
+        if new_exp <= exp_lo + 5 and mean > target + 20:
+            new_gain = max(gain_lo, gain - gstep)
+    elif mean < target - 25:
+        new_exp = min(exp_hi, exp + max(10, exp // 14))
+        new_gain = gain
+        if new_exp >= exp_hi - 5 and mean < target - 15:
+            new_gain = min(gain_hi, gain + gstep)
+    else:
+        return exp, gain
+    return int(new_exp), int(new_gain)
 
 
 def autofocus_back(
@@ -924,10 +1038,21 @@ def save_image(path: str, img: np.ndarray) -> None:
 
 
 def bgr_or_grey_to_yuyv(img: np.ndarray) -> bytes:
+    try:
+        from pycompat import bgr_to_yuyv_u8  # type: ignore
+
+        return bgr_to_yuyv_u8(img)
+    except Exception:
+        pass
     if img.ndim == 2:
         bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     else:
         bgr = img
+    code = getattr(cv2, "COLOR_BGR2YUV_YUY2", None) or getattr(
+        cv2, "COLOR_BGR2YUV_YUYV", None
+    )
+    if code is not None:
+        return np.ascontiguousarray(cv2.cvtColor(bgr, code)).tobytes()
     yuv = cv2.cvtColor(bgr, cv2.COLOR_BGR2YUV)
     y, u, v = cv2.split(yuv)
     hh, ww = y.shape

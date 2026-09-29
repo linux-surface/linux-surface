@@ -1,13 +1,32 @@
-# Howdy + Surface IR (Commit 2)
+# Howdy + Surface IR (Commit 2) + RGB profiles
 
 English UI. IR feeds the `Surface-IR-Howdy` v4l2loopback (resolved by card name;
-node numbers may change across boots).
+`/dev/video*` numbers may change across boots — never hard-code them).
+
+## RGB profiles (SP7-style)
+
+Six RGB loopbacks + IR. Default app camera is **Surface-Front-Standard**.
+Only one physical IPU sensor streams at a time; opening any profile preempts.
+
+| Device label | Capture | Output YUYV | Aspect | Target FPS | Notes |
+|---|---:|---:|---|---:|---|
+| `Surface-Front-Standard` | 1296×972 | 1296×972 | 4:3 | 30 | **default**; no FHD stretch |
+| `Surface-Front-HQ` | 2592×1944 | 2592×1944 | 4:3 | 15 | full sensor |
+| `Surface-Front-Fast` | 1296×972 | 1296×728 | 16:9 | 60 | center-crop; measured FPS may be lower |
+| `Surface-Back-Standard` | 1632×1224 | 1632×1224 | 4:3 | 30 | continuous AE + AF |
+| `Surface-Back-HQ` | 3264×2448 | 3264×2448 | 4:3 | 15 | continuous AE + AF |
+| `Surface-Back-Fast` | 800×600 | 800×450 | 16:9 | 60 | crop; fallback ~30 if ISYS limited |
+| `Surface-IR-Howdy` | 640×480→rot90 | 480×640 | 3:4 | ~30 | Howdy only |
+
+**AE:** one-shot at profile start + continuous (~1 s) for Front/Back; slow AE for IR.
+**AF:** Back only (DW9719) — coarse sweep after STREAMON, then micro-hunt every ~2.5 s.
+Front / IR: fixed focus.
 
 ## Behaviour
 
 | Client | Webcamd action | IR LED |
 |--------|----------------|--------|
-| App / browser opens Front or Back | STREAMON that RGB cam | off |
+| App / browser opens a Front/Back profile | STREAMON that RGB profile | off |
 | App / browser opens Surface-IR-Howdy | STREAMON IR (preempts RGB) | **steady** |
 | Howdy / Add Face Profile / `pam_howdy` | STREAMON IR (preempts RGB) | **steady** |
 | Idle | no sensor STREAMON | off |
@@ -58,5 +77,3 @@ sudo test-howdy-switch.sh    # same script
 ## Kernel IR timing
 
 Windows ConfigMipiClk layout on CSI-2 1: `+0x34=1155`, `+0x3c=1269`
-(`intel-ipu4p-isys.ko`). Loopback size for IR is native **480×640** after rot90
-(no FHD upscale).

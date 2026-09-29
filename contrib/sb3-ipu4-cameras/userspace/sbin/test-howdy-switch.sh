@@ -22,8 +22,8 @@ resolve() {
   return 1
 }
 
-FRONT=$(resolve Surface-Front)
-BACK=$(resolve Surface-Back)
+FRONT=$(resolve Surface-Front-Standard || resolve Surface-Front)
+BACK=$(resolve Surface-Back-Standard || resolve Surface-Back)
 IR=$(resolve Surface-IR-Howdy)
 echo "loopbacks: front=$FRONT back=$BACK ir=$IR"
 
@@ -70,7 +70,7 @@ echo "=== 1) Front preview (program) ==="
 hold_reader "$FRONT" 20
 FP=$HOLD_PID
 sleep 2
-wait_status "cam=front" 20 || true
+wait_status "cam=front-standard" 20 || wait_status "cam=front" 5 || true
 kill "$FP" 2>/dev/null || true
 wait "$FP" 2>/dev/null || true
 sleep 1
@@ -173,7 +173,7 @@ echo "=== 4) Back to Front after IR closed ==="
 hold_reader "$FRONT" 20
 FP=$HOLD_PID
 sleep 2
-wait_status "cam=front" 40 || echo "WARN front return"
+wait_status "cam=front-standard" 40 || wait_status "cam=front" 5 || echo "WARN front return"
 kill "$FP" 2>/dev/null || true
 wait "$FP" 2>/dev/null || true
 sleep 2

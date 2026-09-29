@@ -24,7 +24,8 @@ for ent in /sys/class/video4linux/video*; do
     break
   fi
 done
-[[ -z "$IR_DEV" && -e /dev/video60 ]] && IR_DEV=/dev/video60
+[[ -z "$IR_DEV" && -e /dev/video66 ]] && IR_DEV=/dev/video66
+[[ -z "$IR_DEV" && -e /dev/video62 ]] && IR_DEV=/dev/video62
 
 python3 - "$CFG" "$IR_DEV" "$MODE" <<'PY'
 import sys
