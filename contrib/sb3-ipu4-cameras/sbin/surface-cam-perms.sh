@@ -15,7 +15,7 @@ for sys in /sys/class/video4linux/video*; do
   dev="/dev/${sys##*/}"
   [ -e "$dev" ] || continue
   case "$name" in
-    Surface-Front|Surface-Back)
+    Surface-Front|Surface-Back|Surface-Front-Standard|Surface-Front-HQ|Surface-Front-Fast|Surface-Back-Standard|Surface-Back-HQ|Surface-Back-Fast)
       chown root:video "$dev" 2>/dev/null || true
       chmod 0666 "$dev"
       setfacl_b "$dev"
