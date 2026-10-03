@@ -8,8 +8,21 @@ mkdir -p /run/surface-howdy
 echo "$(date -Iseconds) PAM_TYPE=${PAM_TYPE:-?} USER=${PAM_USER:-?} SERVICE=${PAM_SERVICE:-?}" >>"$LOG" 2>/dev/null || true
 case "${PAM_TYPE:-}" in
   open_session)
-    rm -f /run/surface-howdy/want-auth 2>/dev/null || true
-    # Marker only — webcamd owns LED/STREAMON. Never ir-led-on / pkill here.
+    rm -f /run/surface-howdy/want-auth /run/surface-howdy/face-request 2>/dev/null || true
+    # Clear one-shot Face Login autologin so the next boot asks again.
+    if [[ -x /usr/local/sbin/surface-howdy-clear-autologin.sh ]]; then
+      /usr/local/sbin/surface-howdy-clear-autologin.sh >/dev/null 2>&1 || true
+    else
+      python3 - <<'PY' >/dev/null 2>&1 || true
+from pathlib import Path
+p = Path("/etc/plasmalogin.conf.d/10-surface-face.conf")
+if p.exists():
+    p.write_text(
+        "[Autologin]\nUser=\nSession=\nRelogin=false\n\n"
+        "[Users]\nRememberLastUser=true\nRememberLastSession=true\n"
+    )
+PY
+    fi
     echo "open_session: markers only (no I2C, no pkill)" >>"$LOG" 2>/dev/null || true
     ;;
   close_session)

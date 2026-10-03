@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Universal "someone is watching this seat" mark for face login.
+#
+# Any remote-desktop host (Chrome Remote Desktop, AnyDesk, RustDesk, …),
+# on any distro, Wayland or X11:
+#   face-viewer up   <name>   # client connected — face scan off
+#   face-viewer down <name>   # client gone — face scan on again
+#   face-viewer clear         # drop every mark
+#
+# The PAM script only looks at files under /run/face-login/viewers/.
+# A listening host must NOT create a mark. Only a live client does.
+set -eu
+
+DIR=/run/face-login/viewers
+
+safe_name() {
+  local n="$1"
+  n="${n//[^A-Za-z0-9._+-]/_}"
+  [[ -n "$n" ]] || n="viewer"
+  printf '%s' "$n"
+}
+
+mkdir -p "$DIR" 2>/dev/null || true
+chmod 1777 "$DIR" 2>/dev/null || true
+
+cmd="${1:-}"
+name="${2:-}"
+
+case "$cmd" in
+  up)
+    [[ -n "$name" ]] || { echo "usage: face-viewer up <name>" >&2; exit 2; }
+    : >"$DIR/$(safe_name "$name")"
+    ;;
+  down)
+    [[ -n "$name" ]] || { echo "usage: face-viewer down <name>" >&2; exit 2; }
+    rm -f "$DIR/$(safe_name "$name")"
+    ;;
+  clear)
+    rm -f "$DIR"/* 2>/dev/null || true
+    ;;
+  *)
+    echo "usage: face-viewer {up <name>|down <name>|clear}" >&2
+    exit 2
+    ;;
+esac

@@ -11,6 +11,7 @@ Quality notes:
 """
 from __future__ import annotations
 
+import errno
 import os
 import struct
 import subprocess
@@ -76,9 +77,9 @@ CAMS = {
         cv2.COLOR_BayerRG2BGR_EA,
         # rotate180+flip_h ≡ flip_v — keep flip_v directly
         flip_v=True,
-        # ov8865: exposure max≈632, analogue_gain step 128 (128..2048)
-        exposure=600,
-        gain=512,
+        # ov8865: raise VTS via blanking in webcamd; exposure can exceed 632
+        exposure=1100,
+        gain=896,
         target_mean=100.0,
     ),
     "front": Cam(
@@ -91,10 +92,11 @@ CAMS = {
         [(1296, 972), (2592, 1944)],
         cv2.COLOR_BayerRG2BGR_EA,
         flip_v=True,
-        # same light dose as 90/32 (90*32=360*8), 4× lower ISO.
-        exposure=360,
-        gain=8,
-        target_mean=100.0,
+        # Indoor default — thin CSI dumps (p99≪180) are rejected in LockedTone.
+        # 480/16 left face underexposed (raw p99≈60); AE climbs slowly from there.
+        exposure=900,
+        gain=48,
+        target_mean=95.0,
     ),
     "ir": Cam(
         "ir",
@@ -259,6 +261,22 @@ def set_ov8865_wb(
     )
 
 
+# V4L2_CID_EXPOSURE / V4L2_CID_ANALOGUE_GAIN — ioctl avoids fork+exec of v4l2-ctl
+# (that was freezing the live path ~1 s each AE tick).
+_V4L2_CID_EXPOSURE = 0x00980911
+_V4L2_CID_ANALOGUE_GAIN = 0x009E0903
+_V4L2_CID_FOCUS_ABSOLUTE = 0x009A090A
+_VIDIOC_S_CTRL = 0xC008561C  # _IOW('V', 28, struct v4l2_control)
+
+
+def _s_ctrl(fd: int, cid: int, value: int) -> None:
+    import fcntl
+    import struct
+
+    buf = bytearray(struct.pack("Ii", cid, int(value)))
+    fcntl.ioctl(fd, _VIDIOC_S_CTRL, buf)
+
+
 def set_sensor_exposure(sensor_name: str, exposure: int, gain: int) -> None:
     sub = find_subdev(sensor_name)
     if not sub:
@@ -266,11 +284,46 @@ def set_sensor_exposure(sensor_name: str, exposure: int, gain: int) -> None:
     # Already streaming: do not poke runtime (privacy LED / resume churn).
     if sensor_runtime_status(sensor_name) != "active":
         sensor_runtime_on(sensor_name)
-    subprocess.run(
-        ["v4l2-ctl", "-d", sub, "--set-ctrl", f"exposure={exposure},analogue_gain={gain}"],
-        check=False,
-        capture_output=True,
-    )
+    try:
+        fd = os.open(sub, os.O_RDWR | os.O_NONBLOCK)
+    except OSError:
+        # Rare fallback — never on the decode thread.
+        subprocess.run(
+            [
+                "v4l2-ctl",
+                "-d",
+                sub,
+                "--set-ctrl",
+                f"exposure={exposure},analogue_gain={gain}",
+            ],
+            check=False,
+            capture_output=True,
+        )
+        return
+    try:
+        _s_ctrl(fd, _V4L2_CID_EXPOSURE, exposure)
+        _s_ctrl(fd, _V4L2_CID_ANALOGUE_GAIN, gain)
+    except OSError:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        subprocess.run(
+            [
+                "v4l2-ctl",
+                "-d",
+                sub,
+                "--set-ctrl",
+                f"exposure={exposure},analogue_gain={gain}",
+            ],
+            check=False,
+            capture_output=True,
+        )
+        return
+    try:
+        os.close(fd)
+    except OSError:
+        pass
 
 
 def auto_expose(
@@ -294,8 +347,8 @@ def auto_expose(
     elif name == "ov5693":
         # Front: exposure max≈1030, analogue_gain 1..127
         exp_lo, exp_hi, gain_lo, gain_hi, gstep = 200, 1030, 8, 120, 8
-    else:  # ov8865 — prefer exposure, keep gain low (less noise)
-        exp_lo, exp_hi, gain_lo, gain_hi, gstep = 200, 632, 128, 1024, 128
+    else:  # ov8865 — prefer exposure, keep gain moderate (less noise)
+        exp_lo, exp_hi, gain_lo, gain_hi, gstep = 200, 1800, 128, 2048, 128
 
     for _ in range(rounds):
         set_sensor_exposure(name, exp, gain)
@@ -652,10 +705,10 @@ _focus_fd = None  # keep VCM powered (dw9719 applies focus only when runtime-act
 
 
 def focus_open() -> Optional[str]:
-    """Open the VCM subdev — without it focus_absolute is a no-op (PM).
+    """Resolve DW9719 path. Holding an fd is best-effort (some kernels EINVAL on open).
 
-    Some kernels reject open() on dw9719 with EINVAL; still return the device
-    path so v4l2-ctl can try set-ctrl. Never raise — AF must not abort STREAMON.
+    Upstream surface-pro-7-camera waits for dw9719 then uses SoftISP AF; we drive
+    focus_absolute via ioctl/v4l2-ctl without requiring a persistent hold fd.
     """
     global _focus_fd
     lens = find_focus_subdev()
@@ -665,8 +718,9 @@ def focus_open() -> Optional[str]:
         try:
             _focus_fd = os.open(lens, os.O_RDWR | os.O_NONBLOCK)
         except OSError as e:
-            # Keep going — v4l2-ctl opens its own fd; holding PM is best-effort.
-            print(f"focus_open hold skip ({lens}): {e}", flush=True)
+            # EINVAL is common on SB3 — still usable via per-call open / v4l2-ctl.
+            if e.errno != errno.EINVAL:
+                print(f"focus_open hold skip ({lens}): {e}", flush=True)
             _focus_fd = None
     return lens
 
@@ -686,6 +740,27 @@ def set_focus(pos: int) -> bool:
     if not lens:
         return False
     pos = int(max(0, min(1023, pos)))
+    # Prefer ioctl (no fork) — same path as exposure AE.
+    fd = _focus_fd
+    owned = False
+    if fd is None:
+        try:
+            fd = os.open(lens, os.O_RDWR | os.O_NONBLOCK)
+            owned = True
+        except OSError:
+            fd = None
+    if fd is not None:
+        try:
+            _s_ctrl(fd, _V4L2_CID_FOCUS_ABSOLUTE, pos)
+            return True
+        except OSError:
+            pass
+        finally:
+            if owned:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
     try:
         r = subprocess.run(
             ["v4l2-ctl", "-d", lens, "--set-ctrl", f"focus_absolute={pos}"],
@@ -762,7 +837,8 @@ def ae_limits_for(sensor_name: str, ir: bool = False) -> tuple[int, int, int, in
         return 16, 80, 4, 16, 2
     if sensor_name == "ov5693":
         return 200, 1030, 8, 120, 8
-    return 200, 632, 128, 1024, 128
+    # ov8865 — prefer exposure; with raised VTS blanking, allow up to ~2000 lines
+    return 200, 1800, 128, 2048, 128
 
 
 def continuous_ae_rgb(
@@ -772,18 +848,38 @@ def continuous_ae_rgb(
     exp: int,
     gain: int,
     target: float = 100.0,
+    p95: float | None = None,
 ) -> tuple[int, int]:
     """One continuous-AE step from center-crop mean/sat (Front/Back live path)."""
     exp_lo, exp_hi, gain_lo, gain_hi, gstep = ae_limits_for(sensor_name)
-    if sat > 0.02 or mean > target + 35:
-        new_exp = max(exp_lo, exp - max(12, exp // 12))
+    hi = float(p95) if p95 is not None else mean
+    # Stretch maps a fully clipped RAW to a flat ~180 field (p50≈p95, sat=0).
+    # The slow -20% step then leaves the preview a blank magenta disc.
+    flat_clip = (hi - mean) < 12.0 and mean > 150.0
+    if sat > 0.20 or flat_clip:
+        new_exp = max(exp_lo, int(exp * 0.5))
         new_gain = gain
-        if new_exp <= exp_lo + 5 and mean > target + 20:
+        if new_exp <= exp_lo + 5:
             new_gain = max(gain_lo, gain - gstep)
-    elif mean < target - 25:
-        new_exp = min(exp_hi, exp + max(10, exp // 14))
+    # Prefer highlight headroom: blown pillow/window shows as high p95 with
+    # midtone mean still "OK". Old deadband (sat>0.06, mean>target+55) never
+    # fired after stretch capped at ~220.
+    elif sat > 0.015 or hi > 200 or mean > target + 22:
+        new_exp = max(exp_lo, exp - max(40, exp // 5))
         new_gain = gain
-        if new_exp >= exp_hi - 5 and mean < target - 15:
+        if new_exp <= exp_lo + 5 and (mean > target + 12 or hi > 195):
+            new_gain = max(gain_lo, gain - gstep)
+    elif mean < 40.0:
+        # Severely underexposed (thin CSI / dark room) — climb faster than the
+        # normal +12 step so LockedTone can lock on a real span.
+        new_exp = min(exp_hi, exp + max(48, exp // 6))
+        new_gain = gain
+        if new_exp >= exp_hi - 5 and mean < 35.0:
+            new_gain = min(gain_hi, gain + max(gstep, gstep * 2))
+    elif mean < target - 18:
+        new_exp = min(exp_hi, exp + max(16, exp // 12))
+        new_gain = gain
+        if new_exp >= exp_hi - 5 and mean < target - 14:
             new_gain = min(gain_hi, gain + gstep)
     else:
         return exp, gain
@@ -1038,16 +1134,24 @@ def save_image(path: str, img: np.ndarray) -> None:
 
 
 def bgr_or_grey_to_yuyv(img: np.ndarray) -> bytes:
-    try:
-        from pycompat import bgr_to_yuyv_u8  # type: ignore
-
-        return bgr_to_yuyv_u8(img)
-    except Exception:
-        pass
     if img.ndim == 2:
         bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     else:
         bgr = img
+    try:
+        import surface_isp as _isp
+
+        packed = _isp.bgr_to_yuyv(bgr)
+        if packed is not None:
+            return packed
+    except Exception:
+        pass
+    try:
+        from pycompat import bgr_to_yuyv_u8  # type: ignore
+
+        return bgr_to_yuyv_u8(bgr)
+    except Exception:
+        pass
     code = getattr(cv2, "COLOR_BGR2YUV_YUY2", None) or getattr(
         cv2, "COLOR_BGR2YUV_YUYV", None
     )
@@ -1061,6 +1165,31 @@ def bgr_or_grey_to_yuyv(img: np.ndarray) -> bytes:
     out[:, 0::2, 1] = u[:, 0::2]
     out[:, 1::2, 1] = v[:, 1::2]
     return out.tobytes()
+
+
+def bgr_or_grey_to_yu12(img: np.ndarray) -> bytes:
+    """Planar YUV420 (V4L2 YU12 / I420) — Discord/Chromium DirectVideo prefer this over YUYV."""
+    if img.ndim == 2:
+        bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    else:
+        bgr = img
+    # Width/height must be even for 4:2:0.
+    hh, ww = bgr.shape[:2]
+    if (ww & 1) or (hh & 1):
+        bgr = bgr[: hh & ~1, : ww & ~1]
+    code = getattr(cv2, "COLOR_BGR2YUV_I420", None)
+    if code is None:
+        raise RuntimeError("OpenCV lacks COLOR_BGR2YUV_I420")
+    return np.ascontiguousarray(cv2.cvtColor(bgr, code)).tobytes()
+
+
+def bgr_or_grey_to_rgb3(img: np.ndarray) -> bytes:
+    """Packed RGB24 (V4L2 RGB3) — Discord Flatpak DirectVideo accepts this reliably."""
+    if img.ndim == 2:
+        bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    else:
+        bgr = img
+    return np.ascontiguousarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)).tobytes()
 
 
 def write_mp4(path: str, frames: list[np.ndarray], fps: int = 12) -> None:
