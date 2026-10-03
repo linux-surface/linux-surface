@@ -1,0 +1,15 @@
+[Unit]
+Description=Surface Book 3 camera node permissions (hide raw IPU)
+After=surface-ipu4-late.service systemd-udevd.service
+Wants=surface-ipu4-late.service
+ConditionKernelVersion=*surface-ipu4*
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/udevadm control --reload
+ExecStart=/usr/bin/udevadm trigger -s video4linux -s media
+ExecStart=/usr/local/sbin/surface-cam-perms.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
