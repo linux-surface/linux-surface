@@ -1061,43 +1061,46 @@ index f5456330b..3418ff475 100644
 -- 
 2.53.0
 
-
-From 8f3c2a1b0e9d7c6b5a4938271605141312110001 Mon Sep 17 00:00:00 2001
+From 3d5baacb32a70d974c5617b7f11911bdc5bb1565 Mon Sep 17 00:00:00 2001
 From: Eva Dixon <eva@dixon.solutions>
 Date: Wed, 12 Aug 2026 08:20:00 +1000
-Subject: [PATCH] media: ipu-bridge/ov13858: fix Surface Pro 9 rear camera
- rotation (180)
+Subject: [PATCH] media: ipu-bridge/ov13858: fix Surface Pro 8 and 9 rear
+ camera rotation
 
-The Surface Pro 9 rear OV13858 (ACPI HID OVTID858) is mounted upside-down,
-but ACPI SSDB reports degree=0. The existing ipu-bridge upside-down quirk
-only matches the front HID (OVTI5693), and dmi_first_match() cannot see a
-second HID for the same DMI system.
+The rear OV13858 (ACPI HID OVTID858) on the Surface Pro 8 and 9 is mounted
+upside down, but the SSDB in ACPI reports degree=0.
 
-1. Walk all upside_down_sensor_dmi_ids entries so multiple HIDs per laptop
-   work, and add OVTID858 for Surface Pro 9.
-2. In ov13858, if fwnode rotation is still missing after probe (ipu-bridge
-   attach race), force orientation=Back and rotation=180 on SP9.
+1. ipu-bridge: add OVTID858 quirk entries for both machines. The front
+   sensor of each already has an entry, and dmi_first_match() stops at
+   it, so keep walking the table past the first DMI match until the HID
+   matches as well.
+2. ov13858: force rotation=180 (orientation=Back if unknown) on these
+   machines when the fwnode properties do not already say so.
+3. ov13858: add HFLIP/VFLIP controls. rotation=180 on its own only
+   describes the mounting; libcamera turns the frame around with the
+   sensor flips, and without them the pixels stay upside down. Each flip
+   moves the crop window by one pixel so the Bayer order stays GRBG. The
+   flips are grabbed while streaming.
 
-Verified on Ultramarine linux-surface 6.19: libcamera/cam report
-Rotation=180 for the rear module and captured frames are upright.
-
-Front IPU6 streaming (MIPI_CTRL00) is handled separately in #2171.
+Flip registers follow the out-of-tree ov13858 that fixes the Pro 8 rear
+camera.
 
 Link: https://github.com/linux-surface/linux-surface/issues/1865
 Link: https://github.com/linux-surface/linux-surface/issues/1892
+Link: https://github.com/linux-surface/linux-surface/pull/2227#issuecomment-5481167166
+Link: https://github.com/fildunsky/linux-surface-pro8-cameras
 Patchset: cameras
 Signed-off-by: Eva Dixon <eva@dixon.solutions>
 ---
- drivers/media/i2c/ov13858.c          | 52 +++++++++++++++++++++++++++++-
- drivers/media/pci/intel/ipu-bridge.c | 28 +++++++++++++++++++--
- 2 files changed, 76 insertions(+), 4 deletions(-)
+ drivers/media/i2c/ov13858.c          | 119 ++++++++++++++++++++++++++-
+ drivers/media/pci/intel/ipu-bridge.c |  26 +++++-
+ 2 files changed, 141 insertions(+), 4 deletions(-)
 
 diff --git a/drivers/media/i2c/ov13858.c b/drivers/media/i2c/ov13858.c
-index 85cd0c98a..c0ffee001 100644
+index 85cd0c9..67532c5 100644
 --- a/drivers/media/i2c/ov13858.c
 +++ b/drivers/media/i2c/ov13858.c
-@@ -2,6 +2,7 @@
- // Copyright (c) 2017 Intel Corporation.
+@@ -3,6 +3,7 @@
  
  #include <linux/acpi.h>
  #include <linux/delay.h>
@@ -1105,11 +1108,132 @@ index 85cd0c98a..c0ffee001 100644
  #include <linux/clk.h>
  #include <linux/i2c.h>
  #include <linux/module.h>
-@@ -1548,6 +1549,15 @@ static const struct v4l2_subdev_internal_ops ov13858_internal_ops = {
+@@ -82,6 +83,13 @@
+ #define OV13858_TEST_PATTERN_ENABLE	BIT(7)
+ #define OV13858_TEST_PATTERN_MASK	0xfc
+ 
++/* Flip control, and the crop window offsets that keep the Bayer order */
++#define OV13858_REG_FORMAT1		0x3820
++#define OV13858_FORMAT1_HFLIP_OFF	BIT(3)
++#define OV13858_FORMAT1_VFLIP		(BIT(4) | BIT(5))
++#define OV13858_REG_H_WIN_OFFSET	0x3811
++#define OV13858_REG_V_WIN_OFFSET	0x3813
++
+ /* Number of frames to skip */
+ #define OV13858_NUM_OF_SKIP_FRAMES	2
+ 
+@@ -1051,6 +1059,8 @@ struct ov13858 {
+ 	struct v4l2_ctrl *vblank;
+ 	struct v4l2_ctrl *hblank;
+ 	struct v4l2_ctrl *exposure;
++	struct v4l2_ctrl *hflip;
++	struct v4l2_ctrl *vflip;
+ 
+ 	/* Current mode */
+ 	const struct ov13858_mode *cur_mode;
+@@ -1331,6 +1341,63 @@ static int ov13858_enable_test_pattern(struct ov13858 *ov13858, u32 pattern)
+ 				 OV13858_REG_VALUE_08BIT, val);
+ }
+ 
++/*
++ * Set, clear or offset a register the mode table has just written. The flips
++ * are grabbed while streaming and the sensor is only powered while streaming,
++ * so this runs once per stream start, from __v4l2_ctrl_handler_setup(), right
++ * after the mode table. That is also why turning a flip off writes nothing:
++ * the mode table has already put the unflipped values back.
++ */
++static int ov13858_update_reg(struct ov13858 *ov13858, u16 reg,
++			      u32 set, u32 clear, int offset)
++{
++	int ret;
++	u32 val;
++
++	ret = ov13858_read_reg(ov13858, reg, OV13858_REG_VALUE_08BIT, &val);
++	if (ret)
++		return ret;
++
++	val = ((val | set) & ~clear) + offset;
++
++	return ov13858_write_reg(ov13858, reg, OV13858_REG_VALUE_08BIT, val);
++}
++
++/*
++ * Mirroring and flipping each shift the Bayer order by one pixel. Moving the
++ * crop window by one pixel shifts it back, so the format stays GRBG and the
++ * flips can be left without V4L2_CTRL_FLAG_MODIFY_LAYOUT.
++ */
++static int ov13858_set_hflip(struct ov13858 *ov13858, u32 enable)
++{
++	int ret;
++
++	if (!enable)
++		return 0;
++
++	ret = ov13858_update_reg(ov13858, OV13858_REG_FORMAT1,
++				 0, OV13858_FORMAT1_HFLIP_OFF, 0);
++	if (ret)
++		return ret;
++
++	return ov13858_update_reg(ov13858, OV13858_REG_H_WIN_OFFSET, 0, 0, 1);
++}
++
++static int ov13858_set_vflip(struct ov13858 *ov13858, u32 enable)
++{
++	int ret;
++
++	if (!enable)
++		return 0;
++
++	ret = ov13858_update_reg(ov13858, OV13858_REG_FORMAT1,
++				 OV13858_FORMAT1_VFLIP, 0, 0);
++	if (ret)
++		return ret;
++
++	return ov13858_update_reg(ov13858, OV13858_REG_V_WIN_OFFSET, 0, 0, -1);
++}
++
+ static int ov13858_set_ctrl(struct v4l2_ctrl *ctrl)
+ {
+ 	struct ov13858 *ov13858 = container_of(ctrl->handler,
+@@ -1380,6 +1447,12 @@ static int ov13858_set_ctrl(struct v4l2_ctrl *ctrl)
+ 	case V4L2_CID_TEST_PATTERN:
+ 		ret = ov13858_enable_test_pattern(ov13858, ctrl->val);
+ 		break;
++	case V4L2_CID_HFLIP:
++		ret = ov13858_set_hflip(ov13858, ctrl->val);
++		break;
++	case V4L2_CID_VFLIP:
++		ret = ov13858_set_vflip(ov13858, ctrl->val);
++		break;
+ 	default:
+ 		dev_info(ov13858->dev,
+ 			 "ctrl(id:0x%x,val:0x%x) is not handled\n",
+@@ -1603,6 +1676,10 @@ static int ov13858_set_stream(struct v4l2_subdev *sd, int enable)
+ 		pm_runtime_put(ov13858->dev);
+ 	}
+ 
++	/* The flips move the crop window, so they cannot change mid-stream */
++	__v4l2_ctrl_grab(ov13858->hflip, enable);
++	__v4l2_ctrl_grab(ov13858->vflip, enable);
++
+ 	mutex_unlock(&ov13858->mutex);
+ 
+ 	return ret;
+@@ -1675,6 +1752,26 @@ static const struct v4l2_subdev_internal_ops ov13858_internal_ops = {
  	.open = ov13858_open,
  };
  
-+static const struct dmi_system_id surface_pro_9_dmi[] = {
++/*
++ * The rear OV13858 on these is mounted upside down, but the SSDB in ACPI
++ * reports 0 degrees.
++ */
++static const struct dmi_system_id ov13858_upside_down_dmi_ids[] = {
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 8"),
++		},
++	},
 +	{
 +		.matches = {
 +			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
@@ -1122,69 +1246,68 @@ index 85cd0c98a..c0ffee001 100644
  /* Initialize control handlers */
  static int ov13858_init_controls(struct ov13858 *ov13858)
  {
-@@ -1558,7 +1568,8 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
+@@ -1690,7 +1787,7 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
  	int ret;
  
  	ctrl_hdlr = &ov13858->ctrl_handler;
 -	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 10);
-+	/* +2 for optional orientation/rotation fallback on Surface Pro 9 */
 +	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 12);
  	if (ret)
  		return ret;
  
-@@ -1632,11 +1643,48 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
+@@ -1749,6 +1846,15 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
+ 				     V4L2_CID_TEST_PATTERN,
+ 				     ARRAY_SIZE(ov13858_test_pattern_menu) - 1,
+ 				     0, 0, ov13858_test_pattern_menu);
++
++	/*
++	 * libcamera undoes the mounting rotation with these. Without them it
++	 * reports rotation=180 but the frames still come out upside down.
++	 */
++	ov13858->hflip = v4l2_ctrl_new_std(ctrl_hdlr, &ov13858_ctrl_ops,
++					   V4L2_CID_HFLIP, 0, 1, 1, 0);
++	ov13858->vflip = v4l2_ctrl_new_std(ctrl_hdlr, &ov13858_ctrl_ops,
++					   V4L2_CID_VFLIP, 0, 1, 1, 0);
+ 	if (ctrl_hdlr->error) {
+ 		ret = ctrl_hdlr->error;
+ 		dev_err(ov13858->dev, "%s control init failed (%d)\n",
+@@ -1760,6 +1866,17 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
  	if (ret)
  		goto error;
  
 +	/*
-+	 * Surface Pro 9 rear module is mounted at 180°, but SSDB reports 0 and
-+	 * ipu-bridge's upside-down quirk historically only matched the front
-+	 * HID. Override before registering fwnode properties, and if the
-+	 * sensor probed before ipu-bridge attached software-nodes, register
-+	 * the controls explicitly.
++	 * ipu-bridge applies the same quirk, but the sensor can probe before
++	 * ipu-bridge has attached its software node properties.
 +	 */
-+	if (dmi_check_system(surface_pro_9_dmi)) {
++	if (dmi_check_system(ov13858_upside_down_dmi_ids)) {
 +		props.rotation = 180;
 +		if (props.orientation == V4L2_FWNODE_ORIENTATION_EXTERNAL)
 +			props.orientation = V4L2_FWNODE_ORIENTATION_BACK;
-+		dev_info(ov13858->dev,
-+			 "Surface Pro 9: overriding fwnode rotation=180\n");
++		dev_info(ov13858->dev, "upside-down module, rotation=180\n");
 +	}
 +
  	ret = v4l2_ctrl_new_fwnode_properties(ctrl_hdlr, &ov13858_ctrl_ops,
  					      &props);
  	if (ret)
- 		goto error;
- 
-+	if (dmi_check_system(surface_pro_9_dmi) &&
-+	    !v4l2_ctrl_find(ctrl_hdlr, V4L2_CID_CAMERA_SENSOR_ROTATION)) {
-+		struct v4l2_ctrl *ctrl;
-+
-+		ctrl = v4l2_ctrl_new_std_menu(ctrl_hdlr, NULL,
-+					      V4L2_CID_CAMERA_ORIENTATION,
-+					      V4L2_CAMERA_ORIENTATION_EXTERNAL,
-+					      0, V4L2_CAMERA_ORIENTATION_BACK);
-+		if (ctrl)
-+			ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-+
-+		ctrl = v4l2_ctrl_new_std(ctrl_hdlr, NULL,
-+					 V4L2_CID_CAMERA_SENSOR_ROTATION,
-+					 0, 360, 1, 180);
-+		if (ctrl)
-+			ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
-+
-+		dev_info(ov13858->dev,
-+			 "Surface Pro 9: forced orientation=Back rotation=180\n");
-+	}
-+
- 	ov13858->sd.ctrl_handler = ctrl_hdlr;
- 
- 	return 0;
 diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
-index 3418ff475..a1b2c3d4e 100644
+index 3418ff4..b8018e5 100644
 --- a/drivers/media/pci/intel/ipu-bridge.c
 +++ b/drivers/media/pci/intel/ipu-bridge.c
-@@ -136,6 +136,13 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
+@@ -129,6 +129,13 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
+ 		},
+ 		.driver_data = "INT33BE",
+ 	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 8"),
++		},
++		.driver_data = "OVTID858",
++	},
+ 	{
+ 		.matches = {
+ 			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+@@ -136,6 +143,13 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
  		},
  		.driver_data = "OVTI5693",
  	},
@@ -1198,32 +1321,25 @@ index 3418ff475..a1b2c3d4e 100644
  	{} /* Terminating entry */
  };
  
-@@ -285,9 +292,22 @@ static u32 ipu_bridge_parse_rotation(struct acpi_device *adev,
- 				     struct ipu_sensor_ssdb *ssdb)
+@@ -291,9 +305,15 @@ static u32 ipu_bridge_parse_rotation(struct acpi_device *adev,
  {
  	const struct dmi_system_id *dmi_id;
--
+ 
 -	dmi_id = dmi_first_match(upside_down_sensor_dmi_ids);
 -	if (dmi_id && acpi_dev_hid_match(adev, dmi_id->driver_data))
 -		return 180;
-+
 +	/*
-+	 * A laptop may need quirks for more than one HID (e.g. Surface Pro 9
-+	 * front OVTI5693 and rear OVTID858). dmi_first_match() alone cannot
-+	 * express that — test each table entry individually.
++	 * A machine can have more than one upside-down sensor (the Surface
++	 * Pro 8 and 9 have both the front and the rear one), so keep walking
++	 * the table past the first DMI match until the HID matches too.
 +	 */
-+	for (dmi_id = upside_down_sensor_dmi_ids; dmi_id->matches[0].slot;
-+	     dmi_id++) {
-+		struct dmi_system_id one[2] = {};
-+
-+		one[0] = *dmi_id;
-+		if (!dmi_check_system(one))
-+			continue;
++	for (dmi_id = dmi_first_match(upside_down_sensor_dmi_ids); dmi_id;
++	     dmi_id = dmi_first_match(dmi_id + 1))
 +		if (acpi_dev_hid_match(adev, dmi_id->driver_data))
 +			return 180;
-+	}
  
  	switch (ssdb->degree) {
  	case IPU_SENSOR_ROTATION_NORMAL:
 -- 
-2.54.0
+2.53.0
+
