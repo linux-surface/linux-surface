@@ -1,6 +1,7 @@
 [Unit]
 Description=Surface Book 3 live webcams (IPU4 → v4l2loopback, no placeholders)
-After=surface-ipu4-late.service systemd-modules-load.service systemd-udevd.service display-manager.service
+# After late only — never After= greeter (cycle: greeter↔webcam↔late → 180s hang).
+After=surface-ipu4-late.service systemd-modules-load.service systemd-udevd.service
 Wants=surface-ipu4-late.service
 ConditionKernelVersion=*surface-ipu4*
 ConditionPathExists=/dev/video60
@@ -22,7 +23,7 @@ Environment=PYTHONPATH=/opt/surface-cameras/lib
 EnvironmentFile=-/etc/default/surface-webcam
 EnvironmentFile=-/etc/sysconfig/surface-webcam
 ExecStartPre=/bin/mkdir -p /run/surface-howdy
-ExecStartPre=/bin/touch /run/surface-howdy/cameras-ready
+ExecStartPre=/bin/chmod 1777 /run/surface-howdy
 ExecStart=/usr/bin/python3 -u /opt/surface-cameras/tools/surface_webcamd.py
 Restart=on-failure
 RestartSec=8

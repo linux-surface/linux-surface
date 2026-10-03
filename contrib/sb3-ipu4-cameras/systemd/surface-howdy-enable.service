@@ -1,13 +1,16 @@
 [Unit]
-Description=Enable Howdy PAM after Surface webcamd is ready
+Description=Refresh Howdy device_path after webcamd (optional)
 After=surface-webcam.service surface-ipu4-late.service
 Wants=surface-webcam.service
+ConditionKernelVersion=*surface-ipu4*
+# Not required for login — empty-password face-pam-auth arms Howdy on demand.
 
 [Service]
 Type=oneshot
 ExecStart=/bin/rm -f /etc/howdy/force-disabled
-ExecStart=/usr/local/sbin/surface-howdy-gate.sh --enable
+ExecStart=/usr/local/sbin/surface-howdy-gate.sh
 RemainAfterExit=yes
 
 [Install]
+# Disabled by configure-howdy-ir.sh / install.sh — keep unit file for manual use.
 WantedBy=multi-user.target

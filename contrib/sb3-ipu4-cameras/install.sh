@@ -74,6 +74,7 @@ install -m 755 "$ROOT/sbin/"*.sh /usr/local/sbin/
 command -v update-desktop-database >/dev/null && update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
 
 install -m 644 "$ROOT/systemd/"*.service /etc/systemd/system/
+# Deprecated face-login.path / greeter-button are masked by install-face-login-safe.sh
 install -m 644 "$ROOT/udev/"*.rules /etc/udev/rules.d/
 install -d /etc/modprobe.d /etc/modules-load.d
 install -m 644 "$ROOT/modprobe.d/"*.conf /etc/modprobe.d/
@@ -110,8 +111,16 @@ fi
 
 systemctl daemon-reload
 systemctl enable surface-ipu4-late.service surface-cam-perms.service surface-webcam.service
-systemctl enable surface-howdy-enable.service 2>/dev/null || true
-systemctl disable surface-howdy-gate.service 2>/dev/null || true
+# Empty-password face login (universal). Typed password skips the camera.
+if [[ -f "$ROOT/tools/install-face-login-safe.sh" ]]; then
+  bash "$ROOT/tools/install-face-login-safe.sh" || true
+fi
+systemctl disable --now surface-face-login.path surface-face-greeter-button.service   surface-howdy-enable.service surface-howdy-gate.service 2>/dev/null || true
+systemctl disable --now surface-howdy-prefetch.service surface-howdy-warm.service 2>/dev/null || true
+for u in surface-ir-howdy.service surface-howdy-cameras.path surface-howdy-cameras.service          surface-face-login.path surface-face-greeter-button.service; do
+  systemctl disable --now "$u" 2>/dev/null || true
+  ln -sfn /dev/null "/etc/systemd/system/$u" 2>/dev/null || true
+done
 udevadm control --reload-rules || true
 
 echo "=== 4. kernel surface-ipu4 ==="
