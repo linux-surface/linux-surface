@@ -23,7 +23,9 @@ This tweak provides two modified EDID blobs so Surface Studio 1 systems will rec
 
 ## Notes
 
-* This tweak will not work for Wayland sessions. This also appears to be an issue with the proprietary `nvidia` driver, not with the Linux kernel.
+* `nvidia` on X11 ignores any kernel EDID overrides and will load the modified EDID blobs through X11 configuration files only. If you do not immediately care about the `nvfbdev` framebuffer device driver, restarting X11 suffices.
+
+* This tweak will not work for Wayland sessions; all Wayland sessions I've tried thus far does not attempt to stitch TILE properties correctly. This also appears to be an issue with the proprietary `nvidia` driver, not with the Linux kernel.
 
 * Please refer to your distribution's documentation to find the appropriate method to add the `drm.edid_firmware` boot argument to your system. `grubby` is used on Fedora. Other distributions may have different methods.
 
