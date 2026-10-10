@@ -1,0 +1,51 @@
+From 2be25c7f3966f10f5244dccca0e0efd074b1fa2d Mon Sep 17 00:00:00 2001
+From: Daniel Scally <dan.scally@ideasonboard.com>
+Date: Wed, 22 Mar 2023 11:01:42 +0000
+Subject: [PATCH 30/40] media: v4l2-core: Acquire privacy led in
+ v4l2_async_register_subdev()
+
+The current call to v4l2_subdev_get_privacy_led() is contained in
+v4l2_async_register_subdev_sensor(), but that function isn't used by
+all the sensor drivers. Move the acquisition of the privacy led to
+v4l2_async_register_subdev() instead.
+
+Signed-off-by: Daniel Scally <dan.scally@ideasonboard.com>
+Patchset: cameras
+---
+ drivers/media/v4l2-core/v4l2-async.c  | 4 ++++
+ drivers/media/v4l2-core/v4l2-fwnode.c | 4 ----
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/media/v4l2-core/v4l2-async.c b/drivers/media/v4l2-core/v4l2-async.c
+index 460bf3dbb..d395f7517 100644
+--- a/drivers/media/v4l2-core/v4l2-async.c
++++ b/drivers/media/v4l2-core/v4l2-async.c
+@@ -810,6 +810,10 @@ int __v4l2_async_register_subdev(struct v4l2_subdev *sd, struct module *module)
+ 
+ 	INIT_LIST_HEAD(&sd->asc_list);
+ 
++	ret = v4l2_subdev_get_privacy_led(sd);
++	if (ret < 0)
++		return ret;
++
+ 	/*
+ 	 * No reference taken. The reference is held by the device (struct
+ 	 * v4l2_subdev.dev), and async sub-device does not exist independently
+diff --git a/drivers/media/v4l2-core/v4l2-fwnode.c b/drivers/media/v4l2-core/v4l2-fwnode.c
+index 570df3c41..8e9ae4b81 100644
+--- a/drivers/media/v4l2-core/v4l2-fwnode.c
++++ b/drivers/media/v4l2-core/v4l2-fwnode.c
+@@ -1272,10 +1272,6 @@ int __v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd, struct module *m
+ 
+ 	v4l2_async_subdev_nf_init(notifier, sd);
+ 
+-	ret = v4l2_subdev_get_privacy_led(sd);
+-	if (ret < 0)
+-		goto out_cleanup;
+-
+ 	ret = v4l2_async_nf_parse_fwnode_sensor(sd->dev, notifier);
+ 	if (ret < 0)
+ 		goto out_cleanup;
+-- 
+2.55.0
+

@@ -1,0 +1,78 @@
+From 52031e857fac6d7e7ce801988b99d45afacfc23c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
+Date: Thu, 25 Mar 2021 11:33:02 +0100
+Subject: [PATCH 07/40] Bluetooth: btusb: Lower passive lescan interval on
+ Marvell 88W8897
+
+The Marvell 88W8897 combined wifi and bluetooth card (pcie+usb version)
+is used in a lot of Microsoft Surface devices, and all those devices
+suffer from very low 2.4GHz wifi connection speeds while bluetooth is
+enabled. The reason for that is that the default passive scanning
+interval for Bluetooth Low Energy devices is quite high in Linux
+(interval of 60 msec and scan window of 30 msec, see hci_core.c), and
+the Marvell chip is known for its bad bt+wifi coexisting performance.
+
+So decrease that passive scan interval and make the scan window shorter
+on this particular device to allow for spending more time transmitting
+wifi signals: The new scan interval is 250 msec (0x190 * 0.625 msec) and
+the new scan window is 6.25 msec (0xa * 0,625 msec).
+
+This change has a very large impact on the 2.4GHz wifi speeds and gets
+it up to performance comparable with the Windows driver, which seems to
+apply a similar quirk.
+
+The interval and window length were tested and found to work very well
+with a lot of Bluetooth Low Energy devices, including the Surface Pen, a
+Bluetooth Speaker and two modern Bluetooth headphones. All devices were
+discovered immediately after turning them on. Even lower values were
+also tested, but they introduced longer delays until devices get
+discovered.
+
+Patchset: mwifiex
+---
+ drivers/bluetooth/btusb.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/drivers/bluetooth/btusb.c b/drivers/bluetooth/btusb.c
+index dc7191bf4..015d95414 100644
+--- a/drivers/bluetooth/btusb.c
++++ b/drivers/bluetooth/btusb.c
+@@ -69,6 +69,7 @@ static struct usb_driver btusb_driver;
+ #define BTUSB_ACTIONS_SEMI		BIT(27)
+ #define BTUSB_BARROT			BIT(28)
+ #define BTUSB_BROKEN_EXT_SCAN		BIT(29)
++#define BTUSB_LOWER_LESCAN_INTERVAL	BIT(30)
+ 
+ static const struct usb_device_id btusb_table[] = {
+ 	/*
+@@ -485,6 +486,7 @@ static const struct usb_device_id quirks_table[] = {
+ 	{ USB_DEVICE(0x1286, 0x2044), .driver_info = BTUSB_MARVELL },
+ 	{ USB_DEVICE(0x1286, 0x2046), .driver_info = BTUSB_MARVELL },
+ 	{ USB_DEVICE(0x1286, 0x204e), .driver_info = BTUSB_MARVELL },
++	{ USB_DEVICE(0x1286, 0x204c), .driver_info = BTUSB_LOWER_LESCAN_INTERVAL },
+ 
+ 	/*
+ 	 * NXP IW610 BT interfaces (Marvell-lineage silicon, same quirk as
+@@ -4380,6 +4382,19 @@ static int btusb_probe(struct usb_interface *intf,
+ 	if (id->driver_info & BTUSB_MARVELL)
+ 		hdev->set_bdaddr = btusb_set_bdaddr_marvell;
+ 
++	/* The Marvell 88W8897 combined wifi and bluetooth card is known for
++	 * very bad bt+wifi coexisting performance.
++	 *
++	 * Decrease the passive BT Low Energy scan interval a bit
++	 * (0x0190 * 0.625 msec = 250 msec) and make the scan window shorter
++	 * (0x000a * 0,625 msec = 6.25 msec). This allows for significantly
++	 * higher wifi throughput while passively scanning for BT LE devices.
++	 */
++	if (id->driver_info & BTUSB_LOWER_LESCAN_INTERVAL) {
++		hdev->le_scan_interval = 0x0190;
++		hdev->le_scan_window = 0x000a;
++	}
++
+ 	if (IS_ENABLED(CONFIG_BT_HCIBTUSB_MTK) &&
+ 	    (id->driver_info & BTUSB_MEDIATEK)) {
+ 		hdev->setup = btusb_mtk_setup;
+-- 
+2.55.0
+

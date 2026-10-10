@@ -1,0 +1,198 @@
+From b127edfd328eb048f708cc9e2c29b22e373dd94e Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sat, 13 Feb 2021 16:41:18 +0100
+Subject: [PATCH 17/40] platform/surface: Add driver for Surface Book 1 dGPU
+ switch
+
+Add driver exposing the discrete GPU power-switch of the  Microsoft
+Surface Book 1 to user-space.
+
+On the Surface Book 1, the dGPU power is controlled via the Surface
+System Aggregator Module (SAM). The specific SAM-over-HID command for
+this is exposed via ACPI. This module provides a simple driver exposing
+the ACPI call via a sysfs parameter to user-space, so that users can
+easily power-on/-off the dGPU.
+
+Patchset: surface-sam-over-hid
+---
+ drivers/platform/surface/Kconfig              |   7 +
+ drivers/platform/surface/Makefile             |   1 +
+ .../surface/surfacebook1_dgpu_switch.c        | 136 ++++++++++++++++++
+ 3 files changed, 144 insertions(+)
+ create mode 100644 drivers/platform/surface/surfacebook1_dgpu_switch.c
+
+diff --git a/drivers/platform/surface/Kconfig b/drivers/platform/surface/Kconfig
+index f775c6ca1..2075e3852 100644
+--- a/drivers/platform/surface/Kconfig
++++ b/drivers/platform/surface/Kconfig
+@@ -149,6 +149,13 @@ config SURFACE_AGGREGATOR_TABLET_SWITCH
+ 	  Select M or Y here, if you want to provide tablet-mode switch input
+ 	  events on the Surface Pro 8, Surface Pro X, and Surface Laptop Studio.
+ 
++config SURFACE_BOOK1_DGPU_SWITCH
++	tristate "Surface Book 1 dGPU Switch Driver"
++	depends on SYSFS
++	help
++	  This driver provides a sysfs switch to set the power-state of the
++	  discrete GPU found on the Microsoft Surface Book 1.
++
+ config SURFACE_DTX
+ 	tristate "Surface DTX (Detachment System) Driver"
+ 	depends on SURFACE_AGGREGATOR
+diff --git a/drivers/platform/surface/Makefile b/drivers/platform/surface/Makefile
+index 533443309..7efcd0cdb 100644
+--- a/drivers/platform/surface/Makefile
++++ b/drivers/platform/surface/Makefile
+@@ -12,6 +12,7 @@ obj-$(CONFIG_SURFACE_AGGREGATOR_CDEV)	+= surface_aggregator_cdev.o
+ obj-$(CONFIG_SURFACE_AGGREGATOR_HUB)	+= surface_aggregator_hub.o
+ obj-$(CONFIG_SURFACE_AGGREGATOR_REGISTRY) += surface_aggregator_registry.o
+ obj-$(CONFIG_SURFACE_AGGREGATOR_TABLET_SWITCH) += surface_aggregator_tabletsw.o
++obj-$(CONFIG_SURFACE_BOOK1_DGPU_SWITCH) += surfacebook1_dgpu_switch.o
+ obj-$(CONFIG_SURFACE_DTX)		+= surface_dtx.o
+ obj-$(CONFIG_SURFACE_GPE)		+= surface_gpe.o
+ obj-$(CONFIG_SURFACE_HOTPLUG)		+= surface_hotplug.o
+diff --git a/drivers/platform/surface/surfacebook1_dgpu_switch.c b/drivers/platform/surface/surfacebook1_dgpu_switch.c
+new file mode 100644
+index 000000000..68db23773
+--- /dev/null
++++ b/drivers/platform/surface/surfacebook1_dgpu_switch.c
+@@ -0,0 +1,136 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include <linux/module.h>
++#include <linux/acpi.h>
++#include <linux/platform_device.h>
++
++/* MSHW0040/VGBI DSM UUID: 6fd05c69-cde3-49f4-95ed-ab1665498035 */
++static const guid_t dgpu_sw_guid =
++	GUID_INIT(0x6fd05c69, 0xcde3, 0x49f4,
++		  0x95, 0xed, 0xab, 0x16, 0x65, 0x49, 0x80, 0x35);
++
++#define DGPUSW_ACPI_PATH_DSM	"\\_SB_.PCI0.LPCB.EC0_.VGBI"
++#define DGPUSW_ACPI_PATH_HGON	"\\_SB_.PCI0.RP05.HGON"
++#define DGPUSW_ACPI_PATH_HGOF	"\\_SB_.PCI0.RP05.HGOF"
++
++static int sb1_dgpu_sw_dsmcall(void)
++{
++	union acpi_object *obj;
++	acpi_handle handle;
++	acpi_status status;
++
++	status = acpi_get_handle(NULL, DGPUSW_ACPI_PATH_DSM, &handle);
++	if (status)
++		return -EINVAL;
++
++	obj = acpi_evaluate_dsm_typed(handle, &dgpu_sw_guid, 1, 1, NULL, ACPI_TYPE_BUFFER);
++	if (!obj)
++		return -EINVAL;
++
++	ACPI_FREE(obj);
++	return 0;
++}
++
++static int sb1_dgpu_sw_hgon(struct device *dev)
++{
++	struct acpi_buffer buf = {ACPI_ALLOCATE_BUFFER, NULL};
++	acpi_status status;
++
++	status = acpi_evaluate_object(NULL, DGPUSW_ACPI_PATH_HGON, NULL, &buf);
++	if (status) {
++		dev_err(dev, "failed to run HGON: %d\n", status);
++		return -EINVAL;
++	}
++
++	ACPI_FREE(buf.pointer);
++
++	dev_info(dev, "turned-on dGPU via HGON\n");
++	return 0;
++}
++
++static int sb1_dgpu_sw_hgof(struct device *dev)
++{
++	struct acpi_buffer buf = {ACPI_ALLOCATE_BUFFER, NULL};
++	acpi_status status;
++
++	status = acpi_evaluate_object(NULL, DGPUSW_ACPI_PATH_HGOF, NULL, &buf);
++	if (status) {
++		dev_err(dev, "failed to run HGOF: %d\n", status);
++		return -EINVAL;
++	}
++
++	ACPI_FREE(buf.pointer);
++
++	dev_info(dev, "turned-off dGPU via HGOF\n");
++	return 0;
++}
++
++static ssize_t dgpu_dsmcall_store(struct device *dev, struct device_attribute *attr,
++				  const char *buf, size_t len)
++{
++	bool value;
++	int status;
++
++	status = kstrtobool(buf, &value);
++	if (status < 0)
++		return status;
++
++	if (!value)
++		return 0;
++
++	status = sb1_dgpu_sw_dsmcall();
++
++	return status < 0 ? status : len;
++}
++static DEVICE_ATTR_WO(dgpu_dsmcall);
++
++static ssize_t dgpu_power_store(struct device *dev, struct device_attribute *attr,
++				const char *buf, size_t len)
++{
++	bool power;
++	int status;
++
++	status = kstrtobool(buf, &power);
++	if (status < 0)
++		return status;
++
++	if (power)
++		status = sb1_dgpu_sw_hgon(dev);
++	else
++		status = sb1_dgpu_sw_hgof(dev);
++
++	return status < 0 ? status : len;
++}
++static DEVICE_ATTR_WO(dgpu_power);
++
++static struct attribute *sb1_dgpu_sw_attrs[] = {
++	&dev_attr_dgpu_dsmcall.attr,
++	&dev_attr_dgpu_power.attr,
++	NULL
++};
++ATTRIBUTE_GROUPS(sb1_dgpu_sw);
++
++/*
++ * The dGPU power seems to be actually handled by MSHW0040. However, that is
++ * also the power-/volume-button device with a mainline driver. So let's use
++ * MSHW0041 instead for now, which seems to be the LTCH (latch/DTX) device.
++ */
++static const struct acpi_device_id sb1_dgpu_sw_match[] = {
++	{ "MSHW0041", },
++	{ }
++};
++MODULE_DEVICE_TABLE(acpi, sb1_dgpu_sw_match);
++
++static struct platform_driver sb1_dgpu_sw = {
++	.driver = {
++		.name = "surfacebook1_dgpu_switch",
++		.acpi_match_table = sb1_dgpu_sw_match,
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++		.dev_groups = sb1_dgpu_sw_groups,
++	},
++};
++module_platform_driver(sb1_dgpu_sw);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Discrete GPU Power-Switch for Surface Book 1");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

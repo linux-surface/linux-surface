@@ -1,0 +1,44 @@
+From c6f07022bbbaa16d777d1d879f3b2702f160633f Mon Sep 17 00:00:00 2001
+From: gabrielstedman <gabrielstedman@users.noreply.github.com>
+Date: Fri, 13 Mar 2026 08:52:07 +0000
+Subject: [PATCH 36/40] media: ipu-bridge: Add front camera rotation quirks for
+ Surface Pro 8 and 9
+
+On the Surface Pro 8 and 9, camera rotation in `ssdb.degree` is `0` (no
+rotation) but should be `180`. Add these devices to the respective quirk
+list.
+
+Link: https://github.com/linux-surface/kernel/pull/160
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index 61d06d319..905f5d63f 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -196,6 +196,20 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
+ 		},
+ 		.driver_data = "OVTI02E1",
+ 	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 8"),
++		},
++		.driver_data = "INT33BE",
++	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 9"),
++		},
++		.driver_data = "OVTI5693",
++	},
+ 	{} /* Terminating entry */
+ };
+ 
+-- 
+2.55.0
+
