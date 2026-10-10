@@ -1,0 +1,94 @@
+From 02ea0e9e5693bf37c407269ffa260212771f1922 Mon Sep 17 00:00:00 2001
+From: LegendaryFire <tristan.balon@outlook.com>
+Date: Fri, 13 Mar 2026 10:16:37 +0100
+Subject: [PATCH 40/40] hid/multitouch: Prevent mode set on Surface Laptop
+ Studio 2 touch pad
+
+Note: Is this still required with MT_QUIRK_KEEP_LATENCY_ON_CLOSE now
+being available?
+
+Patchset: hid-surface
+---
+ drivers/hid/hid-multitouch.c | 31 +++++++++++++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
+index 59cecdc16..967fe20b6 100644
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ -86,6 +86,7 @@ MODULE_LICENSE("GPL");
+ #define MT_QUIRK_IGNORE_FEATURE_ID_MISMATCH	BIT(26)
+ #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(27)
+ #define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(28)
++#define MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE  BIT(29)
+ 
+ #define MT_INPUTMODE_TOUCHSCREEN	0x02
+ #define MT_INPUTMODE_TOUCHPAD		0x03
+@@ -250,6 +251,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
+ #define MT_CLS_EGALAX_P80H84			0x0116
+ #define MT_CLS_ASUS_ROG_Z13_FOLIO		0x0117
+ #define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0118
++#define MT_CLS_SURFACE_TOUCHPAD                0x0119
+ #define MT_CLS_SIS				0x0457
+ 
+ #define MT_DEFAULT_MAXCONTACT	10
+@@ -493,6 +495,10 @@ static const struct mt_class mt_classes[] = {
+ 			MT_QUIRK_WIN8_PTP_BUTTONS,
+ 		.export_all_inputs = true
+ 	},
++	{ .name = MT_CLS_SURFACE_TOUCHPAD,
++		.quirks = MT_QUIRK_ALWAYS_VALID |
++			MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE
++	},
+ 	{ }
+ };
+ 
+@@ -2444,6 +2450,17 @@ static void mt_remove(struct hid_device *hdev)
+ 
+ static void mt_on_hid_hw_open(struct hid_device *hdev)
+ {
++	struct mt_device *td = hid_get_drvdata(hdev);
++
++	/*
++	 * Some devices (e.g. Surface Laptop Studio 2 touchpad) can get stuck
++	 * non-functional if we change touchpad reporting modes from the HID
++	 * open/close hooks. Avoid mode switching on hw_open/hw_close for
++	 * those devices.
++	 */
++	if (td && td->mtclass.quirks & MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE)
++		return;
++
+ 	mt_set_modes(hdev, HID_LATENCY_NORMAL, TOUCHPAD_REPORT_ALL);
+ }
+ 
+@@ -2451,6 +2468,15 @@ static void mt_on_hid_hw_close(struct hid_device *hdev)
+ {
+ 	struct mt_device *td = hid_get_drvdata(hdev);
+ 
++	/*
++	 * Some devices (e.g. Surface Laptop Studio 2 touchpad) can get stuck
++	 * non-functional if we change touchpad reporting modes from the HID
++	 * open/close hooks. Avoid mode switching on hw_open/hw_close for
++	 * those devices.
++	 */
++	if (td && td->mtclass.quirks & MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE)
++		return;
++
+ 	if (td->mtclass.quirks & MT_QUIRK_KEEP_LATENCY_ON_CLOSE)
+ 		mt_set_modes(hdev, HID_LATENCY_NORMAL, TOUCHPAD_REPORT_NONE);
+ 	else
+@@ -2908,6 +2934,11 @@ static const struct hid_device_id mt_devices[] = {
+ 		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
+ 			USB_VENDOR_ID_MICROSOFT, 0x09c0) },
+ 
++	/* Microsoft Surface touch pad */
++	{ .driver_data = MT_CLS_SURFACE_TOUCHPAD,
++		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
++			USB_VENDOR_ID_MICROSOFT, 0x0C46) },
++
+ 	/* Google MT devices */
+ 	{ .driver_data = MT_CLS_GOOGLE,
+ 		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY, USB_VENDOR_ID_GOOGLE,
+-- 
+2.55.0
+

@@ -1,0 +1,111 @@
+From 66e2b779b18d543ffa01ace0e0e2a97ae0b87994 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sat, 25 Jul 2020 17:19:53 +0200
+Subject: [PATCH 16/40] i2c: acpi: Implement RawBytes read access
+
+Microsoft Surface Pro 4 and Book 1 devices access the MSHW0030 I2C
+device via a generic serial bus operation region and RawBytes read
+access. On the Surface Book 1, this access is required to turn on (and
+off) the discrete GPU.
+
+Multiple things are to note here:
+
+a) The RawBytes access is device/driver dependent. The ACPI
+   specification states:
+
+   > Raw accesses assume that the writer has knowledge of the bus that
+   > the access is made over and the device that is being accessed. The
+   > protocol may only ensure that the buffer is transmitted to the
+   > appropriate driver, but the driver must be able to interpret the
+   > buffer to communicate to a register.
+
+   Thus this implementation may likely not work on other devices
+   accessing I2C via the RawBytes accessor type.
+
+b) The MSHW0030 I2C device is an HID-over-I2C device which seems to
+   serve multiple functions:
+
+   1. It is the main access point for the legacy-type Surface Aggregator
+      Module (also referred to as SAM-over-HID, as opposed to the newer
+      SAM-over-SSH/UART). It has currently not been determined on how
+      support for the legacy SAM should be implemented. Likely via a
+      custom HID driver.
+
+   2. It seems to serve as the HID device for the Integrated Sensor Hub.
+      This might complicate matters with regards to implementing a
+      SAM-over-HID driver required by legacy SAM.
+
+In light of this, the simplest approach has been chosen for now.
+However, it may make more sense regarding breakage and compatibility to
+either provide functionality for replacing or enhancing the default
+operation region handler via some additional API functions, or even to
+completely blacklist MSHW0030 from the I2C core and provide a custom
+driver for it.
+
+Replacing/enhancing the default operation region handler would, however,
+either require some sort of secondary driver and access point for it,
+from which the new API functions would be called and the new handler
+(part) would be installed, or hard-coding them via some sort of
+quirk-like interface into the I2C core.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam-over-hid
+---
+ drivers/i2c/i2c-core-acpi.c | 34 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/drivers/i2c/i2c-core-acpi.c b/drivers/i2c/i2c-core-acpi.c
+index 8f3bdd501..6923c29d3 100644
+--- a/drivers/i2c/i2c-core-acpi.c
++++ b/drivers/i2c/i2c-core-acpi.c
+@@ -665,6 +665,27 @@ static int acpi_gsb_i2c_write_bytes(struct i2c_client *client,
+ 	return (ret == 1) ? 0 : -EIO;
+ }
+ 
++static int acpi_gsb_i2c_write_raw_bytes(struct i2c_client *client,
++		u8 *data, u8 data_len)
++{
++	struct i2c_msg msgs[1];
++	int ret;
++
++	msgs[0].addr = client->addr;
++	msgs[0].flags = client->flags;
++	msgs[0].len = data_len + 1;
++	msgs[0].buf = data;
++
++	ret = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
++	if (ret < 0) {
++		dev_err(&client->adapter->dev, "i2c write failed: %d\n", ret);
++		return ret;
++	}
++
++	/* 1 transfer must have completed successfully */
++	return (ret == 1) ? 0 : -EIO;
++}
++
+ static acpi_status
+ i2c_acpi_space_handler(u32 function, acpi_physical_address command,
+ 			u32 bits, u64 *value64,
+@@ -766,6 +787,19 @@ i2c_acpi_space_handler(u32 function, acpi_physical_address command,
+ 		}
+ 		break;
+ 
++	case ACPI_GSB_ACCESS_ATTRIB_RAW_BYTES:
++		if (action == ACPI_READ) {
++			dev_warn(&adapter->dev,
++				 "protocol 0x%02x not supported for client 0x%02x\n",
++				 accessor_type, client->addr);
++			ret = AE_BAD_PARAMETER;
++			goto err;
++		} else {
++			status = acpi_gsb_i2c_write_raw_bytes(client,
++					gsb->data, info->access_length);
++		}
++		break;
++
+ 	default:
+ 		dev_warn(&adapter->dev, "protocol 0x%02x not supported for client 0x%02x\n",
+ 			 accessor_type, client->addr);
+-- 
+2.55.0
+

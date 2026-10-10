@@ -1,0 +1,75 @@
+From 7c547cf5141ddc6ba01f48ff67582e6b1d1a3402 Mon Sep 17 00:00:00 2001
+From: "J. Eduardo" <j.eduardo@gmail.com>
+Date: Sun, 25 Aug 2024 14:17:45 +0200
+Subject: [PATCH 02/40] PM: hibernate: Add a lockdown_hibernate parameter
+
+This allows the user to tell the kernel that they know better (namely,
+they secured their swap properly), and that it can enable hibernation.
+
+Signed-off-by: Kelvie Wong <kelvie@kelvie.ca>
+Link: https://github.com/linux-surface/kernel/pull/158
+Link: https://gist.github.com/brknkfr/95d1925ccdbb7a2d18947c168dfabbee
+Patchset: secureboot
+---
+ Documentation/admin-guide/kernel-parameters.txt |  5 +++++
+ kernel/power/hibernate.c                        | 10 +++++++++-
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/admin-guide/kernel-parameters.txt b/Documentation/admin-guide/kernel-parameters.txt
+index e75344f4e..343dcd616 100644
+--- a/Documentation/admin-guide/kernel-parameters.txt
++++ b/Documentation/admin-guide/kernel-parameters.txt
+@@ -3590,6 +3590,11 @@ Kernel parameters
+ 			to extract confidential information from the kernel
+ 			are also disabled.
+ 
++	lockdown_hibernate	[HIBERNATION]
++			Enable hibernation even if lockdown is enabled. Enable this only if
++			your swap is encrypted and secured properly, as an attacker can
++			modify the kernel offline during hibernation.
++
+ 	locktorture.acq_writer_lim= [KNL]
+ 			Set the time limit in jiffies for a lock
+ 			acquisition.  Acquisitions exceeding this limit
+diff --git a/kernel/power/hibernate.c b/kernel/power/hibernate.c
+index c13f68ab7..e8e6c1495 100644
+--- a/kernel/power/hibernate.c
++++ b/kernel/power/hibernate.c
+@@ -38,6 +38,7 @@
+ #include "power.h"
+ 
+ 
++static int lockdown_hibernate;
+ static int nocompress;
+ static int noresume;
+ static int nohibernate;
+@@ -109,7 +110,7 @@ bool hibernation_in_progress(void)
+ bool hibernation_available(void)
+ {
+ 	return nohibernate == 0 &&
+-		!security_locked_down(LOCKDOWN_HIBERNATION) &&
++		(lockdown_hibernate || !security_locked_down(LOCKDOWN_HIBERNATION)) &&
+ 		!secretmem_active() && !cxl_mem_active();
+ }
+ 
+@@ -1467,6 +1468,12 @@ static int __init nohibernate_setup(char *str)
+ 	return 1;
+ }
+ 
++static int __init lockdown_hibernate_setup(char *str)
++{
++	lockdown_hibernate = 1;
++	return 1;
++}
++
+ static const char * const comp_alg_enabled[] = {
+ #if IS_ENABLED(CONFIG_CRYPTO_LZO)
+ 	COMPRESSION_ALGO_LZO,
+@@ -1524,3 +1531,4 @@ __setup("hibernate=", hibernate_setup);
+ __setup("resumewait", resumewait_setup);
+ __setup("resumedelay=", resumedelay_setup);
+ __setup("nohibernate", nohibernate_setup);
++__setup("lockdown_hibernate", lockdown_hibernate_setup);
+-- 
+2.55.0
+

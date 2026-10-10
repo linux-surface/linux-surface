@@ -1,0 +1,37 @@
+From f81dc04cd57895ef8cfe80de1b92ffa068644f0e Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sun, 10 Oct 2021 20:57:02 +0200
+Subject: [PATCH 28/40] platform/x86: int3472: Enable I2c daisy chain
+
+The TPS68470 PMIC has an I2C passthrough mode through which I2C traffic
+can be forwarded to a device connected to the PMIC as though it were
+connected directly to the system bus. Enable this mode when the chip
+is initialised.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/tps68470.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/platform/x86/intel/int3472/tps68470.c b/drivers/platform/x86/intel/int3472/tps68470.c
+index a77ed32ab..3ef46bace 100644
+--- a/drivers/platform/x86/intel/int3472/tps68470.c
++++ b/drivers/platform/x86/intel/int3472/tps68470.c
+@@ -46,6 +46,13 @@ static int tps68470_chip_init(struct device *dev, struct regmap *regmap)
+ 		return ret;
+ 	}
+ 
++	/* Enable I2C daisy chain */
++	ret = regmap_write(regmap, TPS68470_REG_S_I2C_CTL, 0x03);
++	if (ret) {
++		dev_err(dev, "Failed to enable i2c daisy chain\n");
++		return ret;
++	}
++
+ 	dev_info(dev, "TPS68470 REVID: 0x%02x\n", version);
+ 
+ 	return 0;
+-- 
+2.55.0
+
