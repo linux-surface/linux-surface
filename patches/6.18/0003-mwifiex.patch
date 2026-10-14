@@ -1,7 +1,7 @@
-From 126a8c1d504d8377d222b88bc2d19313eacf8244 Mon Sep 17 00:00:00 2001
+From e7d3a5acb0ae14120044b6bd846a5eb36e0e6654 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Tue, 3 Nov 2020 13:28:04 +0100
-Subject: [PATCH] mwifiex: Add quirk resetting the PCI bridge on MS Surface
+Subject: [PATCH 1/3] mwifiex: Add quirk resetting the PCI bridge on MS Surface
  devices
 
 The most recent firmware of the 88W8897 card reports a hardcoded LTR
@@ -32,7 +32,7 @@ Patchset: mwifiex
  3 files changed, 31 insertions(+), 8 deletions(-)
 
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
-index a760de191..db9b20322 100644
+index a9425e9a9..75c3a0377 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie.c
 +++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
 @@ -1702,9 +1702,21 @@ mwifiex_pcie_send_boot_cmd(struct mwifiex_adapter *adapter, struct sk_buff *skb)
@@ -163,12 +163,12 @@ index d6ff964ae..5d30ae39d 100644
  void mwifiex_initialize_quirks(struct pcie_service_card *card);
  int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
 -- 
-2.53.0
+2.54.0
 
-From 80cb290812b649955d874929dd84559fbdaaa9d6 Mon Sep 17 00:00:00 2001
+From d5c783030eaa9beee51c028cf2decf7bc165384c Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Sun, 4 Oct 2020 00:11:49 +0900
-Subject: [PATCH] mwifiex: pcie: disable bridge_d3 for Surface gen4+
+Subject: [PATCH 2/3] mwifiex: pcie: disable bridge_d3 for Surface gen4+
 
 Currently, mwifiex fw will crash after suspend on recent kernel series.
 On Windows, it seems that the root port of wifi will never enter D3 state
@@ -187,7 +187,7 @@ Patchset: mwifiex
  3 files changed, 27 insertions(+), 8 deletions(-)
 
 diff --git a/drivers/net/wireless/marvell/mwifiex/pcie.c b/drivers/net/wireless/marvell/mwifiex/pcie.c
-index db9b20322..ffd0c1fe9 100644
+index 75c3a0377..b82158821 100644
 --- a/drivers/net/wireless/marvell/mwifiex/pcie.c
 +++ b/drivers/net/wireless/marvell/mwifiex/pcie.c
 @@ -377,6 +377,7 @@ static int mwifiex_pcie_probe(struct pci_dev *pdev,
@@ -318,13 +318,13 @@ index 5d30ae39d..c14eb56eb 100644
  void mwifiex_initialize_quirks(struct pcie_service_card *card);
  int mwifiex_pcie_reset_d3cold_quirk(struct pci_dev *pdev);
 -- 
-2.53.0
+2.54.0
 
-From c5d8dc3870658c58d7fff6ee6a58163f8335dd9a Mon Sep 17 00:00:00 2001
+From 7e2d4e74d8e3eaef89f45525ab7619843f34e9a1 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 25 Mar 2021 11:33:02 +0100
-Subject: [PATCH] Bluetooth: btusb: Lower passive lescan interval on Marvell
- 88W8897
+Subject: [PATCH 3/3] Bluetooth: btusb: Lower passive lescan interval on
+ Marvell 88W8897
 
 The Marvell 88W8897 combined wifi and bluetooth card (pcie+usb version)
 is used in a lot of Microsoft Surface devices, and all those devices
@@ -356,26 +356,26 @@ Patchset: mwifiex
  1 file changed, 15 insertions(+)
 
 diff --git a/drivers/bluetooth/btusb.c b/drivers/bluetooth/btusb.c
-index 7c7955afa..c1c464bf3 100644
+index 59fff918f..7a426ed44 100644
 --- a/drivers/bluetooth/btusb.c
 +++ b/drivers/bluetooth/btusb.c
-@@ -67,6 +67,7 @@ static struct usb_driver btusb_driver;
- #define BTUSB_INTEL_NO_WBS_SUPPORT	BIT(26)
+@@ -68,6 +68,7 @@ static struct usb_driver btusb_driver;
  #define BTUSB_ACTIONS_SEMI		BIT(27)
  #define BTUSB_BARROT			BIT(28)
-+#define BTUSB_LOWER_LESCAN_INTERVAL	BIT(29)
+ #define BTUSB_BROKEN_EXT_SCAN		BIT(29)
++#define BTUSB_LOWER_LESCAN_INTERVAL	BIT(30)
  
  static const struct usb_device_id btusb_table[] = {
- 	/* Generic Bluetooth USB device */
-@@ -472,6 +473,7 @@ static const struct usb_device_id quirks_table[] = {
+ 	/*
+@@ -484,6 +485,7 @@ static const struct usb_device_id quirks_table[] = {
  	{ USB_DEVICE(0x1286, 0x2044), .driver_info = BTUSB_MARVELL },
  	{ USB_DEVICE(0x1286, 0x2046), .driver_info = BTUSB_MARVELL },
  	{ USB_DEVICE(0x1286, 0x204e), .driver_info = BTUSB_MARVELL },
 +	{ USB_DEVICE(0x1286, 0x204c), .driver_info = BTUSB_LOWER_LESCAN_INTERVAL },
  
- 	/* Intel Bluetooth devices */
- 	{ USB_DEVICE(0x8087, 0x0025), .driver_info = BTUSB_INTEL_COMBINED },
-@@ -4201,6 +4203,19 @@ static int btusb_probe(struct usb_interface *intf,
+ 	/*
+ 	 * NXP IW610 BT interfaces (Marvell-lineage silicon, same quirk as
+@@ -4243,6 +4245,19 @@ static int btusb_probe(struct usb_interface *intf,
  	if (id->driver_info & BTUSB_MARVELL)
  		hdev->set_bdaddr = btusb_set_bdaddr_marvell;
  
@@ -396,5 +396,5 @@ index 7c7955afa..c1c464bf3 100644
  	    (id->driver_info & BTUSB_MEDIATEK)) {
  		hdev->setup = btusb_mtk_setup;
 -- 
-2.53.0
+2.54.0
 
