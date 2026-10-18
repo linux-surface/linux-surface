@@ -75,15 +75,21 @@ build-packages)
     git config --global user.name "surfacebot"
     git config --global user.email "surfacebot@users.noreply.github.com"
 
-    # get ubuntu mainline source
-    # see https://kernel.ubuntu.com/~kernel-ppa/mainline
-    git clone "${MAINLINE_REPO}" --branch "${MAINLINE_BRANCH}/v${KERNEL_VERSION}" --depth 1 linux
+    # get upstream kernel source
+    git clone "${MAINLINE_REPO}" --branch "v${KERNEL_VERSION}" --depth 1 linux
 
     if [ -d "keys" ]; then
         mv keys linux
     fi
 
     pushd linux || exit 1
+
+    # get packaging (and base config) from ubuntu mainline build
+    # see https://kernel.ubuntu.com/~kernel-ppa/mainline
+    git fetch --depth 1 "${MAINLINE_REPO}" \
+        "refs/tags/${MAINLINE_BRANCH}/v${UBUNTU_MAINLINE_VERSION:-${KERNEL_VERSION}}"
+    git checkout FETCH_HEAD -- debian debian.master
+    git commit -m "Add Ubuntu mainline packaging"
 
     # apply surface build/packaging patches
     find .. -name '*.patch' -type f -print0 | sort -z | xargs -0 -I '{}' \
