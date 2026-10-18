@@ -1,4 +1,4 @@
-From 642c170130c928263f0681df532bdd9bb803d5aa Mon Sep 17 00:00:00 2001
+From 3ef6ba070e4063d0e86b6f09f62e40032699c026 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 19 Feb 2023 22:12:24 +0100
 Subject: [PATCH] PCI: Add quirk to prevent calling shutdown mehtod
@@ -23,10 +23,10 @@ Patchset: surface-shutdown
  3 files changed, 40 insertions(+)
 
 diff --git a/drivers/pci/pci-driver.c b/drivers/pci/pci-driver.c
-index a00a2ce01..9754d756c 100644
+index 0eb246a07..01fd71970 100644
 --- a/drivers/pci/pci-driver.c
 +++ b/drivers/pci/pci-driver.c
-@@ -505,6 +505,9 @@ static void pci_device_shutdown(struct device *dev)
+@@ -507,6 +507,9 @@ static void pci_device_shutdown(struct device *dev)
  	struct pci_dev *pci_dev = to_pci_dev(dev);
  	struct pci_driver *drv = pci_dev->driver;
  
@@ -37,10 +37,10 @@ index a00a2ce01..9754d756c 100644
  
  	if (drv && drv->shutdown)
 diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
-index 3d05ea35c..62bca34b0 100644
+index ac9851e3d..632a408ea 100644
 --- a/drivers/pci/quirks.c
 +++ b/drivers/pci/quirks.c
-@@ -6365,3 +6365,39 @@ static void pci_mask_replay_timer_timeout(struct pci_dev *pdev)
+@@ -6363,3 +6363,39 @@ static void pci_mask_replay_timer_timeout(struct pci_dev *pdev)
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_GLI, 0x9750, pci_mask_replay_timer_timeout);
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_GLI, 0x9755, pci_mask_replay_timer_timeout);
  #endif
@@ -81,10 +81,10 @@ index 3d05ea35c..62bca34b0 100644
 +DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x466d, quirk_no_shutdown);  // Thunderbolt 4 NHI
 +DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x46a8, quirk_no_shutdown);  // GPU
 diff --git a/include/linux/pci.h b/include/linux/pci.h
-index 242ee3843..96753fb66 100644
+index ee27f1ba0..2f7e6b86a 100644
 --- a/include/linux/pci.h
 +++ b/include/linux/pci.h
-@@ -482,6 +482,7 @@ struct pci_dev {
+@@ -496,6 +496,7 @@ struct pci_dev {
  	unsigned int	no_command_memory:1;	/* No PCI_COMMAND_MEMORY */
  	unsigned int	rom_bar_overlap:1;	/* ROM BAR disable broken */
  	unsigned int	rom_attr_enabled:1;	/* Display of ROM attribute enabled? */
@@ -93,5 +93,5 @@ index 242ee3843..96753fb66 100644
  	atomic_t	enable_cnt;	/* pci_enable_device has been called */
  
 -- 
-2.54.0
+2.55.0
 
