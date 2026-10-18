@@ -18,6 +18,8 @@ apt-get()
 MAINLINE_REPO="git://git.launchpad.net/~ubuntu-kernel-test/ubuntu/+source/linux/+git/mainline-crack"
 MAINLINE_BRANCH="cod/mainline"
 
+LLVM_VERSION="18"
+
 case "${1:-}" in
 setup-builddeps)
     export PATH="$HOME/.cargo/bin:$PATH"
@@ -31,9 +33,16 @@ setup-builddeps)
     apt-get update
     apt-get upgrade
     apt-get install build-essential fakeroot rsync git wget software-properties-common \
-            zstd lz4 sbsigntool debhelper dpkg-dev dpkg-sig pkg-config \
-            llvm-15 clang-15 libclang-15-dev 
+            zstd lz4 sbsigntool debhelper dpkg-dev dpkg-sig pkg-config
     apt-get build-dep linux
+
+    # install a recent LLVM / libclang (required by bindgen for building rust support)
+    wget -qO /etc/apt/trusted.gpg.d/apt.llvm.org.asc https://apt.llvm.org/llvm-snapshot.gpg.key
+    echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-${LLVM_VERSION} main" \
+        > /etc/apt/sources.list.d/llvm.list
+
+    apt-get update
+    apt-get install "llvm-${LLVM_VERSION}" "clang-${LLVM_VERSION}" "libclang-${LLVM_VERSION}-dev"
 
     # install python 3.11, required for configuring the kernel via Ubuntu's annotation format
     add-apt-repository -y ppa:deadsnakes
@@ -66,6 +75,7 @@ setup-secureboot)
     ;;
 build-packages)
     export PATH="$HOME/.cargo/bin:$PATH"
+    export LIBCLANG_PATH="/usr/lib/llvm-${LLVM_VERSION}/lib"
 
     pushd pkg/debian/kernel || exit 1
 
