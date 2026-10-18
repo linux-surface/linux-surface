@@ -1,47 +1,54 @@
 # Maintainer: Maximilian Luz <m@mxnluz.io>
 # Maintainer: Blaž Hrastnik <blaz@mxxn.io>
-# Maintainer: Jan Alexander Steffens (heftig) <jan.steffens@gmail.com>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
 
 pkgbase=linux-surface
-pkgver=6.19.8.arch1
-pkgrel=3
+pkgver=7.2.11.arch1
+pkgrel=1
 pkgdesc='Linux'
-_shortver=${pkgver%.*}
-_fullver=${pkgver%.*}-${pkgver##*.}
-_srctag=v${_fullver}
-url="https://github.com/archlinux/linux/commits/$_srctag"
-arch=(x86_64)
-license=(GPL2)
+url='https://github.com/archlinux/linux'
+arch=(
+  x86_64
+)
+license=(GPL-2.0-only)
 makedepends=(
   bc
+  binutils
   cpio
   gettext
-  git
+  glibc
   libelf
+  libgcc
+  openssl
+  pahole
   perl
+  python
   rust
   rust-bindgen
   rust-src
   tar
+  xxhash
   xz
-  python
-  # we don't need `pahole` as deps because we disable `CONFIG_DEBUG_INFO`
+  zlib
+  zstd
   # ignoring deps for docs because we don't build docs package
 )
-optdepends=('iptsd: Touchscreen support'
-            'linux-firmware: Firmware files for Linux'
-            'linux-firmware-marvell: Firmware files for Marvell WiFi / Bluetooth')
+optdepends=(
+  'iptsd: Touchscreen support'
+  'linux-firmware: Firmware files for Linux'
+  'linux-firmware-marvell: Firmware files for Marvell WiFi / Bluetooth'
+)
 options=(
   !debug
   !strip
 )
-_srcname=archlinux-linux
+_srcname=linux-${pkgver%.*}
+_srctag=v${pkgver%.*}-${pkgver##*.}
 source=(
-  "$_srcname::git+https://github.com/archlinux/linux#tag=$_srctag"
-  config         # the main kernel config file
-
+  https://cdn.kernel.org/pub/linux/kernel/v${pkgver%%.*}.x/${_srcname}.tar.{xz,sign}
+  $url/releases/download/$_srctag/linux-$_srctag.patch.zst{,.sig}
   surface.config # surface specific options
-  arch.config # config changes for linux-surface kernel
+  arch.config    # config changes for linux-surface kernel
   0001-secureboot.patch
   0002-surface3.patch
   0003-mwifiex.patch
@@ -56,51 +63,59 @@ source=(
   0012-surface-gpe.patch
   0013-cameras.patch
   0014-amd-gpio.patch
-  0015-rtc.patch
-  0016-hid-surface.patch
-  0017-dirtyfrag-xfrm-esp-avoid-in-place-decrypt-on-shared-skb-frags.patch
-  0018-dirtyfrag-rxrpc-Fix-potential-UAF-after-skb_unshare-failure.patch
-  0019-dirtyfrag-rxrpc-Fix-rxrpc_input_call_event-to-only-unshare-DAT.patch
-  0020-dirtyfrag-rxrpc-Fix-use-of-wrong-skb-when-comparing-queued-RES.patch
-  0021-dirtyfrag-rxrpc-only-handle-RESPONSE-during-service-challenge.patch
-  0022-dirtyfrag-rxrpc-Fix-conn-level-packet-handling-to-unshare-RESP.patch
-  0023-dirtyfrag-rxrpc-Fix-re-decryption-of-RESPONSE-packets.patch
-  0024-dirtyfrag-rxrpc-Also-unshare-DATA-RESPONSE-packets-when-paged-.patch
+  0015-hid-surface.patch
 )
+source_x86_64=(config.x86_64)
 validpgpkeys=(
-  'ABAF11C65A2970B130ABE3C479BE3E4300411886'  # Linus Torvalds
-  '647F28654894E3BD457199BE38DBBDC86092693E'  # Greg Kroah-Hartman
-  'A2FF3A36AAA56654109064AB19802F8B0D70FC30'  # Jan Alexander Steffens (heftig)
+  ABAF11C65A2970B130ABE3C479BE3E4300411886  # Linus Torvalds
+  647F28654894E3BD457199BE38DBBDC86092693E  # Greg Kroah-Hartman
+  83BC8889351B5DEBBB68416EB8AC08600F108CDF  # Jan Alexander Steffens (heftig)
 )
-sha256sums=('4d1e35866e69aaef26812c1cc5651936faa5e360b5ef6a19c28fb19b6848ab4b'
-            'd0ce1ee11ca0bc6a817c3c17a2651076409bd9fd6c0ab9e744aae2131ab654ce'
-            '3732912dbdf6419df696eec4c40d8edfad90a529e9cfe09b365c2b558690f9b7'
-            '008e37de7e6cf8b9479ef0f0f425a25092646e85d741aedd056e5ff3e1096361'
-            '5113eaf632692852082972ff881321428b060efd4ff0177c2ce3c72c64ad76e7'
-            'dbad1231a9a0a2bcf4f6567149e5b86f82f4bb29a3b3fa91543b1996e66353f4'
-            'a209e3e9c907a5b8803b841e1636eb18e849ff812f29fcff8ba57b140ccb5474'
-            '516babc082c6e21c1e842e5abdfd3e882c6f6e1039a4a909d68cd635100b95a3'
-            'ccc2f38598d9a49e19aa88d01c797654468b86f07beda4d355067a9d9083880e'
-            'e917bf758d93bdd3ee0836d4314849aada9a0902cd0161e1f357f71953221101'
-            '33871bca7d63230902b6c0e41460c295266fb3aaf31a57857666c55775efa560'
-            '32589bbccf6672e427f91cdc991be2c3d4270969763a79c6c1edef8f9c9ab5b5'
-            'd7b7856ef1693bb8633748e647f551d84a6dd2070abdc75340dd8bcba98eada7'
-            '5617c0fb8ae0db1de3865aafb65b21d7b5b5e5857d4baa34c1c17f2a2e502485'
-            '64509e957756d942d5561801123cf456e8caa1aa44bd69c2d5f97093c4830f9f'
-            'df547b8697f058fcfd9ae082a2ae4a87cd4ae5d7dae70129889da00219db4733'
-            'dbaddf5ed1ec7aec515867facd17a09e083289eb4185b3af4f3bc1d6c9bd1ad7'
-            '1d703ad95120df846d77b0c5338af1829119e2bfcac258ebedf0145ba02e22f3'
-            '76b91256a525c4f626802b5ad29ddb1a9477bc90001c9ea8c469ae77d07593fc'
-            '32b91e80ddc124dc7f31bbde65fcb18fa7a7f194f953ccfc8f14d630aac4ddc4'
-            'fac88ee98cfdfe25e408410e32182d1333ad70daf0d7393616062bc742ab16a9'
-            '49720fcc7dc3985a23f28690bf8617782e73c164f5b1faa5baad64d2914470cc'
-            '07daf409a43ae3eea6d3a7f0faa27de273dd1036220ebaf06327423508d154b8'
-            '293baa7fa7ea5a6c0eca70865242478640b02e45b336e541e7c2aca502d20ae8'
-            '780f99c5da46b2afacca860aa711342c654d66dbf8aa9a78575ec9061f5591e4'
-            'b8de9f82cf402f52c65a777b3944a153a47310a13ec8629a3b9f907d792bfbe6'
-            '0b7785bfb9b00326f5575e85f869c19e40a4d829267c7aded75df6bd532b622d'
-            '4fee526034c01a578577ea85a569ace805fbaf66e68d6bf4cab030aabc007d51')
+b2sums=('36a455379876a3f452dce7347211ac34ddfda9a445b0b8c0ee92664429a8ea85d2f1a101126b6d748545aaf18e3534f8db53d6110952f3d5487d029ff0f9a800'
+        'SKIP'
+        '06f49715b71884a0cbad51ab4b526c1516926cb2429e7a6e485aa48ebf277811dec391ae2264501245654275a84af1df3780bf8bf8df755cf47670d6c9397703'
+        'SKIP'
+        '9e294314ac3b53e6dd25067af6ffe040a23ff2a9cf958a5e15bc47c342fe0fe8a184aa4134c80368965054bee48b2579ab8ca4505d29495fd0e280578840a9dc'
+        '024ea51c1d9c3d7351317b4331eeb4f03f59014825ec5d8c8584c8ff3e8b6d70a8405f51ecb9886edcf9f5fd88eb4cecc39e42fba0518ee40f016e4dd3325ee8'
+        'b8e97174cdbcc81bc77025ce07e8eb2d6c816d65059e787339856a8822b357e61ffbba0ae5c608cde4c4d397ca3a3b6a03c9593a1345ddfa90fb03945d49a4b6'
+        '691a5d6c63d646aca527a278248ae55cb56d6146f9723195f7d1ae3b8333344be0d30b286d8bcb47dd8a7ec58a36c1fa520817421573f47dbfc90e5bb2146286'
+        'c5679d7d760c9e951747178a4dcaf3564ed95759a5744dbafee829e78607a9525e432ddbfc39513de638a4d5849168d512810c8beb08290882119da871e9e090'
+        '99e2561f440275da4c9fe0fa50c673e41101254c9e4e07a4306d361bc2430a9070b6e711415b52fff9afb83b7e4d33815eb316fec6abbe16d522cc92e10e47fc'
+        'd601bdd3e358bb6a59a73e19e665af7b9177a8d3d7a0d7090c2a84f2e2a1f1bd2d67a93d686fc7a29bcc7c4fb712a998a0b9e3790b49f085111125c99a0821ac'
+        '6bdbb329eaf4189c0403a90733946047d98849fbb9db17cb86eb9910f858e78e941544fcf75466a5c4a54e52df0fef2e1869debc9882e991b41d150aa443a795'
+        '883e7e9308adefcbd4fa98ce55c02a1913572f075f28749753e93fcdf0a60de7554855f531f8c23d7479595765129ea3c0845ce9c5492419e8690f5aa247766e'
+        '454774fe79ce5b784044265da5736b557dfcac7b110f5248fa2fa8e95cc3393e698ea837983f1f8a07a3725525b80d04b6adef29c0b4f6cc0be0b7e807926e24'
+        '3f327a4b7a0621ceb864cb2db646ecd2f0e219403c928f53c9aecdc9913a6316bc413509c65dcb0a2078c825cb6529bf8491f4d4ef140e3b17ee085367dee3a2'
+        '1230a95c2c4bf6517f28ea0f8b841250c0aac536fa4eec6715c9c6c312fae2ba30a82c083347428711a55fb24538996e24bdbf27f14df0c99daffaba55a3f9d4'
+        '4fe15d8bc050c94d8a9812baee804a7dcb52206411d3fc6b76f563ce4f9d9f83b772463754dfd554bb066b8f7b67af5195235a4e81c35d8d2941a958404fd54b'
+        'e4682fc331ff80c02ca046a4c32a2c6de1075753a2664d24ddb992598064761e119e31273788f9c6a1d92d5cbc4e99427452e20c639989ba85005867277d6ac1'
+        '3ca6ad487db8c5f8d65a228a040abd9bcfefd879208eda887ba8cc03478cd6b9b20750d707e6e642b716e272feb4b3e10839a3009aa79c9aa332438efca51cf1'
+        '1a59e140f1c9e86a714dd54a4bd11cb1a857cc8bff34ff9d3f788573063171fdc9fe66c408af0f0b438d314780f723ded26a60cba5793c5ce3b2dd79351a4bb9'
+        'c87c270cb490ece08fa43dc54a1453856832c4d098a7b9a311d836e40ddf9dcff61cc843c268d245de177e95b76630400b8380a90fd23876bcaa2f2d89feecf7')
+b2sums_x86_64=('58babcf7bed396598de1a7c010292aebb56b2c726f9d8d28344049646d5ed814489db0e22a4e62718e5e6dcc94c581858c17b235e88dc3263fa78934d2a84104')
 
+# https://www.kernel.org/pub/linux/kernel/v7.x/sha256sums.asc
+sha256sums=('fd0fc479f983a8c05313f13e9c36330fe6651cf725396748c40d5cd93fa1e6a4'
+            'SKIP'
+            '741d473c4db335d97d9e1d9b8be9337090522550804fe6454ba336d21e580fd6'
+            'SKIP'
+            '0f81da33cc04ee29f01744d0c10ce3fc771703d67122620118a042ea20837e8f'
+            '008e37de7e6cf8b9479ef0f0f425a25092646e85d741aedd056e5ff3e1096361'
+            'e1ced3a0d583863b11e904b6be39490af8adfe2fea2365a1e991242f1daaa4d0'
+            'bdd509a476a8f9d124776df0f46fac9b3b0382acfe18348560cc7cd2fe143ff8'
+            '87fb417ab30f61358fcac50ae1c0281d1979f993f200ab61a4380c7fa3ec90a5'
+            '83bf1dccd198e69e7b492b7aa6c6cd6a90df3678dc19529a3e9260d69da6f998'
+            'edd62aefaafeda12bf5416cded57607330dbe35cd8850ce8d346ab3ffc6c0012'
+            'c4f8d494d1fa497a8f3efb62aad16cbd0f34fe928fe7ec87a456975d2b198222'
+            '3dec50305c7b0ff716acfb99f19b1eaf57d888de728ec46c2e82a799a062ebf3'
+            '7eb42daa6797cc7c1b4fb09e326e0b86a3cb164fc44b34687aa7aef7ee8380f1'
+            'fbbc49bcde06a3b12ee1774de8ced650ec5a17e07dcbf8d9494110387c6b3f7d'
+            '3d22ee2ce1d6c7827ec075081b5bd0ee713f72a1da406d0cc99f42b9fdd6272d'
+            'e6fb40eaeb4910a7bff2039609691cb6ff99b7728af615a2e984b2e7299fc7ca'
+            '0866c184f01ac1425cdfad911bdd3bef3afb76190a40dd3cc0a7073390f70696'
+            '1f5f2d90a726030efc3583cea2e6afade0a412f50557c370cdc301bca906062a'
+            'a84f93b20b0ee321f33949fa8efbeb0feda124b739da753c90005d7d52ecfa71'
+            '676091e1ef9881b44a92f4e55e6580fcfd04f477acf77de600eb8cbe19b39699')
 
 export KBUILD_BUILD_HOST=archlinux
 export KBUILD_BUILD_USER=$pkgbase
@@ -110,46 +125,36 @@ export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EP
 _mok_crt="$PWD/MOK.crt"
 _mok_key="$PWD/MOK.key"
 
-_make() {
-  test -s version
-  make KERNELRELEASE="$(<version)" "$@"
-}
-
 prepare() {
   cd $_srcname
 
   echo "Setting version..."
   echo "-$pkgrel" > localversion.10-pkgrel
   echo "${pkgbase#linux}" > localversion.20-pkgname
-  make defconfig
-  make -s kernelrelease > version
-  make mrproper
-
-  # setup git
-  git config --local user.email "surfacebot@users.noreply.github.com"
-  git config --local user.name "surfacebot"
 
   local src
   for src in "${source[@]}"; do
     src="${src%%::*}"
     src="${src##*/}"
+    src="${src%.zst}"
     [[ $src = *.patch ]] || continue
     echo "Applying patch $src..."
-    git am -3 "../$src"
+    patch -Np1 < "../$src"
   done
 
   echo "Setting config..."
-  # cp ../config .config
-  # merge the two configs together
-  ./scripts/kconfig/merge_config.sh -m ../config ../surface.config ../arch.config
-  _make olddefconfig
+  ./scripts/kconfig/merge_config.sh -m ../config.$CARCH ../surface.config ../arch.config
+  make olddefconfig
+  diff -u ../config.$CARCH .config || :
 
+  make -s kernelrelease > version
   echo "Prepared $pkgbase version $(<version)"
 }
 
 build() {
   cd $_srcname
-  _make all
+
+  make all
 }
 
 _package() {
@@ -160,12 +165,12 @@ _package() {
     kmod
   )
   optdepends=(
+    "$pkgbase-headers: headers and scripts for building modules"
     'linux-firmware: firmware images needed for some devices'
     'scx-scheds: to use sched-ext schedulers'
     'wireless-regdb: to set the correct wireless channels of your country'
   )
   provides=(
-    linux=${_shortver}
     KSMBD-MODULE
     NTSYNC-MODULE
     VIRTUALBOX-GUEST-MODULES
@@ -178,7 +183,7 @@ _package() {
 
   cd $_srcname
   local modulesdir="$pkgdir/usr/lib/modules/$(<version)"
-  local image_name="$(_make -s image_name)"
+  local image_name="$(make -s image_name)"
 
   # sign boot image if the prequisites are available
   if [[ -f "$_mok_crt" ]] && [[ -f "$_mok_key" ]] && [[ -x "$(command -v sbsign)" ]]; then
@@ -195,7 +200,7 @@ _package() {
   echo "$pkgbase" | install -Dm644 /dev/stdin "$modulesdir/pkgbase"
 
   echo "Installing modules..."
-  ZSTD_CLEVEL=19 _make INSTALL_MOD_PATH="$pkgdir/usr" INSTALL_MOD_STRIP=1 \
+  ZSTD_CLEVEL=19 make INSTALL_MOD_PATH="$pkgdir/usr" INSTALL_MOD_STRIP=1 \
     DEPMOD=/doesnt/exist modules_install  # Suppress depmod
 
   # remove build link
@@ -204,27 +209,48 @@ _package() {
 
 _package-headers() {
   pkgdesc="Headers and scripts for building modules for the $pkgdesc kernel"
-  depends=(pahole)
-  provides=("linux-headers=${_shortver}")
+  depends=(
+    binutils
+    glibc
+    libelf
+    libgcc
+    openssl
+    pahole
+    xxhash
+    zlib
+    zstd
+  )
+  provides=(LINUX-HEADERS)
 
   cd $_srcname
   local builddir="$pkgdir/usr/lib/modules/$(<version)/build"
+
+  local karch
+  case $CARCH in
+    x86_64) karch=x86 ;;
+    *) echo "Unknown CARCH $CARCH"; exit 1 ;;
+  esac
 
   echo "Installing build files..."
   install -Dt "$builddir" -m644 .config Makefile Module.symvers System.map \
     localversion.* version vmlinux
   install -Dt "$builddir/kernel" -m644 kernel/Makefile
-  install -Dt "$builddir/arch/x86" -m644 arch/x86/Makefile
+  install -Dt "$builddir/arch/$karch" -m644 arch/$karch/Makefile
   cp -t "$builddir" -a scripts
   ln -srt "$builddir" "$builddir/scripts/gdb/vmlinux-gdb.py"
 
-  # required when STACK_VALIDATION is enabled
-  install -Dt "$builddir/tools/objtool" tools/objtool/objtool
+  if [[ $(scripts/config -s CONFIG_HAVE_STACK_VALIDATION) = y ]]; then
+    install -Dt "$builddir/tools/objtool" tools/objtool/objtool
+  fi
+
+  if [[ $(scripts/config -s CONFIG_DEBUG_INFO_BTF_MODULES) = y ]]; then
+    install -Dt "$builddir/tools/bpf/resolve_btfids" tools/bpf/resolve_btfids/resolve_btfids
+  fi
 
   echo "Installing headers..."
   cp -t "$builddir" -a include
-  cp -t "$builddir/arch/x86" -a arch/x86/include
-  install -Dt "$builddir/arch/x86/kernel" -m644 arch/x86/kernel/asm-offsets.s
+  cp -t "$builddir/arch/$karch" -a arch/$karch/include
+  install -Dt "$builddir/arch/$karch/kernel" -m644 arch/$karch/kernel/asm-offsets.s
 
   install -Dt "$builddir/drivers/md" -m644 drivers/md/*.h
   install -Dt "$builddir/net/mac80211" -m644 net/mac80211/*.h
@@ -243,9 +269,11 @@ _package-headers() {
   echo "Installing KConfig files..."
   find . -name 'Kconfig*' -exec install -Dm644 {} "$builddir/{}" \;
 
-  echo "Installing Rust files..."
-  install -Dt "$builddir/rust" -m644 rust/*.rmeta
-  install -Dt "$builddir/rust" rust/*.so
+  if [[ $(scripts/config -s CONFIG_RUST) = y ]]; then
+    echo "Installing Rust files..."
+    install -Dt "$builddir/rust" -m644 rust/*.rmeta
+    install -Dt "$builddir/rust" rust/*.so
+  fi
 
   echo "Installing unstripped VDSO..."
   make INSTALL_MOD_PATH="$pkgdir/usr" vdso_install \
@@ -254,7 +282,7 @@ _package-headers() {
   echo "Removing unneeded architectures..."
   local arch
   for arch in "$builddir"/arch/*/; do
-    [[ $arch = */x86/ ]] && continue
+    [[ $arch = */$karch/ ]] && continue
     echo "Removing $(basename "$arch")"
     rm -r "$arch"
   done
@@ -291,7 +319,10 @@ _package-headers() {
   ln -sr "$builddir" "$pkgdir/usr/src/$pkgbase"
 }
 
-pkgname=("$pkgbase" "$pkgbase-headers")
+pkgname=(
+  "$pkgbase"
+  "$pkgbase-headers"
+)
 for _p in "${pkgname[@]}"; do
   eval "package_$_p() {
     $(declare -f "_package${_p#$pkgbase}")
