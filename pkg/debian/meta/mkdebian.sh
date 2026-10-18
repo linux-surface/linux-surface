@@ -52,6 +52,12 @@ Architecture: ${debarch}
 Depends: ${headers_pkgname_actual} (= ${kernelrelease})
 Description:
   Meta-package for linux-surface headers.
+
+Package: ${sourcename}
+Architecture: ${debarch}
+Depends: ${image_pkgname} (= ${kernelrelease}), ${headers_pkgname} (= ${kernelrelease})
+Description:
+  Meta-package for the linux-surface kernel image and headers.
 EOF
 
 cat <<EOF > "debian/rules"
