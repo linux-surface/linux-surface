@@ -1088,3 +1088,161 @@ index ac637207b..1ef31d655 100644
 -- 
 2.55.0
 
+From df10e633de84f037a51416d3f5206f56bdcf311c Mon Sep 17 00:00:00 2001
+From: Jurison Murati <eng.juri@gmail.com>
+Date: Wed, 10 Jun 2026 12:22:36 +0200
+Subject: [PATCH] media: i2c: ov8865: Drop the runtime PM usage count on stream
+ failure
+
+ov8865_s_stream() takes a runtime PM reference when enabling the
+stream, but returns without releasing it if ov8865_sw_standby()
+fails, leaving the reference unbalanced and the sensor powered
+indefinitely. The same applies to a failure while disabling the
+stream, in which case the reference acquired at stream start is
+never dropped.
+
+Drop the reference in a single place, both when disabling the
+stream and on failure, and only update the streaming state on
+success.
+
+Signed-off-by: Jurison Murati <eng.juri@gmail.com>
+Reviewed-by: Daniel Scally <dan.scally@ideasonboard.com>
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+(cherry picked from commit 3fe797a12bfa9a49aa998ee722e5f25c957b9b15)
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 12 +++++-------
+ 1 file changed, 5 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index a8586df14..5b909a856 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -2621,15 +2621,13 @@ static int ov8865_s_stream(struct v4l2_subdev *subdev, int enable)
+ 	ret = ov8865_sw_standby(sensor, !enable);
+ 	mutex_unlock(&sensor->mutex);
+ 
+-	if (ret)
+-		return ret;
+-
+-	state->streaming = !!enable;
+-
+-	if (!enable)
++	if (ret || !enable)
+ 		pm_runtime_put(sensor->dev);
+ 
+-	return 0;
++	if (!ret)
++		state->streaming = enable;
++
++	return ret;
+ }
+ 
+ static const struct v4l2_subdev_video_ops ov8865_subdev_video_ops = {
+-- 
+2.55.0
+
+From 90ff858c69407a0015a0f36fe6d1a8c7dffcef16 Mon Sep 17 00:00:00 2001
+From: Jurison Murati <eng.juri@gmail.com>
+Date: Wed, 10 Jun 2026 12:22:37 +0200
+Subject: [PATCH] media: i2c: ov8865: Program the sensor on stream start
+
+The sensor registers are only written in the runtime PM resume
+handler; ov8865_set_fmt() merely stores the requested mode, relying on
+the sensor being runtime suspended between uses so that the next
+resume applies it.
+
+That assumption breaks when something keeps the sensor powered. On
+IPU3 platforms, ipu_bridge instantiates the VCM device with a
+DL_FLAG_PM_RUNTIME device link to the sensor, so a userspace process
+holding the VCM subdev open (e.g. wireplumber's camera monitor) pins
+the sensor runtime-active. A subsequent set_fmt() then never reaches
+the hardware: the sensor keeps streaming the mode programmed on the
+last resume while the CSI-2 receiver expects the newly negotiated
+format.
+
+On a Surface Book 2 (IPU3, ov8865 + dw9719 VCM), requesting the
+3264x2448 mode while the hardware was left programmed for the
+1632x1224 binned mode makes ipu3-cio2 report "frame sync error" and
+"payload length is 10340352, received 2585088" (exactly one binned
+frame) for every frame, and the inverse case stalls the stream after
+a single frame. Camera applications end up displaying one bogus frame
+forever.
+
+Program the sensor configuration and apply the control values on
+stream start instead, where the negotiated mode is always current,
+and only write the configuration in the runtime PM resume handler
+when resuming with the stream already started.
+
+Signed-off-by: Jurison Murati <eng.juri@gmail.com>
+Signed-off-by: Sakari Ailus <sakari.ailus@linux.intel.com>
+(cherry picked from commit 4e1446ac169a1a621ba90502ab8db3be821fe726)
+Patchset: cameras
+---
+ drivers/media/i2c/ov8865.c | 34 +++++++++++++++++++++++++---------
+ 1 file changed, 25 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index 5b909a856..c6d53c3d5 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -2609,7 +2609,7 @@ static int ov8865_s_stream(struct v4l2_subdev *subdev, int enable)
+ {
+ 	struct ov8865_sensor *sensor = ov8865_subdev_sensor(subdev);
+ 	struct ov8865_state *state = &sensor->state;
+-	int ret;
++	int ret = 0;
+ 
+ 	if (enable) {
+ 		ret = pm_runtime_resume_and_get(sensor->dev);
+@@ -2618,7 +2618,23 @@ static int ov8865_s_stream(struct v4l2_subdev *subdev, int enable)
+ 	}
+ 
+ 	mutex_lock(&sensor->mutex);
+-	ret = ov8865_sw_standby(sensor, !enable);
++
++	/*
++	 * The sensor may have been kept powered by something else (e.g. the
++	 * VCM's runtime PM device link on IPU3 platforms), in which case
++	 * runtime resume did not run and the hardware may still be
++	 * configured for a previous mode. Always program the negotiated
++	 * configuration on stream start.
++	 */
++	if (enable) {
++		ret = ov8865_sensor_init(sensor);
++		if (!ret)
++			ret = __v4l2_ctrl_handler_setup(&sensor->ctrls.handler);
++	}
++
++	if (!ret)
++		ret = ov8865_sw_standby(sensor, !enable);
++
+ 	mutex_unlock(&sensor->mutex);
+ 
+ 	if (ret || !enable)
+@@ -2914,15 +2930,15 @@ static int ov8865_resume(struct device *dev)
+ 	if (ret)
+ 		goto complete;
+ 
+-	ret = ov8865_sensor_init(sensor);
+-	if (ret)
+-		goto error_power;
++	if (state->streaming) {
++		ret = ov8865_sensor_init(sensor);
++		if (ret)
++			goto error_power;
+ 
+-	ret = __v4l2_ctrl_handler_setup(&sensor->ctrls.handler);
+-	if (ret)
+-		goto error_power;
++		ret = __v4l2_ctrl_handler_setup(&sensor->ctrls.handler);
++		if (ret)
++			goto error_power;
+ 
+-	if (state->streaming) {
+ 		ret = ov8865_sw_standby(sensor, false);
+ 		if (ret)
+ 			goto error_power;
+-- 
+2.55.0
+
