@@ -1,4 +1,4 @@
-From 3feb845ae775e7bcb53c1280ccd36fb3304a0d33 Mon Sep 17 00:00:00 2001
+From e9b76940a292e40023116aa0bb4492a90bb43e1d Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 19 Feb 2023 22:12:24 +0100
 Subject: [PATCH] PCI: Add quirk to prevent calling shutdown method
@@ -23,10 +23,10 @@ Patchset: surface-shutdown
  3 files changed, 40 insertions(+)
 
 diff --git a/drivers/pci/pci-driver.c b/drivers/pci/pci-driver.c
-index b4111c92c..9c3db65ea 100644
+index a2121abb1..067ff28a5 100644
 --- a/drivers/pci/pci-driver.c
 +++ b/drivers/pci/pci-driver.c
-@@ -505,6 +505,9 @@ static void pci_device_shutdown(struct device *dev)
+@@ -530,6 +530,9 @@ static void pci_device_shutdown(struct device *dev)
  	struct pci_dev *pci_dev = to_pci_dev(dev);
  	struct pci_driver *drv = pci_dev->driver;
  
@@ -37,10 +37,10 @@ index b4111c92c..9c3db65ea 100644
  
  	if (drv && drv->shutdown)
 diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
-index d32a47e81..68b9a0563 100644
+index e8067ff59..283625355 100644
 --- a/drivers/pci/quirks.c
 +++ b/drivers/pci/quirks.c
-@@ -6378,3 +6378,39 @@ static void pci_mask_replay_timer_timeout(struct pci_dev *pdev)
+@@ -6375,3 +6375,39 @@ static void pci_mask_replay_timer_timeout(struct pci_dev *pdev)
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_GLI, 0x9750, pci_mask_replay_timer_timeout);
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_GLI, 0x9755, pci_mask_replay_timer_timeout);
  #endif
@@ -81,10 +81,10 @@ index d32a47e81..68b9a0563 100644
 +DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x466d, quirk_no_shutdown);  // Thunderbolt 4 NHI
 +DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x46a8, quirk_no_shutdown);  // GPU
 diff --git a/include/linux/pci.h b/include/linux/pci.h
-index 05aeee8c8..006ea71ce 100644
+index 95c77e2a1..4c1c1ec48 100644
 --- a/include/linux/pci.h
 +++ b/include/linux/pci.h
-@@ -488,6 +488,7 @@ struct pci_dev {
+@@ -500,6 +500,7 @@ struct pci_dev {
  	unsigned int	rom_bar_overlap:1;	/* ROM BAR disable broken */
  	unsigned int	rom_attr_enabled:1;	/* Display of ROM attribute enabled? */
  	unsigned int	non_mappable_bars:1;	/* BARs can't be mapped to user-space  */
@@ -93,9 +93,9 @@ index 05aeee8c8..006ea71ce 100644
  	atomic_t	enable_cnt;	/* pci_enable_device has been called */
  
 -- 
-2.53.0
+2.55.0
 
-From cb6b6a20bc737a6da9e594e22b40843ce9059207 Mon Sep 17 00:00:00 2001
+From 7e772ef05ad803d15738a55c5bbc22451cdf72c6 Mon Sep 17 00:00:00 2001
 From: LegendaryFire <tristan.balon@outlook.com>
 Date: Wed, 7 Jan 2026 01:06:25 +0100
 Subject: [PATCH] PCI: Add Surface Laptop Studio 2 devices to shutdown ops
@@ -108,10 +108,10 @@ Patchset: surface-shutdown
  1 file changed, 13 insertions(+)
 
 diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
-index 68b9a0563..848fd74a7 100644
+index 283625355..3258e54c2 100644
 --- a/drivers/pci/quirks.c
 +++ b/drivers/pci/quirks.c
-@@ -6397,6 +6397,13 @@ static const struct dmi_system_id no_shutdown_dmi_table[] = {
+@@ -6394,6 +6394,13 @@ static const struct dmi_system_id no_shutdown_dmi_table[] = {
  			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Laptop 5"),
  		},
  	},
@@ -125,7 +125,7 @@ index 68b9a0563..848fd74a7 100644
  	{}
  };
  
-@@ -6414,3 +6421,9 @@ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x461f, quirk_no_shutdown);  // Thu
+@@ -6411,3 +6418,9 @@ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x461f, quirk_no_shutdown);  // Thu
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x462f, quirk_no_shutdown);  // Thunderbolt 4 PCI Express Root Port
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x466d, quirk_no_shutdown);  // Thunderbolt 4 NHI
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x46a8, quirk_no_shutdown);  // GPU
@@ -136,5 +136,5 @@ index 68b9a0563..848fd74a7 100644
 +DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0xa73e, quirk_no_shutdown);  // Thunderbolt 4 NHI
 +DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0xa7a0, quirk_no_shutdown);  // GPU
 -- 
-2.53.0
+2.55.0
 

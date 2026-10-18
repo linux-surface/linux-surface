@@ -1,4 +1,4 @@
-From a9ee9f98cba252454491ad3e03acbfd79b5bc3dd Mon Sep 17 00:00:00 2001
+From b0ee6887b30f11782f0c63088868585574ec7e68 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ciar=C3=A1n=20Coffey?= <github@ccoffey.ie>
 Date: Fri, 10 Oct 2025 19:04:03 +0100
 Subject: [PATCH] HID: Add hid-surface driver to filter BTN_0 (FN key)
@@ -154,9 +154,9 @@ index 000000000..a171ea656
 +MODULE_DESCRIPTION("Microsoft Surface HID driver");
 +MODULE_LICENSE("GPL");
 -- 
-2.53.0
+2.55.0
 
-From 36a9ef25461511984c2ba674a198542637e05447 Mon Sep 17 00:00:00 2001
+From 2eb71339d31ad82ff5e9488737dd0cdb10a4656d Mon Sep 17 00:00:00 2001
 From: LegendaryFire <tristan.balon@outlook.com>
 Date: Fri, 13 Mar 2026 10:16:37 +0100
 Subject: [PATCH] hid/multitouch: Prevent mode set on Surface Laptop Studio 2
@@ -171,26 +171,26 @@ Patchset: hid-surface
  1 file changed, 31 insertions(+)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index cab90b5c3..a2ec352e5 100644
+index 5818c30b6..efccdb22c 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
-@@ -84,6 +84,7 @@ MODULE_LICENSE("GPL");
- #define MT_QUIRK_KEEP_LATENCY_ON_CLOSE	BIT(25)
- #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(26)
- #define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(27)
-+#define MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE  BIT(28)
+@@ -86,6 +86,7 @@ MODULE_LICENSE("GPL");
+ #define MT_QUIRK_IGNORE_FEATURE_ID_MISMATCH	BIT(26)
+ #define MT_QUIRK_HAS_TYPE_COVER_BACKLIGHT	BIT(27)
+ #define MT_QUIRK_HAS_TYPE_COVER_TABLET_MODE_SWITCH	BIT(28)
++#define MT_QUIRK_SKIP_MODESET_ON_HW_OPEN_CLOSE  BIT(29)
  
  #define MT_INPUTMODE_TOUCHSCREEN	0x02
  #define MT_INPUTMODE_TOUCHPAD		0x03
-@@ -247,6 +248,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
- #define MT_CLS_YOGABOOK9I			0x0115
+@@ -248,6 +249,7 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app);
  #define MT_CLS_EGALAX_P80H84			0x0116
- #define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0117
-+#define MT_CLS_SURFACE_TOUCHPAD                0x0118
+ #define MT_CLS_ASUS_ROG_Z13_FOLIO		0x0117
+ #define MT_CLS_WIN_8_MS_SURFACE_TYPE_COVER	0x0118
++#define MT_CLS_SURFACE_TOUCHPAD                0x0119
  #define MT_CLS_SIS				0x0457
  
  #define MT_DEFAULT_MAXCONTACT	10
-@@ -477,6 +479,10 @@ static const struct mt_class mt_classes[] = {
+@@ -491,6 +493,10 @@ static const struct mt_class mt_classes[] = {
  			MT_QUIRK_WIN8_PTP_BUTTONS,
  		.export_all_inputs = true
  	},
@@ -201,7 +201,7 @@ index cab90b5c3..a2ec352e5 100644
  	{ }
  };
  
-@@ -2273,6 +2279,17 @@ static void mt_remove(struct hid_device *hdev)
+@@ -2445,6 +2451,17 @@ static void mt_remove(struct hid_device *hdev)
  
  static void mt_on_hid_hw_open(struct hid_device *hdev)
  {
@@ -219,7 +219,7 @@ index cab90b5c3..a2ec352e5 100644
  	mt_set_modes(hdev, HID_LATENCY_NORMAL, TOUCHPAD_REPORT_ALL);
  }
  
-@@ -2280,6 +2297,15 @@ static void mt_on_hid_hw_close(struct hid_device *hdev)
+@@ -2452,6 +2469,15 @@ static void mt_on_hid_hw_close(struct hid_device *hdev)
  {
  	struct mt_device *td = hid_get_drvdata(hdev);
  
@@ -235,7 +235,7 @@ index cab90b5c3..a2ec352e5 100644
  	if (td->mtclass.quirks & MT_QUIRK_KEEP_LATENCY_ON_CLOSE)
  		mt_set_modes(hdev, HID_LATENCY_NORMAL, TOUCHPAD_REPORT_NONE);
  	else
-@@ -2737,6 +2763,11 @@ static const struct hid_device_id mt_devices[] = {
+@@ -2909,6 +2935,11 @@ static const struct hid_device_id mt_devices[] = {
  		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
  			USB_VENDOR_ID_MICROSOFT, 0x09c0) },
  
@@ -248,5 +248,5 @@ index cab90b5c3..a2ec352e5 100644
  	{ .driver_data = MT_CLS_GOOGLE,
  		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY, USB_VENDOR_ID_GOOGLE,
 -- 
-2.53.0
+2.55.0
 
