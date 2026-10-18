@@ -1,4 +1,4 @@
-From 02355ebd5ee494ca16971932ac3697b251cac427 Mon Sep 17 00:00:00 2001
+From d7ea84c4700aba8325d1c7d293ad0e8ded4e4087 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Thu, 30 Jul 2020 13:21:53 +0200
 Subject: [PATCH] mei: me: Add Icelake device ID for iTouch
@@ -11,33 +11,33 @@ Patchset: ipts
  2 files changed, 2 insertions(+)
 
 diff --git a/drivers/misc/mei/hw-me-regs.h b/drivers/misc/mei/hw-me-regs.h
-index fa30899a5..a1864dcb7 100644
+index 5967f9589..dd44cadf6 100644
 --- a/drivers/misc/mei/hw-me-regs.h
 +++ b/drivers/misc/mei/hw-me-regs.h
 @@ -92,6 +92,7 @@
- #define MEI_DEV_ID_CDF        0x18D3  /* Cedar Fork */
+ #define PCI_DEVICE_ID_INTEL_MEI_CDF        0x18D3  /* Cedar Fork */
  
- #define MEI_DEV_ID_ICP_LP     0x34E0  /* Ice Lake Point LP */
-+#define MEI_DEV_ID_ICP_LP_3   0x34E4  /* Ice Lake Point LP 3 (iTouch) */
- #define MEI_DEV_ID_ICP_N      0x38E0  /* Ice Lake Point N */
+ #define PCI_DEVICE_ID_INTEL_MEI_ICP_LP     0x34E0  /* Ice Lake Point LP */
++#define PCI_DEVICE_ID_INTEL_MEI_ICP_LP_3   0x34E4  /* Ice Lake Point LP 3 (iTouch) */
+ #define PCI_DEVICE_ID_INTEL_MEI_ICP_N      0x38E0  /* Ice Lake Point N */
  
- #define MEI_DEV_ID_JSP_N      0x4DE0  /* Jasper Lake Point N */
+ #define PCI_DEVICE_ID_INTEL_MEI_JSP_N      0x4DE0  /* Jasper Lake Point N */
 diff --git a/drivers/misc/mei/pci-me.c b/drivers/misc/mei/pci-me.c
-index 2a6e56955..c19dfba54 100644
+index 5b6aaa4d3..78cbbd28a 100644
 --- a/drivers/misc/mei/pci-me.c
 +++ b/drivers/misc/mei/pci-me.c
 @@ -97,6 +97,7 @@ static const struct pci_device_id mei_me_pci_tbl[] = {
- 	{MEI_PCI_DEVICE(MEI_DEV_ID_CMP_H_3, MEI_ME_PCH8_ITOUCH_CFG)},
+ 	{PCI_DEVICE_DATA(INTEL, MEI_CMP_H_3, MEI_ME_PCH8_ITOUCH_CFG)},
  
- 	{MEI_PCI_DEVICE(MEI_DEV_ID_ICP_LP, MEI_ME_PCH12_CFG)},
-+	{MEI_PCI_DEVICE(MEI_DEV_ID_ICP_LP_3, MEI_ME_PCH12_CFG)},
- 	{MEI_PCI_DEVICE(MEI_DEV_ID_ICP_N, MEI_ME_PCH12_CFG)},
+ 	{PCI_DEVICE_DATA(INTEL, MEI_ICP_LP, MEI_ME_PCH12_CFG)},
++	{PCI_DEVICE_DATA(INTEL, MEI_ICP_LP_3, MEI_ME_PCH12_CFG)},
+ 	{PCI_DEVICE_DATA(INTEL, MEI_ICP_N, MEI_ME_PCH12_CFG)},
  
- 	{MEI_PCI_DEVICE(MEI_DEV_ID_TGP_LP, MEI_ME_PCH15_CFG)},
+ 	{PCI_DEVICE_DATA(INTEL, MEI_TGP_LP, MEI_ME_PCH15_CFG)},
 -- 
-2.53.0
+2.55.0
 
-From fa2abb07a59c2d535fa889a3346c48e988153011 Mon Sep 17 00:00:00 2001
+From f24afb323998ffa17c1a8c75a4ba1ab8d4add654 Mon Sep 17 00:00:00 2001
 From: Liban Hannan <liban.p@gmail.com>
 Date: Tue, 12 Apr 2022 23:31:12 +0100
 Subject: [PATCH] iommu: Use IOMMU passthrough mode for IPTS
@@ -61,7 +61,7 @@ Patchset: ipts
  1 file changed, 29 insertions(+)
 
 diff --git a/drivers/iommu/intel/iommu.c b/drivers/iommu/intel/iommu.c
-index 49e83c856..a3e35c77d 100644
+index 94781f620..a0645b699 100644
 --- a/drivers/iommu/intel/iommu.c
 +++ b/drivers/iommu/intel/iommu.c
 @@ -39,6 +39,11 @@
@@ -76,7 +76,7 @@ index 49e83c856..a3e35c77d 100644
  #define IOAPIC_RANGE_START	(0xfee00000)
  #define IOAPIC_RANGE_END	(0xfeefffff)
  #define IOVA_START_ADDR		(0x1000)
-@@ -209,12 +214,14 @@ int intel_iommu_sm = IS_ENABLED(CONFIG_INTEL_IOMMU_SCALABLE_MODE_DEFAULT_ON);
+@@ -212,12 +217,14 @@ int intel_iommu_sm = IS_ENABLED(CONFIG_INTEL_IOMMU_SCALABLE_MODE_DEFAULT_ON);
  int intel_iommu_enabled = 0;
  EXPORT_SYMBOL_GPL(intel_iommu_enabled);
  
@@ -91,7 +91,7 @@ index 49e83c856..a3e35c77d 100644
  
  const struct iommu_ops intel_iommu_ops;
  static const struct iommu_dirty_ops intel_dirty_ops;
-@@ -1881,6 +1888,9 @@ static int device_def_domain_type(struct device *dev)
+@@ -1883,6 +1890,9 @@ static int device_def_domain_type(struct device *dev)
  
  		if ((iommu_identity_mapping & IDENTMAP_AZALIA) && IS_AZALIA(pdev))
  			return IOMMU_DOMAIN_IDENTITY;
@@ -101,7 +101,7 @@ index 49e83c856..a3e35c77d 100644
  	}
  
  	return 0;
-@@ -2171,6 +2181,9 @@ static int __init init_dmars(void)
+@@ -2175,6 +2185,9 @@ static int __init init_dmars(void)
  		iommu_set_root_entry(iommu);
  	}
  
@@ -111,9 +111,9 @@ index 49e83c856..a3e35c77d 100644
  	check_tylersburg_isoch();
  
  	/*
-@@ -4517,6 +4530,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
- 	disable_igfx_iommu = 1;
- }
+@@ -4547,6 +4560,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
+ /* Q35 integrated gfx dmar support is totally busted. */
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x29b2, quirk_iommu_igfx);
  
 +static void quirk_iommu_ipts(struct pci_dev *dev)
 +{
@@ -130,7 +130,7 @@ index 49e83c856..a3e35c77d 100644
  /* G4x/GM45 integrated gfx dmar support is totally busted. */
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2a40, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x2e00, quirk_iommu_igfx);
-@@ -4555,6 +4580,10 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
+@@ -4585,6 +4610,10 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163A, quirk_iommu_igfx);
  DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163D, quirk_iommu_igfx);
  
@@ -142,9 +142,9 @@ index 49e83c856..a3e35c77d 100644
  {
  	if (risky_device(dev))
 -- 
-2.53.0
+2.55.0
 
-From bf165bce82d0e252d3453b6e2cc7698044fa34ca Mon Sep 17 00:00:00 2001
+From aec6f7c0bfa678796fbacdf41c2c19bd26addd46 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Sun, 11 Dec 2022 12:00:59 +0100
 Subject: [PATCH] hid: Add support for Intel Precise Touch and Stylus
@@ -3239,5 +3239,45 @@ index 000000000..1f966b8b3
 +
 +#endif /* IPTS_THREAD_H */
 -- 
-2.53.0
+2.55.0
+
+From 9928fc5332940ce923eabfe12b39a31b1d37aa7c Mon Sep 17 00:00:00 2001
+From: Anthony Lee <108008609+orthogonaleety@users.noreply.github.com>
+Date: Sat, 11 Jul 2026 11:36:03 +0100
+Subject: [PATCH] hid: ipts: Fix size of synthesized HID data report
+
+IPTS_HID_REPORT_DATA_SIZE is passed to hid_input_report() as the size of
+the synthesized data report. It does not account for the report ID (1
+byte) and the scan time field (2 bytes) declared in the fallback HID
+descriptor, i.e. the report is 3 bytes shorter than the descriptor says.
+
+Since commit 0a3fe972a7cb ("HID: core: Mitigate potential OOB by
+removing bogus memset()"), hid-core drops reports that are shorter than
+expected instead of padding them, which breaks touch input on devices
+using the fallback descriptor (e.g. Surface Book 1).
+
+Fix this by including the report ID and scan time in the report size.
+
+Link: https://github.com/linux-surface/linux-surface/issues/2150
+Link: https://github.com/linux-surface/linux-surface/pull/2233
+Patchset: ipts
+---
+ drivers/hid/ipts/desc.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/hid/ipts/desc.h b/drivers/hid/ipts/desc.h
+index 307438c7c..972a7697b 100644
+--- a/drivers/hid/ipts/desc.h
++++ b/drivers/hid/ipts/desc.h
+@@ -14,7 +14,7 @@
+ #define IPTS_HID_REPORT_DATA	    65
+ #define IPTS_HID_REPORT_SET_MODE    66
+ 
+-#define IPTS_HID_REPORT_DATA_SIZE 7485
++#define IPTS_HID_REPORT_DATA_SIZE 7488
+ 
+ /*
+  * HID descriptor for singletouch data.
+-- 
+2.55.0
 
