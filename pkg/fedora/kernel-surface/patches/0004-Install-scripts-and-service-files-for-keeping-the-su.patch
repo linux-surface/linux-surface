@@ -1,4 +1,4 @@
-From 9b58106e19b6de4e9acf3c65f13e5b23083a59f4 Mon Sep 17 00:00:00 2001
+From b7423396c17f147a5a25618aa4d18b1458c233b0 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Tue, 30 Sep 2025 20:12:29 +0200
 Subject: [PATCH 4/6] Install scripts and service files for keeping the surface
@@ -10,10 +10,10 @@ Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
  1 file changed, 33 insertions(+)
 
 diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
-index c5748edf9301..f26b37b3354d 100644
+index 27f9f69ea0ff..3c9c6846ade9 100644
 --- a/redhat/kernel.spec.template
 +++ b/redhat/kernel.spec.template
-@@ -1221,6 +1221,11 @@ Source4000: README.rst
+@@ -1214,6 +1214,11 @@ Source4000: README.rst
  Source4001: rpminspect.yaml
  Source4002: gating.yaml
  
@@ -25,7 +25,7 @@ index c5748edf9301..f26b37b3354d 100644
  ## Patches needed for building this package
  
  %if !%{nopatches}
-@@ -1263,6 +1268,7 @@ Requires(pre): %{initrd_prereq}\
+@@ -1256,6 +1261,7 @@ Requires(pre): %{initrd_prereq}\
  Requires(pre): ((linux-firmware >= 20150904-56.git6ebf5d57) if linux-firmware)\
  Recommends: linux-firmware\
  Recommends: iptsd\
@@ -33,7 +33,7 @@ index c5748edf9301..f26b37b3354d 100644
  Requires(preun): systemd >= 200\
  Conflicts: xfsprogs < 4.3.0-1\
  Conflicts: xorg-x11-drv-vmmouse < 13.0.99\
-@@ -1277,6 +1283,13 @@ AutoProv: yes\
+@@ -1270,6 +1276,13 @@ AutoProv: yes\
  %{nil}
  
  
@@ -47,7 +47,7 @@ index c5748edf9301..f26b37b3354d 100644
  %package doc
  Summary: Various documentation bits found in the kernel source
  Group: Documentation
-@@ -3688,6 +3701,11 @@ find Documentation -type d | xargs chmod u+w
+@@ -3818,6 +3831,11 @@ find Documentation -type d | xargs chmod u+w
  
  cd linux-%{KVERREL}
  
@@ -59,7 +59,7 @@ index c5748edf9301..f26b37b3354d 100644
  # re-define RPM_VMLINUX_H, because it doesn't carry over from %build
  RPM_VMLINUX_H="$(cat ../vmlinux_h_path)"
  
-@@ -4111,6 +4129,15 @@ popd
+@@ -4256,6 +4274,15 @@ install -m 644 $_kmap_basedir/kernel-map.json $_kmap_destbase/kernel-map-%{KVERR
  ### scripts
  ###
  
@@ -75,8 +75,8 @@ index c5748edf9301..f26b37b3354d 100644
  %if %{with_tools}
  %post -n %{name}-tools-libs
  /sbin/ldconfig
-@@ -4657,6 +4684,12 @@ fi\
- %{_libexecdir}/kselftests
+@@ -4811,6 +4838,12 @@ fi\
+ %{_datadir}/%{name}-kmap-internal/kernel-map-%{KVERREL}.json
  %endif
  
 +%files default-watchdog
@@ -87,7 +87,7 @@ index c5748edf9301..f26b37b3354d 100644
 +
  # empty meta-package
  %if %{with_stock_base}
- %ifnarch %nobuildarches noarch
+ %ifnarch noarch %{nobuildarches}
 -- 
-2.53.0
+2.56.0
 

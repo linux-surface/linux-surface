@@ -1,4 +1,4 @@
-From 16c8e79a86657783a74ea1458d46dfb050534132 Mon Sep 17 00:00:00 2001
+From e6b5e109093acd2da08712d996c2b8ba81ea84bb Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Sat, 22 Jul 2023 10:45:33 +0200
 Subject: [PATCH] Use a custom key and certificate for Secure Boot signing
@@ -9,10 +9,10 @@ Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
  1 file changed, 9 insertions(+), 1 deletion(-)
 
 diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
-index 0d68a716783e..0a96b1115a2b 100644
+index b371a121428b..17603f2c9807 100644
 --- a/redhat/kernel.spec.template
 +++ b/redhat/kernel.spec.template
-@@ -910,6 +910,7 @@ BuildRequires: system-sb-certs
+@@ -935,6 +935,7 @@ BuildRequires: system-sb-certs
  %ifarch x86_64 aarch64 riscv64
  BuildRequires: nss-tools
  BuildRequires: pesign >= 0.10-4
@@ -20,7 +20,7 @@ index 0d68a716783e..0a96b1115a2b 100644
  %endif
  %endif
  %endif
-@@ -1013,6 +1014,13 @@ Source13: redhatsecureboot501.cer
+@@ -1018,6 +1019,13 @@ Source13: redhatsecureboot501.cer
  %define signing_key_filename kernel-signing-s390.cer
  %endif
  
@@ -31,18 +31,18 @@ index 0d68a716783e..0a96b1115a2b 100644
 +
 +%endif
 +
- # Fedora/ELN pesign macro expects to see these cert file names, see:
- # https://github.com/rhboot/pesign/blob/main/src/pesign-rpmbuild-helper.in#L216
- %if 0%{?fedora}%{?eln}
-@@ -2574,7 +2582,7 @@ BuildKernel() {
+ # pesign cert name is auto-discovered during build from secureboot_key_0,
+ # see pesign_name_0 shell variable
+ #
+@@ -2698,7 +2706,7 @@ BuildKernel() {
  
      %ifarch x86_64 aarch64
      %{log_msg "Sign kernel image"}
--    %pesign -s -i $SignImage -o vmlinuz.signed -a %{secureboot_ca_0} -c %{secureboot_key_0} -n %{pesign_name_0}
+-    %pesign -s -i $SignImage -o vmlinuz.signed -a %{secureboot_ca_0} -c %{secureboot_key_0} -n $pesign_name_0
 +    sbsign --key %{SOURCE7001} --cert %{SOURCE7002} --output vmlinuz.signed $SignImage
      %endif
      %ifarch s390x ppc64le
      if [ -x /usr/bin/rpm-sign ]; then
 -- 
-2.53.0
+2.56.0
 
