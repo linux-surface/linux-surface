@@ -1,0 +1,27 @@
+[Unit]
+Description=Surface camera watcher (demand-activates surface-camera-bridge)
+After=multi-user.target
+Wants=multi-user.target
+# Make sure v4l2loopback is loaded before we start polling.
+After=systemd-modules-load.service
+Requires=systemd-modules-load.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/surface-camera-watcher
+Restart=on-failure
+RestartSec=2
+# Lightweight, but guard against runaway.
+CPUQuota=15%
+MemoryMax=64M
+# Needs to read /proc/*/fd (root only for some entries) and call systemctl.
+# Running as root is simplest — the cost is trivial and it's read-only on /proc.
+# Tighten what we don't need:
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run /var/run
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
