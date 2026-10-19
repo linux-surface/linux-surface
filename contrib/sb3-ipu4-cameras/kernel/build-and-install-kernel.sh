@@ -103,13 +103,17 @@ if [[ ! -f "$MARKER" ]]; then
   git am --3way "$SRC_ROOT/linux-surface/patches/${SURFACE_SERIES}/"*.patch
   git am --3way "$SRC_ROOT/ipu4-drivers/patches/kernel/v6.19/"*.patch
   git am --3way "$PATCH"
-  # 7.2 hdrtest: IPU uapi headers must not include stdint.h
+  # Series-specific shims (7.2+: uapi/types, clk, vb2 wait_*, vbq.lock, …)
+  # 0001 is the DPHY patch already applied via $PATCH above.
   extra="$ROOT/kernel/patches/${SURFACE_SERIES}"
   if [[ -d "$extra" ]]; then
-    for p in "$extra"/0002-*.patch "$extra"/0003-*.patch "$extra"/0004-*.patch; do
-      [[ -f "$p" ]] || continue
+    shopt -s nullglob
+    for p in "$extra"/*.patch; do
+      base="$(basename "$p")"
+      [[ "$base" == 0001-* ]] && continue
       git am --3way "$p"
     done
+    shopt -u nullglob
   fi
   touch "$MARKER"
 fi
