@@ -3,6 +3,11 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC_ROOT="${SRC_ROOT:-/usr/src/surface-ipu4}"
+if [[ ! -f "$SRC_ROOT/ipu4-drivers/firmware/ipu4-20191030.bin" ]]; then
+  for cand in "${HOME}/Pulpit/cursor/surface-ipu4-build" /usr/src/surface-ipu4; do
+    [[ -f "$cand/ipu4-drivers/firmware/ipu4-20191030.bin" ]] && SRC_ROOT="$cand" && break
+  done
+fi
 FW_SRC="$SRC_ROOT/ipu4-drivers/firmware/ipu4-20191030.bin"
 FW_DST="/usr/lib/firmware/ipu4p_cpd.bin"
 EXPECT_SHA="ff2c36cc81a5c726508b22970c2e2538ff06107dc5a72c93401403c227e5157f"
