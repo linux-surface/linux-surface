@@ -40,6 +40,10 @@ Stack on either base:
 2. [ruslanbay/ipu4-drivers](https://github.com/ruslanbay/ipu4-drivers) branch `downstream-legacy` → `patches/kernel/v6.19/*.patch`
 3. `kernel/patches/0001-media-intel-ipu4p-sb3-front-dphy-lock.patch` (+ IR timing in HOWDY.md)
 
+On **7.2.11** the downstream IPU4 series needs small API shims (also under
+`kernel/patches/7.2/`): uapi `stdint.h` → `linux/types.h`, clk `round_rate` →
+`determine_rate`, and drop removed `vb2_ops.wait_prepare/wait_finish`.
+
 ## Userspace
 
 | Device label | Sensor | Output YUYV | Aspect | Target FPS |
