@@ -110,7 +110,11 @@ if getent group video >/dev/null; then
 fi
 
 systemctl daemon-reload
-systemctl enable surface-ipu4-late.service surface-cam-perms.service surface-webcam.service
+systemctl enable surface-ipu4-late.service surface-webcam.service
+# Permissions: udev rules only (no surface-cam-perms.service — see surface-control for system units)
+systemctl disable --now surface-cam-perms.service 2>/dev/null || true
+rm -f /etc/systemd/system/surface-cam-perms.service
+rm -f /etc/systemd/system/multi-user.target.wants/surface-cam-perms.service
 # Empty-password face login (universal). Typed password skips the camera.
 if [[ -f "$ROOT/tools/install-face-login-safe.sh" ]]; then
   bash "$ROOT/tools/install-face-login-safe.sh" || true
@@ -139,7 +143,9 @@ fi
 
 modprobe v4l2loopback 2>/dev/null || true
 systemctl restart surface-ipu4-late.service || true
-systemctl restart surface-cam-perms.service || true
+# Re-apply udev MODE/GROUP after loopbacks appear
+/usr/local/sbin/surface-cam-perms.sh 2>/dev/null || \
+  udevadm trigger -s video4linux -s media || true
 systemctl restart surface-webcam.service || true
 systemctl start surface-howdy-enable.service || true
 
