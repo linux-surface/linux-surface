@@ -1,35 +1,8 @@
 #!/bin/bash
-# Raw IPU + IR: root-only, no logind ACL. Front/Back loopback: world video.
+# Re-apply camera node permissions from /etc/udev/rules.d only.
+# Never chown/chmod /dev here — see 90-surface-ipu4-cameras.rules and
+# 99-surface-v4l2loopback.rules.
 set -uo pipefail
-setfacl_b() { setfacl -b "$1" 2>/dev/null || true; }
-
-if [ -e /dev/media0 ]; then
-  chown root:root /dev/media0 2>/dev/null || true
-  chmod 0600 /dev/media0
-  setfacl_b /dev/media0
-fi
-
-for sys in /sys/class/video4linux/video*; do
-  [ -e "$sys/name" ] || continue
-  name=$(cat "$sys/name" 2>/dev/null || true)
-  dev="/dev/${sys##*/}"
-  [ -e "$dev" ] || continue
-  case "$name" in
-    Surface-Front|Surface-Back|Surface-Front-Standard|Surface-Front-HQ|Surface-Front-Fast|Surface-Back-Standard|Surface-Back-HQ|Surface-Back-Fast)
-      chown root:video "$dev" 2>/dev/null || true
-      chmod 0666 "$dev"
-      setfacl_b "$dev"
-      ;;
-    Surface-IR-Howdy)
-      chown root:root "$dev" 2>/dev/null || true
-      chmod 0600 "$dev"
-      setfacl_b "$dev"
-      ;;
-    Intel\ IPU*|Intel-IPU*)
-      chown root:root "$dev" 2>/dev/null || true
-      chmod 0600 "$dev"
-      setfacl_b "$dev"
-      ;;
-  esac
-done
+udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger -s video4linux -s media 2>/dev/null || true
 exit 0
