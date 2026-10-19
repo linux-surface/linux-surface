@@ -1,0 +1,103 @@
+From 6f9898c60ea6a1ed07d67c111b55d900dfdbb8ca Mon Sep 17 00:00:00 2001
+From: Joseph V. Lavigne <jlavig88@gmail.com>
+Date: Mon, 13 Jul 2026 19:40:00 -0500
+Subject: [PATCH RFC] media: i2c: ov8865: support an optional pwr1 supply
+
+The rear OV8865 camera on the Microsoft Surface Pro 7+ is described by
+ACPI together with an INT3472 GPIO regulator named "pwr1". The current
+OV8865 driver requests AVDD, DVDD and DOVDD only, leaving that extra rail
+unused.
+
+With pwr1 disabled the sensor does not acknowledge its first I2C
+transaction. Runtime resume fails while writing the software-reset
+register with -EREMOTEIO, and the DW9719 VCM cannot be instantiated.
+Increasing the power-up delay and retrying the reset five times does not
+change the failure.
+
+Request pwr1 as an optional regulator and sequence it around the existing
+OV8865 supplies. This keeps the change inert on platforms which do not
+provide that supply.
+
+On a Surface Pro 7+ with linux-surface 6.19.8-surface-3, enabling pwr1
+removes the -121 reset failure, allows the DW9719 VCM to instantiate and
+produces stable captures through libcamera:
+
+  3264x2448 SBGGR10: 15 fps
+  1280x720 ABGR8888: 30 fps
+
+This is submitted as RFC because maintainers may prefer to map the
+firmware rail to one of the standard OV8865 supply names in INT3472
+platform code instead of exposing pwr1 directly to the sensor driver.
+
+Link: https://github.com/linux-surface/linux-surface/issues/1702
+Signed-off-by: Joseph V. Lavigne <jlavig88@gmail.com>
+---
+ drivers/media/i2c/ov8865.c | 34 +++++++++++++++++++++++++++++++---
+ 1 file changed, 31 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/media/i2c/ov8865.c b/drivers/media/i2c/ov8865.c
+index a8586df14..5fbca9fea 100644
+--- a/drivers/media/i2c/ov8865.c
++++ b/drivers/media/i2c/ov8865.c
+@@ -1092,6 +1092,7 @@ struct ov8865_sensor {
+ 	struct regulator *avdd;
+ 	struct regulator *dvdd;
+ 	struct regulator *dovdd;
++	struct regulator *pwr1;
+ 
+ 	unsigned long extclk_rate;
+ 	const struct ov8865_pll_configs *pll_configs;
+@@ -2125,11 +2126,22 @@ static int ov8865_sensor_power(struct ov8865_sensor *sensor, bool on)
+ 		gpiod_set_value_cansleep(sensor->reset, 1);
+ 		gpiod_set_value_cansleep(sensor->powerdown, 1);
+ 
++		if (sensor->pwr1) {
++			ret = regulator_enable(sensor->pwr1);
++			if (ret) {
++				dev_err(sensor->dev,
++					"failed to enable PWR1 regulator\n");
++				return ret;
++			}
++		}
++
+ 		ret = regulator_enable(sensor->dovdd);
+ 		if (ret) {
+ 			dev_err(sensor->dev,
+ 				"failed to enable DOVDD regulator\n");
+-			return ret;
++			goto disable_pwr1;
+ 		}
+ 
+ 		ret = regulator_enable(sensor->avdd);
+@@ -2170,6 +2182,9 @@ disable_avdd:
+ 		regulator_disable(sensor->avdd);
+ disable_dovdd:
+ 		regulator_disable(sensor->dovdd);
++disable_pwr1:
++		if (sensor->pwr1)
++			regulator_disable(sensor->pwr1);
+ 	}
+ 
+ 	return ret;
+@@ -3027,6 +3042,19 @@ static int ov8865_probe(struct i2c_client *client)
+ 		return dev_err_probe(dev, PTR_ERR(sensor->avdd),
+ 				     "cannot get AVDD (analog) regulator\n");
+ 
++	/* Optional platform-specific sensor power rail. */
++	sensor->pwr1 = devm_regulator_get_optional(dev, "pwr1");
++	if (IS_ERR(sensor->pwr1)) {
++		ret = PTR_ERR(sensor->pwr1);
++
++		if (ret == -ENODEV) {
++			sensor->pwr1 = NULL;
++		} else {
++			return dev_err_probe(dev, ret,
++					     "cannot get optional PWR1 regulator\n");
++		}
++	}
++
+ 	/* Graph Endpoint */
+ 
+ 	handle = fwnode_graph_get_next_endpoint(dev_fwnode(dev), NULL);
+-- 
+2.50.1
