@@ -42,7 +42,10 @@ Stack on either base:
 
 On **7.2.11** the downstream IPU4 series needs small API shims (also under
 `kernel/patches/7.2/`): uapi `stdint.h` → `linux/types.h`, clk `round_rate` →
-`determine_rate`, and drop removed `vb2_ops.wait_prepare/wait_finish`.
+`determine_rate`, drop removed `vb2_ops.wait_prepare/wait_finish`, and set
+`aq->vbq.lock = &av->mutex` (Linux 7.x `vb2_core_queue_init` requires it —
+without this, ISYS probe fails with `can't init video node` and no
+`/dev/video*`).
 
 ## Userspace
 
