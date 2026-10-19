@@ -15,9 +15,30 @@ enroll UI, LED behaviour, profiles, AE/AF, and first-boot safety.
 
 ## Apply order (kernel)
 
-1. linux-surface `patches/6.19/*.patch`
-2. [ruslanbay/ipu4-drivers](https://github.com/ruslanbay/ipu4-drivers) `patches/kernel/v6.19/*.patch`
-3. `kernel/patches/0001-media-intel-ipu4p-sb3-front-dphy-lock.patch` (+ IR timing as documented in HOWDY.md)
+Supported camera kernels (Fedora 44/45, Nobara 44):
+
+| Base | linux-surface | IPU4 | SB3 DPHY |
+|------|---------------|------|----------|
+| **6.19.8** | `patches/6.19/` | ruslanbay **downstream-legacy** `v6.19` | `kernel/patches/0001-…-dphy-lock.patch` |
+| **7.2.11** | `patches/7.2/` | same `v6.19` IPU4 series (applies cleanly) | same DPHY patch |
+| **7.3.x** | planned when `patches/7.3/` ships | may switch to ruslanbay **upstream** (IPU6-based) | TBD |
+
+Stock `kernel-surface` RPMs (e.g. `fedora-*-7.2.11-1`) do **not** include IPU4P — only INT3472/IPU3 camera quirks.
+
+Build:
+
+```bash
+# default: 7.2.11-surface-ipu4
+sudo bash kernel/build-and-install-kernel.sh
+# or keep the previous LTS tree:
+sudo SURFACE_IPU4_KVER=6.19.8 bash kernel/build-and-install-kernel.sh 6.19.8
+```
+
+Stack on either base:
+
+1. linux-surface `patches/<series>/*.patch`
+2. [ruslanbay/ipu4-drivers](https://github.com/ruslanbay/ipu4-drivers) branch `downstream-legacy` → `patches/kernel/v6.19/*.patch`
+3. `kernel/patches/0001-media-intel-ipu4p-sb3-front-dphy-lock.patch` (+ IR timing in HOWDY.md)
 
 ## Userspace
 

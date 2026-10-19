@@ -128,12 +128,16 @@ done
 udevadm control --reload-rules || true
 
 echo "=== 4. kernel surface-ipu4 ==="
+# Stock linux-surface (6.19.8-3 / 7.2.11-1) has INT3472 cameras only — no IPU4P.
+# Supported custom builds: 6.19.8-surface-ipu4 and 7.2.11-surface-ipu4.
+KVER_TARGET="${SURFACE_IPU4_KVER:-7.2.11}"
 if uname -r | grep -q surface-ipu4; then
   echo "already on $(uname -r) — skip compile"
   "$ROOT/kernel/install-firmware.sh" || true
 else
-  echo "Stock linux-surface has no IPU4P. Building 6.19.8-surface-ipu4…"
-  "$ROOT/kernel/build-and-install-kernel.sh"
+  echo "Stock linux-surface has no IPU4P. Building ${KVER_TARGET}-surface-ipu4…"
+  echo "(override with SURFACE_IPU4_KVER=6.19.8 for the previous LTS tree)"
+  "$ROOT/kernel/build-and-install-kernel.sh" "$KVER_TARGET"
   echo
   echo "Reboot and select the kernel with *surface-ipu4* in the bootloader."
   echo "After reboot the cameras start on their own (late + webcamd)."
