@@ -106,7 +106,7 @@ if [[ ! -f "$MARKER" ]]; then
   # 7.2 hdrtest: IPU uapi headers must not include stdint.h
   extra="$ROOT/kernel/patches/${SURFACE_SERIES}"
   if [[ -d "$extra" ]]; then
-    for p in "$extra"/0002-*.patch "$extra"/0003-*.patch; do
+    for p in "$extra"/0002-*.patch "$extra"/0003-*.patch "$extra"/0004-*.patch; do
       [[ -f "$p" ]] || continue
       git am --3way "$p"
     done
