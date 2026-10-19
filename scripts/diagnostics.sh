@@ -240,7 +240,7 @@ fi
 # bundle to archive
 echo " ==> generating archive..."
 
-tar -czf "./${archive}" -C "${tmpdir}" .
+tar -czf "${archive}" -C "${tmpdir}" .
 
 echo " ==> done"
 echo ""
