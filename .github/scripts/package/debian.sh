@@ -128,13 +128,15 @@ build-packages)
         "../../../../configs/surface-${KERNEL_MAJORVER}.config"
     
     # Explicitly set package version, including revision. This is picked up by 'make bindeb-pkg'.
-    export KDEB_PKGVERSION="${KERNEL_VERSION}${KERNEL_LOCALVERSION}-${KERNEL_REVISION}"
+    export KDEB_PKGVERSION="${KERNEL_VERSION}-${KERNEL_REVISION}"
     
     # The DPKG in Ubuntu 22.04 defaults to using ZSTD, which is not yet supported by the DPKG in Debian 11
     export KDEB_COMPRESS="xz"
 
-    # Set kernel localversion
-    export LOCALVERSION="${KERNEL_LOCALVERSION}-${KERNEL_REVISION}"
+    # Set kernel localversion. Following the Debian/Ubuntu convention, the
+    # kernel release has to end with the flavour (e.g. 7.2.11-1-surface), as
+    # some tools (e.g. live-build) rely on that.
+    export LOCALVERSION="-${KERNEL_REVISION}${KERNEL_LOCALVERSION}"
 
     # Get debug info for rust
     make rustavailable
@@ -146,7 +148,7 @@ build-packages)
 
     pushd pkg/debian/meta || exit 1
 
-    ./mkdebian.sh "$(make -C ../kernel/linux -s kernelrelease)"
+    ./mkdebian.sh "$(make -C ../kernel/linux -s kernelrelease)" "${KDEB_PKGVERSION}"
     dpkg-buildpackage -b -Zxz
 
     popd || exit 1

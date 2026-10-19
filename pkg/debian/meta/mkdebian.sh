@@ -1,7 +1,8 @@
 #!/usr/bin/bash
 
 kernelrelease="${1}"
-suffix="${2:+-${2}}"
+pkgversion="${2}"
+suffix="${3:+-${3}}"
 
 distribution="unstable"
 debarch="amd64"
@@ -26,7 +27,7 @@ echo "${debarch}" > "debian/arch"
 echo "${debcompat}" > "debian/compat"
 
 cat <<EOF > "debian/changelog"
-${sourcename} (${kernelrelease}) ${distribution}; urgency=medium
+${sourcename} (${pkgversion}) ${distribution}; urgency=medium
 
   * Linux kernel for Microsoft Surface devices.
 
@@ -42,20 +43,20 @@ Homepage: https://github.com/linux-surface/linux-surface
 
 Package: ${image_pkgname}
 Architecture: ${debarch}
-Depends: ${image_pkgname_actual} (= ${kernelrelease})
+Depends: ${image_pkgname_actual} (= ${pkgversion})
 Recommends: ${recommends}
 Description:
   Meta-package for linux-surface kernel images.
 
 Package: ${headers_pkgname}
 Architecture: ${debarch}
-Depends: ${headers_pkgname_actual} (= ${kernelrelease})
+Depends: ${headers_pkgname_actual} (= ${pkgversion})
 Description:
   Meta-package for linux-surface headers.
 
 Package: ${sourcename}
 Architecture: ${debarch}
-Depends: ${image_pkgname} (= ${kernelrelease}), ${headers_pkgname} (= ${kernelrelease})
+Depends: ${image_pkgname} (= ${pkgversion}), ${headers_pkgname} (= ${pkgversion})
 Description:
   Meta-package for the linux-surface kernel image and headers.
 EOF
