@@ -103,6 +103,14 @@ if [[ ! -f "$MARKER" ]]; then
   git am --3way "$SRC_ROOT/linux-surface/patches/${SURFACE_SERIES}/"*.patch
   git am --3way "$SRC_ROOT/ipu4-drivers/patches/kernel/v6.19/"*.patch
   git am --3way "$PATCH"
+  # 7.2 hdrtest: IPU uapi headers must not include stdint.h
+  extra="$ROOT/kernel/patches/${SURFACE_SERIES}"
+  if [[ -d "$extra" ]]; then
+    for p in "$extra"/0002-*.patch "$extra"/0003-*.patch; do
+      [[ -f "$p" ]] || continue
+      git am --3way "$p"
+    done
+  fi
   touch "$MARKER"
 fi
 
