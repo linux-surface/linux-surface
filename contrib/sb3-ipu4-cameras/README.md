@@ -17,17 +17,17 @@ enroll UI, LED behaviour, profiles, AE/AF, and first-boot safety.
 
 Supported camera kernels (Fedora 44/45, Nobara 44):
 
-| Base | linux-surface | IPU4 | SB3 DPHY |
-|------|---------------|------|----------|
-| **6.19.8** | `patches/6.19/` | ruslanbay **downstream-legacy** `v6.19` | `kernel/patches/0001-…-dphy-lock.patch` |
-| **7.2.11** | `patches/7.2/` | same `v6.19` IPU4 series (applies cleanly) | same DPHY patch |
-| **7.3.x** | when `patches/7.3/` ships | ruslanbay **upstream** (IPU6-based, targets ≈v7.3-rc6) | TBD |
+| Base | linux-surface | IPU4 | SB3 overlay |
+|------|---------------|------|-------------|
+| **6.19.8** | `patches/6.19/` | ruslanbay **downstream-legacy** `v6.19` | `kernel/patches/6.19/` + shared DPHY |
+| **7.2.11** | `patches/7.2/` | same `v6.19` IPU4 series | `kernel/patches/7.2/` |
+| **7.3.0** | `v7.3-surface` rebased onto upstream `v7.3` | same `v6.19` IPU4 series | `kernel/patches/7.3/` |
 
-**Important:** for **7.2.11** keep using `downstream-legacy` + `patches/kernel/v6.19/`. The
-[ipu4-drivers `upstream`](https://github.com/ruslanbay/ipu4-drivers/tree/upstream) branch is a
-different stack (IPU6) aimed at 7.3+ — do **not** mix it into a 7.2.11 build.
+**Important:** keep using `downstream-legacy` + `patches/kernel/v6.19/` for all three
+webcamd builds. The [ipu4-drivers `upstream`](https://github.com/ruslanbay/ipu4-drivers/tree/upstream)
+branch is a different stack (IPU6-based) — do **not** mix it into the SHM webcamd path.
 
-Stock `kernel-surface` RPMs (e.g. `fedora-*-7.2.11-1`) do **not** include IPU4P — only INT3472/IPU3 camera quirks.
+Stock `kernel-surface` RPMs do **not** include IPU4P — only INT3472/IPU3 camera quirks.
 
 Profiles (capture / publish / FPS) must match the last known-good **6.19.8-3** overlay —
 do not change resolutions, FPS, or ISYS timeouts without an explicit regression pass.
@@ -35,25 +35,25 @@ do not change resolutions, FPS, or ISYS timeouts without an explicit regression 
 Build:
 
 ```bash
-# default: 7.2.11-surface-ipu4
+# default: 7.3.0-surface-ipu4
 sudo bash kernel/build-and-install-kernel.sh
-# or keep the previous LTS tree:
-sudo SURFACE_IPU4_KVER=6.19.8 bash kernel/build-and-install-kernel.sh 6.19.8
+# previous trees:
+sudo bash kernel/build-and-install-kernel.sh 7.2.11
+sudo bash kernel/build-and-install-kernel.sh 6.19.8
 ```
 
-Stack on either base:
+Stack:
 
-1. linux-surface `patches/<series>/*.patch`
-2. [ruslanbay/ipu4-drivers](https://github.com/ruslanbay/ipu4-drivers) branch `downstream-legacy` → `patches/kernel/v6.19/*.patch`
-3. `kernel/patches/0001-media-intel-ipu4p-sb3-front-dphy-lock.patch` (+ IR timing in HOWDY.md)
+1. linux-surface (`patches/<series>/` or rebase of `v7.3-surface` onto `v7.3`)
+2. [ruslanbay/ipu4-drivers](https://github.com/ruslanbay/ipu4-drivers) `downstream-legacy` → `patches/kernel/v6.19/*.patch`
+3. `kernel/patches/<series>/` — DPHY lock + Linux 7.x API shims + OV7251 INT3472 avdd
 
-On **7.2.11** the downstream IPU4 series needs small API shims (also under
-`kernel/patches/7.2/`): uapi `stdint.h` → `linux/types.h`, clk `round_rate` →
-`determine_rate`, drop removed `vb2_ops.wait_prepare/wait_finish`, and set
-`aq->vbq.lock = &av->mutex` (Linux 7.x `vb2_core_queue_init` requires it —
-without this, ISYS probe fails with `can't init video node`, Oopses in
-`vb2_queue_release` cleanup, and no `/dev/video*`). Patch `0006` clears
-`vbq.ops` on failed init so cleanup is safe.
+On **7.2.11** / **7.3.0** the downstream IPU4 series needs small API shims: uapi
+`stdint.h` → `linux/types.h`, clk `round_rate` → `determine_rate`, drop removed
+`vb2_ops.wait_prepare/wait_finish`, and set `aq->vbq.lock = &av->mutex` (Linux 7.x
+`vb2_core_queue_init` requires it — without this, ISYS probe fails with
+`can't init video node`, Oopses in `vb2_queue_release` cleanup, and no `/dev/video*`).
+Patch `0006` clears `vbq.ops` on failed init so cleanup is safe.
 
 ## Userspace
 

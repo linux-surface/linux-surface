@@ -1,0 +1,54 @@
+From 16f0e7775e7c2473d5a6a8b36df8c8c34299e842 Mon Sep 17 00:00:00 2001
+From: popos123 <popos123@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 01:13:27 +0200
+Subject: [PATCH] media: ipu-isys: avoid vb2_queue_release on failed queue_init
+
+Clear vbq.ops if vb2_queue_init fails, and only unregister registered
+video nodes. Prevents NULL deref in __wake_up_common on Linux 7.x.
+---
+ drivers/media/pci/intel/ipu-isys-queue.c | 8 +++++++-
+ drivers/media/pci/intel/ipu-isys-video.c | 3 ++-
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/pci/intel/ipu-isys-queue.c b/drivers/media/pci/intel/ipu-isys-queue.c
+index 5c25ddd1f..8ba978f72 100644
+--- a/drivers/media/pci/intel/ipu-isys-queue.c
++++ b/drivers/media/pci/intel/ipu-isys-queue.c
+@@ -1407,8 +1407,13 @@ int ipu_isys_queue_init(struct ipu_isys_queue *aq)
+ 	    V4L2_BUF_FLAG_TIMESTAMP_UNKNOWN : V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
+ 
+ 	rval = vb2_queue_init(&aq->vbq);
+-	if (rval)
++	if (rval) {
++		/* ops was set above; clear so cleanup won't vb2_queue_release
++		 * a half-initialized queue (NULL deref in __wake_up_common).
++		 */
++		aq->vbq.ops = NULL;
+ 		return rval;
++	}
+ 
+ 	aq->dev = &isys->adev->dev;
+ 	aq->vbq.dev = &isys->adev->dev;
+@@ -1425,4 +1430,5 @@ void ipu_isys_queue_cleanup(struct ipu_isys_queue *aq)
+ 		return;
+ 
+ 	vb2_queue_release(&aq->vbq);
++	aq->vbq.ops = NULL;
+ }
+diff --git a/drivers/media/pci/intel/ipu-isys-video.c b/drivers/media/pci/intel/ipu-isys-video.c
+index 51dffb3e7..86286ddb4 100644
+--- a/drivers/media/pci/intel/ipu-isys-video.c
++++ b/drivers/media/pci/intel/ipu-isys-video.c
+@@ -2409,7 +2409,8 @@ void ipu_isys_video_cleanup(struct ipu_isys_video *av)
+ 	if (!av->aq.vbq.ops)
+ 		return;
+ 
+-	video_unregister_device(&av->vdev);
++	if (video_is_registered(&av->vdev))
++		video_unregister_device(&av->vdev);
+ 	media_entity_cleanup(&av->vdev.entity);
+ 	mutex_destroy(&av->mutex);
+ 	ipu_isys_queue_cleanup(&av->aq);
+-- 
+2.56.0
+
