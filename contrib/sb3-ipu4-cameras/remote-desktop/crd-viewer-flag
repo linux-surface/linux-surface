@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Create/remove $XDG_RUNTIME_DIR/crd-viewer while a CRD client is connected.
+# Feeds crd-tray-icon.so (Passive unless this flag exists) and face-login viewers/.
+set -u
+runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+flag="$runtime/crd-viewer"
+
+# Listening host starts with no client. Clear stale marks from a crash.
+rm -f "$flag"
+if command -v face-viewer >/dev/null 2>&1; then
+  face-viewer down chrome-remote-desktop || true
+else
+  rm -f /run/face-login/viewers/chrome-remote-desktop
+fi
+
+declare -A clients=()
+
+publish() {
+  if (( ${#clients[@]} > 0 )); then
+    : >"$flag"
+    if command -v face-viewer >/dev/null 2>&1; then
+      face-viewer up chrome-remote-desktop || true
+    else
+      mkdir -p /run/face-login/viewers 2>/dev/null || true
+      : >"/run/face-login/viewers/chrome-remote-desktop" 2>/dev/null || true
+    fi
+  else
+    rm -f "$flag"
+    if command -v face-viewer >/dev/null 2>&1; then
+      face-viewer down chrome-remote-desktop || true
+    else
+      rm -f /run/face-login/viewers/chrome-remote-desktop
+    fi
+  fi
+  logger -t crd-viewer "viewers=${#clients[@]} ${1:-}" || true
+  busctl --user call org.freedesktop.impl.portal.desktop.kde /org/freedesktop/DBus \
+    org.freedesktop.DBus.Peer Ping >/dev/null 2>&1 || true
+}
+
+client_id() {
+  local line="$1" id=""
+  if [[ "$line" =~ ([^[:space:];]+@[^[:space:];]+) ]]; then
+    id="${BASH_REMATCH[1]}"
+  fi
+  printf '%s' "$id"
+}
+
+drop_all() {
+  clients=()
+  publish "$1"
+}
+
+# Host may log "Host ready" / disconnect without a per-client line — clear all.
+session_ended() {
+  local lower="$1"
+  [[ "$lower" == *"client disconnected:"* \
+    || "$lower" == *"client connection closed"* \
+    || "$lower" == *"client has disconnected"* \
+    || "$lower" == *"session disconnected"* \
+    || "$lower" == *"disconnected client"* \
+    || "$lower" == *"channel control was closed"* \
+    || "$lower" == *"data channels closed"* \
+    || "$lower" == *"unexpectedly disconnected from eis"* \
+    || "$lower" == *"disconnected by eis"* \
+    || "$lower" == *"host terminated"* \
+    || "$lower" == *"host ready to receive connections"* \
+    || "$lower" == *"caught sigterm"* \
+    || "$lower" == *"shutting down"* ]]
+}
+
+on_line() {
+  local line="$1" id=""
+  local lower="${line,,}"
+  if session_ended "$lower"; then
+    drop_all "end"
+    return
+  fi
+  if [[ "$lower" == *"client connected:"* \
+     || "$lower" == *"client authenticated:"* \
+     || "$lower" == *"incoming client"* \
+     || "$lower" == *"accepted client"* \
+     || "$lower" == *"new client session"* \
+     || "$lower" == *"client connection accepted"* ]]; then
+    id="$(client_id "$line")"
+    [[ -n "$id" ]] || id="*"
+    clients["$id"]=1
+    publish "up"
+  fi
+}
+
+# Host writes to the chrome-remote-desktop / chromoting syslog tags.
+journalctl -t chrome-remote-desktop -t chromoting -f -n 0 -o cat | while IFS= read -r line; do
+  on_line "$line"
+done

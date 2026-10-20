@@ -27,7 +27,7 @@ Do **not** commit until every item is checked.
 - [x] Distro-neutral `install.sh` (dnf/apt/pacman/zypper)
 - [x] One-click: `sudo ./install.sh` (+ optional `SURFACE_IPU4_KVER`)
 - [x] Howdy / face profile docs (`HOWDY.md`)
-- [x] remote-desktop helpers (greeter CRD = **WIP**, not claimed fixed)
+- [x] remote-desktop helpers for 7.2 (grant/wait/publish/tray/viewer-flag; greeter attach = **WIP**)
 - [x] Trees synced: `contrib/sb3-ipu4-cameras` ↔ `surface-cameras-production-ready` ↔ package dirs in `surface-cameras`
 
 ## Explicitly open
