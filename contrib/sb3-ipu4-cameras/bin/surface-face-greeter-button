@@ -38,7 +38,16 @@ def guess_user() -> str:
             continue
     for m in sorted(Path("/etc/howdy/models").glob("*.dat")):
         return m.stem
-    return os.environ.get("USER", "popos")
+    # First human login account (uid >= 1000); never hard-code a username.
+    try:
+        import pwd
+
+        for ent in pwd.getpwall():
+            if 1000 <= ent.pw_uid < 65534:
+                return ent.pw_name
+    except Exception:
+        pass
+    return os.environ.get("USER") or ""
 
 
 def request_face(user: str) -> None:

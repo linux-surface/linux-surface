@@ -148,8 +148,8 @@ if [[ -d "$ROOT/remote-desktop" ]]; then
       XDG_RUNTIME_DIR="/run/user/$INSTALL_UID" \
       DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$INSTALL_UID/bus" \
       /usr/local/sbin/crd-grant-remote-desktop 2>/dev/null || true
-    # User units: tray drop-in + viewer flag watcher
-    user_sys="/home/${INSTALL_USER}/.config/systemd/user"
+    # User units: tray drop-in + viewer flag watcher (home from passwd, not /home/$USER)
+    user_sys="${INSTALL_HOME}/.config/systemd/user"
     mkdir -p "$user_sys/plasma-xdg-desktop-portal-kde.service.d"
     install -o "$INSTALL_USER" -g "$INSTALL_USER" -m 644 \
       "$ROOT/remote-desktop/crd-icon.conf" \
