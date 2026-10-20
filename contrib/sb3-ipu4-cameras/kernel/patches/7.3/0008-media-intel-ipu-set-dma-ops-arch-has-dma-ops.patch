@@ -1,0 +1,55 @@
+From 658b127806673f9a6ed81dca3124a691aa259bcc Mon Sep 17 00:00:00 2001
+From: popos123 <popos123@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 06:20:44 +0200
+Subject: [PATCH] media: intel-ipu: use set_dma_ops and select ARCH_HAS_DMA_OPS
+ for 7.3
+
+---
+ drivers/media/pci/intel/Kconfig   | 4 ++++
+ drivers/media/pci/intel/ipu-bus.c | 3 ++-
+ 2 files changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/pci/intel/Kconfig b/drivers/media/pci/intel/Kconfig
+index 2719bb3d0e89..393c33d4a181 100644
+--- a/drivers/media/pci/intel/Kconfig
++++ b/drivers/media/pci/intel/Kconfig
+@@ -26,11 +26,15 @@ config VIDEO_INTEL_IPU
+ 	select IOMMU_API
+ 	select IOMMU_IOVA
+ 	select X86_DEV_DMA_OPS if X86
++	select ARCH_HAS_DMA_OPS
+ 	select VIDEOBUF2_DMA_CONTIG
+ 	select PHYS_ADDR_T_64BIT
+ 	select COMMON_CLK
+ 	help
+ 	  Main driver for Intel Image Processing Unit. Say Y here.
++	  Selects ARCH_HAS_DMA_OPS so ipu_bus can install custom dma_map_ops
++	  on x86 without XEN/GART (required since Linux 7.x gates struct
++	  device::dma_ops behind that symbol).
+ 
+ choice
+ 	prompt "Intel IPU generation type"
+diff --git a/drivers/media/pci/intel/ipu-bus.c b/drivers/media/pci/intel/ipu-bus.c
+index 7d48bd3a7dd1..d402c76261ab 100644
+--- a/drivers/media/pci/intel/ipu-bus.c
++++ b/drivers/media/pci/intel/ipu-bus.c
+@@ -3,6 +3,7 @@
+ 
+ #include <linux/delay.h>
+ #include <linux/device.h>
++#include <linux/dma-map-ops.h>
+ #include <linux/interrupt.h>
+ #include <linux/list.h>
+ #include <linux/module.h>
+@@ -322,7 +323,7 @@ struct ipu_bus_device *ipu_bus_add_device(struct pci_dev *pdev,
+ 	adev->dev.parent = parent;
+ 	adev->dev.bus = &ipu_bus;
+ 	adev->dev.release = ipu_bus_release;
+-	adev->dev.dma_ops = &ipu_dma_ops;
++	set_dma_ops(&adev->dev, &ipu_dma_ops);
+ 	adev->dma_mask = DMA_BIT_MASK(isp->secure_mode ?
+ 				      IPU_MMU_ADDRESS_BITS :
+ 				      IPU_MMU_ADDRESS_BITS_NON_SECURE);
+-- 
+2.56.0
+
