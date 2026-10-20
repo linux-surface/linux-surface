@@ -158,7 +158,7 @@ index b7923dbef..d5836340e 100644
 + * Enable only when iterating settle; calc timing at least leaves IPU alive
 + * (0-byte STREAMON + DPHY, no FW OPEN hang).
 + */
-+/* Domyślnie OFF: 1155 nie naprawiło DPHY gdy lane_reg=2. Iteracja settle. */
++/* Default OFF: 1155 did not fix DPHY when lane_reg=2. Iterate settle. */
 +static bool sb3_front_timing_quirk;
 +module_param(sb3_front_timing_quirk, bool, 0644);
 +MODULE_PARM_DESC(sb3_front_timing_quirk,
@@ -312,7 +312,7 @@ index b7923dbef..d5836340e 100644
  	/* Register errors once more in case of error interrupts are disabled */
  	ipu4p_isys_register_errors(csi2);
 -	ipu4p_csi2_log_rx_state(csi2, "error snapshot");
-+	/* Front DPHY-miss flood — jedna linia na 2 s, nie setki/s */
++	/* Front DPHY-miss flood — one line per 2 s, not hundreds/s */
 +	if (csi2->index == 2)
 +		dev_info_ratelimited(&csi2->isys->adev->dev,
 +				     "csi %u error snapshot: rx enable=0x%x hs=0x%x err=0x%x\n",
@@ -338,7 +338,7 @@ index b7923dbef..d5836340e 100644
  		writel(val, csi2->base + CSI2_REG_CSI_RX_CONFIG);
  
  		writel(0, csi2->base + CSI2_REG_CSI_RX_ENABLE);
-+		/* Front: HS zostaje 0x302 po STREAMOFF → następny STREAMON = 0 klatek. */
++		/* Front: HS stays 0x302 after STREAMOFF → next STREAMON = 0 frames. */
 +		if (csi2->index == 2) {
 +			u32 hs;
 +
@@ -357,13 +357,13 @@ index b7923dbef..d5836340e 100644
  	}
  
 +	/*
-+	 * Oficjalny IPU4 pisze surowe nlanes (Back=4 działa).
-+	 * lanes-1 + zapis 0 pod 0x14 (SYNC_COUNTER / CPHY_PORTCFG_CTL)
-+	 * dały STREAM_OPEN timeout — sensor nawet nie dostał s_stream.
++	 * Official IPU4 writes raw nlanes (Back=4 works).
++	 * lanes-1 + writing 0 at 0x14 (SYNC_COUNTER / CPHY_PORTCFG_CTL)
++	 * caused STREAM_OPEN timeout — sensor never got s_stream.
 +	 */
 +	lane_reg = nlanes;
 +
-+	/* Front: nie włączaj RX na leftover HS (0x302) — 0 klatek + flood IRQ. */
++	/* Front: do not enable RX on leftover HS (0x302) — 0 frames + flood IRQ. */
 +	if (csi2->index == 2) {
 +		u32 hs = readl(csi2->base + CSI2_REG_CSI_RX_STATUS_DLANE_HS);
 +
@@ -419,7 +419,7 @@ index b7923dbef..d5836340e 100644
  	writel(val, csi2->base + CSI2_REG_CSI_RX_CONFIG);
  
 -	writel(nlanes, csi2->base + CSI2_REG_CSI_RX_NOF_ENABLED_LANES);
-+	/* Nie ruszać 0x14: na CSI-2 2 to CPHY_PORTCFG_CTL, nie SYNC_SEL. */
++	/* Do not touch 0x14: on CSI-2 2 that is CPHY_PORTCFG_CTL, not SYNC_SEL. */
 +
 +	writel(lane_reg, csi2->base + CSI2_REG_CSI_RX_NOF_ENABLED_LANES);
  	writel(CSI2_CSI_RX_ENABLE_ENABLE,
@@ -430,7 +430,7 @@ index b7923dbef..d5836340e 100644
  #endif
  
 -	/* Enable csi2 receiver error interrupts */
-+	/* Front: nie włączaj error IRQ (setki/s → czarny ekran). Tylko SOF/EOF. */
++	/* Front: do not enable error IRQ (hundreds/s → black screen). SOF/EOF only. */
  	writel(1, isys_base +
  		   IPU_REG_ISYS_CSI_IRQ_CTRL_BASE(csi2->index));
  	writel(0, isys_base +

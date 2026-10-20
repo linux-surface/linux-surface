@@ -21,9 +21,16 @@ Supported camera kernels (Fedora 44/45, Nobara 44):
 |------|---------------|------|----------|
 | **6.19.8** | `patches/6.19/` | ruslanbay **downstream-legacy** `v6.19` | `kernel/patches/0001-…-dphy-lock.patch` |
 | **7.2.11** | `patches/7.2/` | same `v6.19` IPU4 series (applies cleanly) | same DPHY patch |
-| **7.3.x** | planned when `patches/7.3/` ships | may switch to ruslanbay **upstream** (IPU6-based) | TBD |
+| **7.3.x** | when `patches/7.3/` ships | ruslanbay **upstream** (IPU6-based, targets ≈v7.3-rc6) | TBD |
+
+**Important:** for **7.2.11** keep using `downstream-legacy` + `patches/kernel/v6.19/`. The
+[ipu4-drivers `upstream`](https://github.com/ruslanbay/ipu4-drivers/tree/upstream) branch is a
+different stack (IPU6) aimed at 7.3+ — do **not** mix it into a 7.2.11 build.
 
 Stock `kernel-surface` RPMs (e.g. `fedora-*-7.2.11-1`) do **not** include IPU4P — only INT3472/IPU3 camera quirks.
+
+Profiles (capture / publish / FPS) must match the last known-good **6.19.8-3** overlay —
+do not change resolutions, FPS, or ISYS timeouts without an explicit regression pass.
 
 Build:
 
@@ -89,14 +96,26 @@ Menu entry: **Howdy — Add Face Profile**.
 ```
 install.sh                 one-command installer (detects dnf/apt/pacman/zypper)
 HOWDY.md                   Howdy / IR + RGB profile behaviour
-kernel/                    firmware + kernel build
+kernel/                    firmware + kernel build (linux-surface 7.2.11-1 + IPU4)
 userspace/                 → /opt/surface-cameras
 sbin/ bin/ desktop/ systemd/ udev/ modprobe.d/ selinux/
+remote-desktop/            Chrome Remote Desktop / portal helpers (greeter attach = WIP)
 ```
 
-## Safety
+## Remote desktop
+
+See **[remote-desktop/README.md](remote-desktop/README.md)**. Portal grant and greeter env
+publish are universal (no hard-coded login uid). Greeter / lock-screen share with Chrome
+Remote Desktop is still **WIP** on 7.2.11 — desktop attach uses MONITOR capture when the
+host is patched; treating greeter CRD as done is incorrect until that work lands.
+
+## Safety / regression guardrails
 
 - No face model → Howdy exits in &lt;1s; password login always works
-- Greeter/lock: `wait-auth` nudges IR then `pam_howdy`; password is fallback
+- Greeter/lock: typed password skips face scan; empty field may use Howdy (PAM order)
 - PAM session hooks never poke sensor I2C or kill loopbacks
 - SoftISP / libcamera is not the webcam path; intel-ipu6 stays off (CSE fight)
+- Never hard-code `/run/user/<login-uid>`, `$HOME/…/Pulpit/…`, or a username in scripts
+- Build tree: `SRC_ROOT` / `SURFACE_IPU4_BUILD` or `$HOME/src/surface-ipu4-build` (FHS-friendly)
+- One-click update: re-run `sudo ./install.sh` (rebuilds kernel only if not already on `*-surface-ipu4`)
+- Audio / NVIDIA: install hooks keep PipeWire audio paths and do not hard-require a dGPU unit

@@ -426,7 +426,7 @@ def ir_led(on: bool = True) -> None:
 def rearm_sb3_afe(bb: int = 10) -> None:
     """Buttress AFE/DLL + CPHY_RX_CONTROL1.en_crc1 (Intel IPU6 JSL PHY).
 
-    bb 6=Back, 8=IR, 10=Front. Fallback gdy .ko ISYS nie ma rearm przy STREAMON.
+    bb 6=Back, 8=IR, 10=Front. Fallback when ISYS .ko lacks rearm on STREAMON.
     """
     path = "/sys/bus/pci/devices/0000:00:05.0/resource0"
     half = (bb >> 1) * 0x100

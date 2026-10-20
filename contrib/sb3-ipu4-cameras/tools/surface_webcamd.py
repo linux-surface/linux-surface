@@ -288,11 +288,10 @@ PROFILES: dict[str, dict] = {
         "sensor": "ov5693",
         "cap_w": 1296,
         "cap_h": 972,
-        # Discord Electron rejects 4:3 (1280x960) → green static / UI freeze.
-        "out_w": 1280,
-        "out_h": 720,
+        "out_w": 1296,
+        "out_h": 972,
         "fps": 30,
-        "crop_mode": "crop",
+        "crop_mode": "native",
         "crop_r": 16,
         "crop_b": 12,
         "crop_l": 8,
@@ -304,11 +303,10 @@ PROFILES: dict[str, dict] = {
         "sensor": "ov5693",
         "cap_w": 2592,
         "cap_h": 1944,
-        # 16:9 for Discord/WebRTC; full 4:3 was blue-biased after bin2 + rejected by Electron.
         "out_w": 1920,
-        "out_h": 1080,
-        "fps": 30,
-        "crop_mode": "crop",
+        "out_h": 1440,
+        "fps": 15,
+        "crop_mode": "native",
         "crop_r": 16,
         "crop_b": 12,
         "crop_l": 8,
@@ -320,9 +318,9 @@ PROFILES: dict[str, dict] = {
         "sensor": "ov5693",
         "cap_w": 1296,
         "cap_h": 972,
-        "out_w": 1280,
-        "out_h": 720,
-        "fps": 30,
+        "out_w": 1296,
+        "out_h": 728,
+        "fps": 60,
         "crop_mode": "crop",
         "crop_r": 16,
         "crop_b": 12,
@@ -335,10 +333,10 @@ PROFILES: dict[str, dict] = {
         "sensor": "ov8865",
         "cap_w": 1632,
         "cap_h": 1224,
-        "out_w": 1280,
-        "out_h": 720,
+        "out_w": 1632,
+        "out_h": 1224,
         "fps": 30,
-        "crop_mode": "crop",
+        "crop_mode": "native",
         "crop_r": 16,
         "crop_b": 8,
         "crop_l": 8,
@@ -350,10 +348,12 @@ PROFILES: dict[str, dict] = {
         "sensor": "ov8865",
         "cap_w": 3264,
         "cap_h": 2448,
+        # Full-sensor capture, 1920×1440 publish — 8MP YUYV alone is ~15 fps CPU;
+        # this still beats Standard 1632 and sustains ~15 unique fps.
         "out_w": 1920,
-        "out_h": 1080,
-        "fps": 30,
-        "crop_mode": "crop",
+        "out_h": 1440,
+        "fps": 15,
+        "crop_mode": "native",
         "crop_r": 16,
         "crop_b": 8,
         "crop_l": 8,
@@ -365,9 +365,9 @@ PROFILES: dict[str, dict] = {
         "sensor": "ov8865",
         "cap_w": 800,
         "cap_h": 600,
-        "out_w": 1280,
-        "out_h": 720,
-        "fps": 30,
+        "out_w": 800,
+        "out_h": 450,
+        "fps": 60,
         "crop_mode": "crop",
         "crop_r": 8,
         "crop_b": 4,
@@ -399,6 +399,7 @@ PROFILE_ORDER = [
     "back-fast",
     "ir",
 ]
+
 LABEL_TO_PROFILE = {p["label"]: k for k, p in PROFILES.items()}
 
 STREAM_LINE_OFF = 4
@@ -497,7 +498,11 @@ def _pw_xdg_runtime() -> str:
         return os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     for sock in sorted(Path("/run/user").glob("*/pipewire-0")):
         return str(sock.parent)
-    return "/run/user/1000"
+    # Last resort: first numeric uid under /run/user (never hard-code a login uid).
+    for d in sorted(Path("/run/user").iterdir()):
+        if d.name.isdigit():
+            return str(d)
+    return f"/run/user/{os.getuid()}"
 
 
 

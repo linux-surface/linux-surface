@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Grant xdg-desktop-portal RemoteDesktop / ScreenCast for the current user (empty app id).
+# Works with Chrome Remote Desktop host and other portal clients. Distro-neutral.
+set -euo pipefail
+uid="$(id -u)"
+runtime="${XDG_RUNTIME_DIR:-/run/user/$uid}"
+export XDG_RUNTIME_DIR="$runtime"
+if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -S "$runtime/bus" ]]; then
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime/bus"
+fi
+if busctl --user call \
+    org.freedesktop.impl.portal.PermissionStore \
+    /org/freedesktop/impl/portal/PermissionStore \
+    org.freedesktop.impl.portal.PermissionStore \
+    Set sbsa{sas}v \
+    kde-authorized true remote-desktop 1 "" 1 yes s "" >/dev/null 2>&1; then
+  busctl --user call \
+    org.freedesktop.impl.portal.PermissionStore \
+    /org/freedesktop/impl/portal/PermissionStore \
+    org.freedesktop.impl.portal.PermissionStore \
+    Set sbsa{sas}v \
+    kde-authorized true screencast 1 "" 1 yes s "" >/dev/null 2>&1 || true
+  exit 0
+fi
+if command -v flatpak >/dev/null 2>&1; then
+  flatpak permission-set kde-authorized remote-desktop "" yes 2>/dev/null || true
+  flatpak permission-set kde-authorized screencast "" yes 2>/dev/null || true
+  exit 0
+fi
+echo "Could not set portal permissions (PermissionStore / flatpak missing)." >&2
+exit 1
