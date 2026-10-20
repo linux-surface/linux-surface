@@ -104,10 +104,10 @@ remote-desktop/            Chrome Remote Desktop / portal helpers (greeter attac
 
 ## Remote desktop
 
-See **[remote-desktop/README.md](remote-desktop/README.md)**. Portal grant and greeter env
-publish are universal (no hard-coded login uid). Greeter / lock-screen share with Chrome
-Remote Desktop is still **WIP** on 7.2.11 — desktop attach uses MONITOR capture when the
-host is patched; treating greeter CRD as done is incorrect until that work lands.
+See **[remote-desktop/README.md](remote-desktop/README.md)**. Portal grant, greeter env
+publish, wait-display, and tray-icon helpers are universal (no hard-coded login uid).
+Desktop share needs MONITOR ScreenCast (see `remote-desktop/NOTES-MONITOR.md`).
+Greeter / lock-screen share is still **WIP** on 7.2.11.
 
 ## Safety / regression guardrails
 

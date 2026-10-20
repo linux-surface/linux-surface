@@ -131,16 +131,41 @@ echo "=== 3b. remote-desktop helpers (optional / WIP greeter) ==="
 if [[ -d "$ROOT/remote-desktop" ]]; then
   install -m 755 "$ROOT/remote-desktop/crd-grant-remote-desktop" \
     "$ROOT/remote-desktop/crd-wait-display.sh" \
-    "$ROOT/remote-desktop/crd-publish-greeter.sh" /usr/local/sbin/ 2>/dev/null || true
+    "$ROOT/remote-desktop/crd-publish-greeter.sh" \
+    "$ROOT/remote-desktop/crd-viewer-flag" /usr/local/sbin/ 2>/dev/null || true
   install -m 644 "$ROOT/remote-desktop/crd-publish-greeter.service" /etc/systemd/system/ 2>/dev/null || true
+  # Tray preload (optional; needs g++)
+  if command -v g++ >/dev/null 2>&1 && [[ -f "$ROOT/remote-desktop/crd-tray-icon.cpp" ]]; then
+    g++ -shared -fPIC -O2 -o /tmp/crd-tray-icon.so \
+      "$ROOT/remote-desktop/crd-tray-icon.cpp" -ldl 2>/dev/null \
+      && install -m 755 /tmp/crd-tray-icon.so /usr/local/lib/crd-tray-icon.so \
+      && rm -f /tmp/crd-tray-icon.so || true
+  fi
   systemctl daemon-reload
   systemctl enable crd-publish-greeter.service 2>/dev/null || true
-  # Grant portal for the installing user (best-effort; needs user bus)
-  if [[ -n "${INSTALL_UID}" ]]; then
+  if [[ -n "${INSTALL_UID}" && -n "${INSTALL_USER}" ]]; then
     sudo -u "$INSTALL_USER" \
       XDG_RUNTIME_DIR="/run/user/$INSTALL_UID" \
       DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$INSTALL_UID/bus" \
       /usr/local/sbin/crd-grant-remote-desktop 2>/dev/null || true
+    # User units: tray drop-in + viewer flag watcher
+    user_sys="/home/${INSTALL_USER}/.config/systemd/user"
+    mkdir -p "$user_sys/plasma-xdg-desktop-portal-kde.service.d"
+    install -o "$INSTALL_USER" -g "$INSTALL_USER" -m 644 \
+      "$ROOT/remote-desktop/crd-icon.conf" \
+      "$user_sys/plasma-xdg-desktop-portal-kde.service.d/crd-icon.conf" 2>/dev/null || true
+    install -o "$INSTALL_USER" -g "$INSTALL_USER" -m 644 \
+      "$ROOT/remote-desktop/crd-viewer-flag.service" \
+      "$user_sys/crd-viewer-flag.service" 2>/dev/null || true
+    sudo -u "$INSTALL_USER" XDG_RUNTIME_DIR="/run/user/$INSTALL_UID" \
+      systemctl --user daemon-reload 2>/dev/null || true
+    sudo -u "$INSTALL_USER" XDG_RUNTIME_DIR="/run/user/$INSTALL_UID" \
+      systemctl --user enable --now crd-viewer-flag.service 2>/dev/null || true
+    # Best-effort portal restart so LD_PRELOAD applies
+    sudo -u "$INSTALL_USER" XDG_RUNTIME_DIR="/run/user/$INSTALL_UID" \
+      systemctl --user try-restart plasma-xdg-desktop-portal-kde.service 2>/dev/null || true
+    # Optional greeter ACL for the installing user
+    CRD_ACL_USER="$INSTALL_USER" /usr/local/sbin/crd-publish-greeter.sh 2>/dev/null || true
   fi
 fi
 
