@@ -127,6 +127,23 @@ for u in surface-ir-howdy.service surface-howdy-cameras.path surface-howdy-camer
 done
 udevadm control --reload-rules || true
 
+echo "=== 3b. remote-desktop helpers (optional / WIP greeter) ==="
+if [[ -d "$ROOT/remote-desktop" ]]; then
+  install -m 755 "$ROOT/remote-desktop/crd-grant-remote-desktop" \
+    "$ROOT/remote-desktop/crd-wait-display.sh" \
+    "$ROOT/remote-desktop/crd-publish-greeter.sh" /usr/local/sbin/ 2>/dev/null || true
+  install -m 644 "$ROOT/remote-desktop/crd-publish-greeter.service" /etc/systemd/system/ 2>/dev/null || true
+  systemctl daemon-reload
+  systemctl enable crd-publish-greeter.service 2>/dev/null || true
+  # Grant portal for the installing user (best-effort; needs user bus)
+  if [[ -n "${INSTALL_UID}" ]]; then
+    sudo -u "$INSTALL_USER" \
+      XDG_RUNTIME_DIR="/run/user/$INSTALL_UID" \
+      DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$INSTALL_UID/bus" \
+      /usr/local/sbin/crd-grant-remote-desktop 2>/dev/null || true
+  fi
+fi
+
 echo "=== 4. kernel surface-ipu4 ==="
 # Stock linux-surface (6.19.8-3 / 7.2.11-1) has INT3472 cameras only — no IPU4P.
 # Supported custom builds: 6.19.8-surface-ipu4 and 7.2.11-surface-ipu4.

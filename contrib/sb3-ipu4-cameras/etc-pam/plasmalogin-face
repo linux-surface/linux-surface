@@ -1,0 +1,24 @@
+#%PAM-1.0
+# Optional Face Login PAM stack (on-demand). Prefer the greeter Face Login
+# button + surface-face-login.service; this file is for DMs that can select
+# an alternate PAM service name.
+auth        required                                     pam_env.so
+auth        optional                                     pam_exec.so quiet /usr/local/sbin/surface-face-auth-prepare.sh
+auth        optional                                     pam_exec.so quiet /usr/local/sbin/surface-ir-wait-auth.sh
+auth        sufficient                                   pam_howdy.so
+auth        required                                     pam_faildelay.so delay=1000000
+auth        required                                     pam_deny.so
+
+account     required                                     pam_nologin.so
+account     include                                      password-auth
+
+password    include                                      password-auth
+
+session     required                                     pam_selinux.so close
+session     required                                     pam_loginuid.so
+session     required                                     pam_selinux.so open
+session     optional                                     pam_keyinit.so force revoke
+session     required                                     pam_namespace.so
+session     include                                      password-auth
+session     include                                      postlogin
+session     optional                                     pam_exec.so quiet /usr/local/sbin/surface-ir-pam-session.sh

@@ -9,10 +9,10 @@
 # Distros: Fedora 44/45, Nobara 44 (same RPM surface repo / custom install).
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC_ROOT="${SRC_ROOT:-/usr/src/surface-ipu4}"
+SRC_ROOT="${SRC_ROOT:-${SURFACE_IPU4_BUILD:-/usr/src/surface-ipu4}}"
 # Prefer a writable home build tree when /usr/src is not owned by the user.
 if [[ ! -w "${SRC_ROOT}" ]] 2>/dev/null; then
-  SRC_ROOT="${HOME}/Pulpit/cursor/surface-ipu4-build"
+  SRC_ROOT="${SURFACE_IPU4_BUILD:-${HOME}/src/surface-ipu4-build}"
 fi
 KVER="${1:-${KVER:-7.2.11}}"
 JOBS="${JOBS:-$(nproc)}"
