@@ -30,10 +30,12 @@ if [[ -z "$USER_NAME" || "$USER_NAME" == "root" ]]; then
     break
   done
 fi
-[[ -n "$USER_NAME" ]] || USER_NAME=popos
-
-if ! id "$USER_NAME" >/dev/null 2>&1; then
-  echo "bad user $USER_NAME" >>"$LOG" 2>/dev/null || true
+if [[ -z "$USER_NAME" || "$USER_NAME" == "root" ]]; then
+  # First human login account (uid >= 1000); never hard-code a username.
+  USER_NAME="$(getent passwd | awk -F: '$3>=1000 && $3<65534 {print $1; exit}')"
+fi
+if [[ -z "$USER_NAME" ]] || ! id "$USER_NAME" >/dev/null 2>&1; then
+  echo "no usable login user" >>"$LOG" 2>/dev/null || true
   exit 0
 fi
 if [[ ! -f "/etc/howdy/models/${USER_NAME}.dat" ]]; then
