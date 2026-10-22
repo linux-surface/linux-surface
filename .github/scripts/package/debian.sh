@@ -15,7 +15,8 @@ apt-get()
     command apt-get -y "$@"
 }
 
-MAINLINE_REPO="git://git.launchpad.net/~ubuntu-kernel-test/ubuntu/+source/linux/+git/mainline-crack"
+STABLE_REPO="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git"
+MAINLINE_REPO="https://git.launchpad.net/~ubuntu-kernel-test/ubuntu/+source/linux/+git/mainline-crack"
 MAINLINE_BRANCH="cod/mainline"
 
 LLVM_VERSION="18"
@@ -86,7 +87,7 @@ build-packages)
     git config --global user.email "surfacebot@users.noreply.github.com"
 
     # get upstream kernel source
-    git clone "${MAINLINE_REPO}" --branch "v${KERNEL_VERSION}" --depth 1 linux
+    git clone "${STABLE_REPO}" --branch "v${KERNEL_VERSION}" --depth 1 linux
 
     if [ -d "keys" ]; then
         mv keys linux
