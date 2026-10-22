@@ -31,6 +31,8 @@ TODAY="$(date -u +%Y-%m-%d)"
 declare -A STABLE=()
 declare -A RELEASE_DATES=()
 
+PULL_REQUESTS=""
+
 # Load the latest kernel.org release of each maintained series.
 load_kernel_org()
 {
@@ -45,6 +47,31 @@ load_kernel_org()
     done < <(echo "${json}" | jq -r '.releases[] | select(.moniker == "stable" or .moniker == "longterm") | select(.iseol | not) | .version')
 
     NEWEST_STABLE="$(echo "${json}" | jq -r '.releases[] | select(.moniker == "stable") | .version' | sort -V | tail -n1)"
+}
+
+# Load the open pull requests created by the autoupdate workflows.
+load_pull_requests()
+{
+    if ! PULL_REQUESTS="$(gh pr list -R "${REPOSITORY}" --state open -L 100 \
+            --json number,title,headRefName,isDraft \
+            --jq '[.[] | select(.headRefName | startswith("autoupdate/"))] | sort_by(.number)' 2>/dev/null)"; then
+        log "WARNING: Failed to list pull requests"
+        PULL_REQUESTS="[]"
+    fi
+}
+
+# Print references to the open autoupdate pull requests whose branch starts
+# with the given prefix (e.g. " (#123, #124)").
+pull_request_refs()
+{
+    local refs
+
+    refs="$(echo "${PULL_REQUESTS}" | jq -r --arg prefix "$1" \
+        '[.[] | select(.headRefName | startswith($prefix)) | "#\(.number)"] | join(", ")')"
+
+    if [ -n "${refs}" ]; then
+        echo " (${refs})"
+    fi
 }
 
 # Print the release date (YYYY-MM-DD) of a kernel version, based on the
@@ -156,7 +183,8 @@ package_row()
     local upstream
 
     load_kv cur "${PACKAGE_SCRIPTS}/${script}.sh" current
-    load_kv latest "${PACKAGE_SCRIPTS}/${script}.sh" latest
+    # Don't let a temporarily unreachable upstream break the whole report
+    load_kv latest "${PACKAGE_SCRIPTS}/${script}.sh" latest || true
 
     series="${cur[series]}"
     base="$(patches_base "${series}")"
@@ -188,6 +216,8 @@ package_row()
     else
         status="✅ Up to date"
     fi
+
+    status="${status}$(pull_request_refs "autoupdate/${script}-")"
 
     echo "| ${name} | ${cur[package_version]} | ${released} | ${base:-–} | ${upstream} | ${stable:-EOL} | $(behind_since "${cur[version]}" "${stable}") | ${status} |"
 }
@@ -247,6 +277,8 @@ print_branches()
             status="✅ Up to date"
         fi
 
+        status="${status}$(pull_request_refs "autoupdate/patches-v${series}-")"
+
         echo "| [\`${branch}\`](https://github.com/${KERNEL_REPOSITORY}/tree/${branch}) | ${stable:-EOL} | ${surface:-?} | ${base:-–} | ${status} |"
     done < <(grep -vE '^\s*(#|$)' "${MAINTAINED_BRANCHES}")
 
@@ -290,6 +322,22 @@ print_failures()
     echo ""
 }
 
+print_pull_requests()
+{
+    local prs
+
+    prs="$(echo "${PULL_REQUESTS}" | jq -r '.[] | "- #\(.number)\(if .isDraft then " (draft)" else "" end)"')"
+
+    if [ -z "${prs}" ]; then
+        return
+    fi
+
+    echo "## Open update pull requests"
+    echo ""
+    echo "${prs}"
+    echo ""
+}
+
 print_notices()
 {
     local series
@@ -320,6 +368,7 @@ print_notices()
 # ============================================================================
 
 load_kernel_org
+load_pull_requests
 
 echo "<!-- package-status -->"
 echo "# Package status"
@@ -327,6 +376,7 @@ echo ""
 
 print_packages
 print_branches
+print_pull_requests
 print_notices
 print_failures
 
