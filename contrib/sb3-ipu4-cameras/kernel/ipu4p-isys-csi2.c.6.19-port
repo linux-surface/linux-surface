@@ -1,0 +1,746 @@
+// SPDX-License-Identifier: GPL-2.0
+//  Copyright (C) 2018 Intel Corporation
+
+#include <linux/delay.h>
+#include <linux/iopoll.h>
+#include <linux/module.h>
+#include "ipu.h"
+#include "ipu-buttress.h"
+#include "ipu-isys.h"
+#include "ipu-isys-csi2.h"
+#include "ipu-platform-isys-csi2-reg.h"
+#include "ipu-platform-buttress-regs.h"
+#include "ipu-platform-regs.h"
+#include "ipu-trace.h"
+#include "ipu-isys-csi2.h"
+
+#define CSI2_UPDATE_TIME_TRY_NUM   3
+#define CSI2_UPDATE_TIME_MAX_DIFF  20
+
+/*
+ * Surface Book 3 IR (ov7251): CSI-2 index 1 / firmware source 6 / 1 lane.
+ *
+ * IMPORTANT: Windows ConfigMipiClk (georgemihaila / Sp7 #1353 patch 0059) does
+ * NOT program this driver's TERMEN/SETTLE macro names. Traced layout:
+ *   0x30 <- 0
+ *   0x34 <- clk_ticks   (1155)
+ *   0x38+8i <- 0        (i = 0..7)
+ *   0x3c+8i <- data_ticks (1269)
+ * Our TERMEN_CLANE=0x2c / SETTLE_CLANE=0x30 macros put 1155 on the WRONG
+ * register (0x30) — yields line headers 0x40 + all-0xFF payload with hs=0x101.
+ * Use the raw Windows offsets for IR. Defaults match proven unlock.
+ */
+static bool sb3_ir_timing_quirk = true;
+module_param(sb3_ir_timing_quirk, bool, 0644);
+MODULE_PARM_DESC(sb3_ir_timing_quirk,
+		 "Surface Book 3: fixed CSI RX timing on IR (ov7251) port");
+
+static unsigned int sb3_ir_clk_ticks = 1155;
+module_param(sb3_ir_clk_ticks, uint, 0644);
+MODULE_PARM_DESC(sb3_ir_clk_ticks,
+		 "SB3 IR: Windows ConfigMipiClk value at CSI RX +0x34");
+
+static unsigned int sb3_ir_data_ticks = 1269;
+module_param(sb3_ir_data_ticks, uint, 0644);
+MODULE_PARM_DESC(sb3_ir_data_ticks,
+		 "SB3 IR: Windows ConfigMipiClk value at CSI RX +0x3c+8i");
+
+/*
+ * Front ov5693 = CSI-2 2 / 2-lane. Default calc settle never locks (0-byte
+ * STREAMON + DPHY non-recoverable sync). Override official SETTLE_* only —
+ * never the old Sp7 8-lane smash at 0x30/0x38+8i (that walks past DLANE3
+ * and takes ISYS down: "isys power cycle required").
+ */
+/* Default OFF: 1155/1269 + TERMEN=0 made STREAM_OPEN timeout and killed ISYS.
+ * Enable only when iterating settle; calc timing at least leaves IPU alive
+ * (0-byte STREAMON + DPHY, no FW OPEN hang).
+ */
+/*
+ * Calc 684/661 @ 419.2 MHz = DPHY non-recoverable on LP→HS.
+ * 1155/1269 (Sp7) + smash 0x14 = STREAM_OPEN. SETTLE only, CIO2 0x570.
+ */
+static bool sb3_front_timing_quirk = true;
+module_param(sb3_front_timing_quirk, bool, 0644);
+MODULE_PARM_DESC(sb3_front_timing_quirk,
+		 "Surface Book 3: SETTLE override on front (ov5693) CSI-2 2");
+
+static unsigned int sb3_front_clk_ticks = 1392;
+module_param(sb3_front_clk_ticks, uint, 0644);
+MODULE_PARM_DESC(sb3_front_clk_ticks,
+		 "SB3 front: SETTLE_CLANE ticks (0=keep calc)");
+
+static unsigned int sb3_front_data_ticks = 1392;
+module_param(sb3_front_data_ticks, uint, 0644);
+MODULE_PARM_DESC(sb3_front_data_ticks,
+		 "SB3 front: SETTLE_DLANE ticks (0=keep calc)");
+
+static void ipu4p_csi2_write_settle(struct ipu_isys_csi2 *csi2,
+				    unsigned int nlanes,
+				    unsigned int clk_ticks,
+				    unsigned int data_ticks)
+{
+	unsigned int i;
+
+	if (nlanes > 4)
+		nlanes = 4;
+	if (clk_ticks)
+		writel(clk_ticks,
+		       csi2->base + CSI2_REG_CSI_RX_DLY_CNT_SETTLE_CLANE);
+	if (data_ticks) {
+		for (i = 0; i < nlanes; i++)
+			writel(data_ticks, csi2->base +
+			       CSI2_REG_CSI_RX_DLY_CNT_SETTLE_DLANE(i));
+	}
+}
+
+static bool ipu4p_csi2_apply_sb3_ir_timing(struct ipu_isys_csi2 *csi2,
+					   unsigned int nlanes)
+{
+	unsigned int i;
+	bool ir = sb3_ir_timing_quirk && csi2->index == 1 && nlanes == 1 &&
+		  (csi2->asd.source == IPU_FW_ISYS_STREAM_SRC_CSI2_PORT0 + 6);
+
+	if (!ir)
+		return false;
+
+	/* Windows ConfigMipiClk layout (not TERMEN/SETTLE macros). */
+	writel(0, csi2->base + 0x30);
+	writel(sb3_ir_clk_ticks, csi2->base + 0x34);
+	for (i = 0; i < 8; i++) {
+		writel(0, csi2->base + 0x38 + i * 8);
+		writel(sb3_ir_data_ticks, csi2->base + 0x3c + i * 8);
+	}
+	dev_info(&csi2->isys->adev->dev,
+		 "csi2-%u: SB3 IR Windows timing +0x34=%u +0x3c=%u lanes=%u\n",
+		 csi2->index, sb3_ir_clk_ticks, sb3_ir_data_ticks, nlanes);
+	return true;
+}
+
+/*
+ * IPU4P Buttress BB map on Surface Book 3:
+ * CSI-2 0 / ov8865 Back → bb 6, CSI-2 1 / ov7251 IR → bb 8,
+ * CSI-2 2 / ov5693 Front → bb 10.
+ *
+ * Official IPU4 set_stream runs ev_correction (CPHY RX_CONTROL1 EQ +
+ * en_crc1) every STREAMON. AFE/DLL stay in isys_setup_hw / bb_cfg on
+ * resume — rewriting them here locked the DLL with no MIPI clock
+ * (Front: LED on, hs=0, receiver_errors=0x4000 ULPS-exit).
+ */
+static unsigned int ipu4p_csi2_bb(unsigned int csi_index)
+{
+	switch (csi_index) {
+	case 0:
+		return 6;
+	case 1:
+		return 8;
+	case 2:
+		return 10;
+	default:
+		return 0;
+	}
+}
+
+static void ipu4p_csi2_apply_sb3_front_settle(struct ipu_isys_csi2 *csi2,
+					      unsigned int nlanes)
+{
+	if (!sb3_front_timing_quirk || csi2->index != 2)
+		return;
+	if (!sb3_front_clk_ticks && !sb3_front_data_ticks)
+		return;
+	ipu4p_csi2_write_settle(csi2, nlanes, sb3_front_clk_ticks,
+				sb3_front_data_ticks);
+	dev_info(&csi2->isys->adev->dev,
+		 "csi2-%u: SB3 front settle applied (%u/%u) lanes=%u\n",
+		 csi2->index, sb3_front_clk_ticks, sb3_front_data_ticks,
+		 nlanes);
+}
+
+static int ipu4p_csi2_ev_correction_params(struct ipu_isys_csi2
+					   *csi2, unsigned int lanes)
+{
+	void __iomem *isp_base;
+	unsigned int bb;
+	u32 val;
+
+	if (!csi2->isys->adev || !csi2->isys->adev->isp)
+		return 0;
+	isp_base = csi2->isys->adev->isp->base;
+	if (!isp_base)
+		return 0;
+	bb = ipu4p_csi2_bb(csi2->index);
+	if (!bb)
+		return 0;
+
+	/*
+	 * IPU4 ev_correction: CPHY_RX_CONTROL1 = 0x380078 | (ctle<<27).
+	 * IPU6 JSL: en_crc1 = BIT(31). IPU4P has no CSE PHY IPC — MMIO.
+	 */
+	val = readl(isp_base + BUTTRESS_REG_CPHYX_RX_CONTROL1(bb));
+	val |= 0x380078 | BIT(31);
+	writel(val, isp_base + BUTTRESS_REG_CPHYX_RX_CONTROL1(bb));
+	if (csi2->index == 2)
+		dev_info(&csi2->isys->adev->dev,
+			 "csi2-%u: ev_correction bb%u RX_CONTROL1=0x%x lanes=%u\n",
+			 csi2->index, bb, val, lanes);
+	return 0;
+}
+
+/*
+ * Leftover HS survives STREAMOFF/suspend/rmmod: Front 0x302, IR 0x101.
+ * Short pulse (400 us) did not clear the latch. Long AFE off, no DLL
+ * (DLL with no MIPI clock = ULPS / 0 frames).
+ */
+static void ipu4p_csi2_pulse_afe(struct ipu_isys_csi2 *csi2)
+{
+	void __iomem *isp_base;
+	unsigned int bb;
+	u32 hs, cfg;
+
+	if (!csi2->isys->adev || !csi2->isys->adev->isp)
+		return;
+	isp_base = csi2->isys->adev->isp->base;
+	if (!isp_base)
+		return;
+	bb = ipu4p_csi2_bb(csi2->index);
+	if (!bb)
+		return;
+
+	writel(0, csi2->base + CSI2_REG_CSI_RX_ENABLE);
+	cfg = readl(csi2->base + CSI2_REG_CSI_RX_CONFIG);
+	writel(0, csi2->base + CSI2_REG_CSI_RX_CONFIG);
+	writel(0, isp_base + BUTTRESS_REG_BBX_AFE_CONFIG(bb));
+	usleep_range(8000, 10000);
+	writel(0, csi2->base + CSI2_REG_CSI_RX_STATUS_DLANE_HS);
+	writel(0, csi2->base + CSI2_REG_CSI_RX_STATUS_DLANE_LP);
+	/* Second clear window — leftover IR 0x101 / Front 0x302 often sticks */
+	usleep_range(5000, 7000);
+	writel(0, csi2->base + CSI2_REG_CSI_RX_STATUS_DLANE_HS);
+	writel(0, csi2->base + CSI2_REG_CSI_RX_STATUS_DLANE_LP);
+	writel(0x15 | (2 << 29), isp_base + BUTTRESS_REG_BBX_AFE_CONFIG(bb));
+	usleep_range(3000, 5000);
+	writel(cfg, csi2->base + CSI2_REG_CSI_RX_CONFIG);
+	(void)readl_poll_timeout(csi2->base + CSI2_REG_CSI_RX_STATUS_DLANE_HS,
+				 hs, hs == 0, 100, 50000);
+	dev_info(&csi2->isys->adev->dev,
+		 "csi2-%u: AFE pulse bb%u hs=0x%x\n",
+		 csi2->index, bb,
+		 readl(csi2->base + CSI2_REG_CSI_RX_STATUS_DLANE_HS));
+}
+
+static void ipu4p_csi2_log_rx_state(struct ipu_isys_csi2 *csi2, const char *tag)
+{
+	u32 enable = readl(csi2->base + CSI2_REG_CSI_RX_ENABLE);
+	u32 lanes = readl(csi2->base + CSI2_REG_CSI_RX_NOF_ENABLED_LANES);
+	u32 config = readl(csi2->base + CSI2_REG_CSI_RX_CONFIG);
+	u32 status = readl(csi2->base + CSI2_REG_CSI_RX_STATUS);
+	u32 hs = readl(csi2->base + CSI2_REG_CSI_RX_STATUS_DLANE_HS);
+	u32 lp = readl(csi2->base + CSI2_REG_CSI_RX_STATUS_DLANE_LP);
+	u32 ctermen = readl(csi2->base + CSI2_REG_CSI_RX_DLY_CNT_TERMEN_CLANE);
+	u32 csettle = readl(csi2->base + CSI2_REG_CSI_RX_DLY_CNT_SETTLE_CLANE);
+	/* 0x14: DPHY SYNC_COUNTER_SEL, na combo/3PH = CPHY_PORTCFG_CTL */
+	u32 portcfg = readl(csi2->base + CSI2_REG_CSI_RX_SYNC_COUNTER_SEL);
+
+	/* SB3: log Front (2) + IR (1) at info — diagnose 0-DQBUF */
+	if (csi2->index == 1 || csi2->index == 2)
+		dev_info(&csi2->isys->adev->dev,
+			 "csi %u %s: rx enable=0x%x lanes=%u config=0x%x status=0x%x hs=0x%x lp=0x%x ctermen=%u csettle=%u portcfg=0x%x receiver_errors=0x%x\n",
+			 csi2->index, tag, enable, lanes, config, status, hs,
+			 lp, ctermen, csettle, portcfg, csi2->receiver_errors);
+	else
+		dev_dbg(&csi2->isys->adev->dev,
+			"csi %u %s: rx enable=0x%x lanes=%u config=0x%x status=0x%x hs=0x%x lp=0x%x ctermen=%u csettle=%u receiver_errors=0x%x\n",
+			csi2->index, tag, enable, lanes, config, status, hs, lp,
+			ctermen, csettle, csi2->receiver_errors);
+}
+
+static void ipu4p_isys_register_errors(struct ipu_isys_csi2 *csi2)
+{
+	u32 status;
+	unsigned int index;
+	struct ipu_isys *isys = csi2->isys;
+	void __iomem *isys_base = isys->pdata->base;
+
+	index = csi2->index;
+	status = readl(isys_base +
+			   IPU_REG_ISYS_CSI_IRQ_CTRL0_BASE(index) + 0x8);
+	writel(status, isys_base +
+		   IPU_REG_ISYS_CSI_IRQ_CTRL0_BASE(index) + 0xc);
+
+	status &= 0xffff;
+	dev_dbg(&isys->adev->dev, "csi %d rxsync status 0x%x", index, status);
+	csi2->receiver_errors |= status;
+}
+
+void ipu_isys_csi2_error(struct ipu_isys_csi2 *csi2)
+{
+	/*
+	 * Strings corresponding to CSI-2 receiver errors are here.
+	 * Corresponding macros are defined in the header file.
+	 */
+	static const struct ipu_isys_csi2_error {
+		const char *error_string;
+		bool is_info_only;
+	} errors[] = {
+		{"Single packet header error corrected", true},
+		{"Multiple packet header errors detected", true},
+		{"Payload checksum (CRC) error", true},
+		{"FIFO overflow", false},
+		{"Reserved short packet data type detected", true},
+		{"Reserved long packet data type detected", true},
+		{"Incomplete long packet detected", false},
+		{"Frame sync error", false},
+		{"Line sync error", false},
+		{"DPHY recoverable synchronization error", true},
+		{"DPHY non-recoverable synchronization error", false},
+		{"Escape mode error", true},
+		{"Escape mode trigger event", true},
+		{"Escape mode ultra-low power state for data lane(s)", true},
+		{"Escape mode ultra-low power state exit for clock lane", true},
+		{"Inter-frame short packet discarded", true},
+		{"Inter-frame long packet discarded", true},
+	};
+	u32 status;
+	unsigned int i;
+
+	/* Register errors once more in case of error interrupts are disabled */
+	ipu4p_isys_register_errors(csi2);
+	/* Front DPHY-miss flood — one line per 2 s, not hundreds/s */
+	if (csi2->index == 2)
+		dev_info_ratelimited(&csi2->isys->adev->dev,
+				     "csi %u error snapshot: rx enable=0x%x hs=0x%x err=0x%x\n",
+				     csi2->index,
+				     readl(csi2->base + CSI2_REG_CSI_RX_ENABLE),
+				     readl(csi2->base + CSI2_REG_CSI_RX_STATUS_DLANE_HS),
+				     csi2->receiver_errors);
+	else
+		ipu4p_csi2_log_rx_state(csi2, "error snapshot");
+	status = csi2->receiver_errors;
+	csi2->receiver_errors = 0;
+
+	for (i = 0; i < ARRAY_SIZE(errors); i++) {
+		if (status & BIT(i)) {
+			if (errors[i].is_info_only)
+				dev_dbg(&csi2->isys->adev->dev,
+					"csi2-%i info: %s\n",
+					csi2->index, errors[i].error_string);
+			else
+				dev_err_ratelimited(&csi2->isys->adev->dev,
+						    "csi2-%i error: %s\n",
+						    csi2->index,
+						    errors[i].error_string);
+		}
+	}
+}
+
+int ipu_isys_csi2_set_stream(struct v4l2_subdev *sd,
+			     struct ipu_isys_csi2_timing timing,
+			     unsigned int nlanes, int enable)
+{
+	struct ipu_isys_csi2 *csi2 = to_ipu_isys_csi2(sd);
+	struct ipu_isys *isys = csi2->isys;
+	void __iomem *isys_base = isys->pdata->base;
+	unsigned int i, lane_reg;
+	u32 val, csi2part = 0;
+
+	dev_dbg(&csi2->isys->adev->dev, "csi2 s_stream %d\n", enable);
+	ipu4p_csi2_log_rx_state(csi2, "set_stream entry");
+	if (!enable) {
+		ipu4p_csi2_log_rx_state(csi2, "set_stream disable pre-error");
+		ipu_isys_csi2_error(csi2);
+
+		val = readl(csi2->base + CSI2_REG_CSI_RX_CONFIG);
+		val &= ~(CSI2_CSI_RX_CONFIG_DISABLE_BYTE_CLK_GATING |
+			 CSI2_CSI_RX_CONFIG_RELEASE_LP11);
+		writel(val, csi2->base + CSI2_REG_CSI_RX_CONFIG);
+
+		writel(0, csi2->base + CSI2_REG_CSI_RX_ENABLE);
+		/* Front HS 0x302 / IR HS 0x101 after STREAMOFF → next STREAMON = 0 frames. */
+		if (csi2->index == 1 || csi2->index == 2) {
+			ipu4p_csi2_pulse_afe(csi2);
+			dev_info(&isys->adev->dev,
+				 "csi %u disable: hs=0x%x after AFE\n",
+				 csi2->index,
+				 readl(csi2->base +
+				       CSI2_REG_CSI_RX_STATUS_DLANE_HS));
+		}
+
+		writel(0, isys_base +
+			   IPU_REG_ISYS_CSI_IRQ_CTRL_BASE(csi2->index) + 0x4);
+		writel(0, isys_base +
+			   IPU_REG_ISYS_CSI_IRQ_CTRL_BASE(csi2->index) +
+			   0x10);
+		writel
+		    (0, isys_base +
+		     IPU_REG_ISYS_CSI_IRQ_CTRL0_BASE(csi2->index) + 0x4);
+		writel
+		    (0, isys_base +
+		     IPU_REG_ISYS_CSI_IRQ_CTRL0_BASE(csi2->index) + 0x10);
+		ipu4p_csi2_log_rx_state(csi2, "set_stream disable done");
+		return 0;
+	}
+
+	/*
+	 * Official IPU4 writes raw nlanes (Back=4 works).
+	 * lanes-1 + writing 0 at 0x14 (SYNC_COUNTER / CPHY_PORTCFG_CTL)
+	 * caused STREAM_OPEN timeout — sensor never got s_stream.
+	 */
+	lane_reg = nlanes;
+
+	/*
+	 * Do not pulse AFE on enable when hs=0 (clean boot): 8–10 ms RX=0
+	 * breaks LP→HS. But leftover hs!=0 (after 0-DQBUF STREAMOFF) blocks
+	 * the next STREAMON — then a pulse is the only fix without reboot.
+	 */
+	{
+		u32 hs0 = readl(csi2->base + CSI2_REG_CSI_RX_STATUS_DLANE_HS);
+
+		if ((csi2->index == 1 || csi2->index == 2) && hs0) {
+			dev_info(&csi2->isys->adev->dev,
+				 "csi2-%u: leftover hs=0x%x → AFE pulse before enable\n",
+				 csi2->index, hs0);
+			ipu4p_csi2_pulse_afe(csi2);
+			dev_info(&csi2->isys->adev->dev,
+				 "csi2-%u: after pre-enable AFE hs=0x%x\n",
+				 csi2->index,
+				 readl(csi2->base + CSI2_REG_CSI_RX_STATUS_DLANE_HS));
+		} else if (csi2->index == 2) {
+			dev_info(&csi2->isys->adev->dev,
+				 "csi2-2: enable without AFE pulse hs=0x%x\n",
+				 hs0);
+		}
+	}
+
+	ipu4p_csi2_ev_correction_params(csi2, nlanes);
+
+	if (csi2->index == 2)
+		dev_info(&csi2->isys->adev->dev,
+			 "csi %u timing ctermen=%u csettle=%u dtermen=%u dsettle=%u nlanes=%u lane_reg=%u portcfg=0x%x\n",
+			 csi2->index, timing.ctermen, timing.csettle,
+			 timing.dtermen, timing.dsettle, nlanes, lane_reg,
+			 readl(csi2->base + CSI2_REG_CSI_RX_SYNC_COUNTER_SEL));
+
+	writel(timing.ctermen,
+		   csi2->base + CSI2_REG_CSI_RX_DLY_CNT_TERMEN_CLANE);
+	writel(timing.csettle,
+		   csi2->base + CSI2_REG_CSI_RX_DLY_CNT_SETTLE_CLANE);
+
+	if (ipu4p_csi2_apply_sb3_ir_timing(csi2, nlanes)) {
+		/*
+		 * Windows programs lane count before RX_CONFIG. Do not write
+		 * TERMEN macros here — apply_sb3_ir already did raw 0x30..0x3c.
+		 * (Old TERMEN floor 25 fought that layout and left 0xFF frames.)
+		 */
+		writel(lane_reg, csi2->base + CSI2_REG_CSI_RX_NOF_ENABLED_LANES);
+	} else {
+		for (i = 0; i < nlanes; i++) {
+			writel
+			    (timing.dtermen,
+			     csi2->base + CSI2_REG_CSI_RX_DLY_CNT_TERMEN_DLANE(i));
+			writel
+			    (timing.dsettle,
+			     csi2->base + CSI2_REG_CSI_RX_DLY_CNT_SETTLE_DLANE(i));
+		}
+		ipu4p_csi2_apply_sb3_front_settle(csi2, nlanes);
+	}
+
+	val = readl(csi2->base + CSI2_REG_CSI_RX_CONFIG);
+	/*
+	 * Front ov5693: 0x2d gates clock between packets. DISABLE_BYTE_CLK_GATING
+	 * (bit1) makes RX hold byte-clk forever → 2–11 lines, then 0xFF
+	 * and DPHY non-rec. Back (4-lane, continuous) stays at 0x3.
+	 */
+	/* Front + IR: byte-clk-gate holds RX forever on non-continuous sensors
+	 * → 0xFF lines + DPHY non-rec. Back (4-lane continuous) keeps gate bit.
+	 */
+	if (csi2->index == 1 || csi2->index == 2)
+		val |= CSI2_CSI_RX_CONFIG_RELEASE_LP11;
+	else
+		val |= CSI2_CSI_RX_CONFIG_DISABLE_BYTE_CLK_GATING |
+		       CSI2_CSI_RX_CONFIG_RELEASE_LP11;
+	writel(val, csi2->base + CSI2_REG_CSI_RX_CONFIG);
+	if (csi2->index == 1 || csi2->index == 2)
+		dev_info(&csi2->isys->adev->dev,
+			 "csi2-%u: rx_config=0x%x (no byte-clk-gate)\n",
+			 csi2->index, val);
+
+	/* Do not touch 0x14: on CSI-2 2 that is CPHY_PORTCFG_CTL, not SYNC_SEL. */
+
+	writel(lane_reg, csi2->base + CSI2_REG_CSI_RX_NOF_ENABLED_LANES);
+	writel(CSI2_CSI_RX_ENABLE_ENABLE,
+		   csi2->base + CSI2_REG_CSI_RX_ENABLE);
+
+#ifdef IPU_VC_SUPPORT
+	/* SOF of VC0-VC3 enabled from CSI2PART register in B0 */
+	for (i = 0; i < NR_OF_CSI2_VC; i++)
+		csi2part |= CSI2_IRQ_FS_VC(i) | CSI2_IRQ_FE_VC(i);
+#else
+	csi2part |= CSI2_IRQ_FS_VC | CSI2_IRQ_FE_VC;
+#endif
+
+	/* Official IPU4: error IRQ + SOF/EOF. Without 0xffff Front = 0 frames
+	 * (no DPHY ACK). Log flood is ratelimited in ipu_isys_csi2_error.
+	 */
+	writel(1, isys_base +
+		   IPU_REG_ISYS_CSI_IRQ_CTRL_BASE(csi2->index));
+	writel(0, isys_base +
+		   IPU_REG_ISYS_CSI_IRQ_CTRL_BASE(csi2->index) + 0x14);
+	writel(0xffffffff, isys_base +
+		   IPU_REG_ISYS_CSI_IRQ_CTRL_BASE(csi2->index) + 0xc);
+	writel(1, isys_base +
+		   IPU_REG_ISYS_CSI_IRQ_CTRL_BASE(csi2->index) + 0x4);
+	writel(1, isys_base +
+		   IPU_REG_ISYS_CSI_IRQ_CTRL_BASE(csi2->index) + 0x10);
+
+	csi2part |= 0xffff;
+	writel(csi2part, isys_base +
+		   IPU_REG_ISYS_CSI_IRQ_CTRL0_BASE(csi2->index));
+	writel(0, isys_base +
+		   IPU_REG_ISYS_CSI_IRQ_CTRL0_BASE(csi2->index) + 0x14);
+	writel(0xffffffff, isys_base +
+		   IPU_REG_ISYS_CSI_IRQ_CTRL0_BASE(csi2->index) + 0xc);
+	writel(csi2part, isys_base +
+		   IPU_REG_ISYS_CSI_IRQ_CTRL0_BASE(csi2->index) + 0x4);
+	writel(csi2part, isys_base +
+		   IPU_REG_ISYS_CSI_IRQ_CTRL0_BASE(csi2->index) + 0x10);
+
+	ipu4p_csi2_log_rx_state(csi2, "set_stream enable done");
+	return 0;
+}
+
+void ipu_isys_csi2_isr(struct ipu_isys_csi2 *csi2)
+{
+	u32 status = 0;
+#ifdef IPU_VC_SUPPORT
+	unsigned int i, bus;
+#else
+	unsigned int bus;
+#endif
+	struct ipu_isys *isys = csi2->isys;
+	void __iomem *isys_base = isys->pdata->base;
+
+	bus = csi2->index;
+	/* handle ctrl and ctrl0 irq */
+	status = readl(isys_base +
+			   IPU_REG_ISYS_CSI_IRQ_CTRL_BASE(bus) + 0x8);
+	writel(status, isys_base +
+		   IPU_REG_ISYS_CSI_IRQ_CTRL_BASE(bus) + 0xc);
+	dev_dbg(&isys->adev->dev, "csi %d irq_ctrl status 0x%x", bus, status);
+
+	if (!(status & BIT(0)))
+		return;
+
+	status = readl(isys_base +
+			   IPU_REG_ISYS_CSI_IRQ_CTRL0_BASE(bus) + 0x8);
+	writel(status, isys_base +
+		   IPU_REG_ISYS_CSI_IRQ_CTRL0_BASE(bus) + 0xc);
+	dev_dbg(&isys->adev->dev, "csi %d irq_ctrl0 status 0x%x", bus, status);
+	/* register the csi sync error */
+	csi2->receiver_errors |= status & 0xffff;
+	/* handle sof and eof event */
+#ifdef IPU_VC_SUPPORT
+	for (i = 0; i < NR_OF_CSI2_VC; i++) {
+		if (status & CSI2_IRQ_FS_VC(i))
+			ipu_isys_csi2_sof_event(csi2, i);
+
+		if (status & CSI2_IRQ_FE_VC(i))
+			ipu_isys_csi2_eof_event(csi2, i);
+	}
+#else
+	if (status & CSI2_IRQ_FS_VC)
+		ipu_isys_csi2_sof_event(csi2);
+	if (status & CSI2_IRQ_FE_VC)
+		ipu_isys_csi2_eof_event(csi2);
+#endif
+}
+
+static u64 tunit_time_to_us(struct ipu_isys *isys, u64 time)
+{
+	struct ipu_bus_device *adev = to_ipu_bus_device(isys->adev->iommu);
+	u64 isys_clk = IS_FREQ_SOURCE / adev->ctrl->divisor / 1000000;
+
+	do_div(time, isys_clk);
+
+	return time;
+}
+
+static u64 tsc_time_to_tunit_time(struct ipu_isys *isys,
+				  u64 tsc_base, u64 tunit_base, u64 tsc_time)
+{
+	struct ipu_bus_device *adev = to_ipu_bus_device(isys->adev->iommu);
+	u64 isys_clk = IS_FREQ_SOURCE / adev->ctrl->divisor / 100000;
+	u64 tsc_clk = IPU_BUTTRESS_TSC_CLK / 100000;
+
+	tsc_time *= isys_clk;
+	tsc_base *= isys_clk;
+	do_div(tsc_time, tsc_clk);
+	do_div(tsc_base, tsc_clk);
+
+	return tunit_base + tsc_time - tsc_base;
+}
+
+static int update_timer_base(struct ipu_isys *isys)
+{
+	int rval, i;
+	u64 time;
+
+	for (i = 0; i < CSI2_UPDATE_TIME_TRY_NUM; i++) {
+		rval = ipu_trace_get_timer(&isys->adev->dev, &time);
+		if (rval) {
+			dev_err(&isys->adev->dev,
+				"Failed to read Tunit timer.\n");
+			return rval;
+		}
+		rval = ipu4_buttress_tsc_read(isys->adev->isp,
+					     &isys->tsc_timer_base);
+		if (rval) {
+			dev_err(&isys->adev->dev,
+				"Failed to read TSC timer.\n");
+			return rval;
+		}
+		rval = ipu_trace_get_timer(&isys->adev->dev,
+					   &isys->tunit_timer_base);
+		if (rval) {
+			dev_err(&isys->adev->dev,
+				"Failed to read Tunit timer.\n");
+			return rval;
+		}
+		if (tunit_time_to_us(isys, isys->tunit_timer_base - time) <
+		    CSI2_UPDATE_TIME_MAX_DIFF)
+			return 0;
+	}
+	dev_dbg(&isys->adev->dev, "Timer base values may not be accurate.\n");
+	return 0;
+}
+
+/* Extract the timestamp from trace message.
+ * The timestamp in the traces message contains two parts.
+ * The lower part contains bit0 ~ 15 of the total 64bit timestamp.
+ * The higher part contains bit14 ~ 63 of the 64bit timestamp.
+ * These two parts are sampled at different time.
+ * Two overlaped bits are used to identify if there's roll overs
+ * in the lower part during the two samples.
+ * If the two overlapped bits do not match, a fix is needed to
+ * handle the roll over.
+ */
+static u64 extract_time_from_short_packet_msg(struct
+					      ipu_isys_csi2_monitor_message
+					      *msg)
+{
+	u64 time_h = msg->timestamp_h << 14;
+	u64 time_l = msg->timestamp_l;
+	u64 time_h_ovl = time_h & 0xc000;
+	u64 time_h_h = time_h & (~0xffff);
+
+	/* Fix possible roll overs. */
+	if (time_h_ovl >= (time_l & 0xc000))
+		return time_h_h | time_l;
+	else
+		return (time_h_h - 0x10000) | time_l;
+}
+
+unsigned int ipu_isys_csi2_get_current_field(struct ipu_isys_pipeline *ip,
+					     unsigned int *timestamp)
+{
+	struct ipu_isys_video *av = container_of(ip, struct ipu_isys_video, ip);
+	struct ipu_isys *isys = av->isys;
+	unsigned int field = V4L2_FIELD_TOP;
+
+	/*
+	 * Find the nearest message that has matched msg type,
+	 * port id, virtual channel and packet type.
+	 */
+	unsigned int i = ip->short_packet_trace_index;
+	bool msg_matched = false;
+	unsigned int monitor_id;
+
+	update_timer_base(isys);
+
+	if (ip->csi2->index >= IPU_ISYS_MAX_CSI2_LEGACY_PORTS)
+		monitor_id = TRACE_REG_CSI2_3PH_TM_MONITOR_ID;
+	else
+		monitor_id = TRACE_REG_CSI2_TM_MONITOR_ID;
+
+	dma_sync_single_for_cpu(&isys->adev->dev,
+				isys->short_packet_trace_buffer_dma_addr,
+				IPU_ISYS_SHORT_PACKET_TRACE_BUFFER_SIZE,
+				DMA_BIDIRECTIONAL);
+
+	do {
+		struct ipu_isys_csi2_monitor_message msg =
+		    isys->short_packet_trace_buffer[i];
+		u64 sof_time = tsc_time_to_tunit_time(isys,
+						      isys->tsc_timer_base,
+						      isys->tunit_timer_base,
+						      (((u64) timestamp[1]) <<
+						       32) | timestamp[0]);
+		u64 trace_time = extract_time_from_short_packet_msg(&msg);
+		u64 delta_time_us = tunit_time_to_us(isys,
+						     (sof_time > trace_time) ?
+						     sof_time - trace_time :
+						     trace_time - sof_time);
+
+		i = (i + 1) % IPU_ISYS_SHORT_PACKET_TRACE_MSG_NUMBER;
+
+		if (msg.cmd == TRACE_REG_CMD_TYPE_D64MTS &&
+		    msg.monitor_id == monitor_id &&
+		    msg.fs == 1 &&
+		    msg.port == ip->csi2->index &&
+#ifdef IPU_VC_SUPPORT
+		    msg.vc == ip->vc &&
+#endif
+		    delta_time_us < IPU_ISYS_SHORT_PACKET_TRACE_MAX_TIMESHIFT) {
+			field = (msg.sequence % 2) ?
+			    V4L2_FIELD_TOP : V4L2_FIELD_BOTTOM;
+			ip->short_packet_trace_index = i;
+			msg_matched = true;
+			dev_dbg(&isys->adev->dev,
+				"Interlaced field ready. field = %d\n", field);
+			break;
+		}
+	} while (i != ip->short_packet_trace_index);
+	if (!msg_matched)
+		/* We have walked through the whole buffer. */
+		dev_dbg(&isys->adev->dev, "No matched trace message found.\n");
+
+	return field;
+}
+
+bool ipu_isys_csi2_skew_cal_required(struct ipu_isys_csi2 *csi2)
+{
+	__s64 link_freq;
+	int rval;
+
+	if (!csi2)
+		return false;
+
+#ifdef IPU_VC_SUPPORT
+	/* Not yet ? */
+	if (csi2->remote_streams != csi2->stream_count)
+		return false;
+
+#endif
+	rval = ipu_isys_csi2_get_link_freq(csi2, &link_freq);
+	if (rval)
+		return false;
+
+	if (link_freq <= IPU_SKEW_CAL_LIMIT_HZ)
+		return false;
+
+	return true;
+}
+
+int ipu_isys_csi2_set_skew_cal(struct ipu_isys_csi2 *csi2, int enable)
+{
+	u32 val;
+
+	val = readl(csi2->base + CSI2_REG_CSI_RX_CONFIG);
+
+	if (enable)
+		val |= CSI2_CSI_RX_CONFIG_SKEWCAL_ENABLE;
+	else
+		val &= ~CSI2_CSI_RX_CONFIG_SKEWCAL_ENABLE;
+
+	writel(val, csi2->base + CSI2_REG_CSI_RX_CONFIG);
+
+	return 0;
+}
