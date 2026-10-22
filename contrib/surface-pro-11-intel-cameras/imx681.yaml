@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: CC0-1.0
+#
+# libcamera simple-IPA tuning for the Sony IMX681 on the Microsoft Surface Pro 11
+# for Business (Intel).
+#
+# blackLevel MEASURED: mean 63.54, median 64 -> 64 << 6 = 4096.
+#
+# NO Ccm, deliberately, and it is not for want of one. Intel's matrices for this
+# module were read out of the Windows driver's tuning database and corrected for
+# libcamera's white balance; they work. What they cannot survive is a clipped
+# frame. Measured on this camera, same scene:
+#
+#   frame clipped 29 %  ->  22 % of the frame turns magenta
+#   frame clipped  1 %  ->  0.1 %
+#
+# A front camera points at a person who is very often backlit, so the clipped
+# case is the normal case, and a magenta window behind the subject is worse than
+# flat colour. This sensor also loses least by going without: its uncorrected
+# colourfulness is 18.1 against the rear sensor's 10.8.
+#
+# The matrices are also Intel's data, and these files carry only what was
+# measured here.
+%YAML 1.1
+---
+version: 1
+algorithms:
+  - BlackLevel:
+      blackLevel: 4096
+  - Awb:
+  - Adjust:
+  - Agc:
+...
