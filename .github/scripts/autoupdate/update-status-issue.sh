@@ -46,6 +46,9 @@ else
         --label "${LABEL}" --body-file "${REPORT}")"
     echo "Created ${URL}"
 
+    # Only allow collaborators to comment
+    gh issue lock "${URL}" -R "${GITHUB_REPOSITORY}"
+
     # Pinning may not be permitted for the token, don't fail on that
     gh issue pin "${URL}" -R "${GITHUB_REPOSITORY}" || echo "WARNING: Could not pin ${URL}"
 fi
