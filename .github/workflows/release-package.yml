@@ -181,8 +181,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          RUN="$(gh run list -R "${GITHUB_REPOSITORY}" -w "${WORKFLOW}" -c "${HEAD}" \
-            -e pull_request -s success -L 1 --json databaseId --jq '.[0].databaseId // empty')"
+          # The API occasionally returns no runs, so retry a few times
+          for ATTEMPT in 1 2 3 4 5; do
+            RUN="$(gh run list -R "${GITHUB_REPOSITORY}" -w "${WORKFLOW}" -c "${HEAD}" \
+              -e pull_request -s success -L 1 --json databaseId --jq '.[0].databaseId // empty')"
+
+            if [ -n "${RUN}" ] || [ "${ATTEMPT}" -eq 5 ]; then
+              break
+            fi
+
+            echo "No successful ${WORKFLOW} build for ${HEAD} found, retrying..."
+            sleep 30
+          done
 
           if [ -z "${RUN}" ]; then
             echo "::error::No successful ${WORKFLOW} build for ${HEAD}"
