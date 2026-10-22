@@ -13,16 +13,20 @@
 #
 # Update checkboxes: For each package (script) that is behind the base version
 # of our patches and has no open update pull request, the report contains a
-# checkbox to request an update. Checked boxes are read back from the issue
-# (see status-requests.sh) and passed in via UPDATE_REQUESTS. Requested updates
-# whose upstream sources are available are written to UPDATE_DISPATCH (to be
-# started by the workflow), others stay requested until upstream is ready.
+# checkbox to request an update. In addition, each package has a persistent
+# checkbox to update it automatically whenever it is behind our patches.
+# Checked boxes are read back from the issue (see status-requests.sh) and
+# passed in via UPDATE_REQUESTS. Requested updates whose upstream sources are
+# available are written to UPDATE_DISPATCH (to be started by the workflow),
+# others stay requested until upstream is ready. Automatic updates are not
+# retried if they failed or their pull request was closed without merging.
 #
 # Environment variables:
 #   GITHUB_REPOSITORY: (optional) Repository to check tags and runs of
 #   GH_TOKEN:          (optional) GitHub token, to avoid API rate limits
-#   UPDATE_REQUESTS:   (optional) Space-separated packages (scripts) for which
-#                      an update has been requested
+#   UPDATE_REQUESTS:   (optional) Space-separated requests: 'update:<script>'
+#                      for requested updates, 'auto:<script>' for packages to
+#                      update automatically
 #   UPDATE_DISPATCH:   (optional) File to write the updates to start to, as
 #                      '<script> <version>' lines
 
@@ -45,12 +49,14 @@ declare -A RELEASE_DATES=()
 
 # Per package script: names of the targets, version to update to, whether
 # upstream is ready for it, and whether an update pull request is open
+declare -A PACKAGE_NAMES=()
 declare -A UPDATE_NAMES=()
 declare -A UPDATE_VERSION=()
 declare -A UPDATE_READY=()
 declare -A UPDATE_PR=()
 
 PULL_REQUESTS=""
+CLOSED_PULL_REQUESTS=""
 UPDATE_RUNS=""
 
 # Load the latest kernel.org release of each maintained series.
@@ -78,14 +84,28 @@ load_pull_requests()
         log "WARNING: Failed to list pull requests"
         PULL_REQUESTS="[]"
     fi
+
+    if ! CLOSED_PULL_REQUESTS="$(gh pr list -R "${REPOSITORY}" --state closed -L 100 \
+            --json number,headRefName,mergedAt \
+            --jq '[.[] | select((.headRefName | startswith("autoupdate/")) and .mergedAt == null)]' 2>/dev/null)"; then
+        log "WARNING: Failed to list closed pull requests"
+        CLOSED_PULL_REQUESTS="[]"
+    fi
 }
 
-# Load the queued and running update workflow runs.
+# Print the number of a pull request updating a package (script) to a version
+# that has been closed without merging, if any.
+closed_pull_request()
+{
+    echo "${CLOSED_PULL_REQUESTS}" | jq -r --arg prefix "autoupdate/$1-$2-" \
+        '[.[] | select(.headRefName | startswith($prefix))] | .[0].number // empty'
+}
+
+# Load the recent update workflow runs.
 load_update_runs()
 {
     if ! UPDATE_RUNS="$(gh run list -R "${REPOSITORY}" -w update-package.yml -L 50 \
-            --json status,displayTitle,url \
-            --jq '[.[] | select(.status != "completed")]' 2>/dev/null)"; then
+            --json status,conclusion,displayTitle,url 2>/dev/null)"; then
         log "WARNING: Failed to list update runs"
         UPDATE_RUNS="[]"
     fi
@@ -95,7 +115,16 @@ load_update_runs()
 update_run()
 {
     echo "${UPDATE_RUNS}" | jq -r --arg title "Update $1 package" \
-        '[.[] | select(.displayTitle | startswith($title))] | .[0].url // empty'
+        '[.[] | select(.status != "completed" and (.displayTitle | startswith($title)))] | .[0].url // empty'
+}
+
+# Print the URL of the latest update run of a package (script) to a version,
+# if it failed.
+failed_update_run()
+{
+    echo "${UPDATE_RUNS}" | jq -r --arg title "Update $1 package to $2" \
+        '[.[] | select(.status == "completed" and .displayTitle == $title)] | .[0]
+        | select(. != null and .conclusion != "success") | .url'
 }
 
 # Print references to the open autoupdate pull requests whose branch starts
@@ -220,6 +249,8 @@ package_row()
     local status
     local upstream
 
+    PACKAGE_NAMES[${script}]="${PACKAGE_NAMES[${script}]:+${PACKAGE_NAMES[${script}]}, }${name}"
+
     load_kv cur "${PACKAGE_SCRIPTS}/${script}.sh" current
     # Don't let a temporarily unreachable upstream break the whole report
     load_kv latest "${PACKAGE_SCRIPTS}/${script}.sh" latest || true
@@ -294,7 +325,20 @@ print_packages()
 
 is_requested()
 {
-    [[ " ${UPDATE_REQUESTS:-} " == *" $1 "* ]]
+    [[ " ${UPDATE_REQUESTS:-} " == *" update:$1 "* ]]
+}
+
+is_auto()
+{
+    [[ " ${UPDATE_REQUESTS:-} " == *" auto:$1 "* ]]
+}
+
+# Start the update of a package (script) to a version.
+dispatch_update()
+{
+    if [ -n "${UPDATE_DISPATCH:-}" ]; then
+        echo "$1 $2" >> "${UPDATE_DISPATCH}"
+    fi
 }
 
 print_updates()
@@ -302,12 +346,18 @@ print_updates()
     local script
     local name
     local version
+    local ready
     local run
+    local pr
+    local box
     local lines=()
+    local auto=()
 
     for script in $(printf '%s\n' "${!UPDATE_VERSION[@]}" | sort); do
         name="${UPDATE_NAMES[${script}]}"
         version="${UPDATE_VERSION[${script}]}"
+        ready="${UPDATE_READY[${script}]}"
+        box="Update ${name} to ${version}"
 
         # The pull request is linked in the table above
         if [ -n "${UPDATE_PR[${script}]:-}" ]; then
@@ -319,30 +369,63 @@ print_updates()
 
         if [ -n "${run}" ]; then
             lines+=("- 🔄 [Update of ${name}](${run}) running, the pull request will be linked above.")
-        elif is_requested "${script}" && [ "${UPDATE_READY[${script}]}" = 1 ]; then
-            if [ -n "${UPDATE_DISPATCH:-}" ]; then
-                echo "${script} ${version}" >> "${UPDATE_DISPATCH}"
-            fi
+            continue
+        fi
 
+        if is_requested "${script}" && [ "${ready}" = 1 ]; then
+            dispatch_update "${script}" "${version}"
             lines+=("- 🔄 Update of ${name} to ${version} started, the pull request will be linked above.")
         elif is_requested "${script}"; then
-            lines+=("- [x] Update ${name} to ${version} when ready <!-- update:${script} -->")
-        elif [ "${UPDATE_READY[${script}]}" = 1 ]; then
-            lines+=("- [ ] Update ${name} to ${version} <!-- update:${script} -->")
+            lines+=("- [x] ${box} when ready <!-- update:${script} -->")
+        elif is_auto "${script}"; then
+            # Don't retry automatic updates, that's up to the maintainers
+            run="$(failed_update_run "${script}" "${version}")"
+            pr="$(closed_pull_request "${script}" "${version}")"
+
+            if [ -n "${run}" ]; then
+                lines+=("- [ ] ${box} (⚠️ [automatic update failed](${run}), check to retry) <!-- update:${script} -->")
+            elif [ -n "${pr}" ]; then
+                lines+=("- [ ] ${box} (automatic update skipped, #${pr} was closed) <!-- update:${script} -->")
+            elif [ "${ready}" = 1 ]; then
+                dispatch_update "${script}" "${version}"
+                lines+=("- 🔄 Automatic update of ${name} to ${version} started, the pull request will be linked above.")
+            else
+                lines+=("- ⏳ ${name} will be updated to ${version} automatically when upstream is ready.")
+            fi
+        elif [ "${ready}" = 1 ]; then
+            lines+=("- [ ] ${box} <!-- update:${script} -->")
         else
-            lines+=("- [ ] Update ${name} to ${version} when ready <!-- update:${script} -->")
+            lines+=("- [ ] ${box} when ready <!-- update:${script} -->")
         fi
     done
 
-    if [ "${#lines[@]}" -eq 0 ]; then
-        return
-    fi
+    for script in $(printf '%s\n' "${!PACKAGE_NAMES[@]}" | sort); do
+        if is_auto "${script}"; then
+            box="x"
+        else
+            box=" "
+        fi
+
+        auto+=("- [${box}] ${PACKAGE_NAMES[${script}]} <!-- auto:${script} -->")
+    done
 
     echo "## Updates"
     echo ""
     echo "Check a box to start the update (maintainers only). If upstream is not ready yet, the update starts with the first status update after it is (daily). Uncheck to cancel."
     echo ""
-    printf '%s\n' "${lines[@]}"
+
+    if [ "${#lines[@]}" -gt 0 ]; then
+        printf '%s\n' "${lines[@]}"
+    else
+        echo "No updates pending."
+    fi
+
+    echo ""
+    echo "### Automatic updates"
+    echo ""
+    echo "Update these packages automatically whenever they are behind our patches, e.g. after a patch update has been merged. Failed updates and closed pull requests are not retried."
+    echo ""
+    printf '%s\n' "${auto[@]}"
     echo ""
 }
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# Print the packages (scripts) for which an update has been requested in the
-# package status issue, i.e. whose update checkbox is checked.
+# Print the update requests of the package status issue, i.e. its checked
+# update checkboxes: 'update:<script>' for requested updates, 'auto:<script>'
+# for packages to update automatically.
 #
 # Usage: status-requests.sh [<body-file>...]
 #
@@ -37,5 +38,5 @@ fi
         cat "${file}"
     done
 } | tr -d '\r' \
-    | sed -nE 's/^\s*- \[[xX]\] .*<!-- update:([a-z0-9-]+) -->\s*$/\1/p' \
+    | sed -nE 's/^\s*- \[[xX]\] .*<!-- ((update|auto):[a-z0-9-]+) -->\s*$/\1/p' \
     | sort -u
