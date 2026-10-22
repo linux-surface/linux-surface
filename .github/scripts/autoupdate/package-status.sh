@@ -8,11 +8,23 @@
 #    and what's blocking an update.
 # 2. For each maintained kernel branch: latest kernel.org stable version vs.
 #    our branch and patches.
-# 3. Recently failed autoupdate runs and notices (newer series, EOL).
+# 3. Update checkboxes for packages behind our patches (see below).
+# 4. Recently failed autoupdate runs and notices (newer series, EOL).
+#
+# Update checkboxes: For each package (script) that is behind the base version
+# of our patches and has no open update pull request, the report contains a
+# checkbox to request an update. Checked boxes are read back from the issue
+# (see status-requests.sh) and passed in via UPDATE_REQUESTS. Requested updates
+# whose upstream sources are available are written to UPDATE_DISPATCH (to be
+# started by the workflow), others stay requested until upstream is ready.
 #
 # Environment variables:
 #   GITHUB_REPOSITORY: (optional) Repository to check tags and runs of
 #   GH_TOKEN:          (optional) GitHub token, to avoid API rate limits
+#   UPDATE_REQUESTS:   (optional) Space-separated packages (scripts) for which
+#                      an update has been requested
+#   UPDATE_DISPATCH:   (optional) File to write the updates to start to, as
+#                      '<script> <version>' lines
 
 # shellcheck source-path=SCRIPTDIR source=package/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/package/common.sh"
@@ -31,7 +43,15 @@ TODAY="$(date -u +%Y-%m-%d)"
 declare -A STABLE=()
 declare -A RELEASE_DATES=()
 
+# Per package script: names of the targets, version to update to, whether
+# upstream is ready for it, and whether an update pull request is open
+declare -A UPDATE_NAMES=()
+declare -A UPDATE_VERSION=()
+declare -A UPDATE_READY=()
+declare -A UPDATE_PR=()
+
 PULL_REQUESTS=""
+UPDATE_RUNS=""
 
 # Load the latest kernel.org release of each maintained series.
 load_kernel_org()
@@ -58,6 +78,24 @@ load_pull_requests()
         log "WARNING: Failed to list pull requests"
         PULL_REQUESTS="[]"
     fi
+}
+
+# Load the queued and running update workflow runs.
+load_update_runs()
+{
+    if ! UPDATE_RUNS="$(gh run list -R "${REPOSITORY}" -w update-package.yml -L 50 \
+            --json status,displayTitle,url \
+            --jq '[.[] | select(.status != "completed")]' 2>/dev/null)"; then
+        log "WARNING: Failed to list update runs"
+        UPDATE_RUNS="[]"
+    fi
+}
+
+# Print the URL of a queued or running update of a package (script), if any.
+update_run()
+{
+    echo "${UPDATE_RUNS}" | jq -r --arg title "Update $1 package" \
+        '[.[] | select(.displayTitle | startswith($title))] | .[0].url // empty'
 }
 
 # Print references to the open autoupdate pull requests whose branch starts
@@ -204,10 +242,15 @@ package_row()
     fi
 
     if [ -n "${base}" ] && version_lt "${cur[version]}" "${base}"; then
+        UPDATE_NAMES[${script}]="${UPDATE_NAMES[${script}]:+${UPDATE_NAMES[${script}]}, }${name}"
+        UPDATE_VERSION[${script}]="${base}"
+
         if load_kv check "${PACKAGE_SCRIPTS}/${script}.sh" check "${base}"; then
             status="🟢 Ready to update to ${base}"
+            UPDATE_READY[${script}]=1
         else
             status="⏳ Waiting for upstream: ${check[reason]:-check failed}"
+            UPDATE_READY[${script}]=0
         fi
     elif [[ "${released}" == ❌* ]]; then
         status="🏷️ Release tag missing"
@@ -215,6 +258,10 @@ package_row()
         status="⏳ Waiting for patches (${stable})"
     else
         status="✅ Up to date"
+    fi
+
+    if [ -n "$(pull_request_refs "autoupdate/${script}-")" ]; then
+        UPDATE_PR[${script}]=1
     fi
 
     status="${status}$(pull_request_refs "autoupdate/${script}-")"
@@ -238,6 +285,64 @@ print_packages()
         package_row "Fedora ${fedora}" fedora "fedora-${fedora}"
     done
 
+    echo ""
+}
+
+# ============================================================================
+# Updates
+# ============================================================================
+
+is_requested()
+{
+    [[ " ${UPDATE_REQUESTS:-} " == *" $1 "* ]]
+}
+
+print_updates()
+{
+    local script
+    local name
+    local version
+    local run
+    local lines=()
+
+    for script in $(printf '%s\n' "${!UPDATE_VERSION[@]}" | sort); do
+        name="${UPDATE_NAMES[${script}]}"
+        version="${UPDATE_VERSION[${script}]}"
+
+        # The pull request is linked in the table above
+        if [ -n "${UPDATE_PR[${script}]:-}" ]; then
+            continue
+        fi
+
+        # Don't start an update twice
+        run="$(update_run "${script}")"
+
+        if [ -n "${run}" ]; then
+            lines+=("- 🔄 [Update of ${name}](${run}) running, the pull request will be linked above.")
+        elif is_requested "${script}" && [ "${UPDATE_READY[${script}]}" = 1 ]; then
+            if [ -n "${UPDATE_DISPATCH:-}" ]; then
+                echo "${script} ${version}" >> "${UPDATE_DISPATCH}"
+            fi
+
+            lines+=("- 🔄 Update of ${name} to ${version} started, the pull request will be linked above.")
+        elif is_requested "${script}"; then
+            lines+=("- [x] Update ${name} to ${version} when ready <!-- update:${script} -->")
+        elif [ "${UPDATE_READY[${script}]}" = 1 ]; then
+            lines+=("- [ ] Update ${name} to ${version} <!-- update:${script} -->")
+        else
+            lines+=("- [ ] Update ${name} to ${version} when ready <!-- update:${script} -->")
+        fi
+    done
+
+    if [ "${#lines[@]}" -eq 0 ]; then
+        return
+    fi
+
+    echo "## Updates"
+    echo ""
+    echo "Check a box to start the update (maintainers only). If upstream is not ready yet, the update starts with the first status update after it is (daily). Uncheck to cancel."
+    echo ""
+    printf '%s\n' "${lines[@]}"
     echo ""
 }
 
@@ -306,8 +411,8 @@ print_failures()
     # of the autoupdate workflows are told apart by their title (i.e. branch),
     # package builds only by their workflow.
     runs="$(echo "${runs}" | jq -r '[.[]
-        | select(.workflowName | test("^(Sync Kernel with Upstream|Rebase and Build Kernel|Generate Kernel Patches|Arch|Debian|Fedora [0-9]+)$"))
-        | . + { key: (if (.workflowName | test("^(Rebase|Generate)")) then .workflowName + .displayTitle else .workflowName end) }]
+        | select(.workflowName | test("^(Sync Kernel with Upstream|Rebase and Build Kernel|Generate Kernel Patches|Update Package|Arch|Debian|Fedora [0-9]+)$"))
+        | . + { key: (if (.workflowName | test("^(Rebase|Generate|Update)")) then .workflowName + .displayTitle else .workflowName end) }]
         | group_by(.key) | map(max_by(.createdAt)) | sort_by(.createdAt) | reverse | .[]
         | select(.conclusion == "failure")
         | "- \(.createdAt[:10]): [\(.workflowName): \(.displayTitle)](\(.url))"')"
@@ -369,12 +474,14 @@ print_notices()
 
 load_kernel_org
 load_pull_requests
+load_update_runs
 
 echo "<!-- package-status -->"
 echo "# Package status"
 echo ""
 
 print_packages
+print_updates
 print_branches
 print_pull_requests
 print_notices

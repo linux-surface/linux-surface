@@ -21,6 +21,18 @@ on:
       - reopened
       - closed
 
+  # Update when an update run finishes (e.g. failed before opening a PR)
+  workflow_run:
+    workflows:
+      - Update Package
+    types:
+      - completed
+
+  # Update checkboxes in the status issue
+  issues:
+    types:
+      - edited
+
   # Manual trigger
   workflow_dispatch:
     inputs:
@@ -32,7 +44,7 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: write
   issues: write
 
 jobs:
@@ -46,11 +58,19 @@ jobs:
       group: package-status
       cancel-in-progress: false
 
+    # Only maintainers can edit the (locked) status issue. Edits by the
+    # workflow itself (via GITHUB_TOKEN) don't trigger runs.
     if: >-
-      github.event_name != 'pull_request' || (
+      (github.event_name != 'pull_request' && github.event_name != 'issues') || (
+        github.event_name == 'pull_request' &&
         startsWith(github.head_ref, 'autoupdate/') &&
         github.event.pull_request.head.repo.full_name == github.repository &&
         !github.event.pull_request.merged
+      ) || (
+        github.event_name == 'issues' &&
+        contains(github.event.issue.labels.*.name, 'package-status') &&
+        github.event.changes.body &&
+        github.event.sender.type != 'Bot'
       )
 
     steps:
@@ -58,14 +78,42 @@ jobs:
         uses: actions/checkout@v7
         with:
           # Report the state of master, not of the pull request
-          ref: ${{ github.event_name == 'pull_request' && github.event.repository.default_branch || '' }}
+          ref: ${{ (github.event_name == 'pull_request' || github.event_name == 'issues') && github.event.repository.default_branch || '' }}
+
+      - name: Read update requests
+        id: requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_BODY: ${{ github.event_name == 'issues' && github.event.issue.body || '' }}
+        run: |
+          echo "${EVENT_BODY}" > "${RUNNER_TEMP}/event-body.md"
+          REQUESTS="$(bash .github/scripts/autoupdate/status-requests.sh "${RUNNER_TEMP}/event-body.md" | xargs)"
+
+          echo "Requested updates: ${REQUESTS:-none}"
+          echo "requests=${REQUESTS}" >> "${GITHUB_OUTPUT}"
 
       - name: Generate report
         env:
           GH_TOKEN: ${{ github.token }}
+          UPDATE_REQUESTS: ${{ steps.requests.outputs.requests }}
+          UPDATE_DISPATCH: ${{ runner.temp }}/dispatch.txt
         run: |
+          touch "${UPDATE_DISPATCH}"
           bash .github/scripts/autoupdate/package-status.sh > "${RUNNER_TEMP}/status.md"
           cat "${RUNNER_TEMP}/status.md" >> "${GITHUB_STEP_SUMMARY}"
+
+      # Before updating the issue, so that the requests are kept on failure
+      - name: Start requested updates
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          while read -r DISTRO VERSION; do
+            echo "Starting update of ${DISTRO} to ${VERSION}"
+            gh workflow run update-package.yml -R "${GITHUB_REPOSITORY}" \
+              --ref "${{ github.event.repository.default_branch }}" \
+              -f distro="${DISTRO}" -f version="${VERSION}"
+          done < "${RUNNER_TEMP}/dispatch.txt"
 
       - name: Update status issue
         if: ${{ !inputs.dry_run }}
