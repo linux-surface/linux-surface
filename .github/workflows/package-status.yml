@@ -35,14 +35,17 @@ permissions:
   actions: read
   issues: write
 
-concurrency:
-  group: package-status
-  cancel-in-progress: false
-
 jobs:
   status:
     name: Update package status
     runs-on: ubuntu-latest
+
+    # On the job level (not the workflow level), so that skipped runs don't
+    # replace pending ones. At most one run is pending, newer runs replace it.
+    concurrency:
+      group: package-status
+      cancel-in-progress: false
+
     if: >-
       github.event_name != 'pull_request' || (
         startsWith(github.head_ref, 'autoupdate/') &&
