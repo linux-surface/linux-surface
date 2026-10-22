@@ -211,6 +211,10 @@ if [ "${PATCH_COUNT}" -gt 0 ]; then
     echo "Copied ${PATCH_COUNT} patches to ${PATCHES_DIR}"
 fi
 
+# Record the base version, so that package updates know which kernel version
+# the patches are for
+echo "${BASE_VERSION_TAG}" > "${PATCHES_DIR}/BASE"
+
 # ============================================================================
 # Verify and report
 # ============================================================================
