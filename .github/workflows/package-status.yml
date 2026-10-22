@@ -28,7 +28,7 @@ on:
     types:
       - completed
 
-  # Update checkboxes in the status issue
+  # Automatic update checkboxes in the status issue
   issues:
     types:
       - edited
@@ -85,9 +85,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_BODY: ${{ github.event_name == 'issues' && github.event.issue.body || '' }}
+          PREVIOUS_BODY: ${{ github.event_name == 'issues' && github.event.changes.body.from || '' }}
         run: |
           echo "${EVENT_BODY}" > "${RUNNER_TEMP}/event-body.md"
-          REQUESTS="$(bash .github/scripts/autoupdate/status-requests.sh "${RUNNER_TEMP}/event-body.md" | xargs)"
+          echo "${PREVIOUS_BODY}" > "${RUNNER_TEMP}/previous-body.md"
+
+          REQUESTS="$(bash .github/scripts/autoupdate/status-requests.sh \
+            "${RUNNER_TEMP}/event-body.md" "${RUNNER_TEMP}/previous-body.md" | xargs)"
 
           echo "Requested updates: ${REQUESTS:-none}"
           echo "requests=${REQUESTS}" >> "${GITHUB_OUTPUT}"

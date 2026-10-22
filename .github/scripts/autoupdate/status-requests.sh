@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# Print the update requests of the package status issue, i.e. its checked
-# update checkboxes: 'update:<script>' for requested updates, 'auto:<script>'
-# for packages to update automatically.
+# Print the update requests of the package status issue: 'auto:<script>' for
+# each package to update automatically (i.e. whose checkbox is checked).
 #
-# Usage: status-requests.sh [<body-file>...]
+# Usage: status-requests.sh [<body> [<previous-body>]]
 #
-# Additional issue bodies can be passed as files, e.g. the body of an 'edited'
-# event. This makes sure that a request is not lost if a concurrent run has
-# overwritten the issue in the meantime.
+# The body of an 'edited' event can be passed as file. This makes sure that a
+# request is not lost if a concurrent run has overwritten the issue in the
+# meantime. If the previous body (before the edit) is passed as well, packages
+# whose box has been checked by the edit are also printed as 'retry:<script>'.
 #
 # Environment variables:
 #   GITHUB_REPOSITORY: Repository of the status issue
@@ -27,6 +27,15 @@ if [ -z "${GITHUB_REPOSITORY:-}" ]; then
     exit 1
 fi
 
+# Print the checked packages of an issue body (on stdin).
+checked()
+{
+    tr -d '\r' | sed -nE 's/^\s*- \[[xX]\] .*<!-- auto:([a-z0-9-]+) -->\s*$/\1/p' | sort -u
+}
+
+BODY="${1:-/dev/null}"
+PREVIOUS="${2:-}"
+
 {
     # See update-status-issue.sh
     if [ -f "${ISSUE_FILE}" ]; then
@@ -34,9 +43,9 @@ fi
             --json body --jq .body
     fi
 
-    for file in "$@"; do
-        cat "${file}"
-    done
-} | tr -d '\r' \
-    | sed -nE 's/^\s*- \[[xX]\] .*<!-- ((update|auto):[a-z0-9-]+) -->\s*$/\1/p' \
-    | sort -u
+    cat "${BODY}"
+} | checked | sed 's/^/auto:/'
+
+if [ -n "${PREVIOUS}" ]; then
+    comm -23 <(checked < "${BODY}") <(checked < "${PREVIOUS}") | sed 's/^/retry:/'
+fi
