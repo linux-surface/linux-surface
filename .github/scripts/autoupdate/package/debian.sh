@@ -25,6 +25,22 @@ conf_var()
     sed -nE "s/^$1=\"(.*)\"\$/\\1/p" "${VERSION_CONF}" | head -n1
 }
 
+# List the kernel source (vX.Y.Z) and packaging (cod/mainline/vX.Y.Z) tags of
+# a series. Query both prefixes separately, as listing all tags of the
+# mainline-crack repository takes minutes.
+mainline_tags()
+{
+    local series="$1"
+    local regex
+
+    regex="(${MAINLINE_PREFIX})?v$(regex_escape "${series}")\.[0-9]+"
+
+    {
+        remote_tags "${MAINLINE_REPO}" "v${series}." "${regex}"
+        remote_tags "${MAINLINE_REPO}" "${MAINLINE_PREFIX}v${series}." "${regex}"
+    } | sort -V
+}
+
 cmd_current()
 {
     local version
@@ -44,7 +60,7 @@ cmd_latest()
     local tags
 
     series="$(version_series "$(conf_var KERNEL_VERSION)")"
-    tags="$(remote_tags "${MAINLINE_REPO}" "" "(${MAINLINE_PREFIX})?v$(regex_escape "${series}")\.[0-9]+")"
+    tags="$(mainline_tags "${series}")"
 
     emit upstream "$(echo "${tags}" | grep -v "^${MAINLINE_PREFIX}" | sed 's/^v//' | sort -V | tail -n1)"
     emit packaging "$(echo "${tags}" | grep "^${MAINLINE_PREFIX}" | sed "s|^${MAINLINE_PREFIX}v||" | sort -V | tail -n1)"
@@ -60,7 +76,7 @@ cmd_check()
     version="$(parse_version "${1:-}")"
     series="$(version_series "${version}")"
 
-    tags="$(remote_tags "${MAINLINE_REPO}" "" "(${MAINLINE_PREFIX})?v$(regex_escape "${series}")\.[0-9]+")"
+    tags="$(mainline_tags "${series}")"
 
     if ! echo "${tags}" | grep -qx "v$(regex_escape "${version}")"; then
         emit status pending
