@@ -1,0 +1,41 @@
+From d5c11cb2724ecfede48b1d6405d2f13e278b6773 Mon Sep 17 00:00:00 2001
+From: surface-ipu4 <surface-ipu4@localhost>
+Date: Tue, 20 Oct 2026 23:36:06 +0200
+Subject: [PATCH] media: ipu6: SB3 fixed CSI timing for ports 0-2
+ (IR+back+front)
+
+---
+ drivers/media/pci/intel/ipu6/ipu4p-isys-csi-phy.c | 15 +++++++++------
+ 1 file changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/media/pci/intel/ipu6/ipu4p-isys-csi-phy.c b/drivers/media/pci/intel/ipu6/ipu4p-isys-csi-phy.c
+index ffa7d80cd5f2..6016e46b1d22 100644
+--- a/drivers/media/pci/intel/ipu6/ipu4p-isys-csi-phy.c
++++ b/drivers/media/pci/intel/ipu6/ipu4p-isys-csi-phy.c
+@@ -166,14 +166,17 @@ int ipu4p_isys_phy_set_power(struct ipu6_isys *isys,
+ 	writel(timing->ctermen,
+ 	       base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_CLANE);
+ 
+-	fixed_timing = csi2->port == 2 && cfg->nlanes == 2 &&
+-		       csi2->asd.source ==
+-		       IPU6_FW_ISYS_STREAM_SRC_CSI2_PORT0 + 7;
++	/*
++	 * SB3 (and SP7 front): calculated settle never locks reliably on
++	 * IPU4P CSI-2. Use Windows-observed 1155/1269 ticks for the three
++	 * sensor ports: 0=back ov8865, 1=IR ov7251, 2=front ov5693.
++	 */
++	fixed_timing = csi2->port <= 2 && cfg->nlanes >= 1 && cfg->nlanes <= 2;
+ 	if (fixed_timing) {
+ 		ipu4p_isys_apply_fixed_2lane_timing(csi2);
+-		dev_dbg(&isys->adev->auxdev.dev,
+-			"using fixed SP7 timing for CSI-2 port %u, source 7, two lanes\n",
+-			csi2->port);
++		dev_info(&isys->adev->auxdev.dev,
++			 "SB3/SP7 fixed CSI timing for port %u lanes=%u src=%u\n",
++			 csi2->port, cfg->nlanes, csi2->asd.source);
+ 
+ 		/* Windows configures the lane count before RX_CONFIG. */
+ 		writel(cfg->nlanes, base + IPU4P_CSI2_RX_NOF_ENABLED_LANES);
+-- 
+2.56.0
+

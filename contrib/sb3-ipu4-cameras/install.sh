@@ -51,6 +51,10 @@ echo "=== 2. userspace → $PREFIX ==="
 install -d "$PREFIX/tools" "$PREFIX/lib" "$PREFIX/sbin"
 install -m 644 "$ROOT/userspace/lib/"*.py "$PREFIX/lib/"
 install -m 755 "$ROOT/userspace/tools/surface_webcamd.py" "$PREFIX/tools/"
+if [[ -f "$ROOT/userspace/tools/surface_lc_webcamd.py" ]]; then
+  install -d /usr/local/libexec
+  install -m 755 "$ROOT/userspace/tools/surface_lc_webcamd.py" /usr/local/libexec/surface_lc_webcamd.py
+fi
 if [[ -f "$ROOT/userspace/tools/raw_hold.c" ]]; then
   install -m 644 "$ROOT/userspace/tools/raw_hold.c" "$PREFIX/tools/"
   cc -O2 -Wall -o "$PREFIX/tools/raw_hold" "$PREFIX/tools/raw_hold.c"
