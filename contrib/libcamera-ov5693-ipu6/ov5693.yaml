@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: CC0-1.0
+#
+# libcamera software ISP tuning for the OV5693 front camera on IPU6 Surface devices.
+# Needs libcamera 0.7.2 or newer. Install to ~/.config/libcamera/ipa/simple/ov5693.yaml (per user)
+# or /usr/share/libcamera/ipa/simple/ov5693.yaml (system-wide). See README.md.
+%YAML 1.1
+---
+version: 1
+algorithms:
+  # No explicit blackLevel: libcamera's OV5693 sensor helper already provides 1024 (16-bit scale).
+  - BlackLevel:
+  - Awb:
+  # Not a colour-chart calibration. Saturation 1.2 with R x1.12 and B x1.10 on top of the AWB gains.
+  # The grey-world AWB still sums clipped pixels, so under office light with bright fixtures and a window
+  # in view it leaves a green cast (ceiling G-R about +8 of 255). This matrix brings it to about +1.
+  - Ccm:
+      ccms:
+        - ct: 6500
+          ccm: [ 1.2770, -0.1315, -0.0255, -0.0598, 1.0826, -0.0228, -0.0658, -0.1291, 1.2949 ]
+  - Adjust:
+  - Agc:
+...
