@@ -1,0 +1,18 @@
+# Surface Pro 11 Type Cover: group keyboard and touchpad for libinput DWT
+#
+# The keyboard and touchpad arrive via Surface Aggregator as separate HID
+# sub-devices with different physical paths, so libinput assigns them to
+# different device groups. This breaks DWT (disable-while-typing) because
+# libinput only suppresses touchpad input for keyboards in the SAME group.
+#
+# 045E:0C8B is deliberately excluded — it exposes REL_HWHEEL (consumer
+# controls), which libinput classifies as a pointer device. Including it
+# triggers dwtp (disable-while-trackpointing) and intermittently disables
+# the touchpad entirely.
+
+ACTION!="add|change", GOTO="surface_tp_end"
+
+SUBSYSTEM=="input", ATTRS{name}=="Microsoft Surface 045E:0C8E Keyboard", ENV{LIBINPUT_DEVICE_GROUP}="surface-typecover"
+SUBSYSTEM=="input", ATTRS{name}=="Microsoft Surface 045E:0C8D Touchpad", ENV{LIBINPUT_DEVICE_GROUP}="surface-typecover"
+
+LABEL="surface_tp_end"
