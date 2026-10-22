@@ -10,6 +10,7 @@ on:
         required: true
         type: choice
         options:
+          - debian
           - fedora
       version:
         description: 'Kernel version (optional, e.g. "7.2.12"). If not specified, the base version of the patches is used. If already packaged, the package release is bumped.'
@@ -85,13 +86,22 @@ jobs:
           RELEASE: ${{ steps.update.outputs.release }}
           PACKAGE_VERSION: ${{ steps.update.outputs.package_version }}
           REFRESHED: ${{ steps.update.outputs.refreshed }}
+          CONFIG_UPDATED: ${{ steps.update.outputs.config_updated }}
         run: |
           case "${DISTRO}" in
+          debian)
+            NAME="Debian"
+            PREFIX="pkg/debian"
+            PATHS=("pkg/debian/kernel")
+            SUBJECT="Update Debian kernel to v${VERSION}"
+            REFRESH_SUBJECT="${PREFIX}: Rebase packaging patches onto v${VERSION}"
+            ;;
           fedora)
             NAME="Fedora"
             PREFIX="pkg/fedora"
             PATHS=("pkg/fedora/kernel-surface")
             SUBJECT="Update Fedora kernels to v${VERSION}"
+            REFRESH_SUBJECT="${PREFIX}: Update build-system patches"
             ;;
           esac
 
@@ -117,9 +127,9 @@ jobs:
             IFS=',' read -ra DIRS <<< "${REFRESHED}"
             git add -- "${DIRS[@]}"
             git commit -F - <<EOF
-          ${PREFIX}: Update build-system patches
+          ${REFRESH_SUBJECT}
 
-          Refresh the build-system patches for ${NAME} kernel ${VERSION}. The
+          Refresh the packaging patches for ${NAME} kernel ${VERSION}. The
           patches in the following directories needed a 3-way merge:
 
           $(printf -- '- %s\n' "${DIRS[@]}")
@@ -129,7 +139,7 @@ jobs:
           git add -- "${PATHS[@]}"
           git commit -m "${SUBJECT}"
 
-          if [ -n "${REFRESHED}" ]; then
+          if [ -n "${REFRESHED}" ] || [ "${CONFIG_UPDATED}" = "1" ]; then
             LABEL="autoupdate:needs-review"
           else
             LABEL="autoupdate:trivial"
@@ -164,6 +174,8 @@ jobs:
           VERSION: ${{ steps.update.outputs.version }}
           PACKAGE_VERSION: ${{ steps.update.outputs.package_version }}
           REFRESHED: ${{ steps.update.outputs.refreshed }}
+          CONFIG_UPDATED: ${{ steps.update.outputs.config_updated }}
+          PACKAGING: ${{ steps.update.outputs.packaging }}
         run: |
           gh label create autoupdate --force --color "1d76db" \
             --description "Created by the autoupdate workflows"
@@ -173,6 +185,9 @@ jobs:
             --description "Automatic update that needs a closer review"
 
           case "${DISTRO}" in
+          debian)
+            TAGS="debian-${PACKAGE_VERSION}"
+            ;;
           fedora)
             TAGS="$(find .github/workflows -name 'fedora-*.yml' -printf '%f\n' \
               | sed -E 's/fedora-([0-9]+)\.yml/\1/' | sort -n \
@@ -181,9 +196,13 @@ jobs:
           esac
 
           if [ -n "${REFRESHED}" ]; then
-            REVIEW="⚠️ Build-system patches needed a 3-way merge and were regenerated, please review: \`${REFRESHED//,/\`, \`}\`"
+            REVIEW="⚠️ Packaging patches needed a 3-way merge and were regenerated, please review: \`${REFRESHED//,/\`, \`}\`"
           else
             REVIEW="✅ All patches applied without changes."
+          fi
+
+          if [ "${CONFIG_UPDATED}" = "1" ]; then
+            REVIEW="${REVIEW}"$'\n\n'"⚠️ The base config has been updated from Ubuntu mainline build ${PACKAGING}, please review the config changes."
           fi
 
           gh pr create \

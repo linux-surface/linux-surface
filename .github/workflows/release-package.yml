@@ -105,6 +105,15 @@ jobs:
           PACKAGE_VERSION="$(echo "${VERSIONS}" | sed -n 's/^version=//p')-$(echo "${VERSIONS}" | sed -n 's/^release=//p')"
 
           case "${DISTRO}" in
+          debian)
+            TARGETS="$(jq -nc --arg version "${PACKAGE_VERSION}" '[{
+                name: "debian",
+                workflow: "debian.yml",
+                image: "debian:sid",
+                repo_args: "",
+                tag: "debian-\($version)"
+              }]')"
+            ;;
           fedora)
             TARGETS="$(find .github/workflows -name 'fedora-*.yml' -printf '%f\n' \
               | sed -E 's/fedora-([0-9]+)\.yml/\1/' | sort -n \

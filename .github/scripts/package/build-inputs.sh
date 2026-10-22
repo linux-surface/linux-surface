@@ -27,8 +27,21 @@ fedora)
         .github/scripts/container
     )
     ;;
+debian)
+    SERIES="$(git show "${COMMIT}:pkg/debian/kernel/version.conf" \
+        | sed -nE 's/^KERNEL_VERSION="([0-9]+\.[0-9]+)\..*"$/\1/p')"
+
+    PATHS=(
+        "patches/${SERIES}"
+        "configs/surface-${SERIES}.config"
+        pkg/keys
+        pkg/debian
+        .github/scripts/package/debian.sh
+        .github/scripts/container
+    )
+    ;;
 *)
-    echo "Usage: $0 fedora [<commit>]" >&2
+    echo "Usage: $0 {fedora|debian} [<commit>]" >&2
     exit 1
     ;;
 esac
