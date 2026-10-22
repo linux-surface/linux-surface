@@ -13,6 +13,14 @@ on:
       - 'patches/**'
       - 'pkg/**'
 
+  # Update when autoupdate pull requests are opened or closed (merges are
+  # covered by the push trigger above)
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - closed
+
   # Manual trigger
   workflow_dispatch:
     inputs:
@@ -35,10 +43,19 @@ jobs:
   status:
     name: Update package status
     runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'pull_request' || (
+        startsWith(github.head_ref, 'autoupdate/') &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        !github.event.pull_request.merged
+      )
 
     steps:
       - name: Checkout linux-surface repo
         uses: actions/checkout@v7
+        with:
+          # Report the state of master, not of the pull request
+          ref: ${{ github.event_name == 'pull_request' && github.event.repository.default_branch || '' }}
 
       - name: Generate report
         env:
