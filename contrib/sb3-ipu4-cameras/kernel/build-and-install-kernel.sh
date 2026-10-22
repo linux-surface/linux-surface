@@ -5,25 +5,24 @@
 #   6.19.8  — linux-surface patches/6.19 + ruslanbay downstream-legacy v6.19
 #   7.2.11  — linux-surface patches/7.2  + same IPU4 v6.19 series + SB3 shims
 #   7.3.0   — upstream v7.3 + linux-surface v7.3-surface rebased onto v7.3
-#             + same IPU4 v6.19 series + kernel/patches/7.3/
+#             + Sakari IPU6/IPU7 lore series + ruslanbay upstream 00*.patch
+#             + SB3 portable overlays (ov5693 MIPI_CTRL00, ov7251 avdd)
 #
 # Resulting LOCALVERSION: -surface-ipu4  (release e.g. 7.3.0-surface-ipu4+)
-# Distros: Fedora 44/45, Nobara 44 (same RPM surface repo / custom install).
+# Distros: Fedora 44/45, Nobara 44.
 #
-# Paths: SRC_ROOT / SURFACE_IPU4_BUILD only — never hard-code a username or
-# /home/<user>/… tree.
+# Paths: SRC_ROOT / SURFACE_IPU4_BUILD only — never hard-code a username.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC_ROOT="${SRC_ROOT:-${SURFACE_IPU4_BUILD:-/usr/src/surface-ipu4}}"
-# Prefer a writable home build tree when /usr/src is not owned by the builder.
 if [[ ! -w "${SRC_ROOT}" ]] 2>/dev/null; then
   SRC_ROOT="${SURFACE_IPU4_BUILD:-${HOME}/src/surface-ipu4-build}"
 fi
 KVER="${1:-${KVER:-${SURFACE_IPU4_KVER:-7.3.0}}}"
 JOBS="${JOBS:-$(nproc)}"
-PATCH="$ROOT/kernel/patches/0001-media-intel-ipu4p-sb3-front-dphy-lock.patch"
+IPU_TRACK="${IPU_TRACK:-}"   # auto | downstream | upstream
+INSTALL_MODE="${INSTALL_MODE:-rpm}"  # rpm | modules  (7.3 default: rpm)
 
-# Map packaging KVER → tarball name + surface series + how to get surface tree.
 SURFACE_MODE="patches"   # patches | rebase-kernel
 KERNEL_TAR_VER=""
 case "$KVER" in
@@ -31,25 +30,28 @@ case "$KVER" in
     SURFACE_SERIES="6.19"
     KERNEL_TAR_VER="$KVER"
     KERNEL_XZ_URL="https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_TAR_VER}.tar.xz"
+    IPU_TRACK="${IPU_TRACK:-downstream}"
     ;;
   7.2.*)
     SURFACE_SERIES="7.2"
     KERNEL_TAR_VER="$KVER"
     KERNEL_XZ_URL="https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${KERNEL_TAR_VER}.tar.xz"
+    IPU_TRACK="${IPU_TRACK:-downstream}"
     ;;
   7.3|7.3.0)
-    # Upstream ships linux-7.3.tar.xz; Makefile reports VERSION 7.3.0.
     SURFACE_SERIES="7.3"
     KERNEL_TAR_VER="7.3"
     KVER="7.3.0"
     KERNEL_XZ_URL="https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${KERNEL_TAR_VER}.tar.xz"
     SURFACE_MODE="rebase-kernel"
+    IPU_TRACK="${IPU_TRACK:-upstream}"
     ;;
   7.3.*)
     SURFACE_SERIES="7.3"
     KERNEL_TAR_VER="$KVER"
     KERNEL_XZ_URL="https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${KERNEL_TAR_VER}.tar.xz"
     SURFACE_MODE="rebase-kernel"
+    IPU_TRACK="${IPU_TRACK:-upstream}"
     ;;
   *)
     echo "Unsupported KVER=$KVER (use 6.19.8, 7.2.11, or 7.3.0)" >&2
@@ -65,41 +67,88 @@ need git
 need make
 need curl
 need tar
-
-echo "=== SB3 IPU4 kernel build: KVER=$KVER SURFACE_SERIES=$SURFACE_SERIES MODE=$SURFACE_MODE SRC_ROOT=$SRC_ROOT ==="
-
-# Downstream-legacy carries the intel_ipu4p stack used by surface_webcamd.
-# Do not mix ruslanbay upstream (IPU6-based) into this path.
-if [[ ! -d "$SRC_ROOT/ipu4-drivers/.git" ]]; then
-  git clone -b downstream-legacy https://github.com/ruslanbay/ipu4-drivers.git
-  (cd ipu4-drivers && git lfs pull)
-else
-  (cd ipu4-drivers && git fetch origin && git checkout downstream-legacy &&
-     git pull --ff-only origin downstream-legacy && git lfs pull) || true
+if [[ "$IPU_TRACK" == "upstream" ]]; then
+  need b4
 fi
-if [[ ! -d "$SRC_ROOT/ipu4-drivers/patches/kernel/v6.19" ]]; then
-  echo "Missing ipu4-drivers/patches/kernel/v6.19 (downstream-legacy)" >&2
-  exit 1
+
+echo "=== SB3 IPU4 kernel build: KVER=$KVER SURFACE=$SURFACE_SERIES MODE=$SURFACE_MODE IPU=$IPU_TRACK SRC=$SRC_ROOT ==="
+
+# --- ipu4-drivers ---
+if [[ ! -d "$SRC_ROOT/ipu4-drivers/.git" ]]; then
+  git clone https://github.com/ruslanbay/ipu4-drivers.git
+fi
+(
+  cd ipu4-drivers
+  git fetch origin
+  if [[ "$IPU_TRACK" == "upstream" ]]; then
+    git checkout upstream
+    git pull --ff-only origin upstream || true
+  else
+    git checkout downstream-legacy
+    git pull --ff-only origin downstream-legacy || true
+  fi
+  git lfs pull || true
+)
+
+if [[ "$IPU_TRACK" == "downstream" ]]; then
+  if [[ ! -d "$SRC_ROOT/ipu4-drivers/patches/kernel/v6.19" ]]; then
+    echo "Missing ipu4-drivers/patches/kernel/v6.19 (downstream-legacy)" >&2
+    exit 1
+  fi
+else
+  if ! compgen -G "$SRC_ROOT/ipu4-drivers/patches/00*.patch" >/dev/null; then
+    echo "Missing ipu4-drivers/patches/00*.patch (upstream branch)" >&2
+    exit 1
+  fi
+fi
+
+# Firmware blob lives on downstream-legacy; ensure it exists for install.
+if [[ ! -f "$SRC_ROOT/ipu4-drivers/firmware/ipu4-20191030.bin" ]]; then
+  git -C ipu4-drivers checkout downstream-legacy -- firmware/ipu4-20191030.bin 2>/dev/null || true
 fi
 
 LINUX_DIR="$SRC_ROOT/linux-${KERNEL_TAR_VER}"
 if [[ "$SURFACE_MODE" == "rebase-kernel" ]]; then
-  # Full surface tree: rebase linux-surface/kernel v7.3-surface onto upstream v7.3.
   KERNTREE="$SRC_ROOT/linux-surface-kernel"
   if [[ ! -d "$KERNTREE/.git" ]]; then
     git clone --filter=blob:none --branch v7.3-surface --single-branch \
       https://github.com/linux-surface/kernel.git "$KERNTREE"
   else
-    (cd "$KERNTREE" && git fetch origin v7.3-surface:v7.3-surface && git fetch --deepen=500 origin v7.3-surface || true)
+    (cd "$KERNTREE" && git fetch origin v7.3-surface:v7.3-surface &&
+       git fetch --deepen=800 origin v7.3-surface || true)
   fi
-  (cd "$KERNTREE" && git remote add torvalds https://github.com/torvalds/linux.git 2>/dev/null || true
-   git fetch --depth=1 torvalds tag "v${KERNEL_TAR_VER}"
-   git checkout -B "build-${KVER}-surface" v7.3-surface
-   BASE="$(git merge-base v7.3-surface "v${KERNEL_TAR_VER}")"
-   git rebase --onto "v${KERNEL_TAR_VER}" "$BASE" || {
-     echo "Rebase of v7.3-surface onto v${KERNEL_TAR_VER} failed — resolve in $KERNTREE" >&2
-     exit 1
-   })
+  (
+    cd "$KERNTREE"
+    git remote add torvalds https://github.com/torvalds/linux.git 2>/dev/null || true
+    git fetch --depth=1 torvalds tag "v${KERNEL_TAR_VER}"
+    git rebase --abort 2>/dev/null || true
+    # Prefer a known surface-only tip already sitting on v7.3 (avoids shallow
+    # merge-base hangs on blob:none clones). Override with SURFACE_TIP=...
+    # Tip is the parent of the first downstream-legacy IPU commit on
+    # build-7.3.0-surface (hid/multitouch Studio 2).
+    DEFAULT_SURFACE_TIP="e55d45853d76"
+    TIP="${SURFACE_TIP:-}"
+    if [[ -z "$TIP" ]] && git cat-file -e "${DEFAULT_SURFACE_TIP}^{commit}" 2>/dev/null; then
+      TIP="$DEFAULT_SURFACE_TIP"
+    fi
+    if [[ -n "$TIP" ]]; then
+      echo "Using surface-only tip $TIP (on v${KERNEL_TAR_VER})"
+      git checkout -B "build-${KVER}-upstream-surface" "$TIP"
+      git reset --hard "$TIP"
+    else
+      git checkout -B "build-${KVER}-upstream-surface" v7.3-surface
+      git reset --hard v7.3-surface
+      BASE="$(timeout 60 git merge-base v7.3-surface "v${KERNEL_TAR_VER}" || true)"
+      if [[ -z "$BASE" ]]; then
+        echo "merge-base timed out — deepen history or set SURFACE_TIP=" >&2
+        exit 1
+      fi
+      git rebase --onto "v${KERNEL_TAR_VER}" "$BASE" || {
+        echo "Rebase of v7.3-surface onto v${KERNEL_TAR_VER} failed — resolve in $KERNTREE" >&2
+        exit 1
+      }
+    fi
+  )
   LINUX_DIR="$KERNTREE"
 else
   if [[ ! -d "$SRC_ROOT/linux-surface/.git" ]]; then
@@ -131,26 +180,52 @@ if [[ ! -d .git ]]; then
   git commit -qm "v${KERNEL_TAR_VER} vanilla"
 fi
 
-MARKER=".sb3-ipu4-applied-${SURFACE_SERIES}"
+MARKER=".sb3-ipu4-applied-${SURFACE_SERIES}-${IPU_TRACK}"
 if [[ ! -f "$MARKER" ]]; then
   git am --abort 2>/dev/null || true
+
   if [[ "$SURFACE_MODE" == "patches" ]]; then
     git am --3way "$SRC_ROOT/linux-surface/patches/${SURFACE_SERIES}/"*.patch
   fi
-  git am --3way "$SRC_ROOT/ipu4-drivers/patches/kernel/v6.19/"*.patch
-  # Prefer series-local DPHY; fall back to shared 0001.
-  series_dphy="$ROOT/kernel/patches/${SURFACE_SERIES}/0001-media-intel-ipu4p-sb3-front-dphy-lock.patch"
-  if [[ -f "$series_dphy" ]]; then
-    git am --3way "$series_dphy"
+
+  if [[ "$IPU_TRACK" == "upstream" ]]; then
+    # Sakari Ailus IPU6→IPU7 series required by ruslanbay upstream README.
+    b4 shazam 'https://lore.kernel.org/all/20260907113004.2489993-1-sakari.ailus@linux.intel.com/'
+    git am --3way "$SRC_ROOT/ipu4-drivers/patches/"00*.patch
   else
-    git am --3way "$PATCH"
+    git am --3way "$SRC_ROOT/ipu4-drivers/patches/kernel/v6.19/"*.patch
+    series_dphy="$ROOT/kernel/patches/${SURFACE_SERIES}/0001-media-intel-ipu4p-sb3-front-dphy-lock.patch"
+    if [[ -f "$series_dphy" ]]; then
+      git am --3way "$series_dphy"
+    else
+      git am --3way "$ROOT/kernel/patches/0001-media-intel-ipu4p-sb3-front-dphy-lock.patch"
+    fi
   fi
+
+  # Series-local overlays (skip already-applied 0001 DPHY on downstream).
   extra="$ROOT/kernel/patches/${SURFACE_SERIES}"
   if [[ -d "$extra" ]]; then
     shopt -s nullglob
     for p in "$extra"/*.patch; do
       base="$(basename "$p")"
-      [[ "$base" == 0001-* ]] && continue
+      if [[ "$IPU_TRACK" == "downstream" && "$base" == 0001-* ]]; then
+        continue
+      fi
+      # Downstream-only API shims / dma_ops — skip on upstream IPU6 stack.
+      if [[ "$IPU_TRACK" == "upstream" ]]; then
+        case "$base" in
+          0001-media-intel-ipu4p-sb3-front-dphy-lock.patch|\
+          0002-uapi-ipu-*|\
+          0003-media-ipu-buttress-*|\
+          0004-media-ipu-isys-queue-*|\
+          0005-media-ipu-isys-set-vbq-*|\
+          0006-media-ipu-isys-avoid-*|\
+          0008-media-intel-ipu-set-dma-ops-*)
+            echo "SKIP downstream-only $base (upstream track)"
+            continue
+            ;;
+        esac
+      fi
       if ! git am --3way "$p"; then
         git am --abort 2>/dev/null || true
         echo "WARN: git am failed for $base — try git apply" >&2
@@ -164,58 +239,142 @@ if [[ ! -f "$MARKER" ]]; then
   touch "$MARKER"
 fi
 
+# --- config ---
+# Never reuse a broken minimal .config. Prefer Fedora x86_64, then a known-good boot config.
 BOOTCFG=""
-for c in \
-  "$ROOT/kernel/configs/surface-${KVER}-ipu4.config" \
-  "$ROOT/kernel/configs/surface-${SURFACE_SERIES}.0-ipu4.config" \
-  "$SRC_ROOT/linux-surface/configs/surface-${SURFACE_SERIES}.config" \
-  "/lib/modules/$(uname -r)/config" \
-  "/boot/config-$(uname -r)" \
-  /boot/config-*-surface*.x86_64
-do
-  # shellcheck disable=SC2086
-  for f in $c; do
-    [[ -f "$f" ]] && BOOTCFG="$f" && break 2
+if [[ "$IPU_TRACK" == "upstream" ]]; then
+  FEDORA_CFG="$SRC_ROOT/kernel-x86_64-fedora.config"
+  if [[ ! -f "$FEDORA_CFG" ]]; then
+    curl -fL -o "$FEDORA_CFG" \
+      'https://src.fedoraproject.org/rpms/kernel/raw/f44/f/kernel-x86_64-fedora.config'
+  fi
+  BOOTCFG="$FEDORA_CFG"
+else
+  for c in \
+    "$ROOT/kernel/configs/surface-${KVER}-ipu4.config" \
+    "$ROOT/kernel/configs/surface-${SURFACE_SERIES}.0-ipu4.config" \
+    "$SRC_ROOT/linux-surface/configs/surface-${SURFACE_SERIES}.config" \
+    "/boot/config-$(uname -r)" \
+    /boot/config-*-surface*.x86_64
+  do
+    for f in $c; do
+      [[ -f "$f" ]] && BOOTCFG="$f" && break 2
+    done
   done
-done
+fi
 if [[ -n "$BOOTCFG" ]]; then
   cp "$BOOTCFG" .config
 else
   make defconfig
 fi
+
 ./scripts/config --set-str CONFIG_SYSTEM_TRUSTED_KEYS ""
 ./scripts/config --set-str CONFIG_SYSTEM_REVOCATION_KEYS ""
 ./scripts/config --set-str CONFIG_MODULE_SIG_KEY ""
 ./scripts/config --disable CONFIG_MODULE_SIG_ALL
 ./scripts/config --set-str CONFIG_LOCALVERSION "-surface-ipu4"
 ./scripts/config --disable CONFIG_LOCALVERSION_AUTO
+
+# Boot-critical (previous 7.3 fail: these were unset → no root FS / NVMe).
+./scripts/config --enable CONFIG_BTRFS_FS
+./scripts/config --enable CONFIG_BTRFS_FS_POSIX_ACL || true
+./scripts/config --module CONFIG_EXT4_FS || ./scripts/config --enable CONFIG_EXT4_FS
+./scripts/config --module CONFIG_BLK_DEV_NVME || ./scripts/config --enable CONFIG_BLK_DEV_NVME
+./scripts/config --module CONFIG_DRM_I915 || ./scripts/config --enable CONFIG_DRM_I915
+
 ./scripts/config --enable CONFIG_MEDIA_SUPPORT
 ./scripts/config --disable CONFIG_MEDIA_SUPPORT_FILTER || true
 ./scripts/config --enable CONFIG_MEDIA_CAMERA_SUPPORT
 ./scripts/config --enable CONFIG_MEDIA_PCI_SUPPORT
 ./scripts/config --module CONFIG_IPU_BRIDGE || ./scripts/config --enable CONFIG_IPU_BRIDGE
-./scripts/config --module CONFIG_VIDEO_INTEL_IPU || ./scripts/config --enable CONFIG_VIDEO_INTEL_IPU
-./scripts/config --enable CONFIG_VIDEO_INTEL_IPU4P
-./scripts/config --enable CONFIG_VIDEO_INTEL_IPU_SOC
-./scripts/config --enable CONFIG_VIDEO_INTEL_IPU_FW_LIB
 ./scripts/config --enable CONFIG_INTEL_SKL_INT3472 || ./scripts/config --module CONFIG_INTEL_SKL_INT3472 || true
 ./scripts/config --module CONFIG_VIDEO_OV5693 || ./scripts/config --enable CONFIG_VIDEO_OV5693
 ./scripts/config --module CONFIG_VIDEO_OV7251 || ./scripts/config --enable CONFIG_VIDEO_OV7251
 ./scripts/config --module CONFIG_VIDEO_OV8865 || ./scripts/config --enable CONFIG_VIDEO_OV8865
-./scripts/config --disable CONFIG_VIDEO_INTEL_IPU6 || true
-./scripts/config --disable CONFIG_VIDEO_INTEL_IPU7 || true
+./scripts/config --module CONFIG_VIDEO_OV9734 || true
+# Surface Book touch + pen (IPTS) and newer THC HID. The running 7.3 image
+# shipped with IPTS/ITHC unset, so the digitizer never probed.
+./scripts/config --module CONFIG_HID_IPTS || ./scripts/config --enable CONFIG_HID_IPTS
+./scripts/config --module CONFIG_HID_ITHC || ./scripts/config --enable CONFIG_HID_ITHC
+./scripts/config --module CONFIG_INTEL_THC_HID || ./scripts/config --enable CONFIG_INTEL_THC_HID
+./scripts/config --module CONFIG_INTEL_QUICKSPI || true
+./scripts/config --module CONFIG_INTEL_QUICKI2C || true
+
+if [[ "$IPU_TRACK" == "upstream" ]]; then
+  # ruslanbay upstream README (IPU4P on IPU6/IPU7)
+  ./scripts/config --module CONFIG_VIDEO_INTEL_IPU6
+  ./scripts/config --enable CONFIG_VIDEO_INTEL_IPU6_IPU7
+  ./scripts/config --disable CONFIG_VIDEO_INTEL_IPU || true
+  ./scripts/config --disable CONFIG_VIDEO_INTEL_IPU4 || true
+  ./scripts/config --disable CONFIG_VIDEO_INTEL_IPU4P || true
+else
+  ./scripts/config --module CONFIG_VIDEO_INTEL_IPU || ./scripts/config --enable CONFIG_VIDEO_INTEL_IPU
+  ./scripts/config --enable CONFIG_VIDEO_INTEL_IPU4P
+  ./scripts/config --enable CONFIG_VIDEO_INTEL_IPU_SOC
+  ./scripts/config --enable CONFIG_VIDEO_INTEL_IPU_FW_LIB
+  ./scripts/config --disable CONFIG_VIDEO_INTEL_IPU6 || true
+  ./scripts/config --disable CONFIG_VIDEO_INTEL_IPU7 || true
+fi
+
 ./scripts/config --disable DEBUG_INFO
 ./scripts/config --disable DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT
 ./scripts/config --disable DEBUG_INFO_BTF
 ./scripts/config --enable DEBUG_INFO_NONE
 ./scripts/config --disable CONFIG_DEBUG_INFO_BTF_MODULES || true
+# Needed by some media debug helpers; cheap.
+./scripts/config --enable CONFIG_DEBUG_FS || true
 make olddefconfig
 
-echo "Building kernel. Log: $SRC_ROOT/logs/kernel-build-${KVER}.log"
-make -j"$JOBS" 2>&1 | tee "$SRC_ROOT/logs/kernel-build-${KVER}.log"
+# Sanity: refuse to build an unbootable config again.
+for req in CONFIG_BTRFS_FS CONFIG_BLK_DEV_NVME CONFIG_HID_IPTS CONFIG_INTEL_THC_HID; do
+  st="$(./scripts/config --state "$req" || true)"
+  if [[ "$st" == "undef" || "$st" == "n" ]]; then
+    echo "FATAL: $req is $st — refusing build (previous 7.3 boot failure)" >&2
+    exit 1
+  fi
+  echo "OK $req=$st"
+done
+if [[ "$IPU_TRACK" == "upstream" ]]; then
+  echo "OK VIDEO_INTEL_IPU6=$(./scripts/config --state CONFIG_VIDEO_INTEL_IPU6)"
+  echo "OK VIDEO_INTEL_IPU6_IPU7=$(./scripts/config --state CONFIG_VIDEO_INTEL_IPU6_IPU7)"
+fi
+
+# Persist a known-good config snapshot into the overlay tree.
+mkdir -p "$ROOT/kernel/configs"
+cp -a .config "$ROOT/kernel/configs/surface-${KVER}-ipu4.config"
+
+echo "Building kernel. Log: $SRC_ROOT/logs/kernel-build-${KVER}-${IPU_TRACK}.log"
+"$ROOT/kernel/install-firmware.sh" || true
+
+if [[ "$INSTALL_MODE" == "rpm" && "$IPU_TRACK" == "upstream" ]]; then
+  make -j"$JOBS" binrpm-pkg 2>&1 | tee "$SRC_ROOT/logs/kernel-build-${KVER}-${IPU_TRACK}.log"
+  REL="$(cat include/config/kernel.release)"
+  echo "RPMs built for $REL — install with: dnf install $LINUX_DIR/rpmbuild/RPMS/x86_64/*.rpm"
+  # Auto-install when we can elevate
+  RPMDIR="$(pwd)/rpmbuild/RPMS/x86_64"
+  if [[ -d "$RPMDIR" ]] && compgen -G "$RPMDIR"/*.rpm >/dev/null; then
+    if command -v pkexec >/dev/null; then
+      pkexec dnf install -y "$RPMDIR"/*.rpm
+    else
+      sudo dnf install -y "$RPMDIR"/*.rpm
+    fi
+  fi
+else
+  make -j"$JOBS" 2>&1 | tee "$SRC_ROOT/logs/kernel-build-${KVER}-${IPU_TRACK}.log"
+  REL="$(cat include/config/kernel.release)"
+  echo "Installing $REL"
+  if command -v pkexec >/dev/null; then
+    pkexec bash -c "cd '$LINUX_DIR' && make modules_install INSTALL_MOD_STRIP=1 && make install &&
+      mkdir -p /usr/src/kernels &&
+      ln -sfn '$LINUX_DIR' /usr/src/kernels/$REL &&
+      ln -sfn '$LINUX_DIR' /lib/modules/$REL/build &&
+      depmod -a '$REL'"
+  else
+    sudo make modules_install INSTALL_MOD_STRIP=1
+    sudo make install
+  fi
+fi
+
 REL="$(cat include/config/kernel.release)"
-echo "Installing $REL"
-"$ROOT/kernel/install-firmware.sh"
-sudo make modules_install INSTALL_MOD_STRIP=1
-sudo make install
-echo "Kernel $REL installed. Reboot and select surface-ipu4 (KVER=$KVER)."
+echo "Kernel $REL ready (IPU_TRACK=$IPU_TRACK). Reboot and select surface-ipu4."
+echo "After reboot: journalctl -b | grep -Ei 'ipu|ov5693|ov8865|INT347'"
