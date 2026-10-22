@@ -4,20 +4,46 @@ env:
   GPG_KEY_ID: 56C464BAAC421453
 
 on:
-  push:
-    tags:
-      - 'arch-*'
-
   repository_dispatch:
+
+  # Manual build, optionally releasing the packages
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Release the packages: tag the built commit (tag name based on the package version) and publish the packages to the package repository'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build:
     name: Build Kernel
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+
+      - name: Determine release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          VERSIONS="$(bash ./.github/scripts/autoupdate/package/arch.sh current)"
+          VERSION="$(echo "${VERSIONS}" | sed -n 's/^version=//p')"
+          REVISION="$(echo "${VERSIONS}" | sed -n 's/^release=//p')"
+          TAG="arch-${VERSION}-${REVISION}"
+
+          echo "Release tag: ${TAG}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+
+          # Fail early instead of after the build
+          if [ "${RELEASE}" = "true" ] && gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" > /dev/null 2>&1; then
+            echo "::error::Tag ${TAG} already exists, bump the package release to release a new build"
+            exit 1
+          fi
 
       - name: Initialize containers
         run: |
@@ -63,7 +89,7 @@ jobs:
 
   release:
     name: Publish release
-    if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/')
+    if: github.event_name == 'workflow_dispatch' && inputs.release
     needs: [build]
     runs-on: ubuntu-latest
     steps:
@@ -73,18 +99,17 @@ jobs:
           name: arch-latest
           path: arch-latest
 
-      - name: Upload assets
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
-          file: ./*-latest/*
-          tag: ${{ github.ref }}
-          overwrite: true
-          file_glob: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          gh release create "${TAG}" -R "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" \
+            --title "${TAG}" --notes "" ./*-latest/*
 
   repo:
     name: Update package repository
-    needs: [release]
+    needs: [build, release]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -104,7 +129,7 @@ jobs:
       - name: Update repository
         env:
           SURFACEBOT_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
-          GIT_REF: ${{ github.ref }}
+          GIT_REF: refs/tags/${{ needs.build.outputs.tag }}
           BRANCH_STAGING: u/staging
         run: |
           bash ./.github/scripts/container/exec.sh \
