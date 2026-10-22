@@ -2,8 +2,10 @@
 #
 # Create or update the package status issue.
 #
-# The issue is identified by its label. If no open issue with that label
-# exists, a new one is created and pinned.
+# The issue number is recorded in .github/data/autoupdate/status-issue. Looking
+# the issue up by its label is not reliable, the API occasionally returns no
+# issues. If the file does not exist, a new issue is created, locked and pinned,
+# and its number needs to be recorded in the file.
 #
 # Usage: update-status-issue.sh <report.md>
 #
@@ -31,17 +33,24 @@ if [ -z "${GITHUB_REPOSITORY:-}" ]; then
     exit 1
 fi
 
-gh label create "${LABEL}" -R "${GITHUB_REPOSITORY}" --force \
-    --color "0e8a16" --description "Automatically updated package status"
+ISSUE_FILE="$(dirname "${BASH_SOURCE[0]}")/../../data/autoupdate/status-issue"
+ISSUE=""
 
-ISSUE="$(gh issue list -R "${GITHUB_REPOSITORY}" --label "${LABEL}" --state open \
-    --json number --jq 'sort_by(.number) | .[0].number // empty')"
+if [ -f "${ISSUE_FILE}" ]; then
+    ISSUE="$(tr -d '[:space:]' < "${ISSUE_FILE}")"
+fi
 
 if [ -n "${ISSUE}" ]; then
     echo "Updating issue #${ISSUE}"
     gh issue edit "${ISSUE}" -R "${GITHUB_REPOSITORY}" --body-file "${REPORT}"
 else
     echo "Creating new status issue"
+
+    if ! gh api "repos/${GITHUB_REPOSITORY}/labels/${LABEL}" > /dev/null 2>&1; then
+        gh label create "${LABEL}" -R "${GITHUB_REPOSITORY}" \
+            --color "0e8a16" --description "Automatically updated package status"
+    fi
+
     URL="$(gh issue create -R "${GITHUB_REPOSITORY}" --title "${TITLE}" \
         --label "${LABEL}" --body-file "${REPORT}")"
     echo "Created ${URL}"
@@ -51,4 +60,6 @@ else
 
     # Pinning may not be permitted for the token, don't fail on that
     gh issue pin "${URL}" -R "${GITHUB_REPOSITORY}" || echo "WARNING: Could not pin ${URL}"
+
+    echo "::warning::Created status issue ${URL}, record its number in .github/data/autoupdate/status-issue"
 fi

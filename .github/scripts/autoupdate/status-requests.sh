@@ -19,7 +19,7 @@ if [ "${DEBUG:-}" = "1" ]; then
     set -x
 fi
 
-LABEL="package-status"
+ISSUE_FILE="$(dirname "${BASH_SOURCE[0]}")/../../data/autoupdate/status-issue"
 
 if [ -z "${GITHUB_REPOSITORY:-}" ]; then
     echo "ERROR: GITHUB_REPOSITORY environment variable is required" >&2
@@ -27,8 +27,11 @@ if [ -z "${GITHUB_REPOSITORY:-}" ]; then
 fi
 
 {
-    gh issue list -R "${GITHUB_REPOSITORY}" --label "${LABEL}" --state open \
-        --json number,body --jq 'sort_by(.number) | .[0].body // empty'
+    # See update-status-issue.sh
+    if [ -f "${ISSUE_FILE}" ]; then
+        gh issue view "$(tr -d '[:space:]' < "${ISSUE_FILE}")" -R "${GITHUB_REPOSITORY}" \
+            --json body --jq .body
+    fi
 
     for file in "$@"; do
         cat "${file}"
