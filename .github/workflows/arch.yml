@@ -4,6 +4,12 @@ env:
   GPG_KEY_ID: 56C464BAAC421453
 
 on:
+  # Test builds for automatic package updates. These packages are released
+  # after merging (see release-package.yml).
+  pull_request:
+    paths:
+      - 'pkg/arch/kernel/**'
+
   repository_dispatch:
 
   # Manual build, optionally releasing the packages
@@ -19,6 +25,12 @@ jobs:
   build:
     name: Build Kernel
     runs-on: ubuntu-latest
+    # Only build pull requests from our autoupdate branches
+    if: >-
+      github.event_name != 'pull_request' || (
+        startsWith(github.head_ref, 'autoupdate/') &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      )
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
     steps:
@@ -86,6 +98,17 @@ jobs:
         with:
           name: arch-latest
           path: pkg/arch/kernel/release
+
+      - name: Record build inputs
+        run: |
+          bash ./.github/scripts/package/build-inputs.sh arch > build-inputs.txt
+          cat build-inputs.txt
+
+      - name: Upload build inputs
+        uses: actions/upload-artifact@v7
+        with:
+          name: arch-inputs
+          path: build-inputs.txt
 
   release:
     name: Publish release

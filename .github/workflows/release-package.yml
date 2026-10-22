@@ -105,6 +105,15 @@ jobs:
           PACKAGE_VERSION="$(echo "${VERSIONS}" | sed -n 's/^version=//p')-$(echo "${VERSIONS}" | sed -n 's/^release=//p')"
 
           case "${DISTRO}" in
+          arch)
+            TARGETS="$(jq -nc --arg version "${PACKAGE_VERSION}" '[{
+                name: "arch",
+                workflow: "arch.yml",
+                image: "archlinux",
+                repo_args: "",
+                tag: "arch-\($version)"
+              }]')"
+            ;;
           debian)
             TARGETS="$(jq -nc --arg version "${PACKAGE_VERSION}" '[{
                 name: "debian",

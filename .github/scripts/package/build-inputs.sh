@@ -14,6 +14,19 @@ DISTRO="${1:-}"
 COMMIT="${2:-HEAD}"
 
 case "${DISTRO}" in
+arch)
+    SERIES="$(git show "${COMMIT}:pkg/arch/kernel/PKGBUILD" \
+        | sed -nE 's/^pkgver=([0-9]+\.[0-9]+)\..*$/\1/p')"
+
+    PATHS=(
+        "patches/${SERIES}"
+        "configs/surface-${SERIES}.config"
+        pkg/keys
+        pkg/arch/kernel
+        .github/scripts/package/arch.sh
+        .github/scripts/container
+    )
+    ;;
 fedora)
     SERIES="$(git show "${COMMIT}:pkg/fedora/kernel-surface/build-linux-surface.py" \
         | sed -nE 's/^PACKAGE_TAG = "kernel-([0-9]+\.[0-9]+)\..*"$/\1/p')"
@@ -41,7 +54,7 @@ debian)
     )
     ;;
 *)
-    echo "Usage: $0 {fedora|debian} [<commit>]" >&2
+    echo "Usage: $0 {arch|debian|fedora} [<commit>]" >&2
     exit 1
     ;;
 esac

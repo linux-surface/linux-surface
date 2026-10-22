@@ -10,6 +10,7 @@ on:
         required: true
         type: choice
         options:
+          - arch
           - debian
           - fedora
       version:
@@ -87,8 +88,15 @@ jobs:
           PACKAGE_VERSION: ${{ steps.update.outputs.package_version }}
           REFRESHED: ${{ steps.update.outputs.refreshed }}
           CONFIG_UPDATED: ${{ steps.update.outputs.config_updated }}
+          UPSTREAM_CHANGED: ${{ steps.update.outputs.upstream_changed }}
         run: |
           case "${DISTRO}" in
+          arch)
+            NAME="Arch"
+            PREFIX="pkg/arch"
+            PATHS=("pkg/arch/kernel")
+            SUBJECT="Update Arch kernel to v${VERSION}"
+            ;;
           debian)
             NAME="Debian"
             PREFIX="pkg/debian"
@@ -139,7 +147,7 @@ jobs:
           git add -- "${PATHS[@]}"
           git commit -m "${SUBJECT}"
 
-          if [ -n "${REFRESHED}" ] || [ "${CONFIG_UPDATED}" = "1" ]; then
+          if [ -n "${REFRESHED}" ] || [ "${CONFIG_UPDATED}" = "1" ] || [ "${UPSTREAM_CHANGED}" = "1" ]; then
             LABEL="autoupdate:needs-review"
           else
             LABEL="autoupdate:trivial"
@@ -176,6 +184,8 @@ jobs:
           REFRESHED: ${{ steps.update.outputs.refreshed }}
           CONFIG_UPDATED: ${{ steps.update.outputs.config_updated }}
           PACKAGING: ${{ steps.update.outputs.packaging }}
+          UPSTREAM_CHANGED: ${{ steps.update.outputs.upstream_changed }}
+          UPSTREAM_DIFF: ${{ steps.update.outputs.upstream_diff }}
         run: |
           gh label create autoupdate --force --color "1d76db" \
             --description "Created by the autoupdate workflows"
@@ -185,6 +195,9 @@ jobs:
             --description "Automatic update that needs a closer review"
 
           case "${DISTRO}" in
+          arch)
+            TAGS="arch-${PACKAGE_VERSION}"
+            ;;
           debian)
             TAGS="debian-${PACKAGE_VERSION}"
             ;;
@@ -199,6 +212,10 @@ jobs:
             REVIEW="⚠️ Packaging patches needed a 3-way merge and were regenerated, please review: \`${REFRESHED//,/\`, \`}\`"
           else
             REVIEW="✅ All patches applied without changes."
+          fi
+
+          if [ "${UPSTREAM_CHANGED}" = "1" ]; then
+            REVIEW="${REVIEW}"$'\n\n'"⚠️ The upstream PKGBUILD changed (apart from version and checksums), please check whether these changes need to be adopted:"$'\n\n'"<details><summary>Upstream PKGBUILD changes</summary>"$'\n\n```diff\n'"$(cat "${UPSTREAM_DIFF}")"$'\n```\n\n'"</details>"
           fi
 
           if [ "${CONFIG_UPDATED}" = "1" ]; then
