@@ -1,0 +1,271 @@
+name: Release Package
+run-name: Release packages of #${{ github.event.pull_request.number || inputs.pr }}
+
+# Release the packages built for a merged autoupdate pull request (see
+# update-package.yml), without rebuilding them.
+
+on:
+  pull_request:
+    types:
+      - closed
+
+  # Manual trigger, e.g. to retry a failed release
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'Number of the (merged) autoupdate pull request'
+        required: true
+        type: number
+      dry_run:
+        description: 'Dry run mode - check and download the packages, but skip tagging and releasing. Also allowed for unmerged pull requests.'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: write
+
+concurrency:
+  group: release-package-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Determine release targets
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.merged &&
+        startsWith(github.head_ref, 'autoupdate/') &&
+        !startsWith(github.head_ref, 'autoupdate/patches-') &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      )
+
+    outputs:
+      pr: ${{ steps.pr.outputs.pr }}
+      distro: ${{ steps.pr.outputs.distro }}
+      head: ${{ steps.pr.outputs.head }}
+      commit: ${{ steps.pr.outputs.commit }}
+      targets: ${{ steps.targets.outputs.targets }}
+
+    steps:
+      - name: Determine pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          gh pr view "${PR}" -R "${GITHUB_REPOSITORY}" \
+            --json headRefName,headRefOid,mergeCommit,state,isCrossRepository > pr.json
+          cat pr.json
+
+          BRANCH="$(jq -r .headRefName pr.json)"
+          HEAD="$(jq -r .headRefOid pr.json)"
+          COMMIT="$(jq -r '.mergeCommit.oid // empty' pr.json)"
+
+          if [ "$(jq -r .isCrossRepository pr.json)" = "true" ] || [[ "${BRANCH}" != autoupdate/* ]]; then
+            echo "::error::#${PR} is not an autoupdate pull request"
+            exit 1
+          fi
+
+          # autoupdate/<distro>-<version>-<release>
+          DISTRO="$(echo "${BRANCH#autoupdate/}" | cut -d- -f1)"
+
+          if [ "$(jq -r .state pr.json)" != "MERGED" ]; then
+            if [ "${DRY_RUN}" != "true" ]; then
+              echo "::error::#${PR} has not been merged"
+              exit 1
+            fi
+
+            # Dry run on an unmerged pull request: check against its head
+            COMMIT="${HEAD}"
+          fi
+
+          {
+            echo "pr=${PR}"
+            echo "distro=${DISTRO}"
+            echo "head=${HEAD}"
+            echo "commit=${COMMIT}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout linux-surface repo
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.pr.outputs.commit }}
+
+      - name: Determine targets
+        id: targets
+        env:
+          DISTRO: ${{ steps.pr.outputs.distro }}
+        run: |
+          VERSIONS="$(bash ".github/scripts/autoupdate/package/${DISTRO}.sh" current)"
+          PACKAGE_VERSION="$(echo "${VERSIONS}" | sed -n 's/^version=//p')-$(echo "${VERSIONS}" | sed -n 's/^release=//p')"
+
+          case "${DISTRO}" in
+          fedora)
+            TARGETS="$(find .github/workflows -name 'fedora-*.yml' -printf '%f\n' \
+              | sed -E 's/fedora-([0-9]+)\.yml/\1/' | sort -n \
+              | jq -R --arg version "${PACKAGE_VERSION}" '{
+                  name: "fedora-\(.)",
+                  workflow: "fedora-\(.).yml",
+                  image: "registry.fedoraproject.org/fedora:\(.)",
+                  repo_args: .,
+                  tag: "fedora-\(.)-\($version)"
+                }' | jq -sc .)"
+            ;;
+          *)
+            echo "::error::Unsupported distribution: ${DISTRO}"
+            exit 1
+            ;;
+          esac
+
+          echo "${TARGETS}" | jq .
+          echo "targets=${TARGETS}" >> "${GITHUB_OUTPUT}"
+
+  release:
+    name: Release ${{ matrix.target.name }}
+    needs: [prepare]
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.prepare.outputs.targets) }}
+
+    env:
+      DISTRO: ${{ needs.prepare.outputs.distro }}
+      HEAD: ${{ needs.prepare.outputs.head }}
+      COMMIT: ${{ needs.prepare.outputs.commit }}
+      NAME: ${{ matrix.target.name }}
+      WORKFLOW: ${{ matrix.target.workflow }}
+      TAG: ${{ matrix.target.tag }}
+
+    steps:
+      - name: Checkout linux-surface repo
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+
+      - name: Check tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" > /dev/null 2>&1; then
+            echo "::error::Tag ${TAG} already exists"
+            exit 1
+          fi
+
+      - name: Find package build
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN="$(gh run list -R "${GITHUB_REPOSITORY}" -w "${WORKFLOW}" -c "${HEAD}" \
+            -e pull_request -s success -L 1 --json databaseId --jq '.[0].databaseId // empty')"
+
+          if [ -z "${RUN}" ]; then
+            echo "::error::No successful ${WORKFLOW} build for ${HEAD}"
+            exit 1
+          fi
+
+          echo "Using build https://github.com/${GITHUB_REPOSITORY}/actions/runs/${RUN}"
+          echo "run=${RUN}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ steps.build.outputs.run }}
+        run: |
+          gh run download "${RUN}" -R "${GITHUB_REPOSITORY}" -n "${NAME}-inputs" -D "${RUNNER_TEMP}/inputs"
+          gh run download "${RUN}" -R "${GITHUB_REPOSITORY}" -n "${NAME}-latest" -D "${NAME}-latest"
+
+          ls -l "${NAME}-latest"
+
+          if [ -z "$(ls -A "${NAME}-latest")" ]; then
+            echo "::error::Build ${RUN} has no packages"
+            exit 1
+          fi
+
+      - name: Check build inputs
+        run: |
+          bash .github/scripts/package/build-inputs.sh "${DISTRO}" "${COMMIT}" > "${RUNNER_TEMP}/expected.txt"
+
+          if ! diff -u "${RUNNER_TEMP}/inputs/build-inputs.txt" "${RUNNER_TEMP}/expected.txt"; then
+            echo "::error::The packages were built from different sources than ${COMMIT}. Run ${WORKFLOW} with release=true to rebuild and release them."
+            exit 1
+          fi
+
+      - name: Create release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+        run: |
+          gh release create "${TAG}" -R "${GITHUB_REPOSITORY}" --target "${COMMIT}" \
+            --title "${TAG}" --notes "" "${NAME}-latest"/*
+
+      - name: Initialize containers
+        if: ${{ !inputs.dry_run }}
+        run: |
+          bash ./.github/scripts/container/create.sh \
+            ${{ matrix.target.image }}
+
+      - name: Update repository
+        if: ${{ !inputs.dry_run }}
+        env:
+          SURFACEBOT_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
+          GIT_REF: refs/tags/${{ matrix.target.tag }}
+          BRANCH_STAGING: u/staging
+        run: |
+          bash ./.github/scripts/container/exec.sh \
+            -e SURFACEBOT_TOKEN \
+            -e GIT_REF \
+            -e BRANCH_STAGING \
+            -e GITHUB_REPOSITORY \
+            -- \
+            bash "./.github/scripts/repository/${DISTRO}.sh" ${{ matrix.target.repo_args }}
+
+  report:
+    name: Report
+    needs: [prepare, release]
+    runs-on: ubuntu-latest
+    if: ${{ always() && needs.prepare.result == 'success' }}
+
+    steps:
+      - name: Comment on pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.prepare.outputs.pr }}
+          TARGETS: ${{ needs.prepare.outputs.targets }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "Dry run, not commenting"
+            exit 0
+          fi
+
+          {
+            echo "## Release"
+            echo ""
+            for TAG in $(echo "${TARGETS}" | jq -r '.[].tag'); do
+              if gh release view "${TAG}" -R "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then
+                echo "- ✅ [\`${TAG}\`](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG})"
+              else
+                echo "- ❌ \`${TAG}\`"
+              fi
+            done
+            echo ""
+            echo "Packages are staged in the package repository. See the [release run](${RUN_URL}) for details."
+          } > comment.md
+
+          gh pr comment "${PR}" -R "${GITHUB_REPOSITORY}" --body-file comment.md
+
+      - name: Update package status
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run package-status.yml -R "${GITHUB_REPOSITORY}" --ref master
