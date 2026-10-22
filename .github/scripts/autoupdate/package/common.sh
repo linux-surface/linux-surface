@@ -54,10 +54,21 @@ remote_tags()
     local prefix="$2"
     local regex="$3"
     local refs
+    local attempt
 
-    if ! refs="$(timeout 120 git ls-remote --tags --refs "${url}" "refs/tags/${prefix}*")"; then
-        die "Failed to list tags of ${url}"
-    fi
+    # Some servers (Launchpad) occasionally fail to list refs, so retry
+    for attempt in 1 2 3; do
+        if refs="$(timeout 120 git ls-remote --tags --refs "${url}" "refs/tags/${prefix}*")"; then
+            break
+        fi
+
+        if [ "${attempt}" -eq 3 ]; then
+            die "Failed to list tags of ${url}"
+        fi
+
+        log "Failed to list tags of ${url}, retrying..."
+        sleep 10
+    done
 
     echo "${refs}" | awk '{ print $2 }' | sed 's|^refs/tags/||' | filter_tags "${regex}"
 }
@@ -122,6 +133,40 @@ patches_base()
     fi
 
     sed 's/^v//' "${file}"
+}
+
+# Make sure the patches of a series are for the given version.
+require_patches_base()
+{
+    local version="$1"
+    local series
+    local base
+
+    series="$(version_series "${version}")"
+    base="$(patches_base "${series}")"
+
+    if [ "${base}" != "${version}" ]; then
+        die "patches/${series} are for ${base:-an unknown version}, not ${version}"
+    fi
+}
+
+# Determine the package release when updating from <current>-<release> to
+# <version>: bump the release for the same version, reset it otherwise.
+#
+# Usage: next_release <current> <release> <version>
+next_release()
+{
+    local current="$1"
+    local release="$2"
+    local version="$3"
+
+    if [ "${current}" = "${version}" ]; then
+        echo $((release + 1))
+    elif version_le "${version}" "${current}"; then
+        die "Refusing to downgrade from ${current} to ${version}"
+    else
+        echo 1
+    fi
 }
 
 # Validate the version argument of a command and print it without a 'v' prefix.
