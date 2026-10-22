@@ -21,35 +21,45 @@ Supported camera kernels (Fedora 44/45, Nobara 44):
 |------|---------------|------|-------------|
 | **6.19.8** | `patches/6.19/` | ruslanbay **downstream-legacy** `v6.19` | `kernel/patches/6.19/` + shared DPHY |
 | **7.2.11** | `patches/7.2/` | same `v6.19` IPU4 series | `kernel/patches/7.2/` |
-| **7.3.0** | `v7.3-surface` rebased onto upstream `v7.3` | same `v6.19` IPU4 series | `kernel/patches/7.3/` |
+| **7.3.0** | `v7.3-surface` tip on upstream `v7.3` | ruslanbay **upstream** (IPU6-based) + Sakari lore | `kernel/patches/7.3/` (0007 avdd, 0013 MIPI_CTRL00) |
 
-**Important:** keep using `downstream-legacy` + `patches/kernel/v6.19/` for all three
-webcamd builds. The [ipu4-drivers `upstream`](https://github.com/ruslanbay/ipu4-drivers/tree/upstream)
-branch is a different stack (IPU6-based) — do **not** mix it into the SHM webcamd path.
+**Tracks:**
+
+- **6.19.8 / 7.2.11** — `downstream-legacy` + `intel_ipu4p_*` for SHM `surface_webcamd`.
+- **7.3.0** — [ipu4-drivers `upstream`](https://github.com/ruslanbay/ipu4-drivers/tree/upstream) on IPU6 (`intel-ipu6`); use libcamera / V4L2. Do **not** mix downstream into this track.
 
 Stock `kernel-surface` RPMs do **not** include IPU4P — only INT3472/IPU3 camera quirks.
 
-Profiles (capture / publish / FPS) must match the last known-good **6.19.8-3** overlay —
-do not change resolutions, FPS, or ISYS timeouts without an explicit regression pass.
+Profiles (capture / publish / FPS) for the webcamd path must match the last known-good
+**6.19.8-3** overlay — do not change resolutions, FPS, or ISYS timeouts without a regression pass.
 
 Build:
 
 ```bash
-# default: 7.3.0-surface-ipu4
-sudo bash kernel/build-and-install-kernel.sh
-# previous trees:
-sudo bash kernel/build-and-install-kernel.sh 7.2.11
-sudo bash kernel/build-and-install-kernel.sh 6.19.8
+# default: 7.3.0-surface-ipu4 (upstream IPU6 track)
+bash kernel/build-and-install-kernel.sh
+# webcamd / downstream-legacy trees:
+bash kernel/build-and-install-kernel.sh 7.2.11
+bash kernel/build-and-install-kernel.sh 6.19.8
 ```
 
-Stack:
+### 7.3.0 upstream stack
 
-1. linux-surface (`patches/<series>/` or rebase of `v7.3-surface` onto `v7.3`)
-2. [ruslanbay/ipu4-drivers](https://github.com/ruslanbay/ipu4-drivers) `downstream-legacy` → `patches/kernel/v6.19/*.patch`
-3. `kernel/patches/<series>/` — DPHY lock + Linux 7.x API shims + OV7251 INT3472 avdd
+1. Upstream `v7.3` + linux-surface surface-only tip
+2. Sakari Ailus IPU6→IPU7 lore (`b4 shazam`)
+3. ruslanbay `upstream` → `patches/00*.patch` (incl. CSI port-2 timing 0011)
+4. SB3 portable: OV7251 INT3472 avdd (0007), OV5693 MIPI_CTRL00 (0013)
+5. Config from Fedora `kernel-x86_64-fedora.config` (must keep BTRFS + NVMe — a prior
+   minimal `.config` made 7.3 unbootable)
 
-On **7.2.11** / **7.3.0** the downstream IPU4 series needs small API shims: uapi
-`stdint.h` → `linux/types.h`, clk `round_rate` → `determine_rate`, drop removed
+### 6.19 / 7.2 downstream stack
+
+1. linux-surface `patches/<series>/`
+2. ruslanbay `downstream-legacy` → `patches/kernel/v6.19/*.patch`
+3. `kernel/patches/<series>/` — DPHY lock + Linux 7.x API shims + OV7251 avdd
+
+On **7.2.11** the downstream IPU4 series needs API shims: uapi `stdint.h` →
+`linux/types.h`, clk `round_rate` → `determine_rate`, drop removed
 `vb2_ops.wait_prepare/wait_finish`, and set `aq->vbq.lock = &av->mutex` (Linux 7.x
 `vb2_core_queue_init` requires it — without this, ISYS probe fails with
 `can't init video node`, Oopses in `vb2_queue_release` cleanup, and no `/dev/video*`).
@@ -60,10 +70,10 @@ Patch `0006` clears `vbq.ops` on failed init so cleanup is safe.
 | Device label | Sensor | Output YUYV | Aspect | Target FPS |
 |---|---|---:|---|---:|
 | `Surface-Front-Standard` (default) | OV5693 | 1296×972 | 4:3 | 30 |
-| `Surface-Front-HQ` | OV5693 | 2592×1944 | 4:3 | 15 |
-| `Surface-Front-Fast` | OV5693 | 1296×728 | 16:9 | 60 |
+| `Surface-Front-HQ` | OV5693 | 1920×1440 (from 2592×1944) | 4:3 | 15 |
+| `Surface-Front-Fast` | OV5693 | 1296×728 (from 1296×972) | 16:9 | 60 |
 | `Surface-Back-Standard` | OV8865 | 1632×1224 | 4:3 | 30 |
-| `Surface-Back-HQ` | OV8865 | 3264×2448 | 4:3 | 15 |
+| `Surface-Back-HQ` | OV8865 | 1920×1440 (from 3264×2448) | 4:3 | 15 |
 | `Surface-Back-Fast` | OV8865 | 800×450 | 16:9 | 60 |
 | `Surface-IR-Howdy` | OV7251 | 480×640 | 3:4 | ~30 |
 

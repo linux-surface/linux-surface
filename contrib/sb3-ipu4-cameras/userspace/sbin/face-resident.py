@@ -27,7 +27,9 @@ import numpy as np
 import paths_factory
 
 SOCK = "/run/face-login/resident.sock"
-SCAN_S = 4.0
+# After IR STREAMON + LED arm, a usable lit frame needs ~1–2s. Keep enough
+# budget after that for HOG + encoding (4s was too tight on cold open).
+SCAN_S = 8.0
 
 
 def load_detectors():
@@ -74,15 +76,47 @@ def scan(user: str, detectors) -> int:
     if fh > 0:
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, fh)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    # Camera startup is not part of the scan budget. The old 10s cap
-    # expired while IR was still switching on, and the greeter showed failure.
-    warmup = time.monotonic() + 6.0
+
+    def _lit(frame_bgr):
+        """Return (frame, gray) only when Howdy would accept the frame."""
+        try:
+            gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        except cv2.error:
+            return None
+        gray = clahe.apply(gray)
+        hist = cv2.calcHist([gray], [0], None, [8], [0, 256])
+        total = float(np.sum(hist))
+        if total <= 0:
+            return None
+        darkness = float(np.ravel(hist)[0]) / total * 100.0
+        if darkness >= 100.0 or darkness > dark_threshold:
+            return None
+        # Discard near-black LED-off frames (mean stays low until span arms).
+        if float(gray.mean()) < 45.0:
+            return None
+        return frame_bgr, gray
+
+    # Warmup waits for a lit LIVE frame. Reject the first reads: v4l2loopback
+    # can still hold the previous unlock's face until IR writes a blank.
+    opened_at = time.monotonic()
+    warmup = opened_at + 8.0
     frame = None
+    gray = None
     while time.monotonic() < warmup:
-        ok, frame = cap.read()
-        if ok and frame is not None and getattr(frame, "size", 0):
-            break
-        frame = None
+        ok, grabbed = cap.read()
+        if ok and grabbed is not None and getattr(grabbed, "size", 0):
+            # Ignore anything in the first 0.6s — stale loopback buffer.
+            if time.monotonic() - opened_at < 0.6:
+                time.sleep(0.03)
+                continue
+            lit = _lit(grabbed)
+            if lit is not None:
+                # Uniform gray blank (no face) has tiny std — skip it.
+                if float(lit[1].std()) < 12.0:
+                    time.sleep(0.03)
+                    continue
+                frame, gray = lit
+                break
         time.sleep(0.03)
     if frame is None:
         cap.release()
@@ -90,31 +124,24 @@ def scan(user: str, detectors) -> int:
     deadline = time.monotonic() + SCAN_S
     try:
         while True:
-            if frame is None:
+            if frame is None or gray is None:
                 if time.monotonic() >= deadline:
                     return 11
-                ok, frame = cap.read()
-                if not ok or frame is None or getattr(frame, "size", 0) == 0:
+                ok, grabbed = cap.read()
+                if not ok or grabbed is None or getattr(grabbed, "size", 0) == 0:
                     frame = None
+                    gray = None
                     time.sleep(0.02)
                     continue
-            try:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            except cv2.error:
-                frame = None
-                continue
-            gray = clahe.apply(gray)
-            hist = cv2.calcHist([gray], [0], None, [8], [0, 256])
-            total = float(np.sum(hist))
-            if total <= 0:
-                frame = None
-                continue
-            darkness = float(np.ravel(hist)[0]) / total * 100.0
-            if darkness >= 100.0 or darkness > dark_threshold:
-                frame = None
-                continue
+                lit = _lit(grabbed)
+                if lit is None:
+                    frame = None
+                    gray = None
+                    continue
+                frame, gray = lit
             hit = False
-            for rect in face_detector(gray, 2):
+            # upsample=1 fits the scan budget on 480x640 IR.
+            for rect in face_detector(gray, 1):
                 landmark = pose(frame, rect)
                 found = np.array(encoder.compute_face_descriptor(frame, landmark, 1))
                 dist = float(np.min(np.linalg.norm(known - found, axis=1)))
@@ -122,6 +149,7 @@ def scan(user: str, detectors) -> int:
                     hit = True
                     break
             frame = None
+            gray = None
             if hit:
                 return 0
     finally:

@@ -1,0 +1,161 @@
+diff --git a/drivers/media/pci/intel/ipu6/ipu4p-isys-csi-phy.c b/drivers/media/pci/intel/ipu6/ipu4p-isys-csi-phy.c
+index 6016e46b1d22..0aaed7589a4a 100644
+--- a/drivers/media/pci/intel/ipu6/ipu4p-isys-csi-phy.c
++++ b/drivers/media/pci/intel/ipu6/ipu4p-isys-csi-phy.c
+@@ -5,6 +5,8 @@
+ #include <linux/bits.h>
+ #include <linux/errno.h>
+ #include <linux/io.h>
++#include <linux/module.h>
++#include <linux/moduleparam.h>
+ 
+ #include "ipu6.h"
+ #include "ipu6-bus.h"
+@@ -24,8 +26,11 @@ struct ipu4p_phy_bb_config {
+ 
+ static const struct ipu4p_phy_bb_config ipu4p_phy_bb_configs[] = {
+ 	{ 4, 13, 32, 0x0f },
++	/* SB3: CSI-2 0 / ov8865 Back → bb 6 */
+ 	{ 6, 13, 32, 0x15 },
+-	/* BB10 is part of the verified IPU4P PHY baseline. */
++	/* SB3: CSI-2 1 / ov7251 IR → bb 8 (was missing → IR 0 frames) */
++	{ 8, 13, 32, 0x15 },
++	/* SB3: CSI-2 2 / ov5693 Front → bb 10 */
+ 	{ 10, 13, 32, 0x15 },
+ 	{ 12, 13, 32, 0x0f },
+ 	{ 14, 13, 32, 0x15 },
+@@ -70,18 +75,89 @@ void ipu4p_isys_phy_setup(struct ipu6_isys *isys)
+ }
+ 
+ /*
+- * Use fixed timing observed in Windows for the SP7 front camera:
+- * IPU4P CSI-2 port 2, firmware source 7, two-lane D-PHY.
++ * Windows ConfigMipiClk on SB3/SP7: +0x34=1155, +0x3c=1269
++ * (= TERMEN_DLANE0 / TERMEN_DLANE1). Do NOT smash lanes 2..8 — that walks
++ * past DLANE3 and destabilizes ISYS on SB3 (white/black/0-frame captures).
+  */
+ static void ipu4p_isys_apply_fixed_2lane_timing(struct ipu6_isys_csi2 *csi2)
+ {
+ 	writel(0, csi2->base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_CLANE);
++
+ 	writel(1155, csi2->base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_DLANE(0));
++	writel(0, csi2->base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_DLANE(0));
++
++	writel(1269, csi2->base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_DLANE(1));
++	writel(0, csi2->base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_DLANE(1));
++}
++
++/*
++ * Front (port 2) timing modes (module param sb3_front_timing):
++ *  0 = SETTLE 1155/1269 + calc TERMEN (previous default)
++ *  1 = Windows TERMEN 1155/1269 + settle 0 (same as IR/back)
++ *  2 = SETTLE=calc, TERMEN=Windows
++ *  3 = pure calculated (no override)
++ *  4 = SETTLE 0x570/0x570 (CIO2-style) + calc TERMEN
++ */
++static unsigned int sb3_front_timing = 2;
++module_param(sb3_front_timing, uint, 0644);
++MODULE_PARM_DESC(sb3_front_timing,
++		 "SB3 front CSI timing mode 0..4 (see ipu4p-isys-csi-phy.c)");
++
++static unsigned int sb3_front_clk_settle = 1155;
++module_param(sb3_front_clk_settle, uint, 0644);
++static unsigned int sb3_front_data_settle = 1269;
++module_param(sb3_front_data_settle, uint, 0644);
++
++static void ipu4p_isys_apply_front_timing(struct ipu6_isys_csi2 *csi2,
++					  unsigned int nlanes,
++					  const struct ipu6_isys_csi2_timing *timing)
++{
++	unsigned int i;
++	unsigned int mode = sb3_front_timing;
++	unsigned int cset = sb3_front_clk_settle;
++	unsigned int dset = sb3_front_data_settle;
++
++	if (nlanes < 1 || nlanes > 2)
++		nlanes = 2;
+ 
+-	for (unsigned int i = 0; i < 8; i++) {
+-		writel(0, csi2->base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_DLANE(i));
+-		writel(1269,
+-		       csi2->base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_DLANE(i + 1));
++	switch (mode) {
++	case 1: /* Windows TERMEN only */
++		ipu4p_isys_apply_fixed_2lane_timing(csi2);
++		break;
++	case 2: /* calc settle + Windows TERMEN on data lanes */
++		writel(timing->csettle,
++		       csi2->base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_CLANE);
++		writel(1155, csi2->base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_DLANE(0));
++		writel(timing->dsettle,
++		       csi2->base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_DLANE(0));
++		writel(1269, csi2->base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_DLANE(1));
++		if (nlanes > 1)
++			writel(timing->dsettle,
++			       csi2->base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_DLANE(1));
++		break;
++	case 3: /* pure calc */
++		writel(timing->csettle,
++		       csi2->base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_CLANE);
++		for (i = 0; i < nlanes; i++) {
++			writel(timing->dtermen,
++			       csi2->base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_DLANE(i));
++			writel(timing->dsettle,
++			       csi2->base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_DLANE(i));
++		}
++		break;
++	case 4: /* CIO2-ish 0x570 */
++		cset = dset = 0x570;
++		fallthrough;
++	case 0:
++	default:
++		writel(cset, csi2->base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_CLANE);
++		for (i = 0; i < nlanes; i++) {
++			writel(timing->dtermen,
++			       csi2->base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_DLANE(i));
++			writel(dset,
++			       csi2->base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_DLANE(i));
++		}
++		break;
+ 	}
+ }
+ 
+@@ -134,7 +210,6 @@ int ipu4p_isys_phy_set_power(struct ipu6_isys *isys,
+ 	struct ipu6_isys_csi2 *csi2;
+ 	void __iomem *base;
+ 	u32 value;
+-	bool fixed_timing;
+ 
+ 	if (!cfg || cfg->port >= isys->pdata->ipdata->csi2.nports)
+ 		return -EINVAL;
+@@ -167,18 +242,22 @@ int ipu4p_isys_phy_set_power(struct ipu6_isys *isys,
+ 	       base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_CLANE);
+ 
+ 	/*
+-	 * SB3 (and SP7 front): calculated settle never locks reliably on
+-	 * IPU4P CSI-2. Use Windows-observed 1155/1269 ticks for the three
+-	 * sensor ports: 0=back ov8865, 1=IR ov7251, 2=front ov5693.
++	 * SB3 ports: 0=back ov8865, 1=IR ov7251, 2=front ov5693.
++	 * IR/back: Windows TERMEN 1155/1269. Front: SETTLE 1155/1269
++	 * (TERMEN path and calc settle both DPHY-desync → white frames).
+ 	 */
+-	fixed_timing = csi2->port <= 2 && cfg->nlanes >= 1 && cfg->nlanes <= 2;
+-	if (fixed_timing) {
++	if (csi2->port <= 1 && cfg->nlanes >= 1 && cfg->nlanes <= 2) {
+ 		ipu4p_isys_apply_fixed_2lane_timing(csi2);
+ 		dev_info(&isys->adev->auxdev.dev,
+-			 "SB3/SP7 fixed CSI timing for port %u lanes=%u src=%u\n",
++			 "SB3/SP7 fixed CSI TERMEN for port %u lanes=%u src=%u\n",
+ 			 csi2->port, cfg->nlanes, csi2->asd.source);
+-
+-		/* Windows configures the lane count before RX_CONFIG. */
++		writel(cfg->nlanes, base + IPU4P_CSI2_RX_NOF_ENABLED_LANES);
++	} else if (csi2->port == 2 && cfg->nlanes >= 1 && cfg->nlanes <= 2) {
++		ipu4p_isys_apply_front_timing(csi2, cfg->nlanes, timing);
++		dev_info(&isys->adev->auxdev.dev,
++			 "SB3 front CSI mode=%u port %u lanes=%u csettle=%u\n",
++			 sb3_front_timing, csi2->port, cfg->nlanes,
++			 timing->csettle);
+ 		writel(cfg->nlanes, base + IPU4P_CSI2_RX_NOF_ENABLED_LANES);
+ 	} else {
+ 		writel(timing->csettle,

@@ -1,0 +1,13 @@
+[Unit]
+Description=Surface Book 3 Front camera loopback
+After=surface-ipu4-late.service
+
+[Service]
+Type=simple
+ExecStartPre=-/bin/bash -c "echo 1392 > /sys/module/intel_ipu6_isys/parameters/sb3_front_clk_settle; echo 1392 > /sys/module/intel_ipu6_isys/parameters/sb3_front_data_settle; echo 0 > /sys/module/intel_ipu6_isys/parameters/sb3_front_timing; chmod 666 /dev/video55 /dev/video56 /dev/video57 /dev/media0"
+ExecStart=/usr/bin/python3 /usr/local/libexec/surface_lc_webcamd.py --mode front
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
