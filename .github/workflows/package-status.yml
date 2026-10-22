@@ -1,0 +1,55 @@
+name: Package Status
+
+on:
+  # Daily, after the upstream sync / rebase / patch generation have run
+  schedule:
+    - cron: '0 10 * * *'
+
+  # Update when patches or packaging change
+  push:
+    branches:
+      - master
+    paths:
+      - 'patches/**'
+      - 'pkg/**'
+
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run mode - only write the report to the job summary'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: package-status
+  cancel-in-progress: false
+
+jobs:
+  status:
+    name: Update package status
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout linux-surface repo
+        uses: actions/checkout@v7
+
+      - name: Generate report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash .github/scripts/autoupdate/package-status.sh > "${RUNNER_TEMP}/status.md"
+          cat "${RUNNER_TEMP}/status.md" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Update status issue
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash .github/scripts/autoupdate/update-status-issue.sh "${RUNNER_TEMP}/status.md"
