@@ -5,12 +5,13 @@ Back: long-lived cam on /dev/shm. BayerRG, NO flip (libcamera already upright).
 Profiles match 6.19.8-3 / 7.2.12 (cap/out/fps). Fast is a 16:9 crop of that mode.
 
 IR: power ov7251 first, then ir-led-on (LED needs sensor awake on i2c-3).
-Front: settle clk/data = 1400/880 (community csettle/dsettle). Capture 2592x1944 SBGGR10; publish canon sizes. LED only with a client.
+Front: timing mode 2 (calc settle + Windows TERMEN). Capture 2592x1944 SBGGR10; publish canon sizes. LED only with a client.
 """
 from __future__ import annotations
 
 import argparse
 import os
+import select
 import shutil
 import signal
 import subprocess
@@ -162,23 +163,39 @@ def wipe_loopbacks(
 
 
 def write_yuyv(fd: int, data: bytes) -> None:
-    """Write one full YUYV frame. A short write leaves torn lines on HQ."""
-    # HQ is ~5.5 MiB. On a non-blocking fd the first EAGAIN used to abort
-    # mid-frame; sustain_framerate then repeated that tear forever.
-    try:
-        os.set_blocking(fd, True)
-    except OSError:
-        pass
+    """Write one full YUYV frame without stalling the CSI thread.
+
+    A blocking write while Discord holds the loopback used to freeze the
+    daemon: no RAW consume, black preview, privacy LED stuck on.
+    """
     view = memoryview(data)
     off = 0
+    deadline = time.monotonic() + 0.15
+    try:
+        os.set_blocking(fd, False)
+    except OSError:
+        pass
     try:
         while off < len(data):
-            n = os.write(fd, view[off:])
-            if n <= 0:
-                break
+            if time.monotonic() > deadline:
+                return
+            try:
+                n = os.write(fd, view[off:])
+            except BlockingIOError:
+                # Wait briefly for the reader to drain.
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return
+                try:
+                    select.select([], [fd], [], min(0.05, remaining))
+                except (ValueError, OSError):
+                    return
+                continue
+            except OSError:
+                return
+            if n is None or n <= 0:
+                return
             off += n
-    except OSError:
-        return
     finally:
         try:
             os.set_blocking(fd, False)
@@ -725,8 +742,8 @@ class SoftAEFront:
 
     def __init__(self, subdev: str):
         self.subdev = subdev
-        self.exp = 420
-        self.gain = 16
+        self.exp = 560
+        self.gain = 24
         self._last = 0.0
         self._n = 0
         self._i2c = _ov5693_i2c(subdev)
@@ -833,13 +850,22 @@ def _front_ae_step(
 
 
 _CSI_COOL_UNTIL = 0.0
+
+def _camf_log(msg: str) -> None:
+    print(msg, flush=True)
+    try:
+        with open("/tmp/camf-daemon.log", "a") as f:
+            f.write(msg + "\n")
+    except OSError:
+        pass
+
 _PM_QOS_FD: int | None = None
 
 
 def _note_csi_stop() -> None:
     """Front DPHY needs a cool-down after STREAMOFF before the next lock."""
     global _CSI_COOL_UNTIL
-    _CSI_COOL_UNTIL = time.monotonic() + 5.0
+    _CSI_COOL_UNTIL = time.monotonic() + 3.5
 
 
 def _wait_csi_cool() -> None:
@@ -886,17 +912,19 @@ def _stop_proc(proc: subprocess.Popen | None) -> None:
 
 
 
-# Pin community-proven settle (#1353). Do not thrash settle pairs — that dirties PHY.
-# White frames are a DPHY/ISYS problem; never drop them from the stream as a "fix".
-_FRONT_SETTLE = (1400, 880)  # clk, data = csettle, dsettle
+# Mode 2 = calculated settle + Windows TERMEN (SB3 port-2). Mode 0 with
+# fixed 1400/880 is pure-white/intermittent here; mode 2 locked 10/10 in probe.
+# Do not thrash settle pairs — that dirties PHY.
+_FRONT_SETTLE = (1000, 1000)  # unused in mode 2; kept for sysfs visibility
+_FRONT_TIMING = 2
 
 
 def _pin_front_settle() -> tuple[int, int]:
     clk, data = _FRONT_SETTLE
     for path, val in (
+        ("/sys/module/intel_ipu6_isys/parameters/sb3_front_timing", str(_FRONT_TIMING)),
         ("/sys/module/intel_ipu6_isys/parameters/sb3_front_clk_settle", str(clk)),
         ("/sys/module/intel_ipu6_isys/parameters/sb3_front_data_settle", str(data)),
-        ("/sys/module/intel_ipu6_isys/parameters/sb3_front_timing", "0"),
     ):
         try:
             Path(path).write_text(val + "\n")
@@ -940,6 +968,7 @@ def run_front(stop: threading.Event) -> None:
     n_white = 0
     n_held = 0
     start_retries = 0
+    raw_seen = 0
     proc: subprocess.Popen | None = None
     seen: set[str] = set()
     last_clients = -1
@@ -983,7 +1012,7 @@ def run_front(stop: threading.Event) -> None:
                 other_wants = any_external_clients(BACK_LOOPBACKS + IR_LOOPBACKS)
                 # Keep ISYS up briefly on same-side reopen so the privacy LED
                 # does not blink 2–3× for one user open.
-                hold = 0.0 if other_wants else 1.2
+                hold = 0.0 if other_wants else 12.0
                 if proc is not None and (now - last_client_mono) < hold:
                     active_nrs = set()
                 else:
@@ -999,13 +1028,11 @@ def run_front(stop: threading.Event) -> None:
                         n_held = 0
                         last_yuyv.clear()
                         start_retries = 0
+                        raw_seen = 0
                         wipe_loopbacks(fds, out_of)
                         _note_csi_stop()
-                        # Keep pm_qos through cool-down — dropping it here let
-                        # the package enter C2 and the next STREAMON hung.
-                        _wait_csi_cool()
                         _pm_qos_hold(False)
-                    time.sleep(0.3)
+                    time.sleep(0.2)
                     continue
             if proc is None or proc.poll() is not None:
                 if proc is not None and proc.poll() is not None:
@@ -1025,7 +1052,12 @@ def run_front(stop: threading.Event) -> None:
                 ae.apply()
                 _pm_qos_hold(True)
                 _wait_csi_cool()
-                print(f"CAMF start settle {clk}/{data} (single STREAMON)", flush=True)
+                print(
+                    f"CAMF start timing={_FRONT_TIMING} settle {clk}/{data} (single STREAMON)",
+                    flush=True,
+                )
+                cam_log = open("/tmp/camf-cam.log", "ab", buffering=0)
+                cam_log.write(f"\n--- start {time.strftime('%H:%M:%S')} settle={clk}/{data} ---\n".encode())
                 proc = subprocess.Popen(
                     [
                         "cam",
@@ -1037,7 +1069,7 @@ def run_front(stop: threading.Event) -> None:
                         f"--file={pattern}",
                     ],
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                    stderr=cam_log,
                 )
                 print(f"CAMF: cam pid={proc.pid} continuous", flush=True)
                 stream_t0 = time.monotonic()
@@ -1047,25 +1079,35 @@ def run_front(stop: threading.Event) -> None:
                 n_fps = 0
                 n_white = 0
                 n_held = 0
+                raw_seen = 0
                 ae._drops = 0
                 last_yuyv.clear()
-                wipe_loopbacks(fds, out_of, active_nrs)
+                # Never wipe while a client is waiting — that write can block
+                # the whole daemon and Discord stays black with LED on.
                 time.sleep(0.05)
                 continue
-            # Hung STREAMON (no picture yet): one cooled retry only.
-            if (
-                not last_yuyv
-                and start_retries < 2
-                and (time.monotonic() - stream_t0) > 3.0
+            # At most one cooled STREAMON retry. Same settle — never thrash pairs.
+            # Zero RAW or sustained full-white both mean DPHY missed the lock.
+            waited = time.monotonic() - stream_t0
+            if start_retries < 1 and (
+                (raw_seen == 0 and waited > 5.0)
+                or (raw_seen >= 8 and frames == 0 and waited > 2.0)
             ):
-                print(f"CAMF no picture in 3s — cooled retry {start_retries+1}/2", flush=True)
+                why = "zero RAW" if raw_seen == 0 else f"all-white raw={raw_seen}"
+                _camf_log(f"CAMF {why} — one cooled retry (same settle)")
                 _stop_proc(proc)
                 proc = None
                 start_retries += 1
                 _note_csi_stop()
                 continue
+            if frames == 0 and int(waited) > 0 and int(waited) != getattr(run_front, "_wl", -1):
+                run_front._wl = int(waited)
+                _camf_log(
+                    f"CAMF waiting picture {waited:.1f}s raw={raw_seen} "
+                    f"white={n_white} alive={proc.poll() is None}"
+                )
             need = _front_wh[0] * _front_wh[1] * 2
-            files = sorted(shm.glob("f-*.raw"))
+            files = sorted(shm.glob("*.raw"))
             path = None
             st_size = 0
             for cand in files:
@@ -1108,55 +1150,54 @@ def run_front(stop: threading.Event) -> None:
                 continue
             arr = np.frombuffer(buf, dtype=np.uint16)
             fw, fh = _front_wh
+            raw_seen += 1
             if arr.size < fw * fh:
-                # Incomplete RAW — never publish; hold last good if any.
                 consecutive = 0
-                n_held += 1
-                for nr in active_nrs:
-                    fdw = fds.get(nr)
-                    yuyv = last_yuyv.get(nr)
-                    if fdw is not None and yuyv is not None:
-                        write_yuyv(fdw, yuyv)
+                if last_yuyv:
+                    n_held += 1
+                    for nr in active_nrs:
+                        fdw = fds.get(nr)
+                        yuyv = last_yuyv.get(nr)
+                        if fdw is not None and yuyv is not None:
+                            write_yuyv(fdw, yuyv)
                 continue
             raw = arr[: fw * fh].reshape(fh, fw)
             sample = raw[::32, ::32]
             p50 = float(np.percentile(sample, 50))
             std = float(sample.std())
-            bot = raw[int(fh * 0.65) :: 32, :: 32]
-            top = raw[: int(fh * 0.4) : 32, :: 32]
-            tear = float((bot >= 1000).mean()) > 0.90 and float(
-                np.percentile(top, 50)
-            ) < 800
-            # Partial white band / half-frame unlock (hard-clipped CSI tear)
+            sat_raw = float((sample >= 1000).mean())
             row_hi = (raw[::16, ::32] >= 1000).mean(axis=1)
             hard_rows = float((row_hi >= 0.98).mean())
             clean_rows = float((row_hi <= 0.05).mean())
-            partial = hard_rows >= 0.10 and clean_rows >= 0.15 and float(
-                (raw[::32, ::32] >= 1000).mean()
-            ) >= 0.12
-            sat_raw = float((sample >= 1000).mean())
-            # Full unlock / CSI tear only — do not treat AE overshoot as white.
-            unlocked = (
-                p50 > 980
-                or (std < 5.0 and p50 > 700)
-                or tear
-                or partial
-                or sat_raw > 0.55
-            )
-            black = p50 < 8 and std < 3.0
-            bad = unlocked or black
-            if bad:
-                if unlocked:
+            # Only reject unusable frames. Soft CSI glitter is held, not a cam kill.
+            full_white = p50 > 980 or sat_raw > 0.70
+            hard_tear = hard_rows >= 0.12 and clean_rows >= 0.20 and sat_raw >= 0.15
+            black = p50 < 6 and std < 2.5
+            if full_white or hard_tear or black:
+                if full_white or hard_tear:
                     n_white += 1
                 consecutive = 0
-                if black:
-                    ae.note_unlock()
-                    ae._drops = getattr(ae, "_drops", 0) + 1
-                # Before first lock: black loading. After lock: re-push last
-                # good so sustain_framerate never latches a white/black insert.
-                if not last_yuyv:
-                    wipe_loopbacks(fds, out_of, active_nrs)
-                else:
+                if last_yuyv:
+                    n_held += 1
+                    for nr in active_nrs:
+                        fdw = fds.get(nr)
+                        yuyv = last_yuyv.get(nr)
+                        if fdw is not None and yuyv is not None:
+                            write_yuyv(fdw, yuyv)
+                # No wipe once RAW is flowing — Discord would stay black.
+                continue
+            bgr = demosaic_front(buf)
+            if bgr is None:
+                continue
+            g = cv2.cvtColor(bgr[::4, ::4], cv2.COLOR_BGR2GRAY)
+            row_sat = (g >= 250).mean(axis=1)
+            hard_b = float((row_sat >= 0.98).mean())
+            clean_b = float((row_sat <= 0.05).mean())
+            sat_b = float((g >= 250).mean())
+            if hard_b >= 0.12 and clean_b >= 0.20 and sat_b >= 0.15:
+                n_white += 1
+                consecutive = 0
+                if last_yuyv:
                     n_held += 1
                     for nr in active_nrs:
                         fdw = fds.get(nr)
@@ -1168,34 +1209,7 @@ def run_front(stop: threading.Event) -> None:
             stable += 1
             consecutive += 1
             last_good = time.monotonic()
-            # Wait for a few clean frames before the first publish. Once we
-            # have last_yuyv, never wipe again on the way back from a glitch.
-            if consecutive < 3 and not last_yuyv:
-                wipe_loopbacks(fds, out_of, active_nrs)
-                continue
-            bgr = demosaic_front(buf)
-            if bgr is None:
-                continue
-            # Second gate on demosaiced output — RAW sampling can miss a
-            # thin CSI tear that is obvious after binning.
-            g = cv2.cvtColor(bgr[::4, ::4], cv2.COLOR_BGR2GRAY)
-            row_sat = (g >= 250).mean(axis=1)
-            hard_b = float((row_sat >= 0.98).mean())
-            clean_b = float((row_sat <= 0.05).mean())
-            sat_b = float((g >= 250).mean())
-            if hard_b >= 0.08 and clean_b >= 0.15 and sat_b >= 0.08:
-                n_white += 1
-                consecutive = 0
-                if last_yuyv:
-                    n_held += 1
-                    for nr in active_nrs:
-                        fdw = fds.get(nr)
-                        yuyv = last_yuyv.get(nr)
-                        if fdw is not None and yuyv is not None:
-                            write_yuyv(fdw, yuyv)
-                else:
-                    wipe_loopbacks(fds, out_of, active_nrs)
-                continue
+            # First usable frame publishes immediately (Discord must not sit on black).
             ae.update_bgr(bgr)
             frames += 1
             n_fps += 1
@@ -1424,7 +1438,7 @@ def run_ir(stop: threading.Event) -> None:
                 time.sleep(0.05)
                 continue
             need = 640 * 480 * 2
-            files = sorted(shm.glob("f-*.raw"))
+            files = sorted(shm.glob("*.raw"))
             path = None
             for cand in files:
                 try:
