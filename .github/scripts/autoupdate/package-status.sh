@@ -5,13 +5,16 @@
 # The report contains:
 # 1. For each package target: packaged version, release state, version of our
 #    patches, latest distro upstream version, latest kernel.org stable version,
-#    and what's blocking an update.
+#    and what's blocking an update. Packages on an older series than the one
+#    to package (see target_series) also show whether they can be switched
+#    to it. Switching is not done automatically, but by running the package
+#    update workflow with the version to switch to.
 # 2. For each maintained kernel branch: latest kernel.org stable version vs.
 #    our branch and patches.
 # 3. Update checkboxes for packages behind our patches (see below).
 # 4. Recently failed autoupdate runs and notices (newer series, EOL).
 #
-# Automatic updates: Each package (script) has a checkbox to update it
+# Automatic stable updates: Each package (script) has a checkbox to update it
 # automatically whenever it is behind the base version of our patches, i.e.
 # as soon as upstream is ready after a patch update has been merged. Checked
 # boxes are read back from the issue (see status-requests.sh) and passed in via
@@ -35,7 +38,6 @@ source "$(dirname "${BASH_SOURCE[0]}")/package/common.sh"
 PACKAGE_SCRIPTS="${COMMON_DIR}"
 REPOSITORY="${GITHUB_REPOSITORY:-linux-surface/linux-surface}"
 KERNEL_REPOSITORY="linux-surface/kernel"
-MAINTAINED_BRANCHES="${REPO_ROOT}/.github/data/autoupdate/maintained-branches.conf"
 
 TODAY="$(date -u +%Y-%m-%d)"
 
@@ -51,6 +53,13 @@ declare -A RELEASE_DATES=()
 declare -A PACKAGE_NAMES=()
 declare -A UPDATE_VERSION=()
 declare -A UPDATE_READY=()
+
+# Per package script: version to switch to (if on an older series than the
+# target series) and whether upstream is ready for it
+declare -A SWITCH_VERSION=()
+declare -A SWITCH_READY=()
+
+TARGET_SERIES=""
 
 UPDATE_STATE=""
 UPDATE_AUTO=0
@@ -244,6 +253,7 @@ package_row()
     local -A cur=()
     local -A latest=()
     local -A check=()
+    local -A target=()
     local series
     local base
     local stable
@@ -294,6 +304,22 @@ package_row()
     fi
 
     status="${status}$(pull_request_refs "autoupdate/${script}-")"
+
+    # Can the package be switched to the target series?
+    if [ -n "${TARGET_SERIES}" ] && version_lt "${series}" "${TARGET_SERIES}"; then
+        SWITCH_VERSION[${script}]="$(patches_base "${TARGET_SERIES}")"
+
+        load_kv target "${PACKAGE_SCRIPTS}/${script}.sh" latest "${TARGET_SERIES}" || true
+        upstream="${upstream} · ${TARGET_SERIES}: ${target[upstream]:-–}"
+
+        if load_kv check "${PACKAGE_SCRIPTS}/${script}.sh" check "${SWITCH_VERSION[${script}]}"; then
+            status="${status}<br>🟢 Can switch to ${SWITCH_VERSION[${script}]}"
+            SWITCH_READY[${script}]=1
+        else
+            status="${status}<br>⏳ Switch to ${SWITCH_VERSION[${script}]}: ${check[reason]:-check failed}"
+            SWITCH_READY[${script}]=0
+        fi
+    fi
 
     echo "| ${name} | ${cur[package_version]} | ${released} | ${base:-–} | ${upstream} | ${stable:-EOL} | $(behind_since "${cur[version]}" "${stable}") | ${status} |"
 }
@@ -403,9 +429,9 @@ print_updates()
     local script
     local box
 
-    echo "## Automatic updates"
+    echo "## Automatic stable updates"
     echo ""
-    echo "Check a package to update it automatically whenever it is behind our patches, i.e. as soon as upstream is ready after a patch update has been merged (maintainers only). If an update fails or its pull request is closed without merging, the package is unchecked."
+    echo "Check a package to update it automatically to new stable releases of its series whenever it is behind our patches, i.e. as soon as upstream is ready after a patch update has been merged (maintainers only). Switching to a new series is not done automatically (see notices). If an update fails or its pull request is closed without merging, the package is unchecked."
     echo ""
 
     for script in $(printf '%s\n' "${!PACKAGE_NAMES[@]}" | sort); do
@@ -523,15 +549,29 @@ print_pull_requests()
 print_notices()
 {
     local series
+    local newest
+    local script
     local notices=()
 
     for series in $(for s in arch debian fedora; do "${PACKAGE_SCRIPTS}/${s}.sh" current | sed -n 's/^series=//p'; done | sort -uV); do
         if [ -z "${STABLE[${series}]:-}" ]; then
             notices+=("- ⚠️ Packaged series ${series} is end of life on kernel.org.")
         fi
+    done
 
-        if version_lt "${series}" "$(version_series "${NEWEST_STABLE}")"; then
-            notices+=("- ℹ️ Newer stable series available: ${NEWEST_STABLE} (packages on ${series}).")
+    newest="$(maintained_series | tail -n1)"
+
+    if [ -n "${NEWEST_STABLE}" ] && version_lt "${newest}" "$(version_series "${NEWEST_STABLE}")"; then
+        notices+=("- ℹ️ Newer stable series available: ${NEWEST_STABLE} (newest maintained branch is on ${newest}).")
+    fi
+
+    if [ -n "${newest}" ] && [ "${newest}" != "${TARGET_SERIES}" ]; then
+        notices+=("- ℹ️ Series ${newest} is maintained, but its patches are not for a stable release yet (${newest}.y). Packages can be switched to it once they are.")
+    fi
+
+    for script in $(printf '%s\n' "${!SWITCH_VERSION[@]}" | sort); do
+        if [ "${SWITCH_READY[${script}]}" = 1 ]; then
+            notices+=("- 🟢 ${PACKAGE_NAMES[${script}]}: Can be switched to ${SWITCH_VERSION[${script}]}. To switch, run the [package update workflow](${GITHUB_SERVER_URL:-https://github.com}/${REPOSITORY}/actions/workflows/update-package.yml) with version ${SWITCH_VERSION[${script}]}.")
         fi
     done
 
@@ -548,6 +588,8 @@ print_notices()
 # ============================================================================
 # Report
 # ============================================================================
+
+TARGET_SERIES="$(target_series)"
 
 load_kernel_org
 load_pull_requests

@@ -18,6 +18,7 @@ fi
 
 COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${COMMON_DIR}/../../../.." && pwd)"
+MAINTAINED_BRANCHES="${REPO_ROOT}/.github/data/autoupdate/maintained-branches.conf"
 
 # shellcheck disable=SC2034 # used by the package scripts
 EXIT_PENDING=2
@@ -133,6 +134,27 @@ patches_base()
     fi
 
     sed 's/^v//' "${file}"
+}
+
+# List the maintained series (see maintained-branches.conf).
+maintained_series()
+{
+    grep -vE '^\s*(#|$)' "${MAINTAINED_BRANCHES}" | cut -d: -f2 | sort -uV
+}
+
+# Get the series packages should be on: the newest maintained series with
+# patches for a stable release (X.Y.Z). Patches for the initial release of a
+# series (X.Y) are not packaged.
+target_series()
+{
+    local series
+
+    for series in $(maintained_series | sort -rV); do
+        if patches_base "${series}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "${series}"
+            return
+        fi
+    done
 }
 
 # Make sure the patches of a series are for the given version.
