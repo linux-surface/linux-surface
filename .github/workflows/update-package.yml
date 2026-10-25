@@ -14,7 +14,7 @@ on:
           - debian
           - fedora
       version:
-        description: 'Kernel version (optional, e.g. "7.2.12"). If not specified, the base version of the patches is used. If already packaged, the package release is bumped.'
+        description: 'Kernel version (optional, e.g. "7.2.12"). If not specified, the base version of the patches for the current series is used. Specify a version of a newer series to switch to it. If already packaged, the package release is bumped.'
         required: false
         type: string
       dry_run:
@@ -48,13 +48,23 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
+          SERIES="$(bash "${SCRIPT}" current | sed -n 's/^series=//p')"
+
           if [ -z "${VERSION}" ]; then
-            SERIES="$(bash "${SCRIPT}" current | sed -n 's/^series=//p')"
             VERSION="$(sed 's/^v//' "patches/${SERIES}/BASE")"
           fi
 
+          VERSION="${VERSION#v}"
+          NEW_SERIES="$(echo "${VERSION}" | cut -d. -f1-2)"
+
           echo "Updating ${DISTRO} package to ${VERSION}"
-          echo "version=${VERSION#v}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+          # Switching to a new series
+          if [ "${NEW_SERIES}" != "${SERIES}" ]; then
+            echo "Switching from ${SERIES} to ${NEW_SERIES}"
+            echo "switch_from=${SERIES}" >> "${GITHUB_OUTPUT}"
+          fi
 
       - name: Check upstream sources
         env:
@@ -90,6 +100,7 @@ jobs:
           CONFIG_UPDATED: ${{ steps.update.outputs.config_updated }}
           CONFIG_OUTDATED: ${{ steps.update.outputs.config_outdated }}
           UPSTREAM_CHANGED: ${{ steps.update.outputs.upstream_changed }}
+          SWITCH_FROM: ${{ steps.version.outputs.switch_from }}
         run: |
           case "${DISTRO}" in
           arch)
@@ -148,7 +159,7 @@ jobs:
           git add -- "${PATHS[@]}"
           git commit -m "${SUBJECT}"
 
-          if [ -n "${REFRESHED}" ] || [ "${CONFIG_UPDATED}" = "1" ] || [ "${CONFIG_OUTDATED}" = "1" ] || [ "${UPSTREAM_CHANGED}" = "1" ]; then
+          if [ -n "${REFRESHED}" ] || [ "${CONFIG_UPDATED}" = "1" ] || [ "${CONFIG_OUTDATED}" = "1" ] || [ "${UPSTREAM_CHANGED}" = "1" ] || [ -n "${SWITCH_FROM}" ]; then
             LABEL="autoupdate:needs-review"
           else
             LABEL="autoupdate:trivial"
@@ -186,6 +197,7 @@ jobs:
           CONFIG_UPDATED: ${{ steps.update.outputs.config_updated }}
           CONFIG_OUTDATED: ${{ steps.update.outputs.config_outdated }}
           PACKAGING: ${{ steps.update.outputs.packaging }}
+          SWITCH_FROM: ${{ steps.version.outputs.switch_from }}
           UPSTREAM_CHANGED: ${{ steps.update.outputs.upstream_changed }}
           UPSTREAM_DIFF: ${{ steps.update.outputs.upstream_diff }}
         run: |
@@ -216,6 +228,13 @@ jobs:
             REVIEW="✅ All patches applied without changes."
           fi
 
+          if [ -n "${SWITCH_FROM}" ]; then
+            TITLE="${NAME}: Switch to ${PACKAGE_VERSION}"
+            REVIEW="⚠️ This switches the package from v${SWITCH_FROM} to v${VERSION%.*}, please test the kernel before merging."$'\n\n'"${REVIEW}"
+          else
+            TITLE="${NAME}: Automatic update to ${PACKAGE_VERSION}"
+          fi
+
           if [ "${UPSTREAM_CHANGED}" = "1" ]; then
             REVIEW="${REVIEW}"$'\n\n'"⚠️ The upstream PKGBUILD changed (apart from version and checksums), please check whether these changes need to be adopted:"$'\n\n'"<details><summary>Upstream PKGBUILD changes</summary>"$'\n\n```diff\n'"$(cat "${UPSTREAM_DIFF}")"$'\n```\n\n'"</details>"
           fi
@@ -229,7 +248,7 @@ jobs:
           fi
 
           gh pr create \
-            --title "${NAME}: Automatic update to ${PACKAGE_VERSION}" \
+            --title "${TITLE}" \
             --label autoupdate --label "${LABEL}" \
             --base master \
             --head "${BRANCH}" \
