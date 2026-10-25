@@ -12,3 +12,14 @@
 - [ ] Discord / guvcview: no grey screen, no periodic white flash
 - [ ] Front↔Back switch: black loading, then image
 - [ ] `dmesg`: no `stream stop/close time out` on stop (7.3)
+
+## 2026-10-25 live SB3 front white/LED fix
+
+Root cause of multi-LED blink + dirty reopen: live daemon still had 1500/800 reopen;
+plus kernel lacked loafecho stop_streaming order → `stream stop/close time out`.
+
+Deployed:
+- `surface_lc_webcamd.py`: settle **csettle/dsettle=1400/880**, pm_qos 100µs, no wipe after lock,
+  hold-last-good + BGR tear gate, ≤2 cooled hung-retries
+- rebuilt `intel-ipu6-isys.ko` with loafecho 0016/0017; disabled `/etc/modprobe.d/sb3-front-dphy.conf` (1500/800)
+- gate: `tests/front_stream_quality.py` — first open ≤3 starts + 10s zero bad frames (3/3 PASS)
