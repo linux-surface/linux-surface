@@ -14,7 +14,7 @@ required = [
     '("Surface-Back-Standard", 58, 1632, 1224, 1632, 1224, 30)',
     '("Surface-Back-HQ", 59, 3264, 2448, 1920, 1440, 15)',
     '("Surface-Back-Fast", 60, 800, 600, 800, 450, 60)',
-    '_FRONT_SETTLE = (880, 1400)',
+    '_FRONT_SETTLE = (1400, 880)',
     'sb3_front_clk_settle',
     'sb3_front_data_settle',
     "LED off until a client",
