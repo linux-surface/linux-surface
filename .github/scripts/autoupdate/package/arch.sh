@@ -3,10 +3,11 @@
 # Arch Linux package update helper
 #
 # Usage:
-#   arch.sh current          Print the currently packaged version
-#   arch.sh latest           Print the latest upstream versions for the series
-#   arch.sh check <version>  Check whether upstream sources for <version> exist
-#   arch.sh update <version> Update the package to <version>
+#   arch.sh current           Print the currently packaged version
+#   arch.sh latest [<series>] Print the latest upstream versions for the series
+#                             (default: the currently packaged one)
+#   arch.sh check <version>   Check whether upstream sources for <version> exist
+#   arch.sh update <version>  Update the package to <version>
 #
 # The update command bumps pkgver to the latest Arch release of <version> (or,
 # if that is already packaged, pkgrel), takes config.x86_64 from the Arch
@@ -64,7 +65,7 @@ cmd_latest()
     local series
     local tag
 
-    series="$(version_series "$(current_version)")"
+    series="${1:-$(version_series "$(current_version)")}"
 
     tag="$(github_tags "${ARCH_KERNEL_REPO}" "v${series}." "v$(regex_escape "${series}")\.[0-9]+-arch[0-9]+" | tail -n1)"
 
@@ -382,7 +383,7 @@ current)
     cmd_current
     ;;
 latest)
-    cmd_latest
+    cmd_latest "${2:-}"
     ;;
 check)
     cmd_check "${2:-}"
@@ -391,6 +392,6 @@ update)
     cmd_update "${2:-}"
     ;;
 *)
-    die "Usage: $0 {current|latest|check <version>|update <version>}"
+    die "Usage: $0 {current|latest [<series>]|check <version>|update <version>}"
     ;;
 esac

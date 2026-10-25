@@ -3,10 +3,11 @@
 # Debian package update helper
 #
 # Usage:
-#   debian.sh current          Print the currently packaged version
-#   debian.sh latest           Print the latest upstream versions for the series
-#   debian.sh check <version>  Check whether upstream sources for <version> exist
-#   debian.sh update <version> Update the package to <version>
+#   debian.sh current           Print the currently packaged version
+#   debian.sh latest [<series>] Print the latest upstream versions for the series
+#                               (default: the currently packaged one)
+#   debian.sh check <version>   Check whether upstream sources for <version> exist
+#   debian.sh update <version>  Update the package to <version>
 #
 # The update command bumps the kernel version (or, if <version> is already
 # packaged, the package revision), updates the base config to the latest
@@ -168,7 +169,7 @@ cmd_latest()
     local series
     local packaging
 
-    series="$(version_series "$(conf_var KERNEL_VERSION)")"
+    series="${1:-$(version_series "$(conf_var KERNEL_VERSION)")}"
 
     emit upstream "$(source_versions "${series}" | tail -n1)"
 
@@ -347,7 +348,7 @@ current)
     cmd_current
     ;;
 latest)
-    cmd_latest
+    cmd_latest "${2:-}"
     ;;
 check)
     cmd_check "${2:-}"
@@ -356,6 +357,6 @@ update)
     cmd_update "${2:-}"
     ;;
 *)
-    die "Usage: $0 {current|latest|check <version>|update <version>}"
+    die "Usage: $0 {current|latest [<series>]|check <version>|update <version>}"
     ;;
 esac

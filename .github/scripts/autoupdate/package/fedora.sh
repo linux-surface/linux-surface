@@ -5,10 +5,11 @@
 # The package sources are shared between all Fedora versions we build for.
 #
 # Usage:
-#   fedora.sh current          Print the currently packaged version
-#   fedora.sh latest           Print the latest upstream versions for the series
-#   fedora.sh check <version>  Check whether upstream sources for <version> exist
-#   fedora.sh update <version> Update the package to <version>
+#   fedora.sh current           Print the currently packaged version
+#   fedora.sh latest [<series>] Print the latest upstream versions for the series
+#                               (default: the currently packaged one)
+#   fedora.sh check <version>   Check whether upstream sources for <version> exist
+#   fedora.sh update <version>  Update the package to <version>
 #
 # The update command bumps the kernel-ark tag (or, if <version> is already
 # packaged, the package release) and refreshes our build-system patches. The
@@ -64,7 +65,7 @@ cmd_latest()
     local series
     local tag
 
-    series="$(version_series "$(current_version)")"
+    series="${1:-$(version_series "$(current_version)")}"
 
     tag="$(remote_tags "${ARK_REPO}" "kernel-${series}." "kernel-$(regex_escape "${series}")\.[0-9]+-0" | tail -n1)"
 
@@ -271,7 +272,7 @@ current)
     cmd_current
     ;;
 latest)
-    cmd_latest
+    cmd_latest "${2:-}"
     ;;
 check)
     cmd_check "${2:-}"
@@ -280,6 +281,6 @@ update)
     cmd_update "${2:-}"
     ;;
 *)
-    die "Usage: $0 {current|latest|check <version>|update <version>}"
+    die "Usage: $0 {current|latest [<series>]|check <version>|update <version>}"
     ;;
 esac
