@@ -2,13 +2,13 @@
 # Build Surface Book 3 IPU4P camera kernel.
 #
 # Supported bases (set KVER, or pass as first argument):
-#   6.19.8  — linux-surface patches/6.19 + ruslanbay downstream-legacy v6.19
-#   7.2.11  — linux-surface patches/7.2  + same IPU4 v6.19 series + SB3 shims
-#   7.3.0   — upstream v7.3 + linux-surface v7.3-surface rebased onto v7.3
-#             + Sakari IPU6/IPU7 lore series + ruslanbay upstream 00*.patch
-#             + SB3 portable overlays (ov5693 MIPI_CTRL00, ov7251 avdd)
+#   6.19.8  — linux-surface patches/6.19 + ruslanbay downstream-legacy v6.19 (LTS optional)
+#   7.2.12  — linux-surface patches/7.2  + same IPU4 v6.19 series + SB3 shims (DEFAULT)
+#   7.3.0   — linux-surface/kernel v7.3-surface @ 1ea399d (+ tip on v7.3)
+#             + Sakari IPU6/IPU7 lore + ruslanbay upstream 00*.patch
+#             + SB3 overlays + loafecho PM_QOS/stop_streaming (#1353)
 #
-# Resulting LOCALVERSION: -surface-ipu4  (release e.g. 7.3.0-surface-ipu4+)
+# Resulting LOCALVERSION: -surface-ipu4  (release e.g. 7.2.12-surface-ipu4+)
 # Distros: Fedora 44/45, Nobara 44.
 #
 # Paths: SRC_ROOT / SURFACE_IPU4_BUILD only — never hard-code a username.
@@ -18,7 +18,7 @@ SRC_ROOT="${SRC_ROOT:-${SURFACE_IPU4_BUILD:-/usr/src/surface-ipu4}}"
 if [[ ! -w "${SRC_ROOT}" ]] 2>/dev/null; then
   SRC_ROOT="${SURFACE_IPU4_BUILD:-${HOME}/src/surface-ipu4-build}"
 fi
-KVER="${1:-${KVER:-${SURFACE_IPU4_KVER:-7.3.0}}}"
+KVER="${1:-${KVER:-${SURFACE_IPU4_KVER:-7.2.12}}}"
 JOBS="${JOBS:-$(nproc)}"
 IPU_TRACK="${IPU_TRACK:-}"   # auto | downstream | upstream
 INSTALL_MODE="${INSTALL_MODE:-rpm}"  # rpm | modules  (7.3 default: rpm)
@@ -54,7 +54,7 @@ case "$KVER" in
     IPU_TRACK="${IPU_TRACK:-upstream}"
     ;;
   *)
-    echo "Unsupported KVER=$KVER (use 6.19.8, 7.2.11, or 7.3.0)" >&2
+    echo "Unsupported KVER=$KVER (use 6.19.8, 7.2.12, or 7.3.0)" >&2
     exit 1
     ;;
 esac
@@ -122,11 +122,9 @@ if [[ "$SURFACE_MODE" == "rebase-kernel" ]]; then
     git remote add torvalds https://github.com/torvalds/linux.git 2>/dev/null || true
     git fetch --depth=1 torvalds tag "v${KERNEL_TAR_VER}"
     git rebase --abort 2>/dev/null || true
-    # Prefer a known surface-only tip already sitting on v7.3 (avoids shallow
-    # merge-base hangs on blob:none clones). Override with SURFACE_TIP=...
-    # Tip is the parent of the first downstream-legacy IPU commit on
-    # build-7.3.0-surface (hid/multitouch Studio 2).
-    DEFAULT_SURFACE_TIP="e55d45853d76"
+    # Prefer linux-surface/kernel v7.3-surface tip (7.3.0-rc7). Override with
+    # SURFACE_TIP=...  Discussion #1353 / loafecho tested at 1ea399d.
+    DEFAULT_SURFACE_TIP="1ea399d60942"
     TIP="${SURFACE_TIP:-}"
     if [[ -z "$TIP" ]] && git cat-file -e "${DEFAULT_SURFACE_TIP}^{commit}" 2>/dev/null; then
       TIP="$DEFAULT_SURFACE_TIP"

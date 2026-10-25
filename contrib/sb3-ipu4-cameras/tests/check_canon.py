@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guards for the 6.19.8-3 / 7.2.11 camera contract. No hardware required."""
+"""Guards for the 6.19.8-3 / 7.2.12 camera contract. No hardware required."""
 import pathlib
 import sys
 
@@ -14,13 +14,17 @@ required = [
     '("Surface-Back-Standard", 58, 1632, 1224, 1632, 1224, 30)',
     '("Surface-Back-HQ", 59, 3264, 2448, 1920, 1440, 15)',
     '("Surface-Back-Fast", 60, 800, 600, 800, 450, 60)',
-    'sb3_front_clk_settle", "1500"',
-    'sb3_front_data_settle", "800"',
+    '_FRONT_SETTLE = (880, 1400)',
+    'sb3_front_clk_settle',
+    'sb3_front_data_settle',
     "LED off until a client",
     "no client → STREAMOFF",
     "find_cam(",
 ]
 forbidden = [
+    "1500/800",
+    "_FRONT_SETTLES",
+
     "1920, 1080",
     "sat > 0.08",
     "cam -c 3",

@@ -1,12 +1,12 @@
-# Pre-commit checklist (7.2.11 vs 6.19.8-3)
+# Pre-commit checklist (7.2.12 vs 6.19.8-3)
 
 Do **not** commit until every item is checked.
 
 ## Upstream trees
 
-- [x] linux-surface `patches/7.2/` + `configs/surface-7.2.config` imported from `arch/debian/fedora-*-7.2.11-1` / origin/master
+- [x] linux-surface `patches/7.2/` + `configs/surface-7.2.config` imported from `arch/debian/fedora-*-7.2.12-1` / origin/master
 - [x] linux-surface **7.3.0**: `v7.3-surface` rebased onto upstream `v7.3` + `kernel/patches/7.3/` + saved `kernel/configs/surface-7.3.0-ipu4.config`
-- [x] ipu4-drivers: **downstream-legacy** `patches/kernel/v6.19/` for 6.19.8 / 7.2.11 / 7.3.0 webcamd path (fetched latest)
+- [x] ipu4-drivers: **downstream-legacy** `patches/kernel/v6.19/` for 6.19.8 / 7.2.12 / 7.3.0 webcamd path (fetched latest)
 - [x] ipu4-drivers **upstream** reviewed: IPU6-based — documented as **not** for the webcamd SHM path
 - [x] No `/home/<user>`, username, or `Pulpit/…` hard-codes; English-only in canon; build tested before commit
 

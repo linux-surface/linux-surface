@@ -47,20 +47,23 @@ index 6016e46b1d22..0aaed7589a4a 100644
 +
 +/*
 + * Front (port 2) timing modes (module param sb3_front_timing):
-+ *  0 = SETTLE 1155/1269 + calc TERMEN (previous default)
++ * Port 2 uses Windows/yodabot *header* RX layout (macros below = 0x2c/0x30
++ * + 0x34/0x38 per lane). Ports 0/1 use the shifted layout via TERMEN path.
++ * Community-proven OV5693 lock: clk/data settle = 880/1400 (#1353).
++ *  0 = SETTLE 880/1400 + calc TERMEN (default / pinned)
 + *  1 = Windows TERMEN 1155/1269 + settle 0 (same as IR/back)
 + *  2 = SETTLE=calc, TERMEN=Windows
 + *  3 = pure calculated (no override)
 + *  4 = SETTLE 0x570/0x570 (CIO2-style) + calc TERMEN
 + */
-+static unsigned int sb3_front_timing = 2;
++static unsigned int sb3_front_timing = 0;
 +module_param(sb3_front_timing, uint, 0644);
 +MODULE_PARM_DESC(sb3_front_timing,
 +		 "SB3 front CSI timing mode 0..4 (see ipu4p-isys-csi-phy.c)");
 +
-+static unsigned int sb3_front_clk_settle = 1155;
++static unsigned int sb3_front_clk_settle = 880;
 +module_param(sb3_front_clk_settle, uint, 0644);
-+static unsigned int sb3_front_data_settle = 1269;
++static unsigned int sb3_front_data_settle = 1400;
 +module_param(sb3_front_data_settle, uint, 0644);
 +
 +static void ipu4p_isys_apply_front_timing(struct ipu6_isys_csi2 *csi2,
@@ -136,8 +139,8 @@ index 6016e46b1d22..0aaed7589a4a 100644
 -	 * IPU4P CSI-2. Use Windows-observed 1155/1269 ticks for the three
 -	 * sensor ports: 0=back ov8865, 1=IR ov7251, 2=front ov5693.
 +	 * SB3 ports: 0=back ov8865, 1=IR ov7251, 2=front ov5693.
-+	 * IR/back: Windows TERMEN 1155/1269. Front: SETTLE 1155/1269
-+	 * (TERMEN path and calc settle both DPHY-desync → white frames).
++	 * IR/back: Windows TERMEN 1155/1269 (shifted RX). Front port 2:
++	 * header-layout SETTLE 880/1400 (calc floor → DPHY non-recoverable).
  	 */
 -	fixed_timing = csi2->port <= 2 && cfg->nlanes >= 1 && cfg->nlanes <= 2;
 -	if (fixed_timing) {

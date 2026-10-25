@@ -19,14 +19,14 @@ Supported camera kernels (Fedora 44/45, Nobara 44):
 
 | Base | linux-surface | IPU4 | SB3 overlay |
 |------|---------------|------|-------------|
-| **6.19.8** | `patches/6.19/` | ruslanbay **downstream-legacy** `v6.19` | `kernel/patches/6.19/` + shared DPHY |
-| **7.2.11** | `patches/7.2/` | same `v6.19` IPU4 series | `kernel/patches/7.2/` |
-| **7.3.0** | `v7.3-surface` tip on upstream `v7.3` | ruslanbay **upstream** (IPU6-based) + Sakari lore | `kernel/patches/7.3/` (0007 avdd, 0013 MIPI_CTRL00) |
+| **6.19.8** (optional LTS) | `patches/6.19/` | ruslanbay **downstream-legacy** `v6.19` | `kernel/patches/6.19/` + DPHY + PM_QOS |
+| **7.2.12** (**default**) | `patches/7.2/` (release `*-7.2.12-1`) | same `v6.19` IPU4 series @ tip | `kernel/patches/7.2/` (BASE=7.2.12) |
+| **7.3.0** (overlay) | [`v7.3-surface`](https://github.com/linux-surface/kernel) @ `1ea399d` | ruslanbay **upstream** (IPU6-based) + Sakari lore | `kernel/patches/7.3/` + loafecho 0016/0017 |
 
-**Tracks:**
+**Tracks (do not mix ABI in one install without a flag):**
 
-- **6.19.8 / 7.2.11** — `downstream-legacy` + `intel_ipu4p_*` for SHM `surface_webcamd`.
-- **7.3.0** — [ipu4-drivers `upstream`](https://github.com/ruslanbay/ipu4-drivers/tree/upstream) on IPU6 (`intel-ipu6`); use libcamera / V4L2. Do **not** mix downstream into this track.
+- **6.19.8 / 7.2.12** — `downstream-legacy` + `intel_ipu4p_*` for SHM `surface_webcamd`.
+- **7.3.0** — [ipu4-drivers `upstream`](https://github.com/ruslanbay/ipu4-drivers/tree/upstream) on IPU6 (`intel-ipu6`); libcamera / `surface_lc_webcamd`. No official `kernel-surface-7.3` package yet.
 
 Stock `kernel-surface` RPMs do **not** include IPU4P — only INT3472/IPU3 camera quirks.
 
@@ -36,29 +36,35 @@ Profiles (capture / publish / FPS) for the webcamd path must match the last know
 Build:
 
 ```bash
-# default: 7.3.0-surface-ipu4 (upstream IPU6 track)
+# default: 7.2.12-surface-ipu4 (downstream-legacy / webcamd)
 bash kernel/build-and-install-kernel.sh
-# webcamd / downstream-legacy trees:
-bash kernel/build-and-install-kernel.sh 7.2.11
-bash kernel/build-and-install-kernel.sh 6.19.8
+bash kernel/build-and-install-kernel.sh 6.19.8   # optional LTS
+# upstream IPU6 track (libcamera / lc_webcamd):
+bash kernel/build-and-install-kernel.sh 7.3.0
 ```
+
+### Front DPHY (#1353)
+
+- Settle **clk/data = 880/1400** (community SP7; calc floor ≈661/684 never locks).
+- **loafecho:** `ISYS_PM_QOS` 100 µs for IPU4P; `stop_streaming` iwake **after** `set_streaming(0)` (7.3).
+- **yodabot:** port 2 uses Windows *header* RX layout (`0x2c/0x30` + `0x34/0x38`); ports 0/1 shifted.
+- Do **not** drop white frames in userspace or thrash settle 880↔1500.
 
 ### 7.3.0 upstream stack
 
-1. Upstream `v7.3` + linux-surface surface-only tip
+1. linux-surface/kernel `v7.3-surface` @ `1ea399d` (or tip on upstream `v7.3`)
 2. Sakari Ailus IPU6→IPU7 lore (`b4 shazam`)
 3. ruslanbay `upstream` → `patches/00*.patch` (incl. CSI port-2 timing 0011)
-4. SB3 portable: OV7251 INT3472 avdd (0007), OV5693 MIPI_CTRL00 (0013)
-5. Config from Fedora `kernel-x86_64-fedora.config` (must keep BTRFS + NVMe — a prior
-   minimal `.config` made 7.3 unbootable)
+4. SB3: OV7251 avdd (0007), OV5693 MIPI_CTRL00 (0013), CSI 0014/0015, loafecho 0016/0017
+5. Config from Fedora `kernel-x86_64-fedora.config` (must keep BTRFS + NVMe)
 
 ### 6.19 / 7.2 downstream stack
 
-1. linux-surface `patches/<series>/`
-2. ruslanbay `downstream-legacy` → `patches/kernel/v6.19/*.patch`
-3. `kernel/patches/<series>/` — DPHY lock + Linux 7.x API shims + OV7251 avdd
+1. linux-surface `patches/<series>/` (7.2.12-1 on master)
+2. ruslanbay `downstream-legacy` → `patches/kernel/v6.19/*.patch` (tip)
+3. `kernel/patches/<series>/` — DPHY lock + API shims + OV7251 avdd + PM_QOS 100 µs
 
-On **7.2.11** the downstream IPU4 series needs API shims: uapi `stdint.h` →
+On **7.2.12** the downstream IPU4 series needs API shims: uapi `stdint.h` →
 `linux/types.h`, clk `round_rate` → `determine_rate`, drop removed
 `vb2_ops.wait_prepare/wait_finish`, and set `aq->vbq.lock = &av->mutex` (Linux 7.x
 `vb2_core_queue_init` requires it — without this, ISYS probe fails with
@@ -106,7 +112,7 @@ Menu entry: **Howdy — Add Face Profile**.
 ```
 install.sh                 one-command installer (detects dnf/apt/pacman/zypper)
 HOWDY.md                   Howdy / IR + RGB profile behaviour
-kernel/                    firmware + kernel build (linux-surface 7.2.11-1 + IPU4)
+kernel/                    firmware + kernel build (linux-surface 7.2.12-1 + IPU4)
 userspace/                 → /opt/surface-cameras
 sbin/ bin/ desktop/ systemd/ udev/ modprobe.d/ selinux/
 remote-desktop/            Chrome Remote Desktop / portal helpers (greeter attach = WIP)
@@ -117,7 +123,7 @@ remote-desktop/            Chrome Remote Desktop / portal helpers (greeter attac
 See **[remote-desktop/README.md](remote-desktop/README.md)**. Portal grant, greeter env
 publish, wait-display, and tray-icon helpers are universal (no hard-coded login uid).
 Desktop share needs MONITOR ScreenCast (see `remote-desktop/NOTES-MONITOR.md`).
-Greeter / lock-screen share is still **WIP** on 7.2.11.
+Greeter / lock-screen share is still **WIP** on 7.2.12.
 
 ## Safety / regression guardrails
 
