@@ -58,10 +58,7 @@ def journal_cam_starts(since_iso: str) -> list[str]:
 
 
 def classify_bgr(bgr: np.ndarray) -> str:
-    """Return 'good' or a bad-frame reason.
-
-    Partial white = CSI tear (near-fully clipped bands), not a bright window.
-    """
+    """Match daemon gates: only full-white / hard CSI tear / true black."""
     if bgr is None or bgr.size == 0:
         return "incomplete"
     h, w = bgr.shape[:2]
@@ -69,25 +66,20 @@ def classify_bgr(bgr: np.ndarray) -> str:
         return "incomplete"
     grey = cv2.cvtColor(bgr[::4, ::4], cv2.COLOR_BGR2GRAY)
     p50 = float(np.percentile(grey, 50))
-    p95 = float(np.percentile(grey, 95))
     std = float(grey.std())
     sat = float((grey >= 250).mean())
     row_sat = (grey >= 250).mean(axis=1)
-    # CSI insert: some rows almost fully clipped, others not — and a large
-    # fraction of the frame is hard-clipped. A lamp rarely hits row_sat≥0.98.
     hard_rows = float((row_sat >= 0.98).mean())
     clean_rows = float((row_sat <= 0.05).mean())
-    partial = hard_rows >= 0.10 and clean_rows >= 0.15 and sat >= 0.12
-    if p50 < 6 and std < 3:
+    hard_tear = hard_rows >= 0.12 and clean_rows >= 0.20 and sat >= 0.15
+    if p50 < 6 and std < 2.5:
         return "black"
-    if p50 > 245 and sat > 0.60:
+    if p50 > 245 and sat > 0.70:
         return "white"
     if sat > 0.75:
         return "white"
-    if partial:
+    if hard_tear:
         return "partial_white"
-    if std < 2.0 and p50 > 200:
-        return "flat_white"
     return "good"
 
 
@@ -147,8 +139,9 @@ def main() -> int:
 
     # Settle pin (best-effort; daemon also pins)
     for path, val in (
-        ("/sys/module/intel_ipu6_isys/parameters/sb3_front_clk_settle", "1400"),
-        ("/sys/module/intel_ipu6_isys/parameters/sb3_front_data_settle", "880"),
+        ("/sys/module/intel_ipu6_isys/parameters/sb3_front_timing", "2"),
+        ("/sys/module/intel_ipu6_isys/parameters/sb3_front_clk_settle", "1000"),
+        ("/sys/module/intel_ipu6_isys/parameters/sb3_front_data_settle", "1000"),
         ("/sys/module/intel_ipu6_isys/parameters/sb3_front_timing", "0"),
     ):
         try:
@@ -159,7 +152,7 @@ def main() -> int:
     since = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     print(f"TEST front {dev} first-open + {args.seconds:.0f}s clean", flush=True)
     # Let CSI cool after any prior STREAMOFF (daemon uses 3.5s).
-    time.sleep(6.0)
+    time.sleep(2.5)
     print(f"journal since {since}", flush=True)
 
     labels, t_first = grab_frames(dev, args.seconds, time.monotonic() + args.warmup)
@@ -171,14 +164,14 @@ def main() -> int:
         counts[x] = counts.get(x, 0) + 1
 
     first_ok = t_first is not None
-    single_start = 1 <= len(starts) <= 3  # ≤2 cooled hung-retries
+    single_start = len(starts) <= 1  # 0 = held stream (no blink); >1 = LED blink FAIL
     stable_ok = first_ok and len(bad) == 0 and len(labels) >= max(15, int(args.seconds * 8))
 
     print(f"cam_starts={len(starts)} pids={starts}", flush=True)
     print(f"first_good={'yes' if first_ok else 'NO'} frames={len(labels)} counts={counts}", flush=True)
     print(
         f"half1_first_open={'PASS' if first_ok and single_start else 'FAIL'} "
-        f"(need first good + ≤3 cam starts)",
+        f"(need first good + ≤1 cam start (no LED blink))",
         flush=True,
     )
     print(

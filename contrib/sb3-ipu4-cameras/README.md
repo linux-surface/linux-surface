@@ -45,7 +45,7 @@ bash kernel/build-and-install-kernel.sh 7.3.0
 
 ### Front DPHY (#1353)
 
-- Settle **csettle/dsettle = 1400/880** (community SP7; calc floor ≈661/684 never locks).
+- Front CSI **timing mode 2** (calc settle + Windows TERMEN). Mode 0 / 1400/880 is pure-white or flaky here.
 - **loafecho:** `ISYS_PM_QOS` 100 µs for IPU4P; `stop_streaming` iwake **after** `set_streaming(0)` (7.3).
 - **yodabot:** port 2 uses Windows *header* RX layout (`0x2c/0x30` + `0x34/0x38`); ports 0/1 shifted.
 - Do **not** drop white frames in userspace or thrash settle 880↔1500.
