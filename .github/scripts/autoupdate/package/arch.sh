@@ -10,8 +10,9 @@
 #
 # The update command bumps pkgver to the latest Arch release of <version> (or,
 # if that is already packaged, pkgrel), takes config.x86_64 from the Arch
-# packaging, and updates the checksums. The patches in patches/<series> must
-# be for <version> (see patches/<series>/BASE). Changes to the upstream
+# packaging, links the surface patches and config of the series, and updates
+# the checksums. The patches in patches/<series> must be for <version> (see
+# patches/<series>/BASE). Changes to the upstream
 # PKGBUILD (other than version and checksums) are reported for review.
 #
 # As validation, the Arch patch and our patches are applied to the kernel
@@ -198,6 +199,53 @@ replace_array()
     mv "${PKGBUILD}.new" "${PKGBUILD}"
 }
 
+# Link the surface patches and config of a series into the package directory
+# and list the patches in the source array of the PKGBUILD. This is done on
+# every update, as patches may be added or removed with any kernel version.
+#
+# Usage: link_surface_sources <series>
+link_surface_sources()
+{
+    local series="$1"
+    local config="configs/surface-${series}.config"
+    local patches=()
+    local patch
+
+    if [ ! -f "${REPO_ROOT}/${config}" ]; then
+        die "${config} does not exist"
+    fi
+
+    mapfile -t patches < <(find "${REPO_ROOT}/patches/${series}" -maxdepth 1 -name '*.patch' -type f -printf '%f\n' | sort)
+
+    if [ "${#patches[@]}" -eq 0 ]; then
+        die "patches/${series} contains no patches"
+    fi
+
+    log "Linking ${config} and ${#patches[@]} patches from patches/${series}..."
+    ln -sfn "../../../${config}" "${PACKAGE_DIR}/surface.config"
+
+    find "${PACKAGE_DIR}" -maxdepth 1 -name '*.patch' -type l -delete
+    for patch in "${patches[@]}"; do
+        ln -s "../../../patches/${series}/${patch}" "${PACKAGE_DIR}/${patch}"
+    done
+
+    # Replace the local patch entries of the source array
+    awk -v patches="${patches[*]}" '
+        /^source=\(/ { insource = 1 }
+        insource && /^[[:space:]]+[^[:space:]#:\/]+\.patch[[:space:]]*$/ { next }
+        insource && /^\)/ {
+            n = split(patches, p, " ")
+            for (i = 1; i <= n; i++) {
+                print "  " p[i]
+            }
+            insource = 0
+        }
+        { print }
+    ' "${PKGBUILD}" > "${PKGBUILD}.new"
+
+    mv "${PKGBUILD}.new" "${PKGBUILD}"
+}
+
 cmd_update()
 {
     local version
@@ -269,6 +317,8 @@ cmd_update()
         -e "s/^pkgver=.*\$/pkgver=${pkgver}/" \
         -e "s/^pkgrel=.*\$/pkgrel=${pkgrel}/" \
         "${PKGBUILD}"
+
+    link_surface_sources "$(version_series "${version}")"
 
     # Download the remote sources (except signatures)
     while read -r entry; do
