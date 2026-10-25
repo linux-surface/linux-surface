@@ -2,7 +2,7 @@
 """Surface Book 3 — libcamera raw → v4l2loopback (kernel 7.3).
 
 Back: long-lived cam on /dev/shm. BayerRG, NO flip (libcamera already upright).
-Profiles match 6.19.8-3 / 7.2.11 (cap/out/fps). Fast is a 16:9 crop of that mode.
+Profiles match 6.19.8-3 / 7.2.12 (cap/out/fps). Fast is a 16:9 crop of that mode.
 
 IR: power ov7251 first, then ir-led-on (LED needs sensor awake on i2c-3).
 Front: settle 880/1400. Capture 2592x1944 SBGGR10; publish canon sizes. LED only with a client.
@@ -858,70 +858,23 @@ def _stop_proc(proc: subprocess.Popen | None) -> None:
 
 
 
-# Either pair can lock. A dirty receiver makes the other one come up
-# saturated. Try the second only when this start has produced no picture.
-# Once frames are good, never restart and never drop a frame.
-_FRONT_SETTLES = ((1500, 800),)
-_settle_i = 0
-_pinned_settle = 0
-_advance_settle = False
+# Pin community-proven settle (#1353). Do not thrash 880↔1500 — that dirties PHY.
+# White frames are a DPHY/ISYS problem; never drop them from the stream as a "fix".
+_FRONT_SETTLE = (880, 1400)
 
 
-def _front_raw_ok(path: Path) -> bool:
-    a = np.fromfile(path, dtype=np.uint16)
-    need = 2592 * 1944
-    if a.size < need:
-        return False
-    img = a[:need].reshape(1944, 2592)
-    sample = img[::16, ::16]
-    bot = img[1100::16, ::16]
-    p50 = float(np.percentile(sample, 50))
-    sat = float((sample >= 1000).mean())
-    return sat < 0.35 and float(bot.std()) > 8.0 and 8.0 < p50 < 800.0
-
-
-def probe_front_settle(idx: int, sub: str, shm: Path) -> tuple[int, int]:
-    """Try settle pairs until a full, non-white frame shows up."""
-    for clk, data in _FRONT_SETTLES:
+def _pin_front_settle() -> tuple[int, int]:
+    clk, data = _FRONT_SETTLE
+    for path, val in (
+        ("/sys/module/intel_ipu6_isys/parameters/sb3_front_clk_settle", str(clk)),
+        ("/sys/module/intel_ipu6_isys/parameters/sb3_front_data_settle", str(data)),
+        ("/sys/module/intel_ipu6_isys/parameters/sb3_front_timing", "0"),
+    ):
         try:
-            Path("/sys/module/intel_ipu6_isys/parameters/sb3_front_clk_settle").write_text(f"{clk}\n")
-            Path("/sys/module/intel_ipu6_isys/parameters/sb3_front_data_settle").write_text(f"{data}\n")
+            Path(path).write_text(val + "\n")
         except OSError as e:
-            print(f"CAMF settle write {e}", flush=True)
-            continue
-        v4l_set(sub, "exposure=220,analogue_gain=8,horizontal_flip=0,vertical_flip=0")
-        for old in shm.glob("*.raw"):
-            try:
-                old.unlink()
-            except OSError:
-                pass
-        print(f"CAMF probe {clk}/{data}", flush=True)
-        try:
-            subprocess.run(
-                [
-                    "cam", "-c", str(idx),
-                    "--stream", "role=raw,width=2592,height=1944",
-                    "--capture=3", f"--file={shm}/p-#.raw",
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=8,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            pass
-        files = sorted(shm.glob("p-*.raw"))
-        ok = any(_front_raw_ok(f) for f in files[-2:])
-        for f in list(shm.glob("*.raw")):
-            try:
-                f.unlink()
-            except OSError:
-                pass
-        if ok:
-            print(f"CAMF locked settle {clk}/{data}", flush=True)
-            return clk, data
-    print("CAMF no settle locked, keep 1500/800", flush=True)
-    return 1500, 800
+            print(f"front param {path}: {e}", flush=True)
+    return clk, data
 
 
 def run_front(stop: threading.Event) -> None:
@@ -931,15 +884,7 @@ def run_front(stop: threading.Event) -> None:
     if idx is None or sub is None:
         print("CAMF/ov5693 missing", flush=True)
         return
-    for path, val in (
-        ("/sys/module/intel_ipu6_isys/parameters/sb3_front_clk_settle", "1500"),
-        ("/sys/module/intel_ipu6_isys/parameters/sb3_front_data_settle", "800"),
-        ("/sys/module/intel_ipu6_isys/parameters/sb3_front_timing", "0"),
-    ):
-        try:
-            Path(path).write_text(val + "\n")
-        except OSError as e:
-            print(f"front param {path}: {e}", flush=True)
+    _pin_front_settle()
 
     v4l_set(sub, "horizontal_flip=0,vertical_flip=0")
     fds: dict[int, int] = {}
@@ -1030,20 +975,10 @@ def run_front(stop: threading.Event) -> None:
                     except OSError:
                         pass
                 seen.clear()
-                global _front_wh, _settle_i, _pinned_settle, _advance_settle
+                global _front_wh
                 cap_w, cap_h = 2592, 1944
                 _front_wh = (cap_w, cap_h)
-                # A fresh client starts from the settle that last produced a
-                # picture. Relock sets _advance_settle so the next try moves on.
-                if not _advance_settle:
-                    _settle_i = _pinned_settle
-                _advance_settle = False
-                clk, data = _FRONT_SETTLES[_settle_i % len(_FRONT_SETTLES)]
-                try:
-                    Path("/sys/module/intel_ipu6_isys/parameters/sb3_front_clk_settle").write_text(f"{clk}\n")
-                    Path("/sys/module/intel_ipu6_isys/parameters/sb3_front_data_settle").write_text(f"{data}\n")
-                except OSError:
-                    pass
+                clk, data = _pin_front_settle()
                 ae.apply()
                 _wait_csi_cool()
                 print(f"CAMF start settle {clk}/{data}", flush=True)
@@ -1124,22 +1059,8 @@ def run_front(stop: threading.Event) -> None:
             if unlocked:
                 n_white += 1
                 consecutive = 0
-                if (
-                    stable < 2
-                    and retries < 2
-                    and n_white >= 30
-                    and (time.monotonic() - stream_t0) > 3.0
-                ):
-                    print("CAMF reopen settle 1500/800 (PHY recover)", flush=True)
-                    n_white = 0
-                    retries += 1
-                    _settle_i = 0
-                    _advance_settle = False
-                    _stop_proc(proc)
-                    proc = None
-                    _note_csi_stop()
-                    continue
-                # No picture yet: black loading, not the previous camera's last frame.
+                # SoftAE must not treat white as a stream fix — black wipe only
+                # while PHY is still locking; once stable, publish every frame.
                 if stable < 4:
                     wipe_loopbacks(fds, out_of, active_nrs)
                     continue
@@ -1147,30 +1068,8 @@ def run_front(stop: threading.Event) -> None:
                 ae.note_unlock()
                 ae._drops = getattr(ae, "_drops", 0) + 1
                 if ae._drops <= 3 or ae._drops % 30 == 0:
-                    print(f"CAMF drop p50={p50:.0f} std={std:.0f} exp={ae.exp}", flush=True)
-                # Each restart toggles the privacy LED. The first frames of a
-                # good lock are often white; killing cam there blinks the LED
-                # and the next start comes up as one frozen frame. Retry once,
-                # only if this start never produced a picture.
+                    print(f"CAMF black p50={p50:.0f} std={std:.0f} exp={ae.exp}", flush=True)
                 consecutive = 0
-                # At most one restart, and only before four good frames in a
-                # row. A loop of restarts blinks the privacy LED and then
-                # sustain_framerate freezes the last frame.
-                if (
-                    stable < 2
-                    and retries < 2
-                    and ae._drops >= 20
-                    and (time.monotonic() - stream_t0) > 3.0
-                ):
-                    print("CAMF reopen settle 1500/800 (black recover)", flush=True)
-                    ae._drops = 0
-                    retries += 1
-                    _settle_i = 0
-                    _advance_settle = False
-                    _stop_proc(proc)
-                    proc = None
-                    _note_csi_stop()
-                    continue
                 wipe_loopbacks(fds, out_of, active_nrs)
                 continue
             if not unlocked:
@@ -1178,7 +1077,6 @@ def run_front(stop: threading.Event) -> None:
                 stable += 1
                 consecutive += 1
                 last_good = time.monotonic()
-                _pinned_settle = _settle_i % len(_FRONT_SETTLES)
                 if consecutive < 2:
                     wipe_loopbacks(fds, out_of, active_nrs)
                     continue

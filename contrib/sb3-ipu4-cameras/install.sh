@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Surface Book 3 RGB + IR (Howdy) webcams — distro-neutral installer.
-#  1) build kernel 7.3.0-surface-ipu4 (or SURFACE_IPU4_KVER) if not already on surface-ipu4
+#  1) build kernel 7.2.12-surface-ipu4 (or SURFACE_IPU4_KVER) if not already on surface-ipu4
 #  2) install firmware, userspace, systemd, udev, loopbacks, Howdy helpers
 #  3) after reboot on surface-ipu4: Front / Back / IR loopbacks via webcamd
 set -euo pipefail
@@ -174,15 +174,15 @@ if [[ -d "$ROOT/remote-desktop" ]]; then
 fi
 
 echo "=== 4. kernel surface-ipu4 ==="
-# Stock linux-surface (6.19.8-3 / 7.2.11-1) has INT3472 cameras only — no IPU4P.
-# Supported custom builds: 6.19.8-surface-ipu4 and 7.2.11-surface-ipu4.
-KVER_TARGET="${SURFACE_IPU4_KVER:-7.3.0}"
+# Stock linux-surface (6.19.8-3 / 7.2.12-1) has INT3472 cameras only — no IPU4P.
+# Default custom build: 7.2.12-surface-ipu4 (downstream-legacy). Optional: 6.19.8, 7.3.0.
+KVER_TARGET="${SURFACE_IPU4_KVER:-7.2.12}"
 if uname -r | grep -q surface-ipu4; then
   echo "already on $(uname -r) — skip compile"
   "$ROOT/kernel/install-firmware.sh" || true
 else
   echo "Stock linux-surface has no IPU4P. Building ${KVER_TARGET}-surface-ipu4…"
-  echo "(override with SURFACE_IPU4_KVER=7.2.11 or 6.19.8 for previous trees)"
+  echo "(override with SURFACE_IPU4_KVER=7.3.0 or 6.19.8 for other trees)"
   "$ROOT/kernel/build-and-install-kernel.sh" "$KVER_TARGET"
   echo
   echo "Reboot and select the kernel with *surface-ipu4* in the bootloader."

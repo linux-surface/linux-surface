@@ -11,5 +11,5 @@ This overlay does **not** ship a binary patch of Google’s
 `libremoting_core.so`. If your host still forces VIRTUAL, patch or configure
 the host locally so ScreenCast requests MONITOR for the attached desktop.
 
-Verified on 7.2.11-surface-ipu4+: with MONITOR forced, Start succeeds, a stream
+Verified on 7.2.12-surface-ipu4+: with MONITOR forced, Start succeeds, a stream
 is added, and the host returns to “ready” after disconnect.
