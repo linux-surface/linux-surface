@@ -237,6 +237,56 @@ if [[ ! -f "$MARKER" ]]; then
   touch "$MARKER"
 fi
 
+# --- IPTS (touch + pen) must be present before .config ---
+# v7.3-surface tip already carries drivers/hid/ipts. An older build path tried to
+# re-apply linux-surface 0005-ipts on top; mei/pci-me.c rejected and some trees
+# lost the Kconfig wire-up → olddefconfig dropped CONFIG_HID_IPTS → no /dev/hidraw
+# for iptsd. Refuse to build a digitizer-less SB3 image.
+ensure_ipts_sources() {
+  if [[ -f drivers/hid/ipts/Kconfig && -f drivers/hid/ipts/main.c ]]; then
+    if ! grep -q 'hid/ipts/Kconfig' drivers/hid/Kconfig; then
+      echo 'source "drivers/hid/ipts/Kconfig"' >> drivers/hid/Kconfig
+    fi
+    if ! grep -q 'CONFIG_HID_IPTS' drivers/hid/Makefile; then
+      echo 'obj-$(CONFIG_HID_IPTS)          += ipts/' >> drivers/hid/Makefile
+    fi
+    echo "OK IPTS sources present"
+    return 0
+  fi
+  echo "IPTS sources missing — applying linux-surface 0005-ipts (resilient)" >&2
+  local p=""
+  for cand in \
+    "$SRC_ROOT/linux-surface/patches/7.2/0005-ipts.patch" \
+    "$SRC_ROOT/linux-surface/patches/6.19/0005-ipts.patch" \
+    "$ROOT/../../patches/7.2/0005-ipts.patch" \
+    "$ROOT/../../patches/6.19/0005-ipts.patch"
+  do
+    [[ -f "$cand" ]] && p="$cand" && break
+  done
+  if [[ -z "$p" ]]; then
+    echo "FATAL: no 0005-ipts.patch found and drivers/hid/ipts/ missing" >&2
+    exit 1
+  fi
+  # mei/pci-me.c often rejects on 7.3; driver files still apply. Keep going.
+  git apply --reject --whitespace=nowarn "$p" || true
+  rm -f drivers/misc/mei/pci-me.c.rej drivers/misc/mei/*.rej 2>/dev/null || true
+  find drivers -name '*.rej' -delete 2>/dev/null || true
+  if [[ ! -f drivers/hid/ipts/Kconfig || ! -f drivers/hid/ipts/main.c ]]; then
+    echo "FATAL: 0005-ipts did not produce drivers/hid/ipts/" >&2
+    exit 1
+  fi
+  if ! grep -q 'hid/ipts/Kconfig' drivers/hid/Kconfig; then
+    echo 'source "drivers/hid/ipts/Kconfig"' >> drivers/hid/Kconfig
+  fi
+  if ! grep -q 'CONFIG_HID_IPTS' drivers/hid/Makefile; then
+    echo 'obj-$(CONFIG_HID_IPTS)          += ipts/' >> drivers/hid/Makefile
+  fi
+  git add -A
+  git commit -qm "SB3: ensure IPTS touch/pen driver (0005-ipts resilient)" || true
+  echo "OK IPTS sources restored from $(basename "$p")"
+}
+ensure_ipts_sources
+
 # --- config ---
 # Never reuse a broken minimal .config. Prefer Fedora x86_64, then a known-good boot config.
 BOOTCFG=""
@@ -290,8 +340,11 @@ fi
 ./scripts/config --module CONFIG_VIDEO_OV7251 || ./scripts/config --enable CONFIG_VIDEO_OV7251
 ./scripts/config --module CONFIG_VIDEO_OV8865 || ./scripts/config --enable CONFIG_VIDEO_OV8865
 ./scripts/config --module CONFIG_VIDEO_OV9734 || true
-# Surface Book touch + pen (IPTS) and newer THC HID. The running 7.3 image
-# shipped with IPTS/ITHC unset, so the digitizer never probed.
+# Surface Book touch + pen (IPTS) and newer THC HID.
+# HID_IPTS depends on INTEL_MEI — enable MEI first or olddefconfig drops IPTS.
+./scripts/config --module CONFIG_INTEL_MEI || ./scripts/config --enable CONFIG_INTEL_MEI
+./scripts/config --module CONFIG_INTEL_MEI_ME || ./scripts/config --enable CONFIG_INTEL_MEI_ME
+./scripts/config --module CONFIG_HID || ./scripts/config --enable CONFIG_HID
 ./scripts/config --module CONFIG_HID_IPTS || ./scripts/config --enable CONFIG_HID_IPTS
 ./scripts/config --module CONFIG_HID_ITHC || ./scripts/config --enable CONFIG_HID_ITHC
 ./scripts/config --module CONFIG_INTEL_THC_HID || ./scripts/config --enable CONFIG_INTEL_THC_HID
@@ -323,14 +376,16 @@ fi
 ./scripts/config --enable CONFIG_DEBUG_FS || true
 make olddefconfig
 
-# Sanity: refuse to build an unbootable config again.
-for req in CONFIG_BTRFS_FS CONFIG_BLK_DEV_NVME CONFIG_HID_IPTS CONFIG_INTEL_THC_HID; do
-  st="$(./scripts/config --state "$req" || true)"
-  if [[ "$st" == "undef" || "$st" == "n" ]]; then
-    echo "FATAL: $req is $st — refusing build (previous 7.3 boot failure)" >&2
+# Sanity: refuse to build an unbootable / digitizer-less config again.
+# Prefer grepping .config — scripts/config --state can report "m" for a
+# dangling symbol that olddefconfig already stripped when Kconfig was missing.
+for req in CONFIG_BTRFS_FS CONFIG_BLK_DEV_NVME CONFIG_HID_IPTS CONFIG_INTEL_MEI; do
+  if ! grep -qE "^${req}=[ym]" .config; then
+    echo "FATAL: $req missing from .config after olddefconfig (got: $(./scripts/config --state "$req" 2>/dev/null || echo '?'))" >&2
+    echo "FATAL: SB3 needs in-tree ipts.ko — see tools/rebuild-ipts-module.sh for OOT fallback only" >&2
     exit 1
   fi
-  echo "OK $req=$st"
+  echo "OK $req=$(grep -E "^${req}=" .config)"
 done
 if [[ "$IPU_TRACK" == "upstream" ]]; then
   echo "OK VIDEO_INTEL_IPU6=$(./scripts/config --state CONFIG_VIDEO_INTEL_IPU6)"

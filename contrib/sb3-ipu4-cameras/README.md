@@ -56,7 +56,18 @@ bash kernel/build-and-install-kernel.sh 7.3.0
 2. Sakari Ailus IPU6→IPU7 lore (`b4 shazam`)
 3. ruslanbay `upstream` → `patches/00*.patch` (incl. CSI port-2 timing 0011)
 4. SB3: OV7251 avdd (0007), OV5693 MIPI_CTRL00 (0013), CSI 0014/0015, loafecho 0016/0017
-5. Config from Fedora `kernel-x86_64-fedora.config` (must keep BTRFS + NVMe)
+5. Config from Fedora `kernel-x86_64-fedora.config` (must keep BTRFS + NVMe + **`CONFIG_HID_IPTS=m`**)
+
+### Touch / pen (IPTS)
+
+SB3 digitizer needs in-tree **`ipts.ko`** (`CONFIG_HID_IPTS=m`, depends on `INTEL_MEI`). A previous 7.3 surface-ipu4 build left IPTS unset (linux-surface `0005-ipts` reject on `mei/pci-me.c` while Fedora config had `# CONFIG_HID_IPTS is not set`), so iptsd never saw `/dev/hidraw` and touch/stylus died.
+
+`kernel/build-and-install-kernel.sh` now:
+
+- verifies `drivers/hid/ipts/` before `.config`
+- enables `INTEL_MEI` + `HID_IPTS` and **refuses** the build if `.config` still lacks `CONFIG_HID_IPTS=m`
+
+Until the next kernel rebuild, the OOT fallback is `tools/rebuild-ipts-module.sh` (sources in `/usr/local/src/ipts-oot`).
 
 ### 6.19 / 7.2 downstream stack
 
