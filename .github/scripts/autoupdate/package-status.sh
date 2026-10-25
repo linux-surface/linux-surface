@@ -59,10 +59,13 @@ PULL_REQUESTS=""
 CLOSED_PULL_REQUESTS=""
 UPDATE_RUNS=""
 
-# Load the latest kernel.org release of each maintained series.
+# Load the latest kernel.org release of each maintained series. A new release
+# (e.g. 7.3) is listed as mainline until its first stable release, so include
+# mainline releases, but not release candidates.
 load_kernel_org()
 {
     local json
+    local filter='.releases[] | select(.moniker == "stable" or .moniker == "longterm" or (.moniker == "mainline" and (.version | test("-rc") | not)))'
 
     if ! json="$(curl -sf --retry 3 https://www.kernel.org/releases.json)"; then
         die "Failed to fetch kernel.org releases"
@@ -70,9 +73,9 @@ load_kernel_org()
 
     while read -r version; do
         STABLE["$(version_series "${version}")"]="${version}"
-    done < <(echo "${json}" | jq -r '.releases[] | select(.moniker == "stable" or .moniker == "longterm") | select(.iseol | not) | .version')
+    done < <(echo "${json}" | jq -r "${filter} | select(.iseol | not) | .version")
 
-    NEWEST_STABLE="$(echo "${json}" | jq -r '.releases[] | select(.moniker == "stable") | .version' | sort -V | tail -n1)"
+    NEWEST_STABLE="$(echo "${json}" | jq -r "${filter} | select(.moniker != \"longterm\") | .version" | sort -V | tail -n1)"
 }
 
 # Load the open pull requests created by the autoupdate workflows.
@@ -443,7 +446,7 @@ print_branches()
         stable="${STABLE[${series}]:-}"
         base="$(patches_base "${series}")"
 
-        tag="$(github_tags "${KERNEL_REPOSITORY}" "surface/v${series}." "surface/v$(regex_escape "${series}")\.[0-9]+" | tail -n1)"
+        tag="$(github_tags "${KERNEL_REPOSITORY}" "surface/v${series}" "surface/v$(regex_escape "${series}")(\.[0-9]+)?" | tail -n1)"
         surface="${tag#surface/v}"
 
         if [ -z "${stable}" ]; then
