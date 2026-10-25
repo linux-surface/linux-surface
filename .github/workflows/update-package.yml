@@ -88,6 +88,7 @@ jobs:
           PACKAGE_VERSION: ${{ steps.update.outputs.package_version }}
           REFRESHED: ${{ steps.update.outputs.refreshed }}
           CONFIG_UPDATED: ${{ steps.update.outputs.config_updated }}
+          CONFIG_OUTDATED: ${{ steps.update.outputs.config_outdated }}
           UPSTREAM_CHANGED: ${{ steps.update.outputs.upstream_changed }}
         run: |
           case "${DISTRO}" in
@@ -147,7 +148,7 @@ jobs:
           git add -- "${PATHS[@]}"
           git commit -m "${SUBJECT}"
 
-          if [ -n "${REFRESHED}" ] || [ "${CONFIG_UPDATED}" = "1" ] || [ "${UPSTREAM_CHANGED}" = "1" ]; then
+          if [ -n "${REFRESHED}" ] || [ "${CONFIG_UPDATED}" = "1" ] || [ "${CONFIG_OUTDATED}" = "1" ] || [ "${UPSTREAM_CHANGED}" = "1" ]; then
             LABEL="autoupdate:needs-review"
           else
             LABEL="autoupdate:trivial"
@@ -183,6 +184,7 @@ jobs:
           PACKAGE_VERSION: ${{ steps.update.outputs.package_version }}
           REFRESHED: ${{ steps.update.outputs.refreshed }}
           CONFIG_UPDATED: ${{ steps.update.outputs.config_updated }}
+          CONFIG_OUTDATED: ${{ steps.update.outputs.config_outdated }}
           PACKAGING: ${{ steps.update.outputs.packaging }}
           UPSTREAM_CHANGED: ${{ steps.update.outputs.upstream_changed }}
           UPSTREAM_DIFF: ${{ steps.update.outputs.upstream_diff }}
@@ -220,6 +222,10 @@ jobs:
 
           if [ "${CONFIG_UPDATED}" = "1" ]; then
             REVIEW="${REVIEW}"$'\n\n'"⚠️ The base config has been updated from Ubuntu mainline build ${PACKAGING}, please review the config changes."
+          fi
+
+          if [ "${CONFIG_OUTDATED}" = "1" ]; then
+            REVIEW="${REVIEW}"$'\n\n'"⚠️ There is no Ubuntu mainline build for v${VERSION%.*} yet, so the base config of build ${PACKAGING} is used. Options new in v${VERSION%.*} are set to their defaults."
           fi
 
           gh pr create \
