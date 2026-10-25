@@ -1010,9 +1010,8 @@ def run_front(stop: threading.Event) -> None:
                 # A back client must get the ISYS immediately. Same-side
                 # profile changes only need a short hold so the PHY stays up.
                 other_wants = any_external_clients(BACK_LOOPBACKS + IR_LOOPBACKS)
-                # Keep ISYS up briefly on same-side reopen so the privacy LED
-                # does not blink 2–3× for one user open.
-                hold = 0.0 if other_wants else 12.0
+                # No post-close hold — privacy LED must go off when Discord closes.
+                hold = 0.0
                 if proc is not None and (now - last_client_mono) < hold:
                     active_nrs = set()
                 else:
