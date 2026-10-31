@@ -25,7 +25,27 @@ setup-builddeps)
     dnf builddep kernel
 
     # Install additional build dependencies
-    dnf install sbsigntools
+    dnf install sbsigntools openssl
+
+    # The kernel spec computes the FIPS hmac of the kernel image with
+    # sha512hmac, which uses the kernel crypto API (AF_ALG) of the host and
+    # fails on some runners. Shadow it with an equivalent in userspace, using
+    # the default key of libkcapi-hmaccalc.
+    cat > /usr/local/bin/sha512hmac << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+for file in "$@"; do
+    if [[ "${file}" == -* ]]; then
+        echo "sha512hmac: options are not supported: ${file}" >&2
+        exit 1
+    fi
+
+    hash="$(openssl dgst -sha512 -mac HMAC -macopt key:FIPS-FTW-RHT2009 -r "${file}")"
+    echo "${hash%% *}  ${file}"
+done
+EOF
+    chmod 755 /usr/local/bin/sha512hmac
     ;;
 setup-secureboot)
     if [ -z "${SB_KEY:-}" ]; then
