@@ -1,0 +1,21 @@
+From: loafecho <loafecho@users.noreply.github.com>
+Date: Tue, 21 Oct 2026 00:00:00 +0000
+Subject: [PATCH] media: intel-ipu4p: hold CPU latency at 100 us while ISYS is powered
+
+Origin: https://github.com/linux-surface/linux-surface/discussions/1353
+---
+--- da/drivers/media/pci/intel/ipu-isys.c	2026-10-25 20:57:12.996038101 +0100
++++ db/drivers/media/pci/intel/ipu-isys.c	2026-10-25 20:57:13.017570102 +0100
+@@ -32,7 +32,11 @@
+ #include "ipu-platform.h"
+ #include "ipu-platform-buttress-regs.h"
+ 
+-#define ISYS_PM_QOS_VALUE	300
++/*
++ * IPU4P: 300 us still allows Ice Lake C2 (exit 253 us) during streaming and
++ * stalls CSI. Hold at 100 us while ISYS is runtime-resumed (#1353 / loafecho).
++ */
++#define ISYS_PM_QOS_VALUE	100
+ 
+ /*
+  * Convert firmware/ACPI CSI-2 port number to isys->csi2[] array index.

@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""Floating Face Login button for the greeter — only on *surface-ipu4* kernels.
+
+Writes /run/surface-howdy/face-request; a systemd path unit runs the root
+face-login oneshot. No systemctl from the greeter (SELinux xdm_t).
+"""
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+REQ = Path("/run/surface-howdy/face-request")
+RUN = Path("/run/surface-howdy")
+
+
+def visible() -> bool:
+    try:
+        return subprocess.call(
+            ["/usr/local/sbin/surface-face-button-visible.sh"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ) == 0
+    except OSError:
+        return False
+
+
+def guess_user() -> str:
+    for p in (Path("/etc/plasmalogin.conf"), *Path("/etc/plasmalogin.conf.d").glob("*")):
+        try:
+            for line in p.read_text().splitlines():
+                if line.startswith("User=") and line.split("=", 1)[1].strip():
+                    u = "".join(c for c in line.split("=", 1)[1] if c.isalnum() or c in "_.-")
+                    if u and u != "root":
+                        return u
+        except OSError:
+            continue
+    for m in sorted(Path("/etc/howdy/models").glob("*.dat")):
+        return m.stem
+    # First human login account (uid >= 1000); never hard-code a username.
+    try:
+        import pwd
+
+        for ent in pwd.getpwall():
+            if 1000 <= ent.pw_uid < 65534:
+                return ent.pw_name
+    except Exception:
+        pass
+    return os.environ.get("USER") or ""
+
+
+def request_face(user: str) -> None:
+    RUN.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(RUN, 0o1777)
+    except OSError:
+        pass
+    # Atomic replace so PathExists / PathModified fires reliably
+    tmp = RUN / "face-request.tmp"
+    tmp.write_text(user + "\n")
+    tmp.replace(REQ)
+
+
+def main() -> int:
+    if not visible():
+        return 0
+
+    # Prefer GTK (PyGObject) — present on Fedora Plasma.
+    try:
+        import gi
+
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import Gtk, GLib
+    except Exception:
+        # Headless fallback: arm request immediately (still needs path unit).
+        request_face(guess_user())
+        return 0
+
+    user = guess_user()
+
+    class App(Gtk.Application):
+        def __init__(self):
+            super().__init__(application_id="org.surface.FaceLoginButton")
+
+        def do_activate(self):
+            win = Gtk.ApplicationWindow(application=self, title="Face Login")
+            win.set_default_size(220, 48)
+            win.set_resizable(False)
+            try:
+                win.set_decorated(False)
+            except Exception:
+                pass
+            btn = Gtk.Button(label="Face Login")
+            btn.set_margin_top(6)
+            btn.set_margin_bottom(6)
+            btn.set_margin_start(10)
+            btn.set_margin_end(10)
+
+            def on_click(*_a):
+                btn.set_sensitive(False)
+                btn.set_label("Scanning…")
+                request_face(user)
+                # Re-enable after a short cooldown (howdy timeout ~5s)
+                GLib.timeout_add_seconds(6, lambda: (btn.set_sensitive(True), btn.set_label("Face Login"), False)[-1])
+
+            btn.connect("clicked", on_click)
+            win.set_child(btn)
+            win.present()
+
+    app = App()
+    return app.run(None)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

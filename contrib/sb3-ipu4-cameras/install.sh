@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# Surface Book 3 RGB + IR (Howdy) webcams — distro-neutral installer.
+#  1) build kernel 7.2.12-surface-ipu4 (or SURFACE_IPU4_KVER) if not already on surface-ipu4
+#  2) install firmware, userspace, systemd, udev, loopbacks, Howdy helpers
+#  3) after reboot on surface-ipu4: Front / Back / IR loopbacks via webcamd
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PREFIX="${PREFIX:-/opt/surface-cameras}"
+INSTALL_USER="${SUDO_USER:-${USER}}"
+INSTALL_HOME="$(getent passwd "$INSTALL_USER" | cut -d: -f6)"
+INSTALL_UID="$(id -u "$INSTALL_USER")"
+
+if [[ $(id -u) -ne 0 ]]; then
+  echo "Run: sudo $0" >&2
+  exit 1
+fi
+
+pkg_install() {
+  if command -v dnf >/dev/null 2>&1; then
+    dnf install -y \
+      python3 python3-opencv v4l-utils v4l2loopback gcc make git git-lfs \
+      curl tar xz bc openssl-devel elfutils-libelf-devel dwarves flex bison \
+      ncurses-devel rsync acl howdy || true
+  elif command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+      python3 python3-opencv v4l-utils v4l2loopback-dkms gcc make git git-lfs \
+      curl tar xz-utils bc libssl-dev libelf-dev dwarves flex bison \
+      libncurses-dev rsync acl || true
+    apt-get install -y howdy 2>/dev/null || true
+  elif command -v pacman >/dev/null 2>&1; then
+    pacman -Sy --noconfirm --needed \
+      python python-opencv v4l-utils v4l2loopback-dkms gcc make git git-lfs \
+      curl tar xz bc openssl libelf pahole flex bison ncurses rsync acl || true
+  elif command -v zypper >/dev/null 2>&1; then
+    zypper --non-interactive install \
+      python3 python3-opencv v4l-utils v4l2loopback gcc make git git-lfs \
+      curl tar xz bc libopenssl-devel libelf-devel dwarves flex bison \
+      ncurses-devel rsync acl || true
+  else
+    echo "Unknown package manager. Install python3, opencv, v4l-utils," >&2
+    echo "v4l2loopback, gcc, make, git, git-lfs and kernel build deps." >&2
+    exit 1
+  fi
+}
+
+echo "=== 1. packages ==="
+pkg_install
+
+echo "=== 2. userspace → $PREFIX ==="
+install -d "$PREFIX/tools" "$PREFIX/lib" "$PREFIX/sbin"
+install -m 644 "$ROOT/userspace/lib/"*.py "$PREFIX/lib/"
+install -m 755 "$ROOT/userspace/tools/surface_webcamd.py" "$PREFIX/tools/"
+if [[ -f "$ROOT/userspace/tools/surface_lc_webcamd.py" ]]; then
+  install -d /usr/local/libexec
+  install -m 755 "$ROOT/userspace/tools/surface_lc_webcamd.py" /usr/local/libexec/surface_lc_webcamd.py
+fi
+if [[ -f "$ROOT/userspace/tools/raw_hold.c" ]]; then
+  install -m 644 "$ROOT/userspace/tools/raw_hold.c" "$PREFIX/tools/"
+  cc -O2 -Wall -o "$PREFIX/tools/raw_hold" "$PREFIX/tools/raw_hold.c"
+  chmod 755 "$PREFIX/tools/raw_hold"
+fi
+if [[ -d "$ROOT/userspace/sbin" ]]; then
+  install -m 755 "$ROOT/userspace/sbin/"* "$PREFIX/sbin/" 2>/dev/null || true
+fi
+
+echo "=== 3. sbin / bin / desktop / systemd / udev / modprobe / wireplumber ==="
+install -d /usr/local/sbin /usr/local/bin /usr/share/applications
+# shell helpers
+install -m 755 "$ROOT/sbin/"*.sh /usr/local/sbin/
+# Howdy PAM helpers (no .sh suffix)
+[[ -f "$ROOT/sbin/howdy-gtk-pam-safe" ]] && \
+  install -m 755 "$ROOT/sbin/howdy-gtk-pam-safe" /usr/local/bin/howdy-gtk
+[[ -f "$ROOT/bin/surface-howdy-add-profile" ]] && \
+  install -m 755 "$ROOT/bin/surface-howdy-add-profile" /usr/local/bin/surface-howdy-add-profile
+[[ -f "$ROOT/desktop/howdy-add-profile.desktop" ]] && \
+  install -m 644 "$ROOT/desktop/howdy-add-profile.desktop" /usr/share/applications/howdy-add-profile.desktop
+command -v update-desktop-database >/dev/null && update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+
+install -m 644 "$ROOT/systemd/"*.service /etc/systemd/system/
+# Deprecated face-login.path / greeter-button are masked by install-face-login-safe.sh
+install -m 644 "$ROOT/udev/"*.rules /etc/udev/rules.d/
+install -d /etc/modprobe.d /etc/modules-load.d
+install -m 644 "$ROOT/modprobe.d/"*.conf /etc/modprobe.d/
+install -m 644 "$ROOT/modules-load.d/"*.conf /etc/modules-load.d/
+install -d /etc/wireplumber/wireplumber.conf.d
+install -m 644 "$ROOT/wireplumber/"*.conf /etc/wireplumber/wireplumber.conf.d/
+# OBS 98-v4l2loopback.conf overwrites card labels — disable it
+ln -sfn /dev/null /etc/modprobe.d/98-v4l2loopback.conf
+
+# SELinux Howdy V4L (Fedora / RHEL) — optional
+if command -v checkmodule >/dev/null && [[ -f "$ROOT/selinux/howdy_v4l.te" ]]; then
+  install -d /usr/local/share/selinux
+  checkmodule -M -m -o /tmp/howdy_v4l.mod "$ROOT/selinux/howdy_v4l.te" && \
+    semodule_package -o /usr/local/share/selinux/howdy_v4l.pp -m /tmp/howdy_v4l.mod && \
+    semodule -i /usr/local/share/selinux/howdy_v4l.pp 2>/dev/null || \
+    semodule -u /usr/local/share/selinux/howdy_v4l.pp 2>/dev/null || true
+fi
+
+ENV_BODY="HOME=$INSTALL_HOME
+XDG_RUNTIME_DIR=/run/user/$INSTALL_UID
+DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$INSTALL_UID/bus
+SURFACE_WEBCAM_IR=1
+"
+# Debian/Ubuntu: /etc/default ; Fedora/RHEL/openSUSE: /etc/sysconfig
+if [[ -d /etc/sysconfig ]]; then
+  printf '%s' "$ENV_BODY" >/etc/sysconfig/surface-webcam
+fi
+install -d /etc/default
+printf '%s' "$ENV_BODY" >/etc/default/surface-webcam
+
+if getent group video >/dev/null; then
+  usermod -aG video "$INSTALL_USER" || true
+fi
+
+systemctl daemon-reload
+systemctl enable surface-ipu4-late.service surface-webcam.service
+# Permissions: udev rules only (no surface-cam-perms.service — see surface-control for system units)
+systemctl disable --now surface-cam-perms.service 2>/dev/null || true
+rm -f /etc/systemd/system/surface-cam-perms.service
+rm -f /etc/systemd/system/multi-user.target.wants/surface-cam-perms.service
+# Empty-password face login (universal). Typed password skips the camera.
+if [[ -f "$ROOT/tools/install-face-login-safe.sh" ]]; then
+  bash "$ROOT/tools/install-face-login-safe.sh" || true
+fi
+systemctl disable --now surface-face-login.path surface-face-greeter-button.service   surface-howdy-enable.service surface-howdy-gate.service 2>/dev/null || true
+systemctl disable --now surface-howdy-prefetch.service surface-howdy-warm.service 2>/dev/null || true
+for u in surface-ir-howdy.service surface-howdy-cameras.path surface-howdy-cameras.service          surface-face-login.path surface-face-greeter-button.service; do
+  systemctl disable --now "$u" 2>/dev/null || true
+  ln -sfn /dev/null "/etc/systemd/system/$u" 2>/dev/null || true
+done
+udevadm control --reload-rules || true
+
+echo "=== 3b. remote-desktop helpers (optional / WIP greeter) ==="
+if [[ -d "$ROOT/remote-desktop" ]]; then
+  install -m 755 "$ROOT/remote-desktop/crd-grant-remote-desktop" \
+    "$ROOT/remote-desktop/crd-wait-display.sh" \
+    "$ROOT/remote-desktop/crd-publish-greeter.sh" \
+    "$ROOT/remote-desktop/crd-viewer-flag" /usr/local/sbin/ 2>/dev/null || true
+  install -m 644 "$ROOT/remote-desktop/crd-publish-greeter.service" /etc/systemd/system/ 2>/dev/null || true
+  # Tray preload (optional; needs g++)
+  if command -v g++ >/dev/null 2>&1 && [[ -f "$ROOT/remote-desktop/crd-tray-icon.cpp" ]]; then
+    g++ -shared -fPIC -O2 -o /tmp/crd-tray-icon.so \
+      "$ROOT/remote-desktop/crd-tray-icon.cpp" -ldl 2>/dev/null \
+      && install -m 755 /tmp/crd-tray-icon.so /usr/local/lib/crd-tray-icon.so \
+      && rm -f /tmp/crd-tray-icon.so || true
+  fi
+  systemctl daemon-reload
+  systemctl enable crd-publish-greeter.service 2>/dev/null || true
+  if [[ -n "${INSTALL_UID}" && -n "${INSTALL_USER}" ]]; then
+    sudo -u "$INSTALL_USER" \
+      XDG_RUNTIME_DIR="/run/user/$INSTALL_UID" \
+      DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$INSTALL_UID/bus" \
+      /usr/local/sbin/crd-grant-remote-desktop 2>/dev/null || true
+    # User units: tray drop-in + viewer flag watcher (home from passwd, not /home/$USER)
+    user_sys="${INSTALL_HOME}/.config/systemd/user"
+    mkdir -p "$user_sys/plasma-xdg-desktop-portal-kde.service.d"
+    install -o "$INSTALL_USER" -g "$INSTALL_USER" -m 644 \
+      "$ROOT/remote-desktop/crd-icon.conf" \
+      "$user_sys/plasma-xdg-desktop-portal-kde.service.d/crd-icon.conf" 2>/dev/null || true
+    install -o "$INSTALL_USER" -g "$INSTALL_USER" -m 644 \
+      "$ROOT/remote-desktop/crd-viewer-flag.service" \
+      "$user_sys/crd-viewer-flag.service" 2>/dev/null || true
+    sudo -u "$INSTALL_USER" XDG_RUNTIME_DIR="/run/user/$INSTALL_UID" \
+      systemctl --user daemon-reload 2>/dev/null || true
+    sudo -u "$INSTALL_USER" XDG_RUNTIME_DIR="/run/user/$INSTALL_UID" \
+      systemctl --user enable --now crd-viewer-flag.service 2>/dev/null || true
+    # Best-effort portal restart so LD_PRELOAD applies
+    sudo -u "$INSTALL_USER" XDG_RUNTIME_DIR="/run/user/$INSTALL_UID" \
+      systemctl --user try-restart plasma-xdg-desktop-portal-kde.service 2>/dev/null || true
+    # Optional greeter ACL for the installing user
+    CRD_ACL_USER="$INSTALL_USER" /usr/local/sbin/crd-publish-greeter.sh 2>/dev/null || true
+  fi
+fi
+
+echo "=== 4. kernel surface-ipu4 ==="
+# Stock linux-surface (6.19.8-3 / 7.2.12-1) has INT3472 cameras only — no IPU4P.
+# Default custom build: 7.2.12-surface-ipu4 (downstream-legacy). Optional: 6.19.8, 7.3.0.
+KVER_TARGET="${SURFACE_IPU4_KVER:-7.2.12}"
+if uname -r | grep -q surface-ipu4; then
+  echo "already on $(uname -r) — skip compile"
+  "$ROOT/kernel/install-firmware.sh" || true
+else
+  echo "Stock linux-surface has no IPU4P. Building ${KVER_TARGET}-surface-ipu4…"
+  echo "(override with SURFACE_IPU4_KVER=7.3.0 or 6.19.8 for other trees)"
+  "$ROOT/kernel/build-and-install-kernel.sh" "$KVER_TARGET"
+  echo
+  echo "Reboot and select the kernel with *surface-ipu4* in the bootloader."
+  echo "After reboot the cameras start on their own (late + webcamd)."
+  echo "Then: sudo configure-howdy-ir.sh && surface-howdy-add-profile"
+  exit 0
+fi
+
+modprobe v4l2loopback 2>/dev/null || true
+systemctl restart surface-ipu4-late.service || true
+# Re-apply udev MODE/GROUP after loopbacks appear
+/usr/local/sbin/surface-cam-perms.sh 2>/dev/null || \
+  udevadm trigger -s video4linux -s media || true
+systemctl restart surface-webcam.service || true
+systemctl start surface-howdy-enable.service || true
+
+# Howdy INI + PAM (safe: no-model exits in <1s → password)
+if command -v howdy >/dev/null 2>&1 && [[ -x /usr/local/sbin/configure-howdy-ir.sh ]]; then
+  /usr/local/sbin/configure-howdy-ir.sh || true
+fi
+
+echo
+echo "Done. Front / Back / IR (Surface-*-Howdy) via webcamd."
+echo "Add face: Applications → Howdy — Add Face Profile  (or surface-howdy-add-profile)"
+echo "Docs: $ROOT/HOWDY.md"
