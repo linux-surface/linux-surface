@@ -571,7 +571,7 @@ print_notices()
 
     for script in $(printf '%s\n' "${!SWITCH_VERSION[@]}" | sort); do
         if [ "${SWITCH_READY[${script}]}" = 1 ]; then
-            notices+=("- 🟢 ${PACKAGE_NAMES[${script}]}: Can be switched to ${SWITCH_VERSION[${script}]}. To switch, run the [package update workflow](${GITHUB_SERVER_URL:-https://github.com}/${REPOSITORY}/actions/workflows/update-package.yml) with version ${SWITCH_VERSION[${script}]}.")
+            notices+=("- 🟢 ${PACKAGE_NAMES[${script}]}: Can be switched to ${SWITCH_VERSION[${script}]}. To switch, run the [package update workflow](${GITHUB_SERVER_URL:-https://github.com}/${REPOSITORY}/actions/workflows/update-package.yml) with version ${SWITCH_VERSION[${script}]}, or:"$'\n'"  \`\`\`sh"$'\n'"  gh workflow run update-package.yml -R ${REPOSITORY} -f distro=${script} -f version=${SWITCH_VERSION[${script}]}"$'\n'"  \`\`\`")
         fi
     done
 
