@@ -1,4 +1,4 @@
-From ec1f78882164c8becaa3f82dfe9b902c614985a9 Mon Sep 17 00:00:00 2001
+From cc24b52d6f1ccbd4d2c2a3614caf6999b854d3a1 Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Tue, 30 Sep 2025 20:10:38 +0200
 Subject: [PATCH 3/6] Let kernel-surface conflict with older versions of the
@@ -10,10 +10,10 @@ Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
  1 file changed, 18 insertions(+)
 
 diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
-index a900bead421b..27f9f69ea0ff 100644
+index c7f9ba26cd57..b6bc160bac72 100644
 --- a/redhat/kernel.spec.template
 +++ b/redhat/kernel.spec.template
-@@ -803,6 +803,10 @@ Requires: ((%{name}-modules-extra-uname-r = %{KVERREL}) if %{name}-modules-extra
+@@ -762,6 +762,10 @@ Requires: ((%{name}-modules-extra-uname-r = %{KVERREL}) if %{name}-modules-extra
  Suggests: %{name}-core = %{specversion}-%{release}
  Provides: installonlypkg(kernel)
  Provides: kernel = %{KVERREL}
@@ -24,7 +24,7 @@ index a900bead421b..27f9f69ea0ff 100644
  %endif
  
  
-@@ -1639,6 +1643,8 @@ Provides: kernel-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+@@ -1594,6 +1598,8 @@ Provides: kernel-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: %{name}-devel-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: kernel-devel = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: installonlypkg(kernel)\
@@ -33,43 +33,43 @@ index a900bead421b..27f9f69ea0ff 100644
  AutoReqProv: no\
  Requires(pre): findutils\
  Requires: findutils\
-@@ -1668,6 +1674,8 @@ Summary: Meta package to install matching core and devel packages for a given %{
+@@ -1620,6 +1626,8 @@ Summary: Meta package to install matching core and devel packages for a given %{
  Requires: %{name}%{?1:-%{1}}-devel = %{specrpmversion}-%{release}\
  Requires: %{name}%{?1:-%{1}}-core = %{specrpmversion}-%{release}\
  Provides: kernel-devel-matched = %{specrpmversion}-%{release}\
 +Conflicts: %{package_name}-devel-matched < 6.3.7-2\
 +Obsoletes: %{package_name}-devel-matched < 6.3.7-2\
  %description %{?1:%{1}-}devel-matched\
- This meta package is used to install matching core and devel packages for a given %{?2:%{2} }kernel.\
+ This meta package is used to install matching core and devel packages for a given %{?1:%{1} }kernel.\
  %{nil}
-@@ -1731,6 +1739,8 @@ Provides: %{name}%{?1:-%{1}}-modules-extra-uname-r = %{KVERREL}%{uname_suffix %{
+@@ -1683,6 +1691,8 @@ Provides: %{name}%{?1:-%{1}}-modules-extra-uname-r = %{KVERREL}%{uname_suffix %{
  Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
 +Conflicts: %{package_name}-modules-extra < 6.3.7-2\
 +Obsoletes: %{package_name}-modules-extra < 6.3.7-2\
- %if %{-m:1}%{!-m:0}\
- Requires: %{name}-modules-extra-uname-r = %{KVERREL}%{uname_variant %{?1}}\
- %endif\
-@@ -1764,6 +1774,8 @@ Provides: kernel%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+ AutoReq: no\
+ AutoProv: yes\
+ %description %{?1:%{1}-}modules-extra\
+@@ -1710,6 +1720,8 @@ Provides: kernel%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: %{name}%{?1:-%{1}}-modules-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
 +Conflicts: %{package_name}-modules < 6.3.7-2\
 +Obsoletes: %{package_name}-modules < 6.3.7-2\
- %if %{-m:1}%{!-m:0}\
- Requires: %{name}-modules-uname-r = %{KVERREL}%{uname_variant %{?1}}\
- %endif\
-@@ -1790,6 +1802,8 @@ Provides: installonlypkg(kernel-module)\
+ AutoReq: no\
+ AutoProv: yes\
+ %description %{?1:%{1}-}modules\
+@@ -1733,6 +1745,8 @@ Provides: installonlypkg(kernel-module)\
  Provides: kernel%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: %{name}%{?1:-%{1}}-modules-core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Requires: %{name}-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
 +Conflicts: %{package_name}-modules-core < 6.3.7-2\
 +Obsoletes: %{package_name}-modules-core < 6.3.7-2\
- %if %{-m:1}%{!-m:0}\
- Requires: %{name}-modules-core-uname-r = %{KVERREL}%{uname_variant %{?1}}\
- %endif\
-@@ -1815,6 +1829,8 @@ Suggests: %{name}-%{1}-core = %{specversion}-%{release}\
+ AutoReq: no\
+ AutoProv: yes\
+ %description %{?1:%{1}-}modules-core\
+@@ -1755,6 +1769,8 @@ Suggests: %{name}-%{1}-core = %{specversion}-%{release}\
  %if "%{1}" == "rt" || "%{1}" == "rt-debug" || "%{1}" == "rt-64k" || "%{1}" == "rt-64k-debug"\
  Requires: realtime-setup\
  %endif\
@@ -78,15 +78,15 @@ index a900bead421b..27f9f69ea0ff 100644
  Provides: installonlypkg(kernel)\
  Provides: kernel = %{KVERREL}+%{1}\
  %description %{1}\
-@@ -1842,6 +1858,8 @@ Provides: kernel-%{?1:%{1}-}core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
+@@ -1779,6 +1795,8 @@ Provides: kernel-%{?1:%{1}-}core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: %{name}-%{?1:%{1}-}core-uname-r = %{KVERREL}%{uname_suffix %{?1}}\
  Provides: installonlypkg(kernel)\
  Provides: kernel-%{?1:%{1}-}core = %{KVERREL}%{uname_suffix %{?1}}\
 +Conflicts: %{package_name}-core < 6.3.7-2\
 +Obsoletes: %{package_name}-core < 6.3.7-2\
- %if %{-m:1}%{!-m:0}\
- Requires: %{name}-core-uname-r = %{KVERREL}%{uname_variant %{?1}}\
- Requires: %{name}-%{?1:%{1}-}-modules-core-uname-r = %{KVERREL}%{uname_variant %{?1}}\
+ %{expand:%%kernel_reqprovconf %{?1:%{1}} %{-o:%{-o}}}\
+ %if %{?1:1} %{!?1:0} \
+ %{expand:%%kernel_meta_package %{?1:%{1}}}\
 -- 
 2.56.0
 

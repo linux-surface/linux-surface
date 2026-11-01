@@ -1,4 +1,4 @@
-From a01ff076551b58aa0f69b2132018edb4ee432ab2 Mon Sep 17 00:00:00 2001
+From bbf8d50f65a421e6575b9fbc31fed7e7554d6384 Mon Sep 17 00:00:00 2001
 From: Serge Hallyn <serge.hallyn@canonical.com>
 Date: Fri, 31 May 2013 19:12:12 +0100
 Subject: [PATCH] add sysctl to disallow unprivileged CLONE_NEWUSER by default
@@ -20,10 +20,10 @@ Signed-off-by: Serge Hallyn <serge.hallyn@ubuntu.com>
  3 files changed, 32 insertions(+)
 
 diff --git a/kernel/fork.c b/kernel/fork.c
-index 3da0f08615a9..8974312080fe 100644
+index efe6157fedb4..243dc903ef7b 100644
 --- a/kernel/fork.c
 +++ b/kernel/fork.c
-@@ -123,6 +123,12 @@
+@@ -127,6 +127,12 @@
  
  #include <kunit/visibility.h>
  
@@ -36,7 +36,7 @@ index 3da0f08615a9..8974312080fe 100644
  /*
   * Minimum number of threads to boot the kernel
   */
-@@ -1946,6 +1952,10 @@ __latent_entropy struct task_struct *copy_process(
+@@ -2042,6 +2048,10 @@ __latent_entropy struct task_struct *copy_process(
  	if ((clone_flags & (CLONE_NEWUSER|CLONE_FS)) == (CLONE_NEWUSER|CLONE_FS))
  		return ERR_PTR(-EINVAL);
  
@@ -47,9 +47,9 @@ index 3da0f08615a9..8974312080fe 100644
  	/*
  	 * Thread groups must share signals as well, and detached threads
  	 * can only be started up within the thread group.
-@@ -3107,6 +3117,12 @@ int ksys_unshare(unsigned long unshare_flags)
- 	if (unshare_flags & CLONE_NEWNS)
- 		unshare_flags |= CLONE_FS;
+@@ -3288,6 +3298,12 @@ int ksys_unshare(unsigned long unshare_flags)
+ 	VFS_WARN_ON_ONCE(unshare_flags & (CLONE_NEWNS | CLONE_FS) &&
+ 			 current->fs != current->real_fs);
  
 +	if ((unshare_flags & CLONE_NEWUSER) && !unprivileged_userns_clone) {
 +		err = -EPERM;
@@ -61,10 +61,10 @@ index 3da0f08615a9..8974312080fe 100644
  	if (err)
  		goto bad_unshare_out;
 diff --git a/kernel/sysctl.c b/kernel/sysctl.c
-index cb6196e3fa99..c955e49a4b7a 100644
+index 38597f26b34c..97e68d0b7d32 100644
 --- a/kernel/sysctl.c
 +++ b/kernel/sysctl.c
-@@ -36,6 +36,10 @@ EXPORT_SYMBOL_GPL(sysctl_long_vals);
+@@ -35,6 +35,10 @@ EXPORT_SYMBOL_GPL(sysctl_long_vals);
  static const int ngroups_max = NGROUPS_MAX;
  static const int cap_last_cap = CAP_LAST_CAP;
  
@@ -72,10 +72,10 @@ index cb6196e3fa99..c955e49a4b7a 100644
 +extern int unprivileged_userns_clone;
 +#endif
 +
- #ifdef CONFIG_PROC_SYSCTL
+ #ifdef CONFIG_SYSCTL
  
  /**
-@@ -1455,6 +1459,15 @@ int proc_do_static_key(const struct ctl_table *table, int write,
+@@ -1398,6 +1402,15 @@ int proc_do_static_key(const struct ctl_table *table, int dir,
  }
  
  static const struct ctl_table sysctl_subsys_table[] = {
@@ -88,11 +88,11 @@ index cb6196e3fa99..c955e49a4b7a 100644
 +		.proc_handler	= proc_dointvec,
 +	},
 +#endif
- #ifdef CONFIG_PROC_SYSCTL
+ #ifdef CONFIG_SYSCTL
  	{
  		.procname	= "sysctl_writes_strict",
 diff --git a/kernel/user_namespace.c b/kernel/user_namespace.c
-index 03cb63883d04..163817801c17 100644
+index 0bed462e9b2a..7c588c15446a 100644
 --- a/kernel/user_namespace.c
 +++ b/kernel/user_namespace.c
 @@ -23,6 +23,9 @@
@@ -106,5 +106,5 @@ index 03cb63883d04..163817801c17 100644
  static DEFINE_MUTEX(userns_state_mutex);
  
 -- 
-2.52.0
+2.56.0
 
