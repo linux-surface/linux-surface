@@ -51,6 +51,7 @@ declare -A RELEASE_DATES=()
 # Per package script: names of the targets, version to update to, and whether
 # upstream is ready for it
 declare -A PACKAGE_NAMES=()
+declare -A PACKAGE_SERIES=()
 declare -A UPDATE_VERSION=()
 declare -A UPDATE_READY=()
 
@@ -261,6 +262,7 @@ package_row()
     local released
     local status
     local upstream
+    local pr
 
     PACKAGE_NAMES[${script}]="${PACKAGE_NAMES[${script}]:+${PACKAGE_NAMES[${script}]}, }${name}"
 
@@ -270,6 +272,7 @@ package_row()
 
     series="${cur[series]}"
     base="$(patches_base "${series}")"
+    PACKAGE_SERIES[${script}]="${series}"
     stable="${STABLE[${series}]:-}"
 
     tag="${prefix}-${cur[version]}-${cur[release]}"
@@ -303,7 +306,8 @@ package_row()
         status="✅ Up to date"
     fi
 
-    status="${status}$(pull_request_refs "autoupdate/${script}-")"
+    # Only show updates within the series here, switches are shown below
+    status="${status}$(pull_request_refs "autoupdate/${script}-${series}.")"
 
     # Can the package be switched to the target series?
     if [ -n "${TARGET_SERIES}" ] && version_lt "${series}" "${TARGET_SERIES}"; then
@@ -312,7 +316,12 @@ package_row()
         load_kv target "${PACKAGE_SCRIPTS}/${script}.sh" latest "${TARGET_SERIES}" || true
         upstream="${upstream} · ${TARGET_SERIES}: ${target[upstream]:-–}"
 
-        if load_kv check "${PACKAGE_SCRIPTS}/${script}.sh" check "${SWITCH_VERSION[${script}]}"; then
+        pr="$(pull_request_refs "autoupdate/${script}-${TARGET_SERIES}.")"
+
+        if [ -n "${pr}" ]; then
+            status="${status}<br>🔄 Switch to ${SWITCH_VERSION[${script}]} pull request open${pr}"
+            SWITCH_READY[${script}]=0
+        elif load_kv check "${PACKAGE_SCRIPTS}/${script}.sh" check "${SWITCH_VERSION[${script}]}"; then
             status="${status}<br>🟢 Can switch to ${SWITCH_VERSION[${script}]}"
             SWITCH_READY[${script}]=1
         else
@@ -377,7 +386,9 @@ update_state()
         return
     fi
 
-    pr="$(pull_request_refs "autoupdate/${script}-")"
+    # A pull request switching the package to a newer series doesn't block
+    # updates within its current series
+    pr="$(pull_request_refs "autoupdate/${script}-${PACKAGE_SERIES[${script}]}.")"
 
     if [ -n "${pr}" ]; then
         UPDATE_STATE="update pull request open${pr}"
