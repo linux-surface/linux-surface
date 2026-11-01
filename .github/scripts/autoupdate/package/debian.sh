@@ -271,14 +271,17 @@ cmd_update()
     mapfile -t files < <(find "${PACKAGE_DIR}" -maxdepth 1 -name '*.patch' -type f | sort)
 
     # Apply our packaging patches to the currently packaged version, which
-    # gives us commits to 3-way merge from.
+    # gives us commits to 3-way merge from. Patches that have already been
+    # refreshed for <version> may not apply anymore, which is fine as long as
+    # they apply to <version> as-is.
     log "Applying packaging patches to v${current}..."
     git checkout -q --detach "v${current}" >&2
 
     for patch in "${files[@]}"; do
         if ! git am -q "${patch}" >&2; then
             git am --abort >&2 || true
-            die "Patch ${patch#"${REPO_ROOT}"/} does not apply to v${current}"
+            log "WARNING: ${patch#"${REPO_ROOT}"/} does not apply to v${current}, 3-way merges may fail"
+            break
         fi
 
         commits+=("$(git rev-parse HEAD)")
@@ -295,6 +298,10 @@ cmd_update()
         fi
 
         git am --abort >&2
+
+        if [ -z "${commits[$i]:-}" ]; then
+            die "Patch ${patch#"${REPO_ROOT}"/} does not apply to v${version}"
+        fi
 
         if ! git cherry-pick "${commits[$i]}" >&2; then
             git cherry-pick --abort >&2 || true
