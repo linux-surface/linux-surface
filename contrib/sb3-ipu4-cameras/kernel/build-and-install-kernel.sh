@@ -205,16 +205,59 @@ if [[ ! -f "$MARKER" ]]; then
   fi
 
   if [[ "$IPU_TRACK" == "upstream" ]]; then
-    # Sakari Ailus IPU6→IPU7 series required by ruslanbay upstream README.
+    # Sakari Ailus IPU6→IPU7 series (needed on vanilla 7.3.x before IPU4P).
     b4 shazam 'https://lore.kernel.org/all/20260907113004.2489993-1-sakari.ailus@linux.intel.com/'
+
+    # Prefer our vendored IPU4P series (BIT(6) style from the known-good
+    # v7.3-surface bring-up). Tip RFC v2 from ruslanbay targets media-committers
+    # `next` (has IPU8 flag layout) and fails `git am --3way` on 7.3.1+Sakari
+    # with "could not build fake ancestor" on the CSI PHY patch.
+    apply_patch_series() {
+      local p base
+      for p in "$@"; do
+        [[ -f "$p" ]] || continue
+        base="$(basename "$p")"
+        [[ "$base" == *cover-letter* ]] && continue
+        if git am --3way "$p"; then
+          continue
+        fi
+        git am --abort 2>/dev/null || true
+        echo "WARN: git am failed for $base — try git apply" >&2
+        git apply --whitespace=nowarn "$p"
+        git add -A
+        git commit -qm "$base"
+      done
+    }
+
     shopt -s nullglob
-    up_patches=("$SRC_ROOT/ipu4-drivers/patches/"00*.patch)
-    if ((${#up_patches[@]} == 0)); then
-      # RFC v2 renamed series (cover letter excluded).
-      up_patches=("$SRC_ROOT/ipu4-drivers/patches/"v2-00[1-9]*.patch
-                  "$SRC_ROOT/ipu4-drivers/patches/"v2-001[0-2]*.patch)
+    vendored=("$ROOT/kernel/patches/ipu4-upstream-7.3/"*.patch)
+    if ((${#vendored[@]} > 0)); then
+      echo "Applying vendored IPU4P series (${#vendored[@]} patches)"
+      apply_patch_series "${vendored[@]}"
+    else
+      # Fallback: pinned historical ruslanbay series, then tip v2.
+      up_patches=()
+      if [[ -d "$SRC_ROOT/ipu4-drivers/.git" ]]; then
+        mapfile -t up_patches < <(
+          git -C "$SRC_ROOT/ipu4-drivers" ls-tree --name-only a6aaa02:patches/ 2>/dev/null \
+            | grep -E '^00(0[1-9]|1[0-2])-.*\.patch$' \
+            | while read -r f; do
+                out="$SRC_ROOT/ipu4-drivers/.sb3-cached/$f"
+                mkdir -p "$(dirname "$out")"
+                git -C "$SRC_ROOT/ipu4-drivers" show "a6aaa02:patches/$f" > "$out"
+                printf '%s\n' "$out"
+              done
+        )
+      fi
+      if ((${#up_patches[@]} == 0)); then
+        # Explicit v2-0001..0012 — avoid v2-00[1-9]* matching v2-0010 twice.
+        up_patches=(
+          "$SRC_ROOT/ipu4-drivers/patches/"v2-000{1..9}-*.patch
+          "$SRC_ROOT/ipu4-drivers/patches/"v2-001{0..2}-*.patch
+        )
+      fi
+      apply_patch_series "${up_patches[@]}"
     fi
-    git am --3way "${up_patches[@]}"
     shopt -u nullglob
   else
     git am --3way "$SRC_ROOT/ipu4-drivers/patches/kernel/v6.19/"*.patch
