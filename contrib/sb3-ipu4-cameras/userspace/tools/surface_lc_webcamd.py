@@ -311,7 +311,11 @@ _wb_n = 0
 
 
 def demosaic_back(buf: bytes) -> np.ndarray | None:
-    """BayerRG, upright (no flip — libcamera path). Skip magenta/unlock frames."""
+    """BayerRG, upright (no flip — libcamera path). Skip magenta/unlock frames.
+
+    Never drop dark scenes (covered lens / black wall) — that freezes the
+    preview on the last bright frame via sustain_framerate.
+    """
     global _wb_scales, _wb_n
     arr = np.frombuffer(buf, dtype=np.uint16)
     n = arr.size
@@ -321,14 +325,15 @@ def demosaic_back(buf: bytes) -> np.ndarray | None:
     sample = img[::16, ::16]
     p1 = float(sample.min())
     p99 = float(np.percentile(sample, 99))
-    if p99 - p1 < 15 and p99 < 50:
+    # Only skip an empty CSI buffer (all ~0). A covered lens or black wall is
+    # a real picture and must keep streaming.
+    if p99 < 1.5 and float(sample.std()) < 0.4:
         return None
-    sat = float((sample >= 1000).mean())
-    # Do not drop a bright scene. A lamp is a picture; only a dead frame
-    # (almost no range) is rejected, and the caller must not freeze on it.
 
     lo = min(max(p1, 0.0), 40.0)
-    hi = max(p99, lo + 80.0)
+    # Dark scenes need a modest stretch floor so noise does not explode, but
+    # still publish black rather than stalling on the previous frame.
+    hi = max(p99, lo + (12.0 if p99 < 40.0 else 80.0))
     grey = cv2.convertScaleAbs(
         img, alpha=255.0 / max(hi - lo, 1.0), beta=-lo * 255.0 / max(hi - lo, 1.0)
     )
