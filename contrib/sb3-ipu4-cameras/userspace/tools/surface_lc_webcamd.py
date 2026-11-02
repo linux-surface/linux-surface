@@ -162,45 +162,114 @@ def wipe_loopbacks(
             pass
 
 
-def write_yuyv(fd: int, data: bytes) -> None:
-    """Write one full YUYV frame without stalling the CSI thread.
+# Per-loopback publish gate: browsers drain V4L2 into an unbounded encode
+# queue. Pushing every demosaiced frame (esp. HQ) grows minutes of lag.
+_last_pub_mono: dict[int, float] = {}
 
-    A blocking write while Discord holds the loopback used to freeze the
-    daemon: no RAW consume, black preview, privacy LED stuck on.
+
+def allow_publish(nr: int, fps: int) -> bool:
+    """At most ~fps writes/sec per loopback; always prefer the next newest frame."""
+    now = time.monotonic()
+    min_dt = 1.0 / float(max(1, min(int(fps), 30)))
+    last = _last_pub_mono.get(nr, 0.0)
+    if now - last < min_dt:
+        return False
+    _last_pub_mono[nr] = now
+    return True
+
+
+def write_yuyv(fd: int, data: bytes) -> bool:
+    """Write one full YUYV frame, or drop it. Never grow a reader backlog.
+
+    Live preview must prefer the newest frame over delivering every frame.
+    Discord/Firefox drain the device into their own queue — any wait here
+    still feeds that queue and turns seconds of lag into minutes.
+    Returns True only when the whole frame landed in one shot (or a brief finish).
     """
-    view = memoryview(data)
-    off = 0
-    deadline = time.monotonic() + 0.15
     try:
         os.set_blocking(fd, False)
     except OSError:
         pass
     try:
+        try:
+            n = os.write(fd, data)
+        except BlockingIOError:
+            return False
+        except OSError:
+            return False
+        if n is None or n <= 0:
+            return False
+        if n == len(data):
+            return True
+        # Rare partial: finish within 8 ms or drop (do not stall the pipeline).
+        view = memoryview(data)
+        off = n
+        deadline = time.monotonic() + 0.008
         while off < len(data):
-            if time.monotonic() > deadline:
-                return
+            if time.monotonic() >= deadline:
+                return False
             try:
                 n = os.write(fd, view[off:])
             except BlockingIOError:
-                # Wait briefly for the reader to drain.
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return
                 try:
-                    select.select([], [fd], [], min(0.05, remaining))
+                    select.select([], [fd], [], 0.002)
                 except (ValueError, OSError):
-                    return
+                    return False
                 continue
             except OSError:
-                return
+                return False
             if n is None or n <= 0:
-                return
+                return False
             off += n
+        return True
     finally:
         try:
             os.set_blocking(fd, False)
         except OSError:
             pass
+
+
+def _take_newest_raw(shm: Path, need_b: int) -> Path | None:
+    """Keep only the newest complete RAW; unlink everything older.
+
+    cam --capture=0 dumps every frame into shm. If demosaic/publish is slower
+    than CSI, the directory grows without bound (GB of lag). Always jump to tip.
+    """
+    try:
+        files = list(shm.glob("*.raw"))
+    except OSError:
+        return None
+    if not files:
+        return None
+    complete: list[tuple[float, Path]] = []
+    for cand in files:
+        try:
+            st = cand.stat()
+        except OSError:
+            continue
+        if st.st_size >= need_b:
+            complete.append((st.st_mtime_ns, cand))
+        else:
+            # Drop incomplete leftovers; the live tip may still be growing.
+            try:
+                age = time.time() - st.st_mtime
+            except OSError:
+                age = 0.0
+            if age > 0.25:
+                try:
+                    cand.unlink()
+                except OSError:
+                    pass
+    if not complete:
+        return None
+    complete.sort(key=lambda t: t[0])
+    newest = complete[-1][1]
+    for _, cand in complete[:-1]:
+        try:
+            cand.unlink()
+        except OSError:
+            pass
+    return newest
 
 
 def bgr_to_yuyv(bgr: np.ndarray) -> bytes:
@@ -527,68 +596,52 @@ def run_back(stop: threading.Event) -> None:
                     _stop_proc(proc)
                     break
                 open_nrs = {nr for nr, dev in loop_by_nr.items() if front_clients(dev) > 0}
-            files = sorted(shm.glob("*.raw"))
             need_b = cap_w * cap_h * 2
-            now_wall = time.time()
-            ready: list[Path] = []
-            for cand in files:
-                if cand.name in seen:
-                    continue
-                try:
-                    st = cand.stat()
-                except OSError:
-                    continue
-                if st.st_size >= need_b and (now_wall - st.st_mtime) >= 0.001:
-                    ready.append(cand)
-            if not ready:
+            path = _take_newest_raw(shm, need_b)
+            if path is None:
                 idle += 1
                 time.sleep(0.001 if idle < 80 else 0.01)
                 continue
             idle = 0
-            # Only drop when the queue is already a backlog, and keep the newest.
-            if len(ready) > 4:
-                for old in ready[:-4]:
-                    try:
-                        old.unlink()
-                    except OSError:
-                        pass
-                    seen.add(old.name)
-                    skipped += 1
-                ready = ready[-4:]
-            if len(seen) > 400:
-                seen.clear()
-            for path in ready:
-                seen.add(path.name)
+            if path.name in seen:
                 try:
-                    data = path.read_bytes()
                     path.unlink(missing_ok=True)
                 except OSError:
+                    pass
+                continue
+            seen.add(path.name)
+            if len(seen) > 64:
+                seen.clear()
+            try:
+                data = path.read_bytes()
+                path.unlink(missing_ok=True)
+            except OSError:
+                continue
+            arr = np.frombuffer(data, dtype=np.uint16)
+            need = cap_w * cap_h
+            if arr.size >= need:
+                ae.update_raw(arr[:need].reshape(cap_h, cap_w))
+            bgr = demosaic_back(data)
+            if bgr is None:
+                skipped += 1
+                continue
+            last_good = bgr
+            for name, nr, _cw, _ch, ow, oh, fps in BACK_PROFILES:
+                if nr not in open_nrs:
                     continue
-                arr = np.frombuffer(data, dtype=np.uint16)
-                need = cap_w * cap_h
-                if arr.size >= need:
-                    ae.update_raw(arr[:need].reshape(cap_h, cap_w))
-                bgr = demosaic_back(data)
-                if bgr is None:
-                    skipped += 1
+                fd = fds.get(nr)
+                if fd is None:
                     continue
-                last_good = bgr
-                for name, nr, _cw, _ch, ow, oh, _fps in BACK_PROFILES:
-                    if nr not in open_nrs:
-                        continue
-                    fd = fds.get(nr)
-                    if fd is None:
-                        continue
-                    if nr == 59 and frames % 2:
-                        continue
-                    write_yuyv(fd, bgr_to_yuyv(fit_profile(bgr, ow, oh)))
-                frames += 1
-                if frames == 1 or frames % 150 == 0:
-                    print(
-                        f"CAMR: n={frames} skip={skipped} exp={ae.exp} "
-                        f"gain={ae.gain} mean={float(bgr.mean()):.1f}",
-                        flush=True,
-                    )
+                if not allow_publish(nr, fps):
+                    continue
+                write_yuyv(fd, bgr_to_yuyv(fit_profile(bgr, ow, oh)))
+            frames += 1
+            if frames == 1 or frames % 150 == 0:
+                print(
+                    f"CAMR: n={frames} skip={skipped} exp={ae.exp} "
+                    f"gain={ae.gain} mean={float(bgr.mean()):.1f}",
+                    flush=True,
+                )
         _stop_proc(proc)
         print(f"CAMR: cam exit={proc.returncode}", flush=True)
         for p in shm.glob("*"):
@@ -707,7 +760,8 @@ _front_wh = (1296, 972)
 def demosaic_front(buf: bytes) -> np.ndarray | None:
     """SBGGR10 2x2 bin. ov5693 top-left is blue; RGGB made skin blue.
 
-    2592x1944 becomes 1296x972 with no OpenCV demosaic. Dead frames are dropped.
+    Always capture 2592x1944 (binned 1296x972 is all-white on this DPHY).
+    Output is 1296x972. Dead frames are dropped.
     """
     arr = np.frombuffer(buf, dtype=np.uint16)
     w, h = _front_wh
@@ -722,7 +776,6 @@ def demosaic_front(buf: bytes) -> np.ndarray | None:
         full[1::2, 0::2].astype(np.uint16, copy=False) >> 1
     )
     r = full[1::2, 1::2]
-    # exp ~150 sits near raw 100-250. Fixed scale, no per-frame percentile.
     bgr = cv2.merge(
         (
             cv2.convertScaleAbs(b, alpha=1.7, beta=4),
@@ -935,6 +988,7 @@ def _pin_front_settle() -> tuple[int, int]:
 
 def run_front(stop: threading.Event) -> None:
     """Full FOV. STREAMON only while some other process has the loopback open."""
+    global _front_wh
     idx = find_cam("CAMF")
     sub = find_subdev("ov5693")
     if idx is None or sub is None:
@@ -980,6 +1034,7 @@ def run_front(stop: threading.Event) -> None:
     consecutive = 0
     active_nrs: set[int] = {55}
     out_of = {nr: (ow, oh) for _n, nr, _cw, _ch, ow, oh, _fps in FRONT_PROFILES}
+    fps_of = {nr: fps for _n, nr, _cw, _ch, _ow, _oh, fps in FRONT_PROFILES}
     last_yuyv: dict[int, bytes] = {}
     print(f"CAMF ready cam={idx} LED off until a client opens {loop}", flush=True)
 
@@ -1007,9 +1062,6 @@ def run_front(stop: threading.Event) -> None:
             else:
                 clients = last_clients
             if clients <= 0:
-                # A back client must get the ISYS immediately. Same-side
-                # profile changes only need a short hold so the PHY stays up.
-                other_wants = any_external_clients(BACK_LOOPBACKS + IR_LOOPBACKS)
                 # No post-close hold — privacy LED must go off when Discord closes.
                 hold = 0.0
                 if proc is not None and (now - last_client_mono) < hold:
@@ -1044,7 +1096,8 @@ def run_front(stop: threading.Event) -> None:
                     except OSError:
                         pass
                 seen.clear()
-                global _front_wh
+                # DPHY timing is validated only for full 2592x1944 — binned
+                # 1296x972 STREAMON is pure white on this SB3.
                 cap_w, cap_h = 2592, 1944
                 _front_wh = (cap_w, cap_h)
                 clk, data = _pin_front_settle()
@@ -1052,11 +1105,15 @@ def run_front(stop: threading.Event) -> None:
                 _pm_qos_hold(True)
                 _wait_csi_cool()
                 print(
-                    f"CAMF start timing={_FRONT_TIMING} settle {clk}/{data} (single STREAMON)",
+                    f"CAMF start {cap_w}x{cap_h} timing={_FRONT_TIMING} "
+                    f"settle {clk}/{data} (single STREAMON)",
                     flush=True,
                 )
                 cam_log = open("/tmp/camf-cam.log", "ab", buffering=0)
-                cam_log.write(f"\n--- start {time.strftime('%H:%M:%S')} settle={clk}/{data} ---\n".encode())
+                cam_log.write(
+                    f"\n--- start {time.strftime('%H:%M:%S')} "
+                    f"{cap_w}x{cap_h} settle={clk}/{data} ---\n".encode()
+                )
                 proc = subprocess.Popen(
                     [
                         "cam",
@@ -1106,42 +1163,19 @@ def run_front(stop: threading.Event) -> None:
                     f"white={n_white} alive={proc.poll() is None}"
                 )
             need = _front_wh[0] * _front_wh[1] * 2
-            files = sorted(shm.glob("*.raw"))
-            path = None
-            st_size = 0
-            for cand in files:
-                try:
-                    st = cand.stat()
-                except OSError:
-                    continue
-                if st.st_size >= need:
-                    path = cand
-                    st_size = st.st_size
-                    break
+            path = _take_newest_raw(shm, need)
             if path is None:
-                if last_yuyv and active_nrs:
-                    for nr in active_nrs:
-                        fdw = fds.get(nr)
-                        yuyv = last_yuyv.get(nr)
-                        if fdw is not None and yuyv is not None:
-                            write_yuyv(fdw, yuyv)
-                time.sleep(0.005)
+                # Do NOT re-push last_yuyv here — that fills Discord/Firefox
+                # buffers with duplicates and the preview drifts minutes behind.
+                time.sleep(0.002)
                 continue
-            # One wait for this file, not for every file in the directory.
-            # write() can report the final size before the last bytes land.
-            time.sleep(0.002)
+            # Brief settle so the tip file finishes its last write().
+            time.sleep(0.001)
             try:
-                if path.stat().st_size != st_size:
+                if path.stat().st_size < need:
                     continue
             except OSError:
                 continue
-            for old in files:
-                if old == path:
-                    break
-                try:
-                    old.unlink()
-                except OSError:
-                    pass
             try:
                 buf = path.read_bytes()
                 path.unlink(missing_ok=True)
@@ -1152,13 +1186,6 @@ def run_front(stop: threading.Event) -> None:
             raw_seen += 1
             if arr.size < fw * fh:
                 consecutive = 0
-                if last_yuyv:
-                    n_held += 1
-                    for nr in active_nrs:
-                        fdw = fds.get(nr)
-                        yuyv = last_yuyv.get(nr)
-                        if fdw is not None and yuyv is not None:
-                            write_yuyv(fdw, yuyv)
                 continue
             raw = arr[: fw * fh].reshape(fh, fw)
             sample = raw[::32, ::32]
@@ -1176,14 +1203,6 @@ def run_front(stop: threading.Event) -> None:
                 if full_white or hard_tear:
                     n_white += 1
                 consecutive = 0
-                if last_yuyv:
-                    n_held += 1
-                    for nr in active_nrs:
-                        fdw = fds.get(nr)
-                        yuyv = last_yuyv.get(nr)
-                        if fdw is not None and yuyv is not None:
-                            write_yuyv(fdw, yuyv)
-                # No wipe once RAW is flowing — Discord would stay black.
                 continue
             bgr = demosaic_front(buf)
             if bgr is None:
@@ -1196,13 +1215,6 @@ def run_front(stop: threading.Event) -> None:
             if hard_b >= 0.12 and clean_b >= 0.20 and sat_b >= 0.15:
                 n_white += 1
                 consecutive = 0
-                if last_yuyv:
-                    n_held += 1
-                    for nr in active_nrs:
-                        fdw = fds.get(nr)
-                        yuyv = last_yuyv.get(nr)
-                        if fdw is not None and yuyv is not None:
-                            write_yuyv(fdw, yuyv)
                 continue
             ae._drops = 0
             stable += 1
@@ -1214,10 +1226,15 @@ def run_front(stop: threading.Event) -> None:
             n_fps += 1
             now = time.monotonic()
             if now - t_fps >= 2.0:
+                pending = 0
+                try:
+                    pending = sum(1 for _ in shm.glob("*.raw"))
+                except OSError:
+                    pass
                 print(
                     f"CAMF real_fps={n_fps / (now - t_fps):.1f} "
                     f"frames={frames} white={n_white} held={n_held} "
-                    f"exp={ae.exp} gain={ae.gain}",
+                    f"pending={pending} exp={ae.exp} gain={ae.gain}",
                     flush=True,
                 )
                 t_fps = now
@@ -1227,6 +1244,8 @@ def run_front(stop: threading.Event) -> None:
             for nr in active_nrs:
                 fdw = fds.get(nr)
                 if fdw is None:
+                    continue
+                if not allow_publish(nr, fps_of.get(nr, 30)):
                     continue
                 ow, oh = out_of[nr]
                 frame = bgr if (bgr.shape[1] == ow and bgr.shape[0] == oh) else fit_profile(bgr, ow, oh)
@@ -1437,28 +1456,12 @@ def run_ir(stop: threading.Event) -> None:
                 time.sleep(0.05)
                 continue
             need = 640 * 480 * 2
-            files = sorted(shm.glob("*.raw"))
-            path = None
-            for cand in files:
-                try:
-                    st = cand.stat()
-                except OSError:
-                    continue
-                if st.st_size >= need:
-                    path = cand
-                    break
+            path = _take_newest_raw(shm, need)
             if path is None:
                 # Keep pushing blank so OpenCV cannot re-read a stale face.
                 _wipe_loopback()
                 time.sleep(0.002)
                 continue
-            for old in files:
-                if old == path:
-                    break
-                try:
-                    old.unlink()
-                except OSError:
-                    pass
             try:
                 buf = path.read_bytes()
                 path.unlink(missing_ok=True)
@@ -1476,6 +1479,8 @@ def run_ir(stop: threading.Event) -> None:
                 _ir_ae_step(sub, raw, ir_exp, ir_gain)
             bgr = _ir_decode(buf)
             if bgr is None:
+                continue
+            if not allow_publish(66, 30):
                 continue
             write_yuyv(fd, bgr_to_yuyv(bgr))
             frames += 1
