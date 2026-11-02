@@ -22,6 +22,11 @@ on:
         required: false
         type: boolean
         default: false
+      if_newer:
+        description: 'Only update if the version is newer than the packaged one (used for automatic updates, which may race with other merges)'
+        required: false
+        type: boolean
+        default: false
 
 # Prevent concurrent updates of the same package
 concurrency:
@@ -47,6 +52,7 @@ jobs:
         id: version
         env:
           VERSION: ${{ inputs.version }}
+          IF_NEWER: ${{ inputs.if_newer }}
         run: |
           SERIES="$(bash "${SCRIPT}" current | sed -n 's/^series=//p')"
 
@@ -56,6 +62,18 @@ jobs:
 
           VERSION="${VERSION#v}"
           NEW_SERIES="$(echo "${VERSION}" | cut -d. -f1-2)"
+
+          # Automatic updates are requested based on a status of master that
+          # may already be outdated, e.g. if another update has been merged
+          # in the meantime. Don't bump the release in that case.
+          CURRENT="$(bash "${SCRIPT}" current | sed -n 's/^version=//p')"
+          if [ "${IF_NEWER}" = "true" ] && \
+              [ "$(printf '%s\n%s\n' "${VERSION}" "${CURRENT}" | sort -V | tail -n1)" = "${CURRENT}" ]; then
+            echo "Package is already at ${CURRENT}, not updating to ${VERSION}"
+            echo "⏭️ ${DISTRO} package is already at ${CURRENT}, skipping update to ${VERSION}" >> "${GITHUB_STEP_SUMMARY}"
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
 
           echo "Updating ${DISTRO} package to ${VERSION}"
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
@@ -67,6 +85,7 @@ jobs:
           fi
 
       - name: Check upstream sources
+        if: ${{ steps.version.outputs.skip != 'true' }}
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -83,6 +102,7 @@ jobs:
           exit "${RC}"
 
       - name: Update package
+        if: ${{ steps.version.outputs.skip != 'true' }}
         id: update
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -92,6 +112,7 @@ jobs:
           bash "${SCRIPT}" update "${VERSION}" | tee -a "${GITHUB_OUTPUT}"
 
       - name: Commit changes
+        if: ${{ steps.version.outputs.skip != 'true' }}
         id: commit
         env:
           VERSION: ${{ steps.update.outputs.version }}
@@ -181,12 +202,12 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Push branch
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && steps.version.outputs.skip != 'true' }}
         run: |
           git push -u origin "${{ steps.commit.outputs.branch }}"
 
       - name: Create pull request
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && steps.version.outputs.skip != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.LINUX_SURFACE_BOT_TOKEN }}
           NAME: ${{ steps.commit.outputs.name }}
