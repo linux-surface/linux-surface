@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Surface Book 3 RGB + IR (Howdy) webcams — distro-neutral installer.
-#  1) build kernel 7.2.12-surface-ipu4 (or SURFACE_IPU4_KVER) if not already on surface-ipu4
+#  1) build kernel 7.2.15-surface-ipu4 (or SURFACE_IPU4_KVER) if not already on surface-ipu4
 #  2) install firmware, userspace, systemd, udev, loopbacks, Howdy helpers
 #  3) after reboot on surface-ipu4: Front / Back / IR loopbacks via webcamd
 set -euo pipefail
@@ -85,6 +85,30 @@ install -m 644 "$ROOT/modprobe.d/"*.conf /etc/modprobe.d/
 install -m 644 "$ROOT/modules-load.d/"*.conf /etc/modules-load.d/
 install -d /etc/wireplumber/wireplumber.conf.d
 install -m 644 "$ROOT/wireplumber/"*.conf /etc/wireplumber/wireplumber.conf.d/
+# WirePlumber 0.5.17: disabled V4L2 devices must still advance AsyncEventHook
+# (ConsultingFuture4200 / #1353) or every later camera is skipped.
+if [[ -f "$ROOT/wireplumber/scripts/monitors/v4l2/create-device.lua" ]]; then
+  install -d /usr/local/share/wireplumber/scripts/monitors/v4l2
+  install -m 644 "$ROOT/wireplumber/scripts/monitors/v4l2/create-device.lua" \
+    /usr/local/share/wireplumber/scripts/monitors/v4l2/create-device.lua
+  # Per-user override path WirePlumber actually loads:
+  if [[ -n "${SUDO_USER:-}" ]]; then
+    uhome=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    if [[ -n "$uhome" ]]; then
+      install -d -o "$SUDO_USER" -g "$SUDO_USER" \
+        "$uhome/.local/share/wireplumber/scripts/monitors/v4l2"
+      install -o "$SUDO_USER" -g "$SUDO_USER" -m 644 \
+        "$ROOT/wireplumber/scripts/monitors/v4l2/create-device.lua" \
+        "$uhome/.local/share/wireplumber/scripts/monitors/v4l2/create-device.lua"
+    fi
+  fi
+fi
+# libcamera simple IPA CCM matrices (ConsultingFuture4200 / CPF-derived)
+if [[ -d "$ROOT/userspace/libcamera/ipa/simple" ]]; then
+  install -d /usr/local/share/libcamera/ipa/simple
+  install -m 644 "$ROOT/userspace/libcamera/ipa/simple/"*.yaml \
+    /usr/local/share/libcamera/ipa/simple/ 2>/dev/null || true
+fi
 # OBS 98-v4l2loopback.conf overwrites card labels — disable it
 ln -sfn /dev/null /etc/modprobe.d/98-v4l2loopback.conf
 
@@ -174,15 +198,15 @@ if [[ -d "$ROOT/remote-desktop" ]]; then
 fi
 
 echo "=== 4. kernel surface-ipu4 ==="
-# Stock linux-surface (6.19.8-3 / 7.2.12-1) has INT3472 cameras only — no IPU4P.
-# Default custom build: 7.2.12-surface-ipu4 (downstream-legacy). Optional: 6.19.8, 7.3.0.
-KVER_TARGET="${SURFACE_IPU4_KVER:-7.2.12}"
+# Stock linux-surface has INT3472/IPU3 only — no IPU4P.
+# Default: 7.2.15-surface-ipu4 (downstream-legacy). Also: 7.2.13|14, 6.19.8, 7.3.1.
+KVER_TARGET="${SURFACE_IPU4_KVER:-7.2.15}"
 if uname -r | grep -q surface-ipu4; then
   echo "already on $(uname -r) — skip compile"
   "$ROOT/kernel/install-firmware.sh" || true
 else
   echo "Stock linux-surface has no IPU4P. Building ${KVER_TARGET}-surface-ipu4…"
-  echo "(override with SURFACE_IPU4_KVER=7.3.0 or 6.19.8 for other trees)"
+  echo "(override with SURFACE_IPU4_KVER=7.2.14|7.3.1|6.19.8 …)"
   "$ROOT/kernel/build-and-install-kernel.sh" "$KVER_TARGET"
   echo
   echo "Reboot and select the kernel with *surface-ipu4* in the bootloader."

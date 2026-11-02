@@ -15,18 +15,20 @@ enroll UI, LED behaviour, profiles, AE/AF, and first-boot safety.
 
 ## Apply order (kernel)
 
-Supported camera kernels (Fedora 44/45, Nobara 44):
+Supported camera kernels (Fedora 44/45, Nobara 44) — rebased on linux-surface master
+(`patches/7.2` BASE **v7.2.15**, `patches/7.3` BASE **v7.3.1**):
 
 | Base | linux-surface | IPU4 | SB3 overlay |
 |------|---------------|------|-------------|
-| **6.19.8** (optional LTS) | `patches/6.19/` | ruslanbay **downstream-legacy** `v6.19` | `kernel/patches/6.19/` + DPHY + PM_QOS |
-| **7.2.12** (**default**) | `patches/7.2/` (release `*-7.2.12-1`) | same `v6.19` IPU4 series @ tip | `kernel/patches/7.2/` (BASE=7.2.12) |
-| **7.3.0** (overlay) | [`v7.3-surface`](https://github.com/linux-surface/kernel) @ `1ea399d` | ruslanbay **upstream** (IPU6-based) + Sakari lore | `kernel/patches/7.3/` + loafecho 0016/0017 |
+| **6.19.8** (optional LTS) | `patches/6.19/` | ruslanbay **downstream-legacy** `v6.19` | `kernel/patches/6.19/` |
+| **7.2.13 / 7.2.14 / 7.2.15** | `patches/7.2/` | same `v6.19` tip + 7.x API shims | `kernel/patches/7.2/` (**default 7.2.15**) |
+| **7.3.1** | `patches/7.3/` | ruslanbay **upstream** RFC v2 + Sakari lore | `kernel/patches/7.3/` |
+| **7.3.0** (legacy tip) | [`v7.3-surface`](https://github.com/linux-surface/kernel) @ `1ea399d` | same upstream track | same SB3 overlays |
 
 **Tracks (do not mix ABI in one install without a flag):**
 
-- **6.19.8 / 7.2.12** — `downstream-legacy` + `intel_ipu4p_*` for SHM `surface_webcamd`.
-- **7.3.0** — [ipu4-drivers `upstream`](https://github.com/ruslanbay/ipu4-drivers/tree/upstream) on IPU6 (`intel-ipu6`); libcamera / `surface_lc_webcamd`. No official `kernel-surface-7.3` package yet.
+- **6.19.8 / 7.2.13–15** — `downstream-legacy` + `intel_ipu4p_*` for SHM `surface_webcamd`.
+- **7.3.1 / 7.3.0** — [ipu4-drivers `upstream`](https://github.com/ruslanbay/ipu4-drivers/tree/upstream) on IPU6 (`intel-ipu6`); libcamera / `surface_lc_webcamd` (and optional native PipeWire — see #1353 / @JValdivia23).
 
 Stock `kernel-surface` RPMs do **not** include IPU4P — only INT3472/IPU3 camera quirks.
 
@@ -36,27 +38,36 @@ Profiles (capture / publish / FPS) for the webcamd path must match the last know
 Build:
 
 ```bash
-# default: 7.2.12-surface-ipu4 (downstream-legacy / webcamd)
+# default: 7.2.15-surface-ipu4 (downstream-legacy / webcamd)
 bash kernel/build-and-install-kernel.sh
+bash kernel/build-and-install-kernel.sh 7.2.14   # or 7.2.13
 bash kernel/build-and-install-kernel.sh 6.19.8   # optional LTS
 # upstream IPU6 track (libcamera / lc_webcamd):
-bash kernel/build-and-install-kernel.sh 7.3.0
+bash kernel/build-and-install-kernel.sh 7.3.1
+bash kernel/build-and-install-kernel.sh 7.3.0    # legacy v7.3-surface tip
 ```
 
-### Front DPHY (#1353)
+### Front DPHY / community ingest (#1353)
 
-- Front CSI **timing mode 2** (calc settle + Windows TERMEN). Mode 0 / 1400/880 is pure-white or flaky here.
-- **loafecho:** `ISYS_PM_QOS` 100 µs for IPU4P; `stop_streaming` iwake **after** `set_streaming(0)` (7.3).
-- **yodabot:** port 2 uses Windows *header* RX layout (`0x2c/0x30` + `0x34/0x38`); ports 0/1 shifted.
+- Front CSI **timing mode 2** (calc settle + Windows TERMEN). Mode 0 / 1400/880 is pure-white or flaky on SB3.
+- **loafecho:** `ISYS_PM_QOS` 100 µs; iwake **after** `set_streaming(0)` (7.3).
+- **yodabot / JValdivia23:** port-2 *header* RX layout; BB8 for IR; 2-lane shifted TERMEN/SETTLE map.
+- **I232826:** OV7251 matched `link_freq` index (`0018`); optional strobe IR emitter (`0019`).
+- **ConsultingFuture4200:** WirePlumber `create-device.lua` must `transition:advance()` when disabling V4L2 nodes; IPA CCM YAML for ov5693/ov8865.
 - Do **not** drop white frames in userspace or thrash settle 880↔1500.
 
-### 7.3.0 upstream stack
+### 7.3.x upstream stack
 
-1. linux-surface/kernel `v7.3-surface` @ `1ea399d` (or tip on upstream `v7.3`)
-2. Sakari Ailus IPU6→IPU7 lore (`b4 shazam`)
-3. ruslanbay `upstream` → `patches/00*.patch` (incl. CSI port-2 timing 0011)
-4. SB3: OV7251 avdd (0007), OV5693 MIPI_CTRL00 (0013), CSI 0014/0015, loafecho 0016/0017
-5. Config from Fedora `kernel-x86_64-fedora.config` (must keep BTRFS + NVMe + **`CONFIG_HID_IPTS=m`**)
+**7.3.1 (preferred):** vanilla 7.3.1 + linux-surface `patches/7.3/` (BASE v7.3.1).
+
+**7.3.0 (legacy):** linux-surface/kernel `v7.3-surface` @ `1ea399d`.
+
+Then for both:
+
+1. Sakari Ailus IPU6→IPU7 lore (`b4 shazam`)
+2. ruslanbay `upstream` → `00*.patch` / RFC `v2-00*.patch`
+3. SB3: OV7251 avdd (0007), OV5693 MIPI_CTRL00 (0013), CSI 0014/0015, loafecho 0016/0017, IR link-freq/strobe 0018/0019
+4. Config from Fedora `kernel-x86_64-fedora.config` (must keep BTRFS + NVMe + **`CONFIG_HID_IPTS=m`**)
 
 ### Touch / pen (IPTS)
 
@@ -71,11 +82,11 @@ Until the next kernel rebuild, the OOT fallback is `tools/rebuild-ipts-module.sh
 
 ### 6.19 / 7.2 downstream stack
 
-1. linux-surface `patches/<series>/` (7.2.12-1 on master)
+1. linux-surface `patches/<series>/` (7.2.15 on master; also 7.2.13 / 7.2.14)
 2. ruslanbay `downstream-legacy` → `patches/kernel/v6.19/*.patch` (tip)
-3. `kernel/patches/<series>/` — DPHY lock + API shims + OV7251 avdd + PM_QOS 100 µs
+3. `kernel/patches/<series>/` — DPHY + API shims + OV7251 avdd + PM_QOS + IR 0018/0019
 
-On **7.2.12** the downstream IPU4 series needs API shims: uapi `stdint.h` →
+On **7.2.x** the downstream IPU4 series needs API shims: uapi `stdint.h` →
 `linux/types.h`, clk `round_rate` → `determine_rate`, drop removed
 `vb2_ops.wait_prepare/wait_finish`, and set `aq->vbq.lock = &av->mutex` (Linux 7.x
 `vb2_core_queue_init` requires it — without this, ISYS probe fails with
@@ -123,7 +134,7 @@ Menu entry: **Howdy — Add Face Profile**.
 ```
 install.sh                 one-command installer (detects dnf/apt/pacman/zypper)
 HOWDY.md                   Howdy / IR + RGB profile behaviour
-kernel/                    firmware + kernel build (linux-surface 7.2.12-1 + IPU4)
+kernel/                    firmware + kernel build (linux-surface 7.2.15 / 7.3.1 + IPU4)
 userspace/                 → /opt/surface-cameras
 sbin/ bin/ desktop/ systemd/ udev/ modprobe.d/ selinux/
 remote-desktop/            Chrome Remote Desktop / portal helpers (greeter attach = WIP)
@@ -134,7 +145,7 @@ remote-desktop/            Chrome Remote Desktop / portal helpers (greeter attac
 See **[remote-desktop/README.md](remote-desktop/README.md)**. Portal grant, greeter env
 publish, wait-display, and tray-icon helpers are universal (no hard-coded login uid).
 Desktop share needs MONITOR ScreenCast (see `remote-desktop/NOTES-MONITOR.md`).
-Greeter / lock-screen share is still **WIP** on 7.2.12.
+Greeter / lock-screen share is still **WIP** on 7.2.15.
 
 ## Safety / regression guardrails
 

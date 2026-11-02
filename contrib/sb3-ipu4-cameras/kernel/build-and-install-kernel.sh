@@ -2,13 +2,14 @@
 # Build Surface Book 3 IPU4P camera kernel.
 #
 # Supported bases (set KVER, or pass as first argument):
-#   6.19.8  — linux-surface patches/6.19 + ruslanbay downstream-legacy v6.19 (LTS optional)
-#   7.2.12  — linux-surface patches/7.2  + same IPU4 v6.19 series + SB3 shims (DEFAULT)
-#   7.3.0   — linux-surface/kernel v7.3-surface @ 1ea399d (+ tip on v7.3)
-#             + Sakari IPU6/IPU7 lore + ruslanbay upstream 00*.patch
-#             + SB3 overlays + loafecho PM_QOS/stop_streaming (#1353)
+#   6.19.8        — linux-surface patches/6.19 + ruslanbay downstream-legacy (LTS)
+#   7.2.13|14|15  — linux-surface patches/7.2 + same IPU4 v6.19 + SB3 shims
+#                   DEFAULT = 7.2.15 (master BASE v7.2.15)
+#   7.3.1         — vanilla 7.3.1 + patches/7.3 + Sakari lore + ruslanbay upstream
+#                   + SB3 overlays (BB8/timing/loafecho/#1353)
+#   7.3.0         — legacy: linux-surface/kernel v7.3-surface @ 1ea399d (rebase-kernel)
 #
-# Resulting LOCALVERSION: -surface-ipu4  (release e.g. 7.2.12-surface-ipu4+)
+# Resulting LOCALVERSION: -surface-ipu4  (e.g. 7.2.15-surface-ipu4+)
 # Distros: Fedora 44/45, Nobara 44.
 #
 # Paths: SRC_ROOT / SURFACE_IPU4_BUILD only — never hard-code a username.
@@ -18,7 +19,7 @@ SRC_ROOT="${SRC_ROOT:-${SURFACE_IPU4_BUILD:-/usr/src/surface-ipu4}}"
 if [[ ! -w "${SRC_ROOT}" ]] 2>/dev/null; then
   SRC_ROOT="${SURFACE_IPU4_BUILD:-${HOME}/src/surface-ipu4-build}"
 fi
-KVER="${1:-${KVER:-${SURFACE_IPU4_KVER:-7.2.12}}}"
+KVER="${1:-${KVER:-${SURFACE_IPU4_KVER:-7.2.15}}}"
 JOBS="${JOBS:-$(nproc)}"
 IPU_TRACK="${IPU_TRACK:-}"   # auto | downstream | upstream
 INSTALL_MODE="${INSTALL_MODE:-rpm}"  # rpm | modules  (7.3 default: rpm)
@@ -32,7 +33,7 @@ case "$KVER" in
     KERNEL_XZ_URL="https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_TAR_VER}.tar.xz"
     IPU_TRACK="${IPU_TRACK:-downstream}"
     ;;
-  7.2.*)
+  7.2.13|7.2.14|7.2.15|7.2.*)
     SURFACE_SERIES="7.2"
     KERNEL_TAR_VER="$KVER"
     KERNEL_XZ_URL="https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${KERNEL_TAR_VER}.tar.xz"
@@ -46,15 +47,16 @@ case "$KVER" in
     SURFACE_MODE="rebase-kernel"
     IPU_TRACK="${IPU_TRACK:-upstream}"
     ;;
-  7.3.*)
+  7.3.1|7.3.*)
     SURFACE_SERIES="7.3"
     KERNEL_TAR_VER="$KVER"
     KERNEL_XZ_URL="https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${KERNEL_TAR_VER}.tar.xz"
-    SURFACE_MODE="rebase-kernel"
+    # Master now ships patches/7.3 (BASE v7.3.1) — prefer tarball + patches.
+    SURFACE_MODE="patches"
     IPU_TRACK="${IPU_TRACK:-upstream}"
     ;;
   *)
-    echo "Unsupported KVER=$KVER (use 6.19.8, 7.2.12, or 7.3.0)" >&2
+    echo "Unsupported KVER=$KVER (use 6.19.8, 7.2.13|14|15, 7.3.1, or 7.3.0)" >&2
     exit 1
     ;;
 esac
@@ -96,8 +98,9 @@ if [[ "$IPU_TRACK" == "downstream" ]]; then
     exit 1
   fi
 else
-  if ! compgen -G "$SRC_ROOT/ipu4-drivers/patches/00*.patch" >/dev/null; then
-    echo "Missing ipu4-drivers/patches/00*.patch (upstream branch)" >&2
+  if ! compgen -G "$SRC_ROOT/ipu4-drivers/patches/00*.patch" >/dev/null &&
+     ! compgen -G "$SRC_ROOT/ipu4-drivers/patches/v2-00*.patch" >/dev/null; then
+    echo "Missing ipu4-drivers/patches/00*.patch or v2-00*.patch (upstream)" >&2
     exit 1
   fi
 fi
@@ -189,7 +192,15 @@ if [[ ! -f "$MARKER" ]]; then
   if [[ "$IPU_TRACK" == "upstream" ]]; then
     # Sakari Ailus IPU6→IPU7 series required by ruslanbay upstream README.
     b4 shazam 'https://lore.kernel.org/all/20260907113004.2489993-1-sakari.ailus@linux.intel.com/'
-    git am --3way "$SRC_ROOT/ipu4-drivers/patches/"00*.patch
+    shopt -s nullglob
+    up_patches=("$SRC_ROOT/ipu4-drivers/patches/"00*.patch)
+    if ((${#up_patches[@]} == 0)); then
+      # RFC v2 renamed series (cover letter excluded).
+      up_patches=("$SRC_ROOT/ipu4-drivers/patches/"v2-00[1-9]*.patch
+                  "$SRC_ROOT/ipu4-drivers/patches/"v2-001[0-2]*.patch)
+    fi
+    git am --3way "${up_patches[@]}"
+    shopt -u nullglob
   else
     git am --3way "$SRC_ROOT/ipu4-drivers/patches/kernel/v6.19/"*.patch
     series_dphy="$ROOT/kernel/patches/${SURFACE_SERIES}/0001-media-intel-ipu4p-sb3-front-dphy-lock.patch"

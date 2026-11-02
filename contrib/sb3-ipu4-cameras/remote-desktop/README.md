@@ -1,9 +1,9 @@
 # Remote desktop (Chrome Remote Desktop / portal)
 
 Helpers for **existing-session** remote desktop on Wayland (KDE Plasma and similar).
-Target: **7.2.12** (also usable on 6.19 overlays).
+Target: **7.2.15** (also usable on 6.19 / 7.2.13–14 overlays).
 
-## Status (7.2.12)
+## Status (7.2.15)
 
 | Area | Status |
 |------|--------|

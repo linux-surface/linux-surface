@@ -2,7 +2,7 @@
 """Surface Book 3 — libcamera raw → v4l2loopback (kernel 7.3).
 
 Back: long-lived cam on /dev/shm. BayerRG, NO flip (libcamera already upright).
-Profiles match 6.19.8-3 / 7.2.12 (cap/out/fps). Fast is a 16:9 crop of that mode.
+Profiles match 6.19.8-3 / 7.2.15 (cap/out/fps). Fast is a 16:9 crop of that mode.
 
 IR: power ov7251 first, then ir-led-on (LED needs sensor awake on i2c-3).
 Front: timing mode 2 (calc settle + Windows TERMEN). Capture 2592x1944 SBGGR10; publish canon sizes. LED only with a client.

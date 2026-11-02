@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guards for the 6.19.8-3 / 7.2.12 camera contract. No hardware required."""
+"""Guards for the 6.19.8-3 / 7.2.15 camera contract. No hardware required."""
 import pathlib
 import sys
 
