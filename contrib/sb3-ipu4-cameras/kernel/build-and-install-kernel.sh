@@ -172,11 +172,26 @@ else
 fi
 
 cd "$LINUX_DIR"
-git config user.email "surface-ipu4@localhost" 2>/dev/null || true
-git config user.name "surface-ipu4" 2>/dev/null || true
+
+# git config --local only works inside a repo. Setting it *before* `git init`
+# was a no-op (|| true), so the first commit failed with:
+#   "Nieznana tożsamość autora" / fatal: unable to auto-detect email
+ensure_git_identity() {
+  export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-surface-ipu4}"
+  export GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-surface-ipu4@localhost}"
+  export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-$GIT_AUTHOR_NAME}"
+  export GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-$GIT_AUTHOR_EMAIL}"
+  if [[ -d .git ]]; then
+    git config --local user.name "$GIT_AUTHOR_NAME"
+    git config --local user.email "$GIT_AUTHOR_EMAIL"
+  fi
+}
 
 if [[ ! -d .git ]]; then
   git init -q
+fi
+ensure_git_identity
+if ! git rev-parse -q --verify HEAD >/dev/null 2>&1; then
   git add -A
   git commit -qm "v${KERNEL_TAR_VER} vanilla"
 fi
