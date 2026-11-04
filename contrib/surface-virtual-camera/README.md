@@ -14,7 +14,8 @@ https://github.com/lixiaowww/surface-virtual-camera
 ## Requirements
 
 - Ubuntu / Linux Mint / Debian (uses apt + DKMS)
-- Working libcamera stack (`cam -l` should list the front camera)
+- Working libcamera stack (`cam -l` should list the front camera before install,
+  or when using `--no-hide-raw`)
 - [linux-surface](https://github.com/linux-surface/linux-surface) kernel recommended
 - sudo (installs DKMS module, systemd unit, udev rules, desktop wrappers)
 
@@ -31,8 +32,9 @@ chmod +x install.sh
 Options:
 
 ```bash
-./install.sh --always-on   # enable relay at boot (camera LED may stay lit)
-./install.sh --uninstall   # remove everything this script installed
+./install.sh --always-on     # enable relay at boot (camera LED may stay lit)
+./install.sh --no-hide-raw   # leave ipu3-* accessible to user libcamera / PipeWire
+./install.sh --uninstall     # remove everything this script installed
 ```
 
 What it installs:
@@ -42,6 +44,8 @@ What it installs:
 - `/usr/local/bin/app-with-camera.sh` (refcount-safe on-demand wrapper)
 - Desktop / menu launchers for Zoom, Teams, WeChat, WhatsApp when those
   Flatpaks are present; stock Flatpak `.desktop` Exec lines are also wrapped
+- Runs `update-initramfs -u` so `softdep ipu3_cio2 pre: v4l2loopback` is present
+  in the initrd (otherwise early-boot load order may not claim `/dev/video0`)
 
 Default mode is **on-demand**: the sensor stays off until a wrapped app starts,
 and stops when the last wrapped app exits.
@@ -67,16 +71,27 @@ app-with-camera.sh run firefox
 
 ## Notes / caveats
 
-- Raw `ipu3-*` V4L2 nodes are hidden from apps (root/libcamera still has access)
-  so conferencing UIs only list the virtual webcam.
+### Raw `ipu3-*` permissions (default)
+
+By default `99-hide-ipu3-v4l.rules` sets `ipu3-cio2*` / `ipu3-imgu*` to
+`MODE=0600`, `GROUP=root`, and strips `uaccess`. The root relay can still open
+libcamera; **unprivileged** `cam -l`, WirePlumber `monitor.libcamera`, and the
+PipeWire Camera portal **cannot** open the raw sensors. That is intentional so
+Zoom/Electron do not enumerate unusable V4L2 nodes.
+
+Reinstall with `./install.sh --no-hide-raw` to keep native libcamera/PipeWire
+access. On IPU6 devices that fill `/dev/video0`–`63`, prefer a per-process
+`LD_PRELOAD` remapper such as
+[surface-zoom-bridge](https://github.com/luqqas96/surface-zoom-bridge) instead
+of globally locking down nodes; see also linux-surface issue #2242.
+
+### Other
+
 - Cheese and other direct libcamera users may conflict while the relay is running.
+- Front camera ACPI id is auto-detected via `cam -l` (as root during install)
+  into `/etc/default/surface-camera`.
 - Electron/Chromium apps only enumerate the loopback while a producer is active
   (`exclusive_caps`).
-- Front camera ACPI id is auto-detected via `cam -l` into
-  `/etc/default/surface-camera` (override there if needed).
-- This targets the IPU3 + libcamera path. IPU6 devices that fill
-  `/dev/video0`–`63` may need a different `video_nr` / load-order strategy; see
-  linux-surface discussions and issue #2242.
 
 ## Uninstall
 

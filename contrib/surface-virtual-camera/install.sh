@@ -5,9 +5,10 @@
 #
 # Usage:
 #   chmod +x install.sh
-#   ./install.sh              # install (on-demand wrappers for Zoom/Teams/WeChat/WhatsApp)
-#   ./install.sh --always-on  # also enable camera relay at boot
-#   ./install.sh --uninstall  # remove
+#   ./install.sh                 # install (on-demand wrappers for Zoom/Teams/WeChat/WhatsApp)
+#   ./install.sh --always-on     # also enable camera relay at boot
+#   ./install.sh --no-hide-raw   # leave ipu3-* nodes accessible to user/libcamera/PipeWire
+#   ./install.sh --uninstall     # remove
 #
 # Requirements: Ubuntu/Mint/Debian, working libcamera (linux-surface recommended),
 # python3-gi, gstreamer libcamerasrc, headers for current kernel (DKMS).
@@ -16,12 +17,15 @@ set -euo pipefail
 
 ALWAYS_ON=0
 UNINSTALL=0
+HIDE_RAW=1
 for arg in "$@"; do
   case "$arg" in
     --always-on) ALWAYS_ON=1 ;;
+    --no-hide-raw) HIDE_RAW=0 ;;
+    --hide-raw) HIDE_RAW=1 ;;
     --uninstall|-u) UNINSTALL=1 ;;
     -h|--help)
-      sed -n '2,14p' "$0"
+      sed -n '2,16p' "$0"
       exit 0
       ;;
     *)
@@ -30,6 +34,19 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+update_initramfs_hint() {
+  # softdep / options in /etc/modprobe.d only affect early boot if packed into initramfs
+  if command -v update-initramfs >/dev/null 2>&1; then
+    echo "==> Updating initramfs (so v4l2loopback softdep applies on next boot)..."
+    if ! update-initramfs -u; then
+      echo "    Warning: update-initramfs failed; reboot may not place loopback on /dev/video0." >&2
+      echo "    Re-run: sudo update-initramfs -u" >&2
+    fi
+  else
+    echo "    Warning: update-initramfs not found; ensure modprobe.d is included in your initrd." >&2
+  fi
+}
 
 need_root() {
   if [[ "${EUID}" -ne 0 ]]; then
@@ -72,7 +89,9 @@ uninstall_all() {
         "$REAL_HOME/.local/share/applications/com.tencent.WeChat.desktop" \
         "$REAL_HOME/.local/share/applications/com.rtosta.zapzap.desktop"
   udevadm control --reload || true
+  udevadm trigger -c add -s video4linux || true
   modprobe -r v4l2loopback 2>/dev/null || true
+  update_initramfs_hint
   echo "Uninstalled surface virtual camera."
 }
 
@@ -471,12 +490,21 @@ EOF
     done
   } >/etc/modules-load.d/surface-camera.conf
 
-  cat >/etc/udev/rules.d/99-hide-ipu3-v4l.rules <<'EOF'
-# Hide raw IPU3 nodes from Zoom; root relay still has access
-SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{name}=="ipu3-cio2*", MODE="0600", GROUP="root", TAG-="uaccess"
-SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{name}=="ipu3-imgu*", MODE="0600", GROUP="root", TAG-="uaccess"
-SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{name}=="Surface Front Camera", MODE="0660", GROUP="video", TAG+="uaccess"
-EOF
+  # Always ensure the virtual webcam is usable by the desktop user.
+  # Optionally hide raw ipu3-* nodes from legacy V4L2 apps (Zoom/Electron).
+  # Hiding strips uaccess and sets 0600 root:root, so unprivileged cam(1),
+  # WirePlumber monitor.libcamera, and PipeWire Camera portal cannot open the
+  # sensors directly — only the root surface-camera relay can. Use --no-hide-raw
+  # if you need native libcamera/PipeWire access alongside the virtual device.
+  {
+    echo '# Surface virtual camera permissions'
+    echo 'SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{name}=="Surface Front Camera", MODE="0660", GROUP="video", TAG+="uaccess"'
+    if [[ "$HIDE_RAW" -eq 1 ]]; then
+      echo '# Hide raw IPU3 nodes from Zoom/Electron; root relay still has access'
+      echo 'SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{name}=="ipu3-cio2*", MODE="0600", GROUP="root", TAG-="uaccess"'
+      echo 'SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{name}=="ipu3-imgu*", MODE="0600", GROUP="root", TAG-="uaccess"'
+    fi
+  } >/etc/udev/rules.d/99-hide-ipu3-v4l.rules
 
   cat >/etc/sudoers.d/surface-camera <<EOF
 # Allow $REAL_USER to start/stop camera relay without password
@@ -614,6 +642,8 @@ reload_stack() {
     systemctl disable surface-camera.service 2>/dev/null || true
     systemctl stop surface-camera.service 2>/dev/null || true
   fi
+
+  update_initramfs_hint
 }
 
 main_install() {
@@ -647,6 +677,12 @@ main_install() {
     echo "  Boot mode          : always-on (camera LED may stay lit)"
   else
     echo "  Boot mode          : on-demand (recommended)"
+  fi
+  if [[ "$HIDE_RAW" -eq 1 ]]; then
+    echo "  Raw ipu3-* nodes   : hidden (0600 root; unprivileged cam/PipeWire libcamera blocked)"
+    echo "                       reinstall with --no-hide-raw to keep native libcamera access"
+  else
+    echo "  Raw ipu3-* nodes   : left accessible (--no-hide-raw)"
   fi
   echo
   echo "Menu / desktop icons for Zoom, Teams, WeChat, WhatsApp are wrapped automatically."
