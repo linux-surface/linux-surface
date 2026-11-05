@@ -1,0 +1,10 @@
+#!/bin/sh
+# Re-disable GPE 0xAB after every resume. The cmdline param acpi_mask_gpe=0xAB
+# and the boot-time surface-disable-gpe-ab.service handle the post-boot state.
+# This hook covers the case where the disable state isn't fully persistent
+# across s2idle. See README.md ("GPE 0xAB") for the root-cause explanation.
+case "$1" in
+  post)
+    echo disable > /sys/firmware/acpi/interrupts/gpeAB 2>/dev/null || true
+    ;;
+esac
