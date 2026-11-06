@@ -1,0 +1,697 @@
+#!/usr/bin/env bash
+# Surface / IPU3 virtual webcam installer
+# Creates a v4l2loopback device ("Surface Front Camera") fed by libcamera,
+# so Zoom / Electron apps can use the built-in camera.
+#
+# Usage:
+#   chmod +x install.sh
+#   ./install.sh                 # install (on-demand wrappers for Zoom/Teams/WeChat/WhatsApp)
+#   ./install.sh --always-on     # also enable camera relay at boot
+#   ./install.sh --no-hide-raw   # leave ipu3-* nodes accessible to user/libcamera/PipeWire
+#   ./install.sh --uninstall     # remove
+#
+# Requirements: Ubuntu/Mint/Debian, working libcamera (linux-surface recommended),
+# python3-gi, gstreamer libcamerasrc, headers for current kernel (DKMS).
+
+set -euo pipefail
+
+ALWAYS_ON=0
+UNINSTALL=0
+HIDE_RAW=1
+for arg in "$@"; do
+  case "$arg" in
+    --always-on) ALWAYS_ON=1 ;;
+    --no-hide-raw) HIDE_RAW=0 ;;
+    --hide-raw) HIDE_RAW=1 ;;
+    --uninstall|-u) UNINSTALL=1 ;;
+    -h|--help)
+      sed -n '2,16p' "$0"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg" >&2
+      exit 2
+      ;;
+  esac
+done
+
+update_initramfs_hint() {
+  # softdep / options in /etc/modprobe.d only affect early boot if packed into initramfs
+  if command -v update-initramfs >/dev/null 2>&1; then
+    echo "==> Updating initramfs (so v4l2loopback softdep applies on next boot)..."
+    if ! update-initramfs -u; then
+      echo "    Warning: update-initramfs failed; reboot may not place loopback on /dev/video0." >&2
+      echo "    Re-run: sudo update-initramfs -u" >&2
+    fi
+  else
+    echo "    Warning: update-initramfs not found; ensure modprobe.d is included in your initrd." >&2
+  fi
+}
+
+need_root() {
+  if [[ "${EUID}" -ne 0 ]]; then
+    echo "Re-running with sudo..."
+    exec sudo -E bash "$0" "$@"
+  fi
+}
+
+REAL_USER="${SUDO_USER:-${USER}}"
+REAL_HOME="$(getent passwd "$REAL_USER" | cut -d: -f6)"
+DESKTOP_DIR="$(sudo -u "$REAL_USER" xdg-user-dir DESKTOP 2>/dev/null || echo "$REAL_HOME/Desktop")"
+
+uninstall_all() {
+  need_root "$@"
+  systemctl disable --now surface-camera.service 2>/dev/null || true
+  rm -f /etc/systemd/system/surface-camera.service
+  systemctl daemon-reload
+  rm -f /usr/local/bin/surface-camera-relay.py \
+        /usr/local/bin/surface-camera-relay.sh \
+        /usr/local/bin/app-with-camera.sh \
+        /usr/local/bin/zoom-with-camera.sh \
+        /etc/modprobe.d/v4l2-relayd.conf \
+        /etc/modules-load.d/00-v4l2loopback.conf \
+        /etc/modules-load.d/surface-camera.conf \
+        /etc/udev/rules.d/99-hide-ipu3-v4l.rules \
+        /etc/default/surface-camera \
+        /etc/sudoers.d/surface-camera
+  rm -f "$DESKTOP_DIR/Zoom摄像头.desktop" \
+        "$DESKTOP_DIR/Zoom-with-Camera.desktop" \
+        "$DESKTOP_DIR/teams-with-camera.desktop" \
+        "$DESKTOP_DIR/wechat-with-camera.desktop" \
+        "$DESKTOP_DIR/whatsapp-with-camera.desktop" \
+        "$REAL_HOME/.local/share/applications/zoom-with-camera.desktop" \
+        "$REAL_HOME/.local/share/applications/teams-with-camera.desktop" \
+        "$REAL_HOME/.local/share/applications/wechat-with-camera.desktop" \
+        "$REAL_HOME/.local/share/applications/whatsapp-with-camera.desktop" \
+        "$REAL_HOME/.local/share/applications/us.zoom.Zoom.desktop" \
+        "$REAL_HOME/.local/share/applications/com.github.IsmaelMartinez.teams_for_linux.desktop" \
+        "$REAL_HOME/.local/share/applications/com.microsoft.Teams.desktop" \
+        "$REAL_HOME/.local/share/applications/com.tencent.WeChat.desktop" \
+        "$REAL_HOME/.local/share/applications/com.rtosta.zapzap.desktop"
+  udevadm control --reload || true
+  udevadm trigger -c add -s video4linux || true
+  modprobe -r v4l2loopback 2>/dev/null || true
+  update_initramfs_hint
+  echo "Uninstalled surface virtual camera."
+}
+
+detect_front_camera_id() {
+  local out id
+  if ! command -v cam >/dev/null 2>&1; then
+    echo ""
+    return 0
+  fi
+  out="$(cam -l 2>/dev/null || true)"
+  # Prefer lines mentioning front / CAMF; extract id inside parentheses
+  id="$(printf '%s\n' "$out" | awk '
+    BEGIN{IGNORECASE=1}
+    /front|CAMF/ {
+      if (match($0, /\(([^)]+)\)/, a)) { print a[1]; exit }
+    }
+  ')"
+  if [[ -z "$id" ]]; then
+    # Fallback: second camera if two Internal cameras listed
+    id="$(printf '%s\n' "$out" | awk '
+      /\(/ {
+        if (match($0, /\(([^)]+)\)/, a)) {
+          n++; ids[n]=a[1]
+        }
+      }
+      END { if (n>=2) print ids[2]; else if (n==1) print ids[1] }
+    ')"
+  fi
+  printf '%s' "$id"
+}
+
+install_pkgs() {
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y \
+    v4l2loopback-dkms \
+    v4l-utils \
+    gstreamer1.0-tools \
+    gstreamer1.0-libcamera \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    python3-gi \
+    python3-gi-cairo \
+    gir1.2-gstreamer-1.0 \
+    libcamera-tools \
+    dkms \
+    "linux-headers-$(uname -r)" || apt-get install -y \
+      v4l2loopback-dkms v4l-utils gstreamer1.0-tools gstreamer1.0-libcamera \
+      gstreamer1.0-plugins-base gstreamer1.0-plugins-good python3-gi \
+      gir1.2-gstreamer-1.0 libcamera-tools dkms
+
+  # Ensure module is built for current kernel
+  if ! modinfo v4l2loopback >/dev/null 2>&1; then
+    echo "ERROR: v4l2loopback module not available for $(uname -r)." >&2
+    echo "Install matching kernel headers and rebuild: sudo dkms autoinstall" >&2
+    exit 1
+  fi
+}
+
+write_files() {
+  local front_id="$1"
+
+  cat >/etc/default/surface-camera <<EOF
+# Generated by surface-virtual-camera install.sh
+SURFACE_CAMERA_DEVICE=/dev/video0
+SURFACE_CAMERA_WIDTH=1280
+SURFACE_CAMERA_HEIGHT=720
+SURFACE_CAMERA_ID=${front_id}
+EOF
+
+  cat >/usr/local/bin/surface-camera-relay.py <<'PY'
+#!/usr/bin/env python3
+"""Relay libcamera front camera into v4l2loopback for Zoom/etc."""
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import time
+
+import gi
+
+gi.require_version("Gst", "1.0")
+from gi.repository import GLib, Gst
+
+DEVICE = os.environ.get("SURFACE_CAMERA_DEVICE", "/dev/video0")
+FRONT_ID = os.environ.get("SURFACE_CAMERA_ID", r"\_SB_.PCI0.I2C2.CAMF")
+WIDTH = int(os.environ.get("SURFACE_CAMERA_WIDTH", "1280"))
+HEIGHT = int(os.environ.get("SURFACE_CAMERA_HEIGHT", "720"))
+
+
+def load_defaults() -> None:
+    global DEVICE, FRONT_ID, WIDTH, HEIGHT
+    path = "/etc/default/surface-camera"
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            val = val.strip().strip('"').strip("'")
+            if key == "SURFACE_CAMERA_DEVICE":
+                DEVICE = os.environ.get("SURFACE_CAMERA_DEVICE", val)
+            elif key == "SURFACE_CAMERA_ID":
+                FRONT_ID = os.environ.get("SURFACE_CAMERA_ID", val)
+            elif key == "SURFACE_CAMERA_WIDTH":
+                WIDTH = int(os.environ.get("SURFACE_CAMERA_WIDTH", val))
+            elif key == "SURFACE_CAMERA_HEIGHT":
+                HEIGHT = int(os.environ.get("SURFACE_CAMERA_HEIGHT", val))
+
+
+def wait_for_device(path: str, timeout: float = 30.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if os.path.exists(path):
+            return
+        time.sleep(0.25)
+    raise SystemExit(f"surface-camera-relay: {path} not found")
+
+
+def wait_for_front_camera(timeout: float = 30.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            out = subprocess.check_output(
+                ["cam", "-l"], text=True, stderr=subprocess.STDOUT
+            )
+        except Exception as exc:  # noqa: BLE001
+            out = str(exc)
+        if "CAMF" in out or "front camera" in out.lower() or FRONT_ID in out:
+            return
+        time.sleep(0.5)
+
+
+def main() -> int:
+    load_defaults()
+    wait_for_device(DEVICE)
+    wait_for_front_camera()
+    Gst.init(None)
+
+    pipe = Gst.Pipeline.new("surface-camera-relay")
+    src = Gst.ElementFactory.make("libcamerasrc", "src")
+    q1 = Gst.ElementFactory.make("queue", "q1")
+    conv = Gst.ElementFactory.make("videoconvert", "conv")
+    capsfilter = Gst.ElementFactory.make("capsfilter", "caps")
+    q2 = Gst.ElementFactory.make("queue", "q2")
+    sink = Gst.ElementFactory.make("v4l2sink", "sink")
+    if not all((src, q1, conv, capsfilter, q2, sink)):
+        raise SystemExit("surface-camera-relay: missing gstreamer elements")
+
+    src.set_property("camera-name", FRONT_ID)
+    q1.set_property("max-size-buffers", 2)
+    q1.set_property("leaky", 2)
+    q2.set_property("max-size-buffers", 2)
+    q2.set_property("leaky", 2)
+    capsfilter.set_property(
+        "caps",
+        Gst.Caps.from_string(
+            f"video/x-raw,format=YUY2,width={WIDTH},height={HEIGHT}"
+        ),
+    )
+    sink.set_property("device", DEVICE)
+    sink.set_property("sync", False)
+
+    for e in (src, q1, conv, capsfilter, q2, sink):
+        pipe.add(e)
+    if not (
+        src.link(q1)
+        and q1.link(conv)
+        and conv.link(capsfilter)
+        and capsfilter.link(q2)
+        and q2.link(sink)
+    ):
+        raise SystemExit("surface-camera-relay: failed to link pipeline")
+
+    subprocess.run(
+        ["v4l2-ctl", "-d", DEVICE, "--set-ctrl=keep_format=1"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    loop = GLib.MainLoop()
+    bus = pipe.get_bus()
+    bus.add_signal_watch()
+
+    def on_message(_bus, msg):
+        if msg.type == Gst.MessageType.ERROR:
+            err, dbg = msg.parse_error()
+            print(f"surface-camera-relay ERROR: {err}", file=sys.stderr)
+            if dbg:
+                print(dbg, file=sys.stderr)
+            loop.quit()
+        elif msg.type == Gst.MessageType.EOS:
+            loop.quit()
+        return True
+
+    bus.connect("message", on_message)
+
+    last_err = None
+    for attempt in range(1, 16):
+        ret = pipe.set_state(Gst.State.PLAYING)
+        ret2, state, _ = pipe.get_state(5 * Gst.SECOND)
+        if (
+            state in (Gst.State.PLAYING, Gst.State.PAUSED)
+            and ret != Gst.StateChangeReturn.FAILURE
+            and ret2 != Gst.StateChangeReturn.FAILURE
+        ):
+            if state == Gst.State.PAUSED:
+                pipe.set_state(Gst.State.PLAYING)
+            print(
+                f"surface-camera-relay: streaming {FRONT_ID} -> {DEVICE} "
+                f"({WIDTH}x{HEIGHT})",
+                flush=True,
+            )
+            try:
+                loop.run()
+            finally:
+                pipe.set_state(Gst.State.NULL)
+            return 1
+
+        msg = bus.timed_pop_filtered(0, Gst.MessageType.ERROR)
+        if msg:
+            err, _dbg = msg.parse_error()
+            last_err = str(err)
+            print(
+                f"surface-camera-relay: attempt {attempt} failed: {err}",
+                file=sys.stderr,
+            )
+        pipe.set_state(Gst.State.NULL)
+        time.sleep(1)
+
+    print(f"surface-camera-relay: failed to start ({last_err})", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+PY
+  chmod +x /usr/local/bin/surface-camera-relay.py
+
+  cat >/usr/local/bin/surface-camera-relay.sh <<'EOF'
+#!/bin/bash
+set -euo pipefail
+# shellcheck disable=SC1091
+[[ -f /etc/default/surface-camera ]] && . /etc/default/surface-camera
+export SURFACE_CAMERA_DEVICE SURFACE_CAMERA_ID SURFACE_CAMERA_WIDTH SURFACE_CAMERA_HEIGHT
+exec /usr/local/bin/surface-camera-relay.py
+EOF
+  chmod +x /usr/local/bin/surface-camera-relay.sh
+
+  cat >/usr/local/bin/app-with-camera.sh <<'EOF'
+#!/bin/bash
+# Start Surface virtual camera while an app runs (refcount-safe).
+# Usage:
+#   app-with-camera.sh flatpak <app-id> [args...]
+#   app-with-camera.sh run <command> [args...]
+set -euo pipefail
+
+REFDIR="${XDG_RUNTIME_DIR:-/tmp}/surface-camera-refs"
+mkdir -p "$REFDIR"
+REF="$REFDIR/$$"
+
+start_cam() {
+  touch "$REF"
+  if ! systemctl is-active --quiet surface-camera.service; then
+    sudo -n /bin/systemctl start surface-camera.service
+  fi
+  for _ in $(seq 1 40); do
+    if systemctl is-active --quiet surface-camera.service \
+      && v4l2-ctl -d /dev/video0 --get-fmt-video 2>/dev/null | grep -q "Width/Height"; then
+      for __ in $(seq 1 20); do
+        caps="$(v4l2-ctl -d /dev/video0 --all 2>/dev/null || true)"
+        if printf '%s\n' "$caps" | grep -q 'Video Capture' \
+          && ! printf '%s\n' "$caps" | awk '/Device Caps/,/Priority/' | grep -q 'Video Output'; then
+          return 0
+        fi
+        sleep 0.25
+      done
+      return 0
+    fi
+    sleep 0.25
+  done
+  echo "app-with-camera: camera did not become ready" >&2
+  return 1
+}
+
+stop_cam() {
+  rm -f "$REF"
+  if [[ -z "$(find "$REFDIR" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | head -n 1)" ]]; then
+    sudo -n /bin/systemctl stop surface-camera.service 2>/dev/null || true
+  fi
+}
+
+cleanup_stale_refs() {
+  local f base
+  for f in "$REFDIR"/*; do
+    [[ -e "$f" ]] || continue
+    base="$(basename "$f")"
+    [[ "$base" =~ ^[0-9]+$ ]] || continue
+    if ! kill -0 "$base" 2>/dev/null; then
+      rm -f "$f"
+    fi
+  done
+}
+
+trap stop_cam EXIT INT TERM
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 flatpak <app-id> [args...] | run <cmd> [args...]" >&2
+  exit 2
+fi
+
+cleanup_stale_refs
+mode="$1"; shift
+start_cam
+
+set +e
+case "$mode" in
+  flatpak)
+    [[ $# -ge 1 ]] || { echo "flatpak app-id required" >&2; exit 2; }
+    flatpak run "$@"
+    rc=$?
+    ;;
+  run)
+    [[ $# -ge 1 ]] || { echo "command required" >&2; exit 2; }
+    "$@"
+    rc=$?
+    ;;
+  *)
+    echo "Unknown mode: $mode (use flatpak|run)" >&2
+    exit 2
+    ;;
+esac
+exit "$rc"
+EOF
+  chmod +x /usr/local/bin/app-with-camera.sh
+
+  cat >/usr/local/bin/zoom-with-camera.sh <<'EOF'
+#!/bin/bash
+# Start Surface virtual camera only while Zoom is running.
+set -euo pipefail
+if command -v flatpak >/dev/null && flatpak info us.zoom.Zoom >/dev/null 2>&1; then
+  exec /usr/local/bin/app-with-camera.sh flatpak us.zoom.Zoom "$@"
+elif command -v zoom >/dev/null; then
+  exec /usr/local/bin/app-with-camera.sh run zoom "$@"
+else
+  echo "Zoom not found (flatpak us.zoom.Zoom or zoom)." >&2
+  exit 1
+fi
+EOF
+  chmod +x /usr/local/bin/zoom-with-camera.sh
+
+  cat >/etc/systemd/system/surface-camera.service <<'EOF'
+[Unit]
+Description=Surface front camera relay to v4l2loopback (/dev/video0)
+After=systemd-modules-load.service
+Wants=systemd-modules-load.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/surface-camera
+ExecStartPre=/sbin/modprobe v4l2loopback
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/local/bin/surface-camera-relay.sh
+Restart=on-failure
+RestartSec=3
+Nice=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  cat >/etc/modprobe.d/v4l2-relayd.conf <<'EOF'
+# Load loopback early so apps see a normal /dev/video0 webcam
+options v4l2loopback devices=1 video_nr=0 exclusive_caps=1 card_label="Surface Front Camera" max_buffers=4
+softdep ipu3_cio2 pre: v4l2loopback
+softdep ipu3-cio2 pre: v4l2loopback
+softdep ipu3_imgu pre: v4l2loopback
+EOF
+
+  cat >/etc/modules-load.d/00-v4l2loopback.conf <<'EOF'
+v4l2loopback
+EOF
+
+  # Sensor modules: load if present on this kernel
+  {
+    echo "# Optional Surface/IPU3 sensor stack (ignored if module missing)"
+    for m in ipu3_cio2 ipu3_imgu ov5693 ov8865 ov7251; do
+      if modinfo "$m" >/dev/null 2>&1; then
+        echo "$m"
+      fi
+    done
+  } >/etc/modules-load.d/surface-camera.conf
+
+  # Always ensure the virtual webcam is usable by the desktop user.
+  # Optionally hide raw ipu3-* nodes from legacy V4L2 apps (Zoom/Electron).
+  # Hiding strips uaccess and sets 0600 root:root, so unprivileged cam(1),
+  # WirePlumber monitor.libcamera, and PipeWire Camera portal cannot open the
+  # sensors directly — only the root surface-camera relay can. Use --no-hide-raw
+  # if you need native libcamera/PipeWire access alongside the virtual device.
+  {
+    echo '# Surface virtual camera permissions'
+    echo 'SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{name}=="Surface Front Camera", MODE="0660", GROUP="video", TAG+="uaccess"'
+    if [[ "$HIDE_RAW" -eq 1 ]]; then
+      echo '# Hide raw IPU3 nodes from Zoom/Electron; root relay still has access'
+      echo 'SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{name}=="ipu3-cio2*", MODE="0600", GROUP="root", TAG-="uaccess"'
+      echo 'SUBSYSTEM=="video4linux", KERNEL=="video*", ATTR{name}=="ipu3-imgu*", MODE="0600", GROUP="root", TAG-="uaccess"'
+    fi
+  } >/etc/udev/rules.d/99-hide-ipu3-v4l.rules
+
+  cat >/etc/sudoers.d/surface-camera <<EOF
+# Allow $REAL_USER to start/stop camera relay without password
+$REAL_USER ALL=(root) NOPASSWD: /bin/systemctl start surface-camera.service, /bin/systemctl stop surface-camera.service, /bin/systemctl restart surface-camera.service
+EOF
+  chmod 440 /etc/sudoers.d/surface-camera
+  visudo -cf /etc/sudoers.d/surface-camera >/dev/null
+
+  # WirePlumber: don't fight libcamera (user config)
+  install -d -o "$REAL_USER" -g "$REAL_USER" \
+    "$REAL_HOME/.config/wireplumber/wireplumber.conf.d"
+  cat >"$REAL_HOME/.config/wireplumber/wireplumber.conf.d/99-libcamera.conf" <<'EOF'
+wireplumber.profiles = {
+  main = {
+    monitor.libcamera = optional
+  }
+}
+EOF
+  chown "$REAL_USER:$REAL_USER" \
+    "$REAL_HOME/.config/wireplumber/wireplumber.conf.d/99-libcamera.conf"
+
+  # Desktop launchers (on-demand camera for each Flatpak app that needs it)
+  install -d -o "$REAL_USER" -g "$REAL_USER" "$DESKTOP_DIR" \
+    "$REAL_HOME/.local/share/applications"
+
+  write_app_launcher() {
+    local desk_name="$1" app_name="$2" app_name_zh="$3" icon="$4" exec_line="$5" wmclass="$6"
+    local desk="$DESKTOP_DIR/${desk_name}.desktop"
+    local app="$REAL_HOME/.local/share/applications/${desk_name}.desktop"
+    cat >"$desk" <<EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=${app_name}
+Name[zh_CN]=${app_name_zh}
+Comment=Start with on-demand Surface virtual camera
+Comment[zh_CN]=打开应用并按需启动虚拟摄像头；退出后自动关闭
+Exec=${exec_line}
+Icon=${icon}
+Terminal=false
+Categories=Network;InstantMessaging;VideoConference;
+StartupNotify=true
+StartupWMClass=${wmclass}
+EOF
+    cp "$desk" "$app"
+    chown "$REAL_USER:$REAL_USER" "$desk" "$app"
+    chmod +x "$desk" "$app"
+    sudo -u "$REAL_USER" gio set "$desk" metadata::trusted true 2>/dev/null || true
+  }
+
+  write_app_launcher Zoom-with-Camera "Zoom (Camera)" "Zoom（摄像头）" \
+    us.zoom.Zoom /usr/local/bin/zoom-with-camera.sh zoom
+
+  if flatpak info com.github.IsmaelMartinez.teams_for_linux >/dev/null 2>&1; then
+    write_app_launcher teams-with-camera "Teams (Camera)" "Teams（摄像头）" \
+      com.github.IsmaelMartinez.teams_for_linux \
+      "/usr/local/bin/app-with-camera.sh flatpak com.github.IsmaelMartinez.teams_for_linux" \
+      teams-for-linux
+  fi
+  if flatpak info com.tencent.WeChat >/dev/null 2>&1; then
+    write_app_launcher wechat-with-camera "WeChat (Camera)" "微信（摄像头）" \
+      com.tencent.WeChat \
+      "/usr/local/bin/app-with-camera.sh flatpak com.tencent.WeChat" \
+      wechat
+  fi
+  if flatpak info com.rtosta.zapzap >/dev/null 2>&1; then
+    write_app_launcher whatsapp-with-camera "WhatsApp (Camera)" "WhatsApp（摄像头）" \
+      com.rtosta.zapzap \
+      "/usr/local/bin/app-with-camera.sh flatpak com.rtosta.zapzap" \
+      zapzap
+  fi
+
+  # Override stock Flatpak .desktop Exec so menu icons also start the camera
+  wrap_flatpak_desktop() {
+    local flatpak_id="$1"
+    local src="" dst
+    for src in \
+      "/var/lib/flatpak/exports/share/applications/${flatpak_id}.desktop" \
+      "/usr/share/applications/${flatpak_id}.desktop" \
+      "$REAL_HOME/.local/share/flatpak/exports/share/applications/${flatpak_id}.desktop"
+    do
+      [[ -f "$src" ]] && break
+      src=""
+    done
+    [[ -n "$src" ]] || return 0
+    dst="$REAL_HOME/.local/share/applications/${flatpak_id}.desktop"
+    python3 - "$src" "$dst" <<'PY'
+import sys
+from pathlib import Path
+src, dst = Path(sys.argv[1]), Path(sys.argv[2])
+out = []
+for line in src.read_text(encoding="utf-8").splitlines(True):
+    if line.startswith("Exec="):
+        rest = line[len("Exec="):].rstrip("\n")
+        out.append(f"Exec=/usr/local/bin/app-with-camera.sh run {rest}\n")
+    else:
+        out.append(line)
+dst.write_text("".join(out), encoding="utf-8")
+PY
+    chown "$REAL_USER:$REAL_USER" "$dst"
+    chmod +x "$dst"
+  }
+
+  for app_id in \
+    us.zoom.Zoom \
+    com.github.IsmaelMartinez.teams_for_linux \
+    com.microsoft.Teams \
+    com.tencent.WeChat \
+    com.rtosta.zapzap
+  do
+    if flatpak info "$app_id" >/dev/null 2>&1; then
+      wrap_flatpak_desktop "$app_id"
+    fi
+  done
+  sudo -u "$REAL_USER" update-desktop-database \
+    "$REAL_HOME/.local/share/applications" 2>/dev/null || true
+}
+
+reload_stack() {
+  systemctl daemon-reload
+  udevadm control --reload
+  udevadm trigger -c add -s video4linux || true
+
+  # Best-effort: place loopback on video0 now
+  systemctl stop surface-camera.service 2>/dev/null || true
+  # Don't force-unload ipu3 if busy; modprobe options apply on next boot
+  if ! lsmod | grep -q '^v4l2loopback'; then
+    modprobe v4l2loopback devices=1 video_nr=0 exclusive_caps=1 \
+      card_label='Surface Front Camera' max_buffers=4 || true
+  fi
+
+  if [[ "$ALWAYS_ON" -eq 1 ]]; then
+    systemctl enable --now surface-camera.service
+  else
+    systemctl disable surface-camera.service 2>/dev/null || true
+    systemctl stop surface-camera.service 2>/dev/null || true
+  fi
+
+  update_initramfs_hint
+}
+
+main_install() {
+  need_root "$@"
+  echo "==> Installing packages / DKMS module..."
+  install_pkgs
+
+  echo "==> Detecting front camera..."
+  local front_id
+  front_id="$(detect_front_camera_id)"
+  if [[ -z "$front_id" ]]; then
+    front_id='\_SB_.PCI0.I2C2.CAMF'
+    echo "    Warning: could not detect via cam -l; using default: $front_id"
+    echo "    Edit /etc/default/surface-camera if needed after install."
+  else
+    echo "    Found: $front_id"
+  fi
+
+  echo "==> Writing configs and scripts..."
+  write_files "$front_id"
+
+  echo "==> Reloading services..."
+  reload_stack
+
+  echo
+  echo "Done."
+  echo "  Virtual device name : Surface Front Camera (/dev/video0 after reboot if needed)"
+  echo "  On-demand launchers : Zoom / Teams / WeChat / WhatsApp (Camera) on Desktop"
+  echo "  Manual start/stop   : sudo systemctl start|stop surface-camera"
+  if [[ "$ALWAYS_ON" -eq 1 ]]; then
+    echo "  Boot mode          : always-on (camera LED may stay lit)"
+  else
+    echo "  Boot mode          : on-demand (recommended)"
+  fi
+  if [[ "$HIDE_RAW" -eq 1 ]]; then
+    echo "  Raw ipu3-* nodes   : hidden (0600 root; unprivileged cam/PipeWire libcamera blocked)"
+    echo "                       reinstall with --no-hide-raw to keep native libcamera access"
+  else
+    echo "  Raw ipu3-* nodes   : left accessible (--no-hide-raw)"
+  fi
+  echo
+  echo "Menu / desktop icons for Zoom, Teams, WeChat, WhatsApp are wrapped automatically."
+  echo "In each app: pick \"Surface Front Camera\" as the video device."
+  echo "If /dev/video0 is not the virtual cam yet, reboot once."
+}
+
+if [[ "$UNINSTALL" -eq 1 ]]; then
+  uninstall_all "$@"
+else
+  main_install "$@"
+fi
