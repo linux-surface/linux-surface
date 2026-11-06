@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: technosf <535060+technosf@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 18:10:00 -0800
+Subject: [PATCH] kbuild: Install IPU6 headers for external modules
+
+The out-of-tree IPU6 PSYS driver (intel/ipu6-drivers) includes private
+headers from drivers/media/pci/intel/ipu6/ (ipu6.h, ipu6-bus.h,
+ipu6-buttress.h, ipu6-dma.h, ...). These are not part of the headers
+package, so the DKMS build either fails with "ipu6-dma.h: No such file or
+directory" or has to ship its own, outdated copies whose struct layouts no
+longer match the in-tree driver.
+
+Copy the headers of that directory into the extmod build directory so
+that external modules build against the same definitions as the kernel
+they are built for.
+
+Link: https://github.com/linux-surface/linux-surface/issues/1846
+---
+ scripts/package/install-extmod-build | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+--- a/scripts/package/install-extmod-build
++++ b/scripts/package/install-extmod-build
+@@ -25,6 +25,10 @@
+ 	find "arch/${SRCARCH}" -name Kbuild.platforms -o -name Platform
+ 	find include \( -name config -o -name generated \) -prune -o \( -type f -o -type l \) -print
+ 	find_in_scripts
++	# Out-of-tree modules (e.g. the IPU6 PSYS driver) need the private IPU6 headers
++	if [ -d drivers/media/pci/intel/ipu6 ]; then
++		find drivers/media/pci/intel/ipu6 -maxdepth 1 -name '*.h' -type f -print
++	fi
+ ) | tar -c -f - -C "${srctree}" -T - | tar -xf - -C "${destdir}"
+ 
+ {
+-- 
+2.55.0
+
