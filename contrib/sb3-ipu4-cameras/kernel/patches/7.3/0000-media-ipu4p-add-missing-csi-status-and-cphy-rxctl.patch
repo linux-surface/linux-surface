@@ -1,0 +1,41 @@
+From: Surface IPU4 fix
+Subject: media: ipu4p: add missing CSI2 RX_STATUS and CPHYX_RX_CONTROL1 defines
+
+These symbols are used by ipu4p-isys-csi-phy.c (AFE pulse + front EV
+correction on Surface Book 3) but were never defined in the headers for
+the 7.3 upstream track, causing build failure.
+
+---
+ drivers/media/pci/intel/ipu6/ipu4p-isys-csi2-regs.h     | 5 +++++
+ drivers/media/pci/intel/ipu6/ipu6-platform-buttress-regs.h | 4 ++++
+ 2 files changed, 9 insertions(+)
+
+diff --git a/drivers/media/pci/intel/ipu6/ipu4p-isys-csi2-regs.h b/drivers/media/pci/intel/ipu6/ipu4p-isys-csi2-regs.h
+index 1111111..2222222 100644
+--- a/drivers/media/pci/intel/ipu6/ipu4p-isys-csi2-regs.h
++++ b/drivers/media/pci/intel/ipu6/ipu4p-isys-csi2-regs.h
+@@ -60,6 +60,11 @@
+ #define IPU4P_CSI2_RX_DLY_CNT_TERMEN_DLANE(lane)	(0x34 + (lane) * 8)
+ #define IPU4P_CSI2_RX_DLY_CNT_SETTLE_DLANE(lane)	(0x38 + (lane) * 8)
+ 
++/* Status registers used by AFE pulse / leftover HS recovery (SB3) */
++#define IPU4P_CSI2_RX_STATUS_DLANE_HS			0x48
++#define IPU4P_CSI2_RX_STATUS_DLANE_LP			0x4c
++
+ /* CSI receiver general-purpose registers */
+ #define IPU4P_CSI2_GPREG_CR_PORT_CONFIG			0x14
+ 
+diff --git a/drivers/media/pci/intel/ipu6/ipu6-platform-buttress-regs.h b/drivers/media/pci/intel/ipu6/ipu6-platform-buttress-regs.h
+index 3333333..4444444 100644
+--- a/drivers/media/pci/intel/ipu6/ipu6-platform-buttress-regs.h
++++ b/drivers/media/pci/intel/ipu6/ipu6-platform-buttress-regs.h
+@@ -16,6 +16,10 @@
+ #define IPU4P_BUTTRESS_REG_BBX_AFE_CONFIG(bb)		\
+ 	(IPU4P_BUTTRESS_REG_BB0_AFE_CONFIG + ((bb) >> 1) * 0x100)
+ 
++/* CPHY RX control (front port EV correction on SB3) */
++#define IPU4P_BUTTRESS_REG_CPHYX_RX_CONTROL1(bb)	\
++	(0x10108 + ((bb) >> 1) * 0x100)
++
+ /* IS_WORKPOINT_REQ */
+ #define IPU6_BUTTRESS_REG_IS_FREQ_CTL			0x34

@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: CC0-1.0
+%YAML 1.1
+---
+# SOURCE: https://github.com/ConsultingFuture4200/sp7-camera/tree/main/ipa/simple
+#
+# libcamera "simple" IPA tuning for the Surface Pro 7 rear ov8865.
+#
+# There is no real colour tuning to convert for this sensor: the Windows
+# package's OV8865_MSHW0191_ICL.cpf is a 240-byte stub and OV8865_XXX_CNL.cpf
+# is byte-identical to the TPG test-pattern tuning. So the CCM below is the
+# identity - it changes nothing by itself. It is here because the simple IPA's
+# Adjust algorithm only exposes the Saturation control when a Ccm is loaded
+# (adjust.cpp: "if (context.ccmEnabled && saturation)"), and saturation is the
+# one lever that counters the flat look of an uncalibrated sensor.
+# Black level is left to the BlackLevel algorithm's auto-detection (measured
+# floor on this driver is ~15 in 10-bit; the .cpf value would be wrong).
+version: 1
+algorithms:
+  - BlackLevel:
+  - Awb:
+  - Ccm:
+      ccms:
+        - ct: 6500
+          ccm: [ 1, 0, 0,
+                 0, 1, 0,
+                 0, 0, 1 ]
+  - Adjust:
+  - Agc:
+...

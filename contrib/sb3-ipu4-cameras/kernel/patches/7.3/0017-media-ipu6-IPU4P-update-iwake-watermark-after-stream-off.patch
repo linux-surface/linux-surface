@@ -1,0 +1,34 @@
+From: loafecho <loafecho@users.noreply.github.com>
+Date: Tue, 21 Oct 2026 00:00:00 +0000
+Subject: [PATCH] media: ipu6: IPU4P: update iwake watermark after stream off
+
+Origin: https://github.com/linux-surface/linux-surface/discussions/1353
+---
+--- a/drivers/media/pci/intel/ipu6/ipu6-isys-queue.c	2026-10-25 20:57:12.963730939 +0100
++++ b/drivers/media/pci/intel/ipu6/ipu6-isys-queue.c	2026-10-25 20:57:12.987920517 +0100
+@@ -582,7 +582,14 @@
+ 
+ 	mutex_lock(&stream->mutex);
+ 
+-	ipu6_isys_update_stream_watermark(av, false);
++	/*
++	 * IPU4P: the watermark update goes to the firmware through the proxy
++	 * queue. Sent while a large frame is still being written it stalls
++	 * that frame, so the stream flush is never acknowledged. Update it
++	 * once the stream is off.
++	 */
++	if (!IS_IPU4P(av->isys->adev->isp))
++		ipu6_isys_update_stream_watermark(av, false);
+ 
+ 	mutex_lock(&av->isys->stream_mutex);
+ 	if (stream->nr_streaming == stream->nr_queues && stream->streaming)
+@@ -590,6 +597,9 @@
+ 	list_del(&aq->node);
+ 	mutex_unlock(&av->isys->stream_mutex);
+ 
++	if (IS_IPU4P(av->isys->adev->isp))
++		ipu6_isys_update_stream_watermark(av, false);
++
+ 	stream->nr_streaming--;
+ 	stream->streaming = 0;
+ 	mutex_unlock(&stream->mutex);
