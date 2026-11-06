@@ -1,0 +1,25 @@
+[Unit]
+Description=Surface Go 2 front camera bridge (libcamera -> /dev/video42)
+After=multi-user.target
+Wants=multi-user.target
+# The idle-keeper holds /dev/video42 open as a writer when nothing is using
+# the camera. systemd stops it when we start so we can take over as writer.
+Conflicts=surface-camera-idle.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/surface-camera-bridge
+Restart=on-failure
+RestartSec=2
+# Let the bridge be killed cleanly via SIGTERM
+KillMode=mixed
+TimeoutStopSec=5
+# Give it access to the video devices
+SupplementaryGroups=video
+# Don't need network, home dirs, etc.
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+# This service is not enabled directly; it's started on-demand by the watcher.
