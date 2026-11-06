@@ -1,7 +1,7 @@
-From 0bd16821a2ea64526377fe80e322b49ca8aafc3e Mon Sep 17 00:00:00 2001
+From 55ebfb40d33704696abdef0f9018534efddcb6d3 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ciar=C3=A1n=20Coffey?= <github@ccoffey.ie>
 Date: Fri, 10 Oct 2025 19:04:03 +0100
-Subject: [PATCH] HID: Add hid-surface driver to filter BTN_0 (FN key)
+Subject: [PATCH 1/2] HID: Add hid-surface driver to filter BTN_0 (FN key)
 
 The Surface Aggregator Module firmware incorrectly reports the FN key
 as BTN_0 (button 256) through runtime HID events. This button can get
@@ -154,13 +154,13 @@ index 000000000..a171ea656
 +MODULE_DESCRIPTION("Microsoft Surface HID driver");
 +MODULE_LICENSE("GPL");
 -- 
-2.56.0
+2.54.0
 
-From f128f25326418c3998c104514b6db7d8adff463c Mon Sep 17 00:00:00 2001
+From fe7e3e38cd588b3a15faa698fb821a52852c897a Mon Sep 17 00:00:00 2001
 From: LegendaryFire <tristan.balon@outlook.com>
 Date: Fri, 13 Mar 2026 10:16:37 +0100
-Subject: [PATCH] hid/multitouch: Prevent mode set on Surface Laptop Studio 2
- touch pad
+Subject: [PATCH 2/2] hid/multitouch: Prevent mode set on Surface Laptop Studio
+ 2 touch pad
 
 Note: Is this still required with MT_QUIRK_KEEP_LATENCY_ON_CLOSE now
 being available?
@@ -171,7 +171,7 @@ Patchset: hid-surface
  1 file changed, 31 insertions(+)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 5818c30b6..efccdb22c 100644
+index b19c58337..8864b7066 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -86,6 +86,7 @@ MODULE_LICENSE("GPL");
@@ -201,7 +201,7 @@ index 5818c30b6..efccdb22c 100644
  	{ }
  };
  
-@@ -2445,6 +2451,17 @@ static void mt_remove(struct hid_device *hdev)
+@@ -2442,6 +2448,17 @@ static void mt_remove(struct hid_device *hdev)
  
  static void mt_on_hid_hw_open(struct hid_device *hdev)
  {
@@ -219,7 +219,7 @@ index 5818c30b6..efccdb22c 100644
  	mt_set_modes(hdev, HID_LATENCY_NORMAL, TOUCHPAD_REPORT_ALL);
  }
  
-@@ -2452,6 +2469,15 @@ static void mt_on_hid_hw_close(struct hid_device *hdev)
+@@ -2449,6 +2466,15 @@ static void mt_on_hid_hw_close(struct hid_device *hdev)
  {
  	struct mt_device *td = hid_get_drvdata(hdev);
  
@@ -235,7 +235,7 @@ index 5818c30b6..efccdb22c 100644
  	if (td->mtclass.quirks & MT_QUIRK_KEEP_LATENCY_ON_CLOSE)
  		mt_set_modes(hdev, HID_LATENCY_NORMAL, TOUCHPAD_REPORT_NONE);
  	else
-@@ -2909,6 +2935,11 @@ static const struct hid_device_id mt_devices[] = {
+@@ -2906,6 +2932,11 @@ static const struct hid_device_id mt_devices[] = {
  		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY,
  			USB_VENDOR_ID_MICROSOFT, 0x09c0) },
  
@@ -248,5 +248,5 @@ index 5818c30b6..efccdb22c 100644
  	{ .driver_data = MT_CLS_GOOGLE,
  		HID_DEVICE(HID_BUS_ANY, HID_GROUP_ANY, USB_VENDOR_ID_GOOGLE,
 -- 
-2.56.0
+2.54.0
 
