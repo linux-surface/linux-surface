@@ -1,4 +1,4 @@
-From b7423396c17f147a5a25618aa4d18b1458c233b0 Mon Sep 17 00:00:00 2001
+From d212b3c25132358b7e3a6e9644fe7f6fa83cec6d Mon Sep 17 00:00:00 2001
 From: Dorian Stoll <dorian.stoll@tmsp.io>
 Date: Tue, 30 Sep 2025 20:12:29 +0200
 Subject: [PATCH 4/6] Install scripts and service files for keeping the surface
@@ -10,10 +10,10 @@ Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
  1 file changed, 33 insertions(+)
 
 diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
-index 27f9f69ea0ff..3c9c6846ade9 100644
+index b6bc160bac72..9adc564bcde1 100644
 --- a/redhat/kernel.spec.template
 +++ b/redhat/kernel.spec.template
-@@ -1214,6 +1214,11 @@ Source4000: README.rst
+@@ -1178,6 +1178,11 @@ Source4000: README.rst
  Source4001: rpminspect.yaml
  Source4002: gating.yaml
  
@@ -25,7 +25,7 @@ index 27f9f69ea0ff..3c9c6846ade9 100644
  ## Patches needed for building this package
  
  %if !%{nopatches}
-@@ -1256,6 +1261,7 @@ Requires(pre): %{initrd_prereq}\
+@@ -1220,6 +1225,7 @@ Requires(pre): %{initrd_prereq}\
  Requires(pre): ((linux-firmware >= 20150904-56.git6ebf5d57) if linux-firmware)\
  Recommends: linux-firmware\
  Recommends: iptsd\
@@ -33,7 +33,7 @@ index 27f9f69ea0ff..3c9c6846ade9 100644
  Requires(preun): systemd >= 200\
  Conflicts: xfsprogs < 4.3.0-1\
  Conflicts: xorg-x11-drv-vmmouse < 13.0.99\
-@@ -1270,6 +1276,13 @@ AutoProv: yes\
+@@ -1234,6 +1240,13 @@ AutoProv: yes\
  %{nil}
  
  
@@ -46,8 +46,8 @@ index 27f9f69ea0ff..3c9c6846ade9 100644
 +
  %package doc
  Summary: Various documentation bits found in the kernel source
- Group: Documentation
-@@ -3818,6 +3831,11 @@ find Documentation -type d | xargs chmod u+w
+ %description doc
+@@ -3699,6 +3712,11 @@ find Documentation -type d | xargs chmod u+w
  
  cd linux-%{KVERREL}
  
@@ -56,10 +56,10 @@ index 27f9f69ea0ff..3c9c6846ade9 100644
 +install -D -m755 "%{SOURCE4102}" -t "%{buildroot}%{_bindir}"
 +install -D -m755 "%{SOURCE4103}" -t "%{buildroot}%{_presetdir}"
 +
- # re-define RPM_VMLINUX_H, because it doesn't carry over from %build
- RPM_VMLINUX_H="$(cat ../vmlinux_h_path)"
+ %if %{with_doc}
+ docdir=$RPM_BUILD_ROOT%{_datadir}/doc/kernel-doc-%{specversion}-%{pkgrelease}
  
-@@ -4256,6 +4274,15 @@ install -m 644 $_kmap_basedir/kernel-map.json $_kmap_destbase/kernel-map-%{KVERR
+@@ -4146,6 +4164,15 @@ install -m 644 $_kmap_basedir/kernel-map.json $_kmap_destbase/kernel-map-%{KVERR
  ### scripts
  ###
  
@@ -75,7 +75,7 @@ index 27f9f69ea0ff..3c9c6846ade9 100644
  %if %{with_tools}
  %post -n %{name}-tools-libs
  /sbin/ldconfig
-@@ -4811,6 +4838,12 @@ fi\
+@@ -4701,6 +4728,12 @@ fi\
  %{_datadir}/%{name}-kmap-internal/kernel-map-%{KVERREL}.json
  %endif
  
