@@ -1,4 +1,4 @@
-From 5685d08df75bd09db316359bfe78dd65caac2716 Mon Sep 17 00:00:00 2001
+From 19f9c96220859fbabe1bafd066445ebe887d63d7 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 19 Feb 2023 22:12:24 +0100
 Subject: [PATCH] PCI: Add quirk to prevent calling shutdown method
@@ -37,10 +37,10 @@ index a2121abb1..067ff28a5 100644
  
  	if (drv && drv->shutdown)
 diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
-index e03a3831b..44f4856d7 100644
+index 812b01d24..814be1148 100644
 --- a/drivers/pci/quirks.c
 +++ b/drivers/pci/quirks.c
-@@ -6376,3 +6376,39 @@ static void pci_mask_replay_timer_timeout(struct pci_dev *pdev)
+@@ -6400,3 +6400,39 @@ static void pci_mask_replay_timer_timeout(struct pci_dev *pdev)
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_GLI, 0x9750, pci_mask_replay_timer_timeout);
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_GLI, 0x9755, pci_mask_replay_timer_timeout);
  #endif
@@ -81,7 +81,7 @@ index e03a3831b..44f4856d7 100644
 +DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x466d, quirk_no_shutdown);  // Thunderbolt 4 NHI
 +DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x46a8, quirk_no_shutdown);  // GPU
 diff --git a/include/linux/pci.h b/include/linux/pci.h
-index 95c77e2a1..4c1c1ec48 100644
+index 72d1ca12a..8f50cc7d2 100644
 --- a/include/linux/pci.h
 +++ b/include/linux/pci.h
 @@ -500,6 +500,7 @@ struct pci_dev {
@@ -95,7 +95,7 @@ index 95c77e2a1..4c1c1ec48 100644
 -- 
 2.56.0
 
-From c491268ba8ed1e06e9624f0f3ccea2191a82db2b Mon Sep 17 00:00:00 2001
+From d340867331986a526d36cfedc500d8869fc935a3 Mon Sep 17 00:00:00 2001
 From: LegendaryFire <tristan.balon@outlook.com>
 Date: Wed, 7 Jan 2026 01:06:25 +0100
 Subject: [PATCH] PCI: Add Surface Laptop Studio 2 devices to shutdown ops
@@ -108,10 +108,10 @@ Patchset: surface-shutdown
  1 file changed, 13 insertions(+)
 
 diff --git a/drivers/pci/quirks.c b/drivers/pci/quirks.c
-index 44f4856d7..8ae2f7113 100644
+index 814be1148..e9bb6b1e1 100644
 --- a/drivers/pci/quirks.c
 +++ b/drivers/pci/quirks.c
-@@ -6395,6 +6395,13 @@ static const struct dmi_system_id no_shutdown_dmi_table[] = {
+@@ -6419,6 +6419,13 @@ static const struct dmi_system_id no_shutdown_dmi_table[] = {
  			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Laptop 5"),
  		},
  	},
@@ -125,7 +125,7 @@ index 44f4856d7..8ae2f7113 100644
  	{}
  };
  
-@@ -6412,3 +6419,9 @@ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x461f, quirk_no_shutdown);  // Thu
+@@ -6436,3 +6443,9 @@ DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x461f, quirk_no_shutdown);  // Thu
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x462f, quirk_no_shutdown);  // Thunderbolt 4 PCI Express Root Port
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x466d, quirk_no_shutdown);  // Thunderbolt 4 NHI
  DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_INTEL, 0x46a8, quirk_no_shutdown);  // GPU
