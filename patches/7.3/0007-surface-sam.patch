@@ -1,4 +1,4 @@
-From 5e6c038687a15637e6a7ce267019b88dadc14383 Mon Sep 17 00:00:00 2001
+From eb970dd5f6d1477f7d19bde81ba80a4d304ddfb4 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Fri, 17 Jun 2022 02:14:00 +0200
 Subject: [PATCH] rtc: Add basic support for RTC via Surface System Aggregator
@@ -181,7 +181,7 @@ index 000000000..f6c17c4e9
 -- 
 2.56.0
 
-From 302154b8abdcb31f159aa6acd33bcaa7d21b8f3a Mon Sep 17 00:00:00 2001
+From 730426a54a05bd5ce3170762c2d08f673760c592 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sun, 20 Apr 2025 01:05:14 +0200
 Subject: [PATCH] platform/surface: aggregator_registry: Add Surface Laptop 7
@@ -206,6 +206,233 @@ index d37a7e4c6..e0c07e5d8 100644
  	/* Surface Laptop Go 1 */
  	{ "MSHW0118", (unsigned long)ssam_node_group_slg1 },
  
+-- 
+2.56.0
+
+From 17e5977a915bb46c7ad688fa80a81a98e16ab38a Mon Sep 17 00:00:00 2001
+From: Jan Baisch <jan.baisch@protonmail.com>
+Date: Wed, 12 Aug 2026 14:52:38 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add Surface Pro 12
+ (Intel)
+
+Add SAM client device nodes for the Surface Pro 12 (Intel), identified
+by the MSHW0743 platform-hub ACPI ID.
+
+Like the Surface Pro 10 and Surface Pro 11 (Intel), the device uses the
+same SAM client device layout as the Surface Pro 9, so reuse
+ssam_node_group_sp9.
+
+This enables the Surface Aggregator Module client devices required for
+the device's platform functionality.
+
+Signed-off-by: Jan Baisch <jan.baisch@protonmail.com>
+Link: https://github.com/linux-surface/kernel/pull/171
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index e0c07e5d8..ef87965fc 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -460,6 +460,9 @@ static const struct acpi_device_id ssam_platform_hub_acpi_match[] = {
+ 	/* Surface Pro 11 */
+ 	{ "MSHW0583", (unsigned long)ssam_node_group_sp9 },
+ 
++	/* Surface Pro 12 (Intel) */
++	{ "MSHW0743", (unsigned long)ssam_node_group_sp9 },
++
+ 	/* Surface Book 2 */
+ 	{ "MSHW0107", (unsigned long)ssam_node_group_gen5 },
+ 
+-- 
+2.56.0
+
+From 743c726b18f61e965df1a8031cbefecc46808e41 Mon Sep 17 00:00:00 2001
+From: Peter Marshall <petms@proton.me>
+Date: Mon, 22 Jun 2026 11:26:33 -0400
+Subject: [PATCH] platform/surface: platform_profile: add fan power state
+ handling
+
+Add functionality that switches the fan off if a fan is present when
+entering a suspend transition and switches it back to normal operation
+afterward.
+
+Patchset: surface-sam
+---
+ .../surface/surface_platform_profile.c        | 63 +++++++++++++++++++
+ 1 file changed, 63 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_platform_profile.c b/drivers/platform/surface/surface_platform_profile.c
+index 0e479e35e..203d21aa7 100644
+--- a/drivers/platform/surface/surface_platform_profile.c
++++ b/drivers/platform/surface/surface_platform_profile.c
+@@ -32,6 +32,11 @@ enum ssam_fan_profile {
+ 	SSAM_FAN_PROFILE_BEST_PERFORMANCE   = 4,
+ };
+ 
++enum ssam_fan_state {
++	SSAM_FAN_STATE_NORMAL  = 1,
++	SSAM_FAN_STATE_STANDBY = 2,
++};
++
+ struct ssam_tmp_profile_info {
+ 	__le32 profile;
+ 	__le16 unknown1;
+@@ -61,6 +66,13 @@ SSAM_DEFINE_SYNC_REQUEST_W(__ssam_fan_profile_set, u8, {
+ 	.instance_id = 0x01,
+ });
+ 
++SSAM_DEFINE_SYNC_REQUEST_W(__ssam_fan_state_set, u8, {
++	.target_category = SSAM_SSH_TC_FAN,
++	.target_id = SSAM_SSH_TID_SAM,
++	.command_id = 0x0f,
++	.instance_id = 0x01,
++});
++
+ static int ssam_tmp_profile_get(struct ssam_device *sdev, enum ssam_tmp_profile *p)
+ {
+ 	struct ssam_tmp_profile_info info;
+@@ -88,6 +100,13 @@ static int ssam_fan_profile_set(struct ssam_device *sdev, enum ssam_fan_profile
+ 	return ssam_retry(__ssam_fan_profile_set, sdev->ctrl, &profile);
+ }
+ 
++static int ssam_fan_state_set(struct ssam_device *sdev, enum ssam_fan_state s)
++{
++	const u8 state = s;
++
++	return ssam_retry(__ssam_fan_state_set, sdev->ctrl, &state);
++}
++
+ static int convert_ssam_tmp_to_profile(struct ssam_device *sdev, enum ssam_tmp_profile p)
+ {
+ 	switch (p) {
+@@ -236,6 +255,49 @@ static int surface_platform_profile_probe(struct ssam_device *sdev)
+ 	return PTR_ERR_OR_ZERO(tpd->ppdev);
+ }
+ 
++#ifdef CONFIG_PM_SLEEP
++
++static int surface_platform_profile_pm_prepare(struct device *dev)
++{
++	struct ssam_platform_profile_device *tpd;
++	int status;
++
++	tpd = dev_get_drvdata(dev);
++
++	if (tpd->has_fan) {
++		status = ssam_fan_state_set(tpd->sdev, SSAM_FAN_STATE_STANDBY);
++		if (status)
++			dev_err(&tpd->sdev->dev, "pm: fan standby notification failed");
++	}
++
++	return status;
++}
++
++static void surface_platform_profile_pm_complete(struct device *dev)
++{
++	struct ssam_platform_profile_device *tpd;
++	int status;
++
++	tpd = dev_get_drvdata(dev);
++
++	if (tpd->has_fan) {
++		status = ssam_fan_state_set(tpd->sdev, SSAM_FAN_STATE_NORMAL);
++		if (status)
++			dev_err(&tpd->sdev->dev, "pm: fan resume notification failed");
++	}
++}
++
++static const struct dev_pm_ops surface_platform_profile_pm_ops = {
++	.prepare  = surface_platform_profile_pm_prepare,
++	.complete = surface_platform_profile_pm_complete,
++};
++
++#else /* CONFIG_PM_SLEEP */
++
++static const struct dev_pm_ops surface_platform_profile_pm_ops = { };
++
++#endif /* CONFIG_PM_SLEEP */
++
+ static const struct ssam_device_id ssam_platform_profile_match[] = {
+ 	{ SSAM_SDEV(TMP, SAM, 0x00, 0x01) },
+ 	{ },
+@@ -247,6 +309,7 @@ static struct ssam_device_driver surface_platform_profile = {
+ 	.match_table = ssam_platform_profile_match,
+ 	.driver = {
+ 		.name = "surface_platform_profile",
++		.pm = &surface_platform_profile_pm_ops,
+ 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
+ 	},
+ };
+-- 
+2.56.0
+
+From 22d9088a447734a6716aa3f1c95df3e86db7e1c5 Mon Sep 17 00:00:00 2001
+From: Wu Enqiang <janussss@163.com>
+Date: Sat, 24 Oct 2026 13:49:21 +0800
+Subject: [PATCH] surface: aggregator: propagate -EPROBE_DEFER from
+ ssam_irq_setup()
+
+gpiod_get() can fail with -EPROBE_DEFER when the GPIO controller
+providing the "ssam_wakeup-int" GPIO has not been probed yet. The
+current error path falls back to fwnode_irq_get(), which returns
+-EINVAL because this device only declares GPIO resources. The probe
+then fails hard and is never retried.
+
+This has been reported across various Surface devices since v6.12,
+including the Pro 6 and Pro 9 that were used to reproduce it. With
+the SSAM controller down, dependent ACPI devices, e.g. the battery
+with its _DEP on the SAN node, are never enumerated and battery
+status is missing.
+
+Use gpiod_get_optional() and propagate errors to the caller so that
+probing is deferred until the GPIO controller becomes available. Only
+when no wakeup GPIO is described at all, fall back to fwnode_irq_get().
+
+Fixes: b27622f13172 ("platform/surface: Add OF support")
+Reported-by: Chris Simpson <chris@nilk.net>
+Link: https://lore.kernel.org/platform-driver-x86/d0bb21cc-6d3c-4526-8204-2511da51a6ac@nilk.net
+Link: https://github.com/linux-surface/linux-surface/issues/2219
+Tested-by: Chris Simpson <chris@nilk.net>
+Tested-by: Wu Enqiang <janussss@163.com>
+Cc: stable@vger.kernel.org
+Signed-off-by: Wu Enqiang <janussss@163.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/aggregator/controller.c | 16 ++++++++++++----
+ 1 file changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
+index 6a8430cb9..8846d22c6 100644
+--- a/drivers/platform/surface/aggregator/controller.c
++++ b/drivers/platform/surface/aggregator/controller.c
+@@ -2753,12 +2753,20 @@ int ssam_irq_setup(struct ssam_controller *ctrl)
+ 	 */
+ 	const int irqf = IRQF_ONESHOT | IRQF_TRIGGER_RISING | IRQF_NO_AUTOEN;
+ 
+-	gpiod = gpiod_get(dev, "ssam_wakeup-int", GPIOD_ASIS);
+-	if (IS_ERR(gpiod)) {
+-		irq = fwnode_irq_get(dev_fwnode(dev), 0);
+-	} else {
++	/*
++	 * Only fall back to the fwnode IRQ if no wakeup GPIO is described
++	 * at all. Any other error, in particular -EPROBE_DEFER while the
++	 * GPIO controller has not been registered yet, must reach the probe.
++	 */
++	gpiod = gpiod_get_optional(dev, "ssam_wakeup-int", GPIOD_ASIS);
++	if (IS_ERR(gpiod))
++		return PTR_ERR(gpiod);
++
++	if (gpiod) {
+ 		irq = gpiod_to_irq(gpiod);
+ 		gpiod_put(gpiod);
++	} else {
++		irq = fwnode_irq_get(dev_fwnode(dev), 0);
+ 	}
+ 
+ 	if (irq < 0)
 -- 
 2.56.0
 

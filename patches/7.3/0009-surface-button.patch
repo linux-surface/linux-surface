@@ -1,4 +1,4 @@
-From 0e8f79199cbb74da3f28566daac75ce5a82b3f94 Mon Sep 17 00:00:00 2001
+From 7ecbe483cbfb4a27d65715914e2a8cf554524de6 Mon Sep 17 00:00:00 2001
 From: Sachi King <nakato@nakato.io>
 Date: Tue, 5 Oct 2021 00:05:09 +1100
 Subject: [PATCH] Input: soc_button_array - support AMD variant Surface devices
@@ -75,7 +75,7 @@ index 064243677..aa86f0007 100644
 -- 
 2.56.0
 
-From f21336814c7ab8e8867231460053dca72d6d1b32 Mon Sep 17 00:00:00 2001
+From a9ada992f2da8e06152a8684c441dfe105f19c43 Mon Sep 17 00:00:00 2001
 From: Sachi King <nakato@nakato.io>
 Date: Tue, 5 Oct 2021 00:22:57 +1100
 Subject: [PATCH] platform/surface: surfacepro3_button: don't load on amd
@@ -143,6 +143,85 @@ index b38aa0100..add5d003b 100644
  }
  
  
+-- 
+2.56.0
+
+From 367f9fcc9f46e0ddbdf301a3d4ff2c2ff7fdcd4c Mon Sep 17 00:00:00 2001
+From: Jan Baisch <jan.baisch@protonmail.com>
+Date: Wed, 12 Aug 2026 16:34:02 +0200
+Subject: [PATCH] Input: soc_button_array: defer MSHW0040 probe until GPIO is
+ ready
+
+MSHW0040 Surface devices use GPIO index 0 for the physical power
+button. On the Surface Pro 12 for Business Intel, soc_button_array
+can probe before the Panther Lake GPIO provider is ready. On affected
+boots, the GPIO lookups for the power and volume buttons return
+-EPROBE_DEFER.
+
+Reloading the unchanged soc_button_array driver after the GPIO provider
+has initialized makes the driver bind and all three buttons work.
+
+The generic button creation path deliberately ignores -EPROBE_DEFER
+because some Intel platforms expose virtual GPIO resources which never
+acquire a GPIO provider. Propagating that error from the generic path
+has previously caused severe deferred-probe loops on such systems.
+
+Instead, check the known real MSHW0040 power-button GPIO before
+creating any child devices and propagate only -EPROBE_DEFER. Keep all
+other lookup errors and the generic virtual-GPIO handling unchanged.
+
+This follows the direction already considered during the original
+MSHW0040 Surface button support discussion, while avoiding the generic
+error propagation that was later reverted.
+
+The Surface Pro 12 Intel provides a reliable reproducer with both
+CONFIG_INPUT_SOC_BUTTON_ARRAY and CONFIG_PINCTRL_INTEL_PLATFORM built
+as modules.
+
+Link: https://github.com/linux-surface/linux-surface/issues/2144#issuecomment-5226810584
+Link: https://github.com/linux-surface/linux-surface/issues/61
+Link: https://lore.kernel.org/all/20190516142523.117978-3-luzmaximilian@gmail.com/
+Link: https://lore.kernel.org/all/65b265d2-f7a8-bcd7-e63f-f8efb7349324@gmail.com/
+Signed-off-by: Jan Baisch <jan.baisch@protonmail.com>
+Link: https://github.com/linux-surface/kernel/pull/172
+Patchset: surface-button
+---
+ drivers/input/misc/soc_button_array.c | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/input/misc/soc_button_array.c b/drivers/input/misc/soc_button_array.c
+index aa86f0007..80f8bb3f6 100644
+--- a/drivers/input/misc/soc_button_array.c
++++ b/drivers/input/misc/soc_button_array.c
+@@ -560,13 +560,27 @@ static int soc_device_check_MSHW0040(struct device *dev)
+ {
+ 	acpi_handle handle = ACPI_HANDLE(dev);
+ 	bool exists;
++	int gpio, irq, error;
+ 
+ 	// check if OEM platform revision DSM call exists
+ 	exists = acpi_check_dsm(handle, &MSHW0040_DSM_UUID,
+ 				MSHW0040_DSM_REVISION,
+ 				BIT(MSHW0040_DSM_GET_OMPR));
++	if (!exists)
++		return -ENODEV;
+ 
+-	return exists ? 0 : -ENODEV;
++	/*
++	 * Explicitly check if the GPIO controller is ready. The generic
++	 * button creation path deliberately ignores -EPROBE_DEFER because
++	 * some Intel platforms expose virtual GPIO resources which never
++	 * acquire a GPIO provider. MSHW0040, however, is expected to have
++	 * a real power-button GPIO at index 0.
++	 */
++	error = soc_button_lookup_gpio(dev, 0, &gpio, &irq);
++	if (error == -EPROBE_DEFER)
++		return error;
++
++	return 0;
+ }
+ 
+ /*
 -- 
 2.56.0
 
