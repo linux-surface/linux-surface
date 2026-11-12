@@ -1,4 +1,4 @@
-From efd6a7dd233c647032f737725f7787ac807b7b9a Mon Sep 17 00:00:00 2001
+From 78495cbc14a8c09b4cc608f08ebaa7af984b4cfc Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
 Date: Sat, 18 Feb 2023 01:02:49 +0100
 Subject: [PATCH] USB: quirks: Add USB_QUIRK_DELAY_INIT for Surface Go 3
@@ -39,7 +39,7 @@ index 6ed380599..6b363c638 100644
 -- 
 2.56.0
 
-From 87e8c66d1413a4f178d93b4c35023f1d381790d7 Mon Sep 17 00:00:00 2001
+From 31a43f80f645e0bccf0df1952ef899211e4e4511 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 5 Nov 2020 13:09:45 +0100
 Subject: [PATCH] hid/multitouch: Turn off Type Cover keyboard backlight when
@@ -75,7 +75,7 @@ Patchset: surface-typecover
  1 file changed, 98 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index a95e26cbc..40f9db8d0 100644
+index 82d6182fa..072729949 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -35,7 +35,10 @@
@@ -147,7 +147,7 @@ index a95e26cbc..40f9db8d0 100644
  	{ }
  };
  
-@@ -1996,6 +2016,69 @@ static void mt_expired_timeout(struct timer_list *t)
+@@ -1993,6 +2013,69 @@ static void mt_expired_timeout(struct timer_list *t)
  	clear_bit_unlock(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
  }
  
@@ -217,7 +217,7 @@ index a95e26cbc..40f9db8d0 100644
  static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  {
  	int ret, i;
-@@ -2019,6 +2102,9 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+@@ -2016,6 +2099,9 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  	td->inputmode_value = MT_INPUTMODE_TOUCHSCREEN;
  	hid_set_drvdata(hdev, td);
  
@@ -227,7 +227,7 @@ index a95e26cbc..40f9db8d0 100644
  	INIT_LIST_HEAD(&td->applications);
  	INIT_LIST_HEAD(&td->reports);
  
-@@ -2057,8 +2143,10 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+@@ -2054,8 +2140,10 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  	timer_setup(&td->release_timer, mt_expired_timeout, 0);
  
  	ret = hid_parse(hdev);
@@ -239,7 +239,7 @@ index a95e26cbc..40f9db8d0 100644
  
  	if (mtclass->quirks & MT_QUIRK_FIX_CONST_CONTACT_ID)
  		mt_fix_const_fields(hdev, HID_DG_CONTACTID);
-@@ -2067,8 +2155,10 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
+@@ -2064,8 +2152,10 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
  		hdev->quirks |= HID_QUIRK_NOGET;
  
  	ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
@@ -251,7 +251,7 @@ index a95e26cbc..40f9db8d0 100644
  
  	ret = sysfs_create_group(&hdev->dev.kobj, &mt_attribute_group);
  	if (ret)
-@@ -2118,6 +2208,7 @@ static void mt_remove(struct hid_device *hdev)
+@@ -2115,6 +2205,7 @@ static void mt_remove(struct hid_device *hdev)
  {
  	struct mt_device *td = hid_get_drvdata(hdev);
  
@@ -259,7 +259,7 @@ index a95e26cbc..40f9db8d0 100644
  	timer_shutdown_sync(&td->release_timer);
  
  	sysfs_remove_group(&hdev->dev.kobj, &mt_attribute_group);
-@@ -2557,6 +2648,11 @@ static const struct hid_device_id mt_devices[] = {
+@@ -2554,6 +2645,11 @@ static const struct hid_device_id mt_devices[] = {
  		MT_USB_DEVICE(USB_VENDOR_ID_XIROKU,
  			USB_DEVICE_ID_XIROKU_CSR2) },
  
@@ -274,7 +274,7 @@ index a95e26cbc..40f9db8d0 100644
 -- 
 2.56.0
 
-From 49bfed0a53aaf474361be61b4f6b6e4b9a602264 Mon Sep 17 00:00:00 2001
+From f7f044f7a0d01c9bad0bfda72c9a32ba8055c995 Mon Sep 17 00:00:00 2001
 From: PJungkamp <p.jungkamp@gmail.com>
 Date: Fri, 25 Feb 2022 12:04:25 +0100
 Subject: [PATCH] hid/multitouch: Add support for surface pro type cover tablet
@@ -303,7 +303,7 @@ Patchset: surface-typecover
  1 file changed, 122 insertions(+), 26 deletions(-)
 
 diff --git a/drivers/hid/hid-multitouch.c b/drivers/hid/hid-multitouch.c
-index 40f9db8d0..7c86bfb37 100644
+index 072729949..148db4ed8 100644
 --- a/drivers/hid/hid-multitouch.c
 +++ b/drivers/hid/hid-multitouch.c
 @@ -79,6 +79,7 @@ MODULE_LICENSE("GPL");
@@ -331,7 +331,7 @@ index 40f9db8d0..7c86bfb37 100644
  			MT_QUIRK_ALWAYS_VALID |
  			MT_QUIRK_IGNORE_DUPLICATES |
  			MT_QUIRK_HOVERING |
-@@ -1430,6 +1434,9 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
+@@ -1427,6 +1431,9 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
  	    field->application != HID_CP_CONSUMER_CONTROL &&
  	    field->application != HID_GD_WIRELESS_RADIO_CTLS &&
  	    field->application != HID_GD_SYSTEM_MULTIAXIS &&
@@ -341,7 +341,7 @@ index 40f9db8d0..7c86bfb37 100644
  	    !(field->application == HID_VD_ASUS_CUSTOM_MEDIA_KEYS &&
  	      application->quirks & MT_QUIRK_ASUS_CUSTOM_UP))
  		return -1;
-@@ -1457,6 +1464,21 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
+@@ -1454,6 +1461,21 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
  		return 1;
  	}
  
@@ -363,7 +363,7 @@ index 40f9db8d0..7c86bfb37 100644
  	if (rdata->is_mt_collection)
  		return mt_touch_input_mapping(hdev, hi, field, usage, bit, max,
  					      application);
-@@ -1478,6 +1500,7 @@ static int mt_input_mapped(struct hid_device *hdev, struct hid_input *hi,
+@@ -1475,6 +1497,7 @@ static int mt_input_mapped(struct hid_device *hdev, struct hid_input *hi,
  {
  	struct mt_device *td = hid_get_drvdata(hdev);
  	struct mt_report_data *rdata;
@@ -371,7 +371,7 @@ index 40f9db8d0..7c86bfb37 100644
  
  	rdata = mt_find_report_data(td, field->report);
  	if (rdata && rdata->is_mt_collection) {
-@@ -1485,6 +1508,19 @@ static int mt_input_mapped(struct hid_device *hdev, struct hid_input *hi,
+@@ -1482,6 +1505,19 @@ static int mt_input_mapped(struct hid_device *hdev, struct hid_input *hi,
  		return -1;
  	}
  
@@ -391,7 +391,7 @@ index 40f9db8d0..7c86bfb37 100644
  	/* let hid-core decide for the others */
  	return 0;
  }
-@@ -1494,11 +1530,21 @@ static int mt_event(struct hid_device *hid, struct hid_field *field,
+@@ -1491,11 +1527,21 @@ static int mt_event(struct hid_device *hid, struct hid_field *field,
  {
  	struct mt_device *td = hid_get_drvdata(hid);
  	struct mt_report_data *rdata;
@@ -413,7 +413,7 @@ index 40f9db8d0..7c86bfb37 100644
  	return 0;
  }
  
-@@ -1857,6 +1903,42 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app)
+@@ -1854,6 +1900,42 @@ static void mt_post_parse(struct mt_device *td, struct mt_application *app)
  		app->quirks &= ~MT_QUIRK_CONTACT_CNT_ACCURATE;
  }
  
@@ -456,7 +456,7 @@ index 40f9db8d0..7c86bfb37 100644
  static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
  {
  	struct mt_device *td = hid_get_drvdata(hdev);
-@@ -1906,6 +1988,13 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
+@@ -1903,6 +1985,13 @@ static int mt_input_configured(struct hid_device *hdev, struct hid_input *hi)
  		/* force BTN_STYLUS to allow tablet matching in udev */
  		__set_bit(BTN_STYLUS, hi->input->keybit);
  		break;
@@ -470,7 +470,7 @@ index 40f9db8d0..7c86bfb37 100644
  	default:
  		suffix = "UNKNOWN";
  		break;
-@@ -2016,30 +2105,6 @@ static void mt_expired_timeout(struct timer_list *t)
+@@ -2013,30 +2102,6 @@ static void mt_expired_timeout(struct timer_list *t)
  	clear_bit_unlock(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
  }
  
@@ -501,7 +501,7 @@ index 40f9db8d0..7c86bfb37 100644
  static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
  {
  	struct usb_device *udev = hid_to_usb_dev(hdev);
-@@ -2048,8 +2113,9 @@ static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
+@@ -2045,8 +2110,9 @@ static void update_keyboard_backlight(struct hid_device *hdev, bool enabled)
  	/* Wake up the device in case it's already suspended */
  	pm_runtime_get_sync(&udev->dev);
  
@@ -513,7 +513,7 @@ index 40f9db8d0..7c86bfb37 100644
  		hid_err(hdev, "couldn't find backlight field\n");
  		goto out;
  	}
-@@ -2186,13 +2252,24 @@ static int mt_suspend(struct hid_device *hdev, pm_message_t state)
+@@ -2183,13 +2249,24 @@ static int mt_suspend(struct hid_device *hdev, pm_message_t state)
  
  static int mt_reset_resume(struct hid_device *hdev)
  {
@@ -538,7 +538,7 @@ index 40f9db8d0..7c86bfb37 100644
  	/* Some Elan legacy devices require SET_IDLE to be set on resume.
  	 * It should be safe to send it to other devices too.
  	 * Tested on 3M, Stantum, Cypress, Zytronic, eGalax, and Elan panels. */
-@@ -2201,12 +2278,31 @@ static int mt_resume(struct hid_device *hdev)
+@@ -2198,12 +2275,31 @@ static int mt_resume(struct hid_device *hdev)
  
  	mt_set_modes(hdev, HID_LATENCY_NORMAL, true, true);
  
