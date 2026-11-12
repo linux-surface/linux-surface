@@ -1,0 +1,44 @@
+From 53e3b2bcd7d1a1fb428d0883a05b54bb0d366b82 Mon Sep 17 00:00:00 2001
+From: David Howells <dhowells@redhat.com>
+Date: Thu, 23 Apr 2026 21:09:06 +0100
+Subject: [PATCH 3/8] rxrpc: Fix rxrpc_input_call_event() to only unshare DATA
+ packets
+
+Fix rxrpc_input_call_event() to only unshare DATA packets and not ACK,
+ABORT, etc..
+
+And with that, rxrpc_input_packet() doesn't need to take a pointer to the
+pointer to the packet, so change that to just a pointer.
+
+Fixes: 1f2740150f90 ("rxrpc: Fix potential UAF after skb_unshare() failure")
+Closes: https://sashiko.dev/#/patchset/20260422161438.2593376-4-dhowells@redhat.com
+Signed-off-by: David Howells <dhowells@redhat.com>
+cc: Marc Dionne <marc.dionne@auristor.com>
+cc: Jeffrey Altman <jaltman@auristor.com>
+cc: Simon Horman <horms@kernel.org>
+cc: linux-afs@lists.infradead.org
+cc: stable@kernel.org
+Link: https://patch.msgid.link/20260423200909.3049438-2-dhowells@redhat.com
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+(cherry picked from commit 55b2984c96c37f909bbfe8851f13152693951382)
+---
+ net/rxrpc/call_event.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/net/rxrpc/call_event.c b/net/rxrpc/call_event.c
+index cc8f9dfa44e8..fdd683261226 100644
+--- a/net/rxrpc/call_event.c
++++ b/net/rxrpc/call_event.c
+@@ -332,7 +332,8 @@ bool rxrpc_input_call_event(struct rxrpc_call *call)
+ 
+ 			saw_ack |= sp->hdr.type == RXRPC_PACKET_TYPE_ACK;
+ 
+-			if (sp->hdr.securityIndex != 0 &&
++			if (sp->hdr.type == RXRPC_PACKET_TYPE_DATA &&
++			    sp->hdr.securityIndex != 0 &&
+ 			    skb_cloned(skb)) {
+ 				/* Unshare the packet so that it can be
+ 				 * modified by in-place decryption.
+-- 
+2.53.0
+
