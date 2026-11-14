@@ -1,0 +1,19 @@
+[Unit]
+Description=Disable unnecessary ACPI wake sources for S0ix
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Writing a device name to /proc/acpi/wakeup *toggles* it, so each line first
+# checks that the source is still enabled. This keeps the unit idempotent.
+#
+# PEG0: PCIe bridge towards the NVMe SSD -- nothing behind it needs to wake
+#       the machine.
+# TXHC: Thunderbolt 4 controller -- only useful if you wake the device from
+#       an external Thunderbolt peripheral. Drop this line if you do.
+ExecStart=/bin/bash -c 'grep -q "PEG0.*enabled" /proc/acpi/wakeup && echo PEG0 > /proc/acpi/wakeup || true'
+ExecStart=/bin/bash -c 'grep -q "TXHC.*enabled" /proc/acpi/wakeup && echo TXHC > /proc/acpi/wakeup || true'
+
+[Install]
+WantedBy=multi-user.target

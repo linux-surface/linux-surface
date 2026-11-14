@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Wake + S0ix residency diagnostics for Tiger Lake Surface devices.
+#   $1 = pre|post   $2 = suspend|hibernate|...
+# Install: /usr/lib/systemd/system-sleep/99-log-wakeup  (chmod +x)
+#
+# Nothing may fail hard: a sleep hook exiting non-zero can disturb suspend.
+
+LOG=/var/log/wake-diagnostics.log
+RUN=/run/s0ix-diag
+PMC=/sys/kernel/debug/pmc_core
+mkdir -p "$RUN" 2>/dev/null
+
+case "$1" in
+  pre)
+    date +%s > "$RUN/t.pre"
+    cat "$PMC/slp_s0_residency_usec" 2>/dev/null > "$RUN/slp.pre"
+    cat "$PMC/substate_residencies"  2>/dev/null > "$RUN/sub.pre"
+    {
+      echo "=== $(date '+%F %T') SUSPEND ($2) ==="
+      # LTR = latency tolerance each IP block advertises. A low value means
+      # "service me within N ns", which keeps the SoC out of deep S0ix
+      # substates. NOTE: read here the system is still awake, so these are
+      # awake-state values -- indicative, not proof of what blocks suspend.
+      echo "  --- LTR: IP blocks advertising a latency requirement ---"
+      awk '{ l=$0; name=""; ns=0; sn=0
+        if (match(l,/PMC[0-9]+:[A-Za-z0-9_]+/)) { name=substr(l,RSTART,RLENGTH); sub(/^PMC[0-9]+:/,"",name) }
+        if (match(l,/Non-Snoop\(ns\): *[0-9]+/)) { t=substr(l,RSTART,RLENGTH); sub(/[^0-9]*/,"",t); ns=t+0
+           l=substr(l,1,RSTART-1) substr(l,RSTART+RLENGTH) }
+        if (match(l,/Snoop\(ns\): *[0-9]+/))     { t=substr(l,RSTART,RLENGTH); sub(/[^0-9]*/,"",t); sn=t+0 }
+        if (name!="" && (ns>0 || sn>0)) printf "    %-18s non-snoop=%-9d snoop=%-9d (ns)\n", name, ns, sn
+      }' "$PMC/ltr_show" 2>/dev/null
+    } >> "$LOG"
+    ;;
+
+  post)
+    cat "$PMC/slp_s0_residency_usec" 2>/dev/null > "$RUN/slp.post"
+    cat "$PMC/substate_residencies"  2>/dev/null > "$RUN/sub.post"
+    {
+      echo "=== $(date '+%F %T') RESUME ($2) ==="
+
+      irq=$(cat /sys/power/pm_wakeup_irq 2>/dev/null)
+      echo "  wake IRQ: ${irq:-(not available)}"
+      [ -n "$irq" ] && grep -E "^\s*${irq}:" /proc/interrupts 2>/dev/null | sed 's/^/    /'
+
+      # Column 4 is wakeup_count: times this source aborted suspend or woke
+      # the system. Cumulative since boot -- compare across resumes.
+      echo "  --- wakeup sources with wakeup_count > 0 ---"
+      awk 'NR==1 || ($4+0)>0 {print "    " $0}' \
+          /sys/kernel/debug/wakeup_sources 2>/dev/null | head -12
+
+      wall=0
+      [ -r "$RUN/t.pre" ] && wall=$(( $(date +%s) - $(cat "$RUN/t.pre") ))
+      echo "  suspended for : ${wall} s"
+
+      # Residency is computed from the PMC slp_s0 counter, which the driver
+      # accumulates in 64 bits and does not wrap.
+      if [ -s "$RUN/slp.pre" ] && [ -s "$RUN/slp.post" ]; then
+        a=$(cat "$RUN/slp.pre"); b=$(cat "$RUN/slp.post")
+        slp=$(( (b - a) / 1000000 ))
+        echo "  in S0ix       : ${slp} s"
+        [ "$wall" -gt 0 ] && [ "$slp" -gt 0 ] && \
+          echo "  S0ix residency: $(( slp * 100 / wall ))%"
+      fi
+
+      # NOTE: /sys/power/suspend_stats/last_hw_sleep is derived from a 32-bit
+      # microsecond counter and wraps every 2^32 us (4295 s / 71.6 min). For
+      # any longer suspend it reports (actual mod 4295 s), which understates
+      # the truth badly -- a 10 h suspend at full residency reads as ~8%.
+      # Logged for reference only; never compute residency from it.
+      hw=$(cat /sys/power/suspend_stats/last_hw_sleep 2>/dev/null)
+      hw_s=$(( ${hw:-0} / 1000000 ))
+      if [ "$wall" -gt 4294 ]; then
+        echo "  last_hw_sleep : ${hw_s} s (wrapped, see note in script)"
+      elif [ "$hw_s" -gt "$wall" ]; then
+        echo "  last_hw_sleep : ${hw_s} s (stale: did not advance this cycle)"
+      else
+        echo "  last_hw_sleep : ${hw_s} s"
+      fi
+
+      # Which substate absorbed the time. S0i3.x is the deep one that matters.
+      if [ -s "$RUN/sub.pre" ] && [ -s "$RUN/sub.post" ]; then
+        echo "  --- substate residency delta ---"
+        awk 'NR==FNR { if ($2 ~ /^[0-9]+$/) a[$1]=$2; next }
+             ($2 ~ /^[0-9]+$/) && ($1 in a) {
+               d=($2-a[$1])/1000000; if (d>0) printf "    %-10s %d s\n", $1, d }' \
+            "$RUN/sub.pre" "$RUN/sub.post"
+      fi
+      echo
+    } >> "$LOG"
+    ;;
+esac
+
+exit 0
