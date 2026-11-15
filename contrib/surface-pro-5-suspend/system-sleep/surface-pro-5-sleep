@@ -1,0 +1,33 @@
+#!/bin/sh
+# systemd system-sleep hook for Surface Pro 5.
+# Install to: /usr/lib/systemd/system-sleep/surface-pro-5-sleep (mode 0755)
+#
+# The Pro 5's Marvell 88W8897 Wi-Fi (mwifiex) often fails to come back after
+# suspend ("mwifiex_pcie: ... Firmware wakeup failed" / Wi-Fi gone until
+# reboot), and it can keep the CPU out of deep idle states, which drains the
+# battery while asleep. Unloading the driver before sleep and reloading it after
+# resume avoids both. NetworkManager reconnects on its own.
+#
+# Settings: /etc/surface-pro-5-suspend.conf
+#   UNLOAD_WIFI=yes|no   (default yes)
+
+UNLOAD_WIFI=yes
+# shellcheck disable=SC1091
+[ -r /etc/surface-pro-5-suspend.conf ] && . /etc/surface-pro-5-suspend.conf
+
+STATE=/run/surface-pro-5-sleep.wifi
+
+case "$1/$2" in
+    pre/*)
+        if [ "$UNLOAD_WIFI" = yes ] && [ -d /sys/module/mwifiex_pcie ]; then
+            modprobe -r mwifiex_pcie && touch "$STATE"
+        fi
+        ;;
+    post/*)
+        if [ -e "$STATE" ]; then
+            rm -f "$STATE"
+            modprobe mwifiex_pcie
+        fi
+        ;;
+esac
+exit 0
