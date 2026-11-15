@@ -1,0 +1,28 @@
+# surface-camd instance per camera: surface-camd@front, @rear, @ir
+#   sudo systemctl enable --now surface-camd@front surface-camd@rear surface-camd@ir
+#
+# The sensor only streams while an application has the camera open.
+
+[Unit]
+Description=Surface IPU3 camera driver (%i)
+After=systemd-modules-load.service systemd-udev-settle.service
+Wants=systemd-modules-load.service
+# A missing sensor is not going to appear by retrying forever.
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# Extra options, e.g. SURFACE_CAMD_ARGS="--saturation 1.1 -v"
+EnvironmentFile=-/etc/default/surface-camd
+# Outputs default to /dev/video50 (front), 51 (rear), 52 (ir).
+ExecStart=@BINDIR@/surface-camd --camera %i --wait 30 $SURFACE_CAMD_ARGS
+Restart=on-failure
+RestartSec=5
+Nice=-5
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

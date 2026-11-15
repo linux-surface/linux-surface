@@ -1,29 +1,27 @@
 #!/usr/bin/env bash
 #
-# surface-camera-setup.sh - diagnose and set up the IPU3 cameras on
-# Surface Pro 5 (2017), Surface Pro 6 and Surface Book 2.
+# surface-camera-setup.sh - diagnose and set up the IPU3 cameras (front,
+# rear and IR) on Surface Pro 4/5/6 and Surface Book 1/2.
 #
 # Usage:
-#   ./surface-camera-setup.sh            check everything, change nothing
-#   sudo ./surface-camera-setup.sh --fix install packages + config, reload modules
+#   ./surface-camera-setup.sh             check everything, change nothing
+#   sudo ./surface-camera-setup.sh --fix  install packages, config and the
+#                                         surface-camd camera driver
+#   sudo ./surface-camera-setup.sh --report
+#                                         write surface-camera-report.txt with
+#                                         all camera logs, for bug reports
 #
-# The cameras need the whole stack below. If any layer is missing, the
-# cameras silently stop working, which is what typically happens when moving
-# from a distro with the linux-surface kernel to one with a stock kernel:
-#
-#   kernel:    ipu3-cio2, ipu3-imgu, ipu-bridge, int3472 (TPS68470 PMIC),
-#              ov5693 (front), ov8865 (rear), ov7251 (IR)
-#              + linux-surface "cameras" patches (ACPI probe ordering,
-#                IOMMU passthrough for the IPU, TPS68470 I2C daisy chain)
-#   firmware:  intel/irci_irci_ecr-master_20161208_0213_20170112_1500.bin
-#   userspace: libcamera with the ipu3 pipeline + IPA, PipeWire libcamera
-#              plugin, WirePlumber
+# Stack:
+#   kernel:    ipu3-cio2, ipu-bridge, int3472 (discrete), ov5693 (front),
+#              ov8865 (rear), ov7251 (IR) + linux-surface "cameras" patches
+#   driver:    surface-camd (this directory): raw sensor -> processed image ->
+#              v4l2loopback webcam. Works without libcamera, supports IR.
+#   optional:  libcamera (ipu3 pipeline) + PipeWire plugin, front/rear only
 
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FIX=0
-[ "${1:-}" = "--fix" ] && FIX=1
+MODE="${1:-check}"
 
 ok()   { printf '  \033[32m[ ok ]\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m[warn]\033[0m %s\n' "$*"; WARNINGS=$((WARNINGS + 1)); }
@@ -33,277 +31,262 @@ hdr()  { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
 WARNINGS=0
 FAILURES=0
-NEED_SURFACE_KERNEL=0
 NEED_IOMMU_PT=0
+SENSOR_PROBLEM=0
 
-if [ "$FIX" = 1 ] && [ "$(id -u)" != 0 ]; then
-    echo "--fix needs root: sudo $0 --fix" >&2
+case "$MODE" in
+    check|--fix|--report) ;;
+    *) sed -n '3,19p' "$0"; exit 1;;
+esac
+if [ "$MODE" != check ] && [ "$(id -u)" != 0 ]; then
+    echo "$MODE needs root: sudo $0 $MODE" >&2
     exit 1
 fi
 
-# The desktop user, for per-user config (WirePlumber).
 TARGET_USER="${SUDO_USER:-$(id -un)}"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 
-detect_distro() {
-    if command -v pacman >/dev/null 2>&1; then echo arch
-    elif command -v apt-get >/dev/null 2>&1; then echo debian
-    elif command -v dnf >/dev/null 2>&1; then echo fedora
-    else echo unknown
-    fi
-}
-DISTRO="$(detect_distro)"
+if command -v pacman >/dev/null 2>&1; then DISTRO=arch
+elif command -v apt-get >/dev/null 2>&1; then DISTRO=debian
+elif command -v dnf >/dev/null 2>&1; then DISTRO=fedora
+else DISTRO=unknown
+fi
 
-# --------------------------------------------------------------------------
+# ------------------------------------------------------------------ report
+if [ "$MODE" = --report ]; then
+    OUT="$TARGET_HOME/surface-camera-report.txt"
+    {
+        echo "== system"; uname -a
+        cat /sys/class/dmi/id/{sys_vendor,product_name,product_sku,bios_version} 2>/dev/null
+        cat /etc/os-release 2>/dev/null | head -4
+        echo; echo "== cmdline"; cat /proc/cmdline
+        echo; echo "== modules"
+        for m in ipu3_cio2 ipu3_imgu ipu_bridge intel_skl_int3472_discrete intel_skl_int3472_tps68470 \
+                 ov5693 ov8865 ov7251 dw9714 dw9719 v4l2loopback; do
+            printf '%-30s loaded=%s file=%s\n' "$m" "$([ -d /sys/module/$m ] && echo yes || echo no)" \
+                "$(modinfo -n "$m" 2>/dev/null || echo MISSING)"
+        done
+        echo; echo "== ACPI camera devices"
+        for d in /sys/bus/acpi/devices/{INT3472,INT33BE,INT347A,INT347E,OVTI}*; do
+            [ -e "$d" ] || continue
+            printf '%s status=%s path=%s\n' "$(basename "$d")" "$(cat "$d/status" 2>/dev/null)" "$(cat "$d/path" 2>/dev/null)"
+        done
+        echo; echo "== I2C devices"
+        for d in /sys/bus/i2c/devices/*; do
+            [ -e "$d/name" ] && printf '%s name=%s driver=%s\n' "$(basename "$d")" "$(cat "$d/name")" \
+                "$(basename "$(readlink -f "$d/driver" 2>/dev/null)" 2>/dev/null)"
+        done
+        echo; echo "== LEDs"; ls /sys/class/leds 2>/dev/null
+        echo; echo "== kernel log"
+        dmesg | grep -iE 'ov5693|ov8865|ov7251|int3472|tps68470|ipu3|cio2|ipu.bridge|DMAR|dw97|v4l2loopback|INT33BE|INT347'
+        for m in /dev/media*; do
+            [ -e "$m" ] || continue
+            echo; echo "== media-ctl -p -d $m"
+            media-ctl -p -d "$m" 2>&1 || echo "(media-ctl not installed: v4l-utils)"
+        done
+        echo; echo "== v4l2-ctl --list-devices"; v4l2-ctl --list-devices 2>&1
+        echo; echo "== cam -l"; cam -l 2>&1
+        echo; echo "== surface-camd"
+        for i in front rear ir; do systemctl status --no-pager -n 15 "surface-camd@$i" 2>&1; done
+        echo; echo "== packages"
+        case "$DISTRO" in
+            arch) pacman -Q 2>/dev/null | grep -iE 'linux-surface|libcamera|pipewire|wireplumber|v4l2loopback|firmware';;
+            debian) dpkg -l 2>/dev/null | grep -iE 'linux-image-surface|libcamera|pipewire|wireplumber|v4l2loopback' | awk '{print $2, $3}';;
+            fedora) rpm -qa 2>/dev/null | grep -iE 'kernel-surface|libcamera|pipewire|wireplumber|v4l2loopback';;
+        esac
+    } > "$OUT" 2>&1
+    chown "$TARGET_USER" "$OUT" 2>/dev/null
+    echo "Wrote $OUT"
+    exit 0
+fi
+
+# ------------------------------------------------------------------ device
 hdr "Device"
-VENDOR="$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || echo '?')"
 PRODUCT="$(cat /sys/class/dmi/id/product_name 2>/dev/null || echo '?')"
 SKU="$(cat /sys/class/dmi/id/product_sku 2>/dev/null || echo '?')"
-info "$VENDOR / $PRODUCT / $SKU"
+info "$PRODUCT ($SKU), distro family: $DISTRO"
 case "$PRODUCT:$SKU" in
-    "Surface Pro:"*Surface_Pro_17*|"Surface Pro 6:"*|"Surface Book 2:"*)
+    "Surface Pro:"Surface_Pro_17*|"Surface Pro 4:"*|"Surface Pro 6:"*|"Surface Book:"*|"Surface Book 2:"*)
         ok "IPU3 Surface device (OV5693 front, OV8865 rear, OV7251 IR)";;
     *)
-        warn "This script targets Surface Pro 5/6 and Book 2; continuing anyway";;
+        warn "This script targets Surface Pro 4/5/6 and Book 1/2; continuing anyway";;
 esac
-info "distro family: $DISTRO"
 
-# --------------------------------------------------------------------------
+# ------------------------------------------------------------------ kernel
 hdr "Kernel"
 KREL="$(uname -r)"
-info "running kernel: $KREL"
 if [[ "$KREL" == *surface* ]]; then
-    ok "linux-surface kernel (includes the camera patches)"
+    ok "linux-surface kernel $KREL"
 else
-    bad "not a linux-surface kernel"
-    info "Stock kernels lack the probe-ordering and IOMMU fixes the Surface"
-    info "Pro 5 cameras need; two of those are in built-in kernel code, so"
-    info "no add-on module can supply them. This is the most likely reason"
-    info "the cameras worked on Mint (with linux-surface) but not now."
-    NEED_SURFACE_KERNEL=1
+    warn "kernel $KREL is not a linux-surface kernel (it lacks the camera patches)"
 fi
 
-MODULES="ipu3_cio2 ipu3_imgu ipu_bridge intel_skl_int3472_tps68470 tps68470-regulator clk-tps68470 ov5693 ov8865 ov7251"
-PRESENT_MODULES=""
-for m in $MODULES; do
-    if modinfo "$m" >/dev/null 2>&1; then
-        PRESENT_MODULES="$PRESENT_MODULES $m"
-    else
-        case "$m" in
-            ov7251) warn "module $m missing (IR camera only, not needed for normal use)";;
-            *)      bad "module $m is not built for this kernel";;
-        esac
-    fi
+for m in ipu3_cio2 ipu_bridge intel_skl_int3472_discrete ov5693 ov8865 ov7251; do
+    modinfo "$m" >/dev/null 2>&1 || bad "module $m is not built for this kernel"
 done
-[ -n "$PRESENT_MODULES" ] && ok "modules available:$PRESENT_MODULES"
 
 if grep -qE '(^| )(iommu=pt|intel_iommu=off)( |$)' /proc/cmdline; then
-    ok "IOMMU passthrough/off set on kernel command line"
-elif [ -d /sys/class/iommu ] && [ -n "$(ls -A /sys/class/iommu 2>/dev/null)" ] \
-     && [[ "$KREL" != *surface* ]]; then
-    bad "Intel IOMMU is active and this kernel has no IPU passthrough patch"
-    info "The IPU3 DMA gets blocked (dmesg: 'DMAR: [DMA Read] ... 00:05.0')."
+    ok "IOMMU passthrough/off on the kernel command line"
+elif [ -n "$(ls -A /sys/class/iommu 2>/dev/null)" ] && [[ "$KREL" != *surface* ]]; then
+    bad "Intel IOMMU is active and this kernel lacks the IPU passthrough patch"
     NEED_IOMMU_PT=1
-else
-    ok "IOMMU not blocking the IPU"
 fi
 
-# --------------------------------------------------------------------------
-hdr "Firmware"
-FW_FOUND=""
-for f in /lib/firmware/intel/irci_irci_ecr-master_20161208_0213_20170112_1500.bin \
-         /usr/lib/firmware/intel/irci_irci_ecr-master_20161208_0213_20170112_1500.bin \
-         /lib/firmware/intel/ipu3-fw.bin /usr/lib/firmware/intel/ipu3-fw.bin \
-         /usr/lib/firmware/intel/ipu/irci_irci_ecr-master_20161208_0213_20170112_1500.bin; do
-    for ext in "" .zst .xz; do
-        [ -e "$f$ext" ] && FW_FOUND="$f$ext" && break 2
-    done
-done
-if [ -n "$FW_FOUND" ]; then
-    ok "ImgU firmware: $FW_FOUND"
-else
-    bad "IPU3 ImgU firmware not found"
-    case "$DISTRO" in
-        arch)   info "install: pacman -S linux-firmware-intel (or linux-firmware)";;
-        debian) info "install: apt install firmware-misc-nonfree (Debian) / linux-firmware (Ubuntu/Mint)";;
-        fedora) info "install: dnf install linux-firmware";;
-    esac
-fi
-
-# --------------------------------------------------------------------------
-hdr "Loaded drivers and sensors"
-for m in ipu3_cio2 ipu3_imgu; do
-    if [ -d "/sys/module/$m" ]; then ok "$m loaded"; else warn "$m not loaded"; fi
-done
-SENSORS=""
-for d in /sys/bus/i2c/devices/*; do
-    [ -e "$d/name" ] || continue
-    drv="$(basename "$(readlink -f "$d/driver" 2>/dev/null)" 2>/dev/null)"
-    case "$(cat "$d/name")" in
-        *OVTI5693*|*INT33BE*|ov5693*) SENSORS="$SENSORS front(ov5693:${drv:-unbound})";;
-        *OVTI8865*|*INT347A*|ov8865*) SENSORS="$SENSORS rear(ov8865:${drv:-unbound})";;
-        *OVTI7251*|*INT347E*|ov7251*) SENSORS="$SENSORS ir(ov7251:${drv:-unbound})";;
-    esac
-done
-if [ -n "$SENSORS" ]; then
-    info "sensors on I2C:$SENSORS"
-    if [[ "$SENSORS" == *unbound* ]]; then
-        bad "some sensors have no driver bound (probe failed or ran too early)"
-    else
-        ok "all detected sensors are bound"
+# ------------------------------------------------------------------ sensors
+hdr "Sensors"
+for spec in "front:ov5693:INT33BE" "rear:ov8865:INT347A" "ir:ov7251:INT347E"; do
+    IFS=: read -r cam drv hid <<<"$spec"
+    acpi=""
+    for d in /sys/bus/acpi/devices/"$hid":*; do [ -e "$d" ] && acpi="$d" && break; done
+    i2c=""
+    for d in /sys/bus/i2c/devices/*"$hid"*; do [ -e "$d" ] && i2c="$d" && break; done
+    if [ -z "$acpi" ]; then
+        warn "$cam ($drv): no ACPI device $hid - not present on this model?"
+        continue
     fi
+    if [ -z "$i2c" ]; then
+        bad "$cam ($drv): ACPI device exists but no I2C device was created"
+        info "the INT3472 driver didn't finish (power/clock setup); see dmesg | grep int3472"
+        SENSOR_PROBLEM=1
+        continue
+    fi
+    bound="$(basename "$(readlink -f "$i2c/driver" 2>/dev/null)" 2>/dev/null)"
+    if [ -n "$bound" ]; then
+        ok "$cam ($drv): driver bound ($(basename "$i2c"))"
+    else
+        bad "$cam ($drv): $(basename "$i2c") has no driver bound (probe failed)"
+        SENSOR_PROBLEM=1
+    fi
+done
+IR_LED=""
+for l in /sys/class/leds/*ir_flood*; do [ -e "$l" ] && IR_LED="$(basename "$l")" && break; done
+if [ -n "$IR_LED" ]; then
+    ok "IR flood LED: $IR_LED"
 else
-    warn "no camera sensors enumerated on I2C (expected on stock kernels without the ACPI patch)"
+    warn "no IR flood LED exposed by INT3472 (IR images will be dark in the dark)"
 fi
-if ls /dev/media* >/dev/null 2>&1; then
-    ok "media devices: $(echo /dev/media*)"
-else
-    warn "no /dev/media* devices"
-fi
-if [ "$(id -u)" = 0 ] && command -v dmesg >/dev/null 2>&1; then
-    ERRS="$(dmesg 2>/dev/null | grep -iE 'ov5693|ov8865|ov7251|int3472|tps68470|ipu3|cio2|DMAR.*00:05\.0' | grep -iE 'fail|error|fault|defer|unable' | tail -n 8)"
+if [ "$(id -u)" = 0 ]; then
+    ERRS="$(dmesg 2>/dev/null | grep -iE 'ov5693|ov8865|ov7251|int3472|ipu3|cio2|ipu.bridge|DMAR.*00:05\.0' \
+            | grep -iE 'fail|error|fault|unable|timeout|no board' | tail -n 8)"
     if [ -n "$ERRS" ]; then
-        warn "relevant kernel errors:"
+        warn "camera errors in the kernel log:"
         printf '%s\n' "$ERRS" | sed 's/^/           /'
     fi
 fi
 
-# --------------------------------------------------------------------------
-hdr "Userspace (libcamera / PipeWire)"
-LIBCAMERA_IPU3=""
-for p in /usr/lib/libcamera /usr/lib64/libcamera /usr/lib/*/libcamera \
-         /usr/lib/libcamera/ipa /usr/lib64/libcamera/ipa /usr/lib/*/libcamera/ipa; do
-    ls "$p"/ipa_ipu3*.so >/dev/null 2>&1 && LIBCAMERA_IPU3="$p" && break
-done
-if [ -n "$LIBCAMERA_IPU3" ]; then
-    ok "libcamera IPU3 IPA found in $LIBCAMERA_IPU3"
+# ------------------------------------------------------------- surface-camd
+hdr "surface-camd (camera driver)"
+CAMD="$(command -v surface-camd || true)"
+if [ -n "$CAMD" ]; then ok "installed: $CAMD"; else warn "not installed (run with --fix)"; fi
+if modinfo v4l2loopback >/dev/null 2>&1; then
+    ok "v4l2loopback available"
 else
-    bad "libcamera IPU3 IPA module not found (libcamera or libcamera-ipa missing)"
+    warn "v4l2loopback module not available"
 fi
-SPA=""
-for p in /usr/lib/spa-0.2/libcamera /usr/lib64/spa-0.2/libcamera /usr/lib/*/spa-0.2/libcamera; do
-    [ -d "$p" ] && SPA="$p" && break
+for i in front rear ir; do
+    st="$(systemctl is-active "surface-camd@$i" 2>/dev/null)"
+    case "$st" in
+        active) ok "surface-camd@$i running";;
+        *) [ -n "$CAMD" ] && warn "surface-camd@$i: ${st:-not running} (journalctl -u surface-camd@$i)";;
+    esac
 done
-if [ -n "$SPA" ]; then ok "PipeWire libcamera plugin: $SPA"
-else bad "PipeWire libcamera plugin missing (apps like Firefox, Chrome, Snapshot can't see the cameras)"; fi
 
+# -------------------------------------------------------------- libcamera
+hdr "libcamera / PipeWire (optional for front/rear)"
 if command -v cam >/dev/null 2>&1; then
     CAMS="$(cam -l 2>/dev/null | grep -E '^[0-9]+:')"
-    if [ -n "$CAMS" ]; then
-        ok "libcamera sees:"
-        printf '%s\n' "$CAMS" | sed 's/^/           /'
-    else
-        bad "libcamera ('cam -l') lists no cameras"
-    fi
+    if [ -n "$CAMS" ]; then ok "libcamera sees:"; printf '%s\n' "$CAMS" | sed 's/^/           /'
+    else info "libcamera lists no cameras - surface-camd does not need it"; fi
 else
-    warn "'cam' tool not installed (libcamera-tools) - can't test libcamera directly"
+    info "libcamera tools not installed - surface-camd does not need them"
 fi
 
-WP_CONF="$TARGET_HOME/.config/wireplumber/wireplumber.conf.d/51-surface-ipu3-cameras.conf"
-if [ -e "$WP_CONF" ]; then ok "WirePlumber camera rules installed"
-else warn "WirePlumber camera rules not installed (raw ipu3 nodes may confuse apps)"; fi
-
-# --------------------------------------------------------------------------
-if [ "$FIX" = 1 ]; then
+# -------------------------------------------------------------------- fix
+if [ "$MODE" = --fix ]; then
     hdr "Applying fixes"
 
     case "$DISTRO" in
         arch)
-            pacman -S --needed --noconfirm libcamera libcamera-ipa libcamera-tools \
-                pipewire-libcamera gst-plugin-libcamera v4l-utils \
-                || warn "package install failed (names can differ on derivatives)";;
+            HDRS=linux-headers
+            pacman -Q linux-surface >/dev/null 2>&1 && HDRS=linux-surface-headers
+            pacman -S --needed --noconfirm base-devel v4l-utils v4l2loopback-dkms "$HDRS" \
+                || warn "package install failed";;
         debian)
-            apt-get install -y libcamera-tools libcamera-ipa libspa-0.2-libcamera \
-                gstreamer1.0-libcamera v4l-utils \
+            apt-get install -y build-essential v4l-utils v4l2loopback-dkms \
                 || warn "package install failed";;
         fedora)
-            dnf install -y libcamera libcamera-tools libcamera-ipa \
-                pipewire-plugin-libcamera gstreamer1-plugin-libcamera v4l-utils \
-                || warn "package install failed";;
-        *)  warn "unknown package manager; install libcamera (+ipa, tools) and the PipeWire libcamera plugin yourself";;
+            dnf install -y gcc make v4l-utils v4l2loopback \
+                || warn "package install failed (v4l2loopback is in RPM Fusion)";;
+        *) warn "install gcc, make, v4l-utils and v4l2loopback yourself";;
     esac
 
-    # modprobe softdeps, only naming modules this kernel has.
-    pre=""
-    for m in intel_skl_int3472_tps68470 tps68470-regulator clk-tps68470; do
-        modinfo "$m" >/dev/null 2>&1 && pre="$pre $m"
-    done
+    # Load-order soft dependencies, only for modules this kernel has.
     {
         echo "# Generated by surface-camera-setup.sh for $KREL"
-        echo "# See contrib/surface-ipu3-cameras/modprobe.d/surface-ipu3-cameras.conf"
-        if [ -n "$pre" ]; then
+        if modinfo intel_skl_int3472_discrete >/dev/null 2>&1; then
             for s in ov5693 ov8865 ov7251; do
-                modinfo "$s" >/dev/null 2>&1 && echo "softdep $s pre:$pre"
+                modinfo "$s" >/dev/null 2>&1 && echo "softdep $s pre: intel_skl_int3472_discrete"
             done
         fi
         modinfo ipu_bridge >/dev/null 2>&1 && echo "softdep ipu3_cio2 pre: ipu_bridge post: ipu3_imgu"
     } > /etc/modprobe.d/surface-ipu3-cameras.conf
-    ok "wrote /etc/modprobe.d/surface-ipu3-cameras.conf"
+    printf '%s\n' ipu3_cio2 > /etc/modules-load.d/surface-ipu3-cameras.conf
+    ok "module load order configured"
 
-    # Make sure the sensors are loaded at boot even if udev races.
-    printf '%s\n' ipu3_cio2 ipu3_imgu > /etc/modules-load.d/surface-ipu3-cameras.conf
-    ok "wrote /etc/modules-load.d/surface-ipu3-cameras.conf"
+    # Build and install the driver.
+    if make -C "$SCRIPT_DIR/surface-camd" clean all test >/dev/null; then
+        make -C "$SCRIPT_DIR/surface-camd" install PREFIX=/usr/local >/dev/null
+        ok "surface-camd built, tested and installed"
+    else
+        bad "building surface-camd failed (make -C $SCRIPT_DIR/surface-camd)"
+    fi
 
-    # Reload in the right order: PMIC first, then sensors, then CIO2/ImgU.
+    # Reload camera modules in dependency order.
     for m in ipu3_imgu ipu3_cio2 ov7251 ov8865 ov5693; do modprobe -r "$m" 2>/dev/null; done
-    for m in intel_skl_int3472_tps68470 tps68470-regulator clk-tps68470 \
-             ov5693 ov8865 ov7251 ipu_bridge ipu3_cio2 ipu3_imgu; do
+    for m in intel_skl_int3472_discrete ov5693 ov8865 ov7251 ipu_bridge ipu3_cio2; do
         modprobe "$m" 2>/dev/null
     done
-    ok "reloaded camera modules"
+    modprobe -r v4l2loopback 2>/dev/null
+    modprobe v4l2loopback || warn "v4l2loopback did not load (reboot after a kernel update, or check DKMS)"
+    ok "modules reloaded"
+
+    systemctl daemon-reload
+    for i in front rear ir; do
+        systemctl enable "surface-camd@$i" >/dev/null 2>&1
+        systemctl restart "surface-camd@$i"
+    done
+    sleep 3
+    for i in front rear ir; do
+        if systemctl is-active -q "surface-camd@$i"; then ok "surface-camd@$i running"
+        else bad "surface-camd@$i failed: journalctl -u surface-camd@$i"; fi
+    done
 
     if [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
-        install -D -m 0644 -o "$TARGET_USER" -g "$(id -gn "$TARGET_USER")" \
-            "$SCRIPT_DIR/wireplumber/51-surface-ipu3-cameras.conf" "$WP_CONF"
+        WPD="$TARGET_HOME/.config/wireplumber/wireplumber.conf.d"
+        install -d "$WPD"
+        install -m 0644 "$SCRIPT_DIR/wireplumber/51-surface-ipu3-cameras.conf" "$WPD/"
         chown -R "$TARGET_USER:$(id -gn "$TARGET_USER")" "$TARGET_HOME/.config/wireplumber"
-        ok "installed WirePlumber rules for $TARGET_USER"
-        info "then run as $TARGET_USER:  systemctl --user restart wireplumber pipewire"
+        ok "WirePlumber rules installed; as $TARGET_USER run: systemctl --user restart wireplumber"
     fi
 fi
 
-# --------------------------------------------------------------------------
-hdr "What to do next"
-if [ "$NEED_SURFACE_KERNEL" = 1 ]; then
-    case "$DISTRO" in
-        arch)
-            cat <<'EOF'
-  Install the linux-surface kernel (this is what fixes the cameras):
-
-    curl -s https://raw.githubusercontent.com/linux-surface/linux-surface/master/pkg/keys/surface.asc \
-        | sudo pacman-key --add -
-    sudo pacman-key --finger 56C464BAAC421453
-    sudo pacman-key --lsign-key 56C464BAAC421453
-    printf '\n[linux-surface]\nServer = https://pkg.surfacelinux.com/arch/\n' \
-        | sudo tee -a /etc/pacman.conf
-    sudo pacman -Syu linux-surface linux-surface-headers iptsd
-
-  Then make sure your bootloader boots it (EndeavourOS/systemd-boot:
-  sudo reinstall-kernels; GRUB: sudo grub-mkconfig -o /boot/grub/grub.cfg),
-  reboot, and run this script again with --fix.
+# ---------------------------------------------------------------- summary
+hdr "Next steps"
+if [ "$SENSOR_PROBLEM" = 1 ]; then
+    cat <<'EOF'
+  A sensor did not probe in the kernel, so no userspace driver can reach it
+  yet. Run:  sudo ./surface-camera-setup.sh --report
+  and share ~/surface-camera-report.txt - it has what's needed to write a
+  kernel fix for your exact failure.
 EOF
-            ;;
-        *)
-            echo "  Install the linux-surface kernel: https://github.com/linux-surface/linux-surface/wiki/Installation-and-Setup"
-            ;;
-    esac
 fi
 if [ "$NEED_IOMMU_PT" = 1 ]; then
-    cat <<'EOF'
-
-  If you must stay on a stock kernel, add  iommu=pt  to the kernel command
-  line (systemd-boot: /etc/kernel/cmdline then sudo reinstall-kernels;
-  GRUB: GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub then grub-mkconfig).
-  This lets the IPU3 do DMA again. It does not replace the other patches.
-EOF
+    echo "  Add  iommu=pt  to the kernel command line, or boot the linux-surface kernel."
 fi
 cat <<'EOF'
-
-  Test:      cam -l                      (should list 2-3 cameras)
-             cam -c 1 --capture=10        (grab frames from camera 1)
-             gst-launch-1.0 libcamerasrc ! videoconvert ! autovideosink
-  Apps:      GNOME Snapshot / Cheese work through PipeWire.
-             Firefox: about:config -> media.webrtc.camera.allow-pipewire = true
-             Chromium/Chrome: chrome://flags -> "PipeWire Camera support" = Enabled
+  Cameras (after --fix):  /dev/video50 front, /dev/video51 rear, /dev/video52 IR
+  Test:                   ffplay /dev/video50     (or open it in any webcam app)
+  Firefox/Chrome see them as "Surface Front Camera" etc.
 EOF
 
 printf '\n%d failure(s), %d warning(s).\n' "$FAILURES" "$WARNINGS"

@@ -1,74 +1,69 @@
-# IPU3 Cameras on Surface Pro 5 / Pro 6 / Book 2
+# Front, Rear and IR Cameras on Surface Pro 4/5/6 and Surface Book 1/2
 
-Use this when the front and rear cameras worked on one distro (for example
-Linux Mint with the linux-surface kernel) and then stopped working after a
-switch to another distro (for example an Arch-based one such as EndeavourOS),
-or after a kernel or package update.
+These devices have three cameras on an Intel IPU3:
 
-## Why the cameras stop working
+| Camera | Sensor | ACPI ID | Kernel driver |
+|---|---|---|---|
+| Front | OV5693 | `INT33BE` | `ov5693` |
+| Rear | OV8865 | `INT347A` | `ov8865` |
+| IR (Windows Hello) | OV7251 | `INT347E` | `ov7251` |
 
-On these devices a camera is a stack of parts, not a single driver:
-
-| Layer | What | Front (OV5693) / Rear (OV8865) / IR (OV7251) |
-|---|---|---|
-| Kernel | `ipu3-cio2`, `ipu3-imgu`, `ipu-bridge` | CSI-2 receiver and image processor |
-| Kernel | `int3472` + `tps68470-*` | PMIC that powers and clocks the sensors |
-| Kernel | `ov5693`, `ov8865`, `ov7251` | sensor drivers |
-| Kernel | linux-surface `cameras` patches | ACPI probe ordering, IOMMU passthrough for the IPU, TPS68470 I2C daisy chain |
-| Firmware | `intel/irci_irci_ecr-master_20161208_0213_20170112_1500.bin` | ImgU firmware |
-| Userspace | libcamera (ipu3 pipeline + IPA) | turns raw Bayer data into a picture |
-| Userspace | PipeWire libcamera plugin + WirePlumber | lets apps use the camera |
-
-Mint with the linux-surface kernel has all of these. A typical Arch-based
-install runs the stock `linux` kernel and does not install the PipeWire
-libcamera plugin, so two layers are missing:
-
-1. **Kernel patches.** Two of the required patches change code that is built
-   into the kernel itself (`drivers/acpi/scan.c` and `drivers/iommu/intel/iommu.c`),
-   not a loadable module. Without them, the sensor drivers probe before
-   their PMIC is ready, and the IOMMU blocks the IPU's DMA. **No add-on module
-   or DKMS package can fix this.** The fix is to run the linux-surface kernel,
-   which already has these patches (see `patches/*/0013-cameras.patch`).
-2. **Userspace.** Without `pipewire-libcamera`, apps don't see any
-   libcamera camera. They see only the raw `ipu3-cio2` V4L2 nodes, which
-   show a black or green image.
+The sensors get their power, clock and (for IR) flood LED from an INT3472
+"discrete" ACPI device (`intel_skl_int3472_discrete`). Their data goes
+through `ipu3-cio2` (CSI-2 receiver). Normally libcamera then processes the
+images with the IPU3 ImgU.
 
 ## What's here
 
-| File | Install to | Purpose |
-|---|---|---|
-| `surface-camera-setup.sh` | run in place | Checks every layer above and reports what's missing. `--fix` installs packages and config |
-| `modprobe.d/surface-ipu3-cameras.conf` | `/etc/modprobe.d/` | Soft dependencies so that the PMIC driver loads before the sensor drivers |
-| `wireplumber/51-surface-ipu3-cameras.conf` | `~/.config/wireplumber/wireplumber.conf.d/` | Hides the raw `ipu3-*` V4L2 nodes and names the cameras "Surface Front Camera" / "Surface Rear Camera" (WirePlumber 0.5+) |
+| Path | Purpose |
+|---|---|
+| `surface-camd/` | **Userspace camera driver.** Takes raw data from the sensors and does its own image processing (auto exposure, white balance, demosaic). Publishes `/dev/video50` (front), `/dev/video51` (rear) and `/dev/video52` (IR) as normal webcams. Does not need libcamera, and **makes the IR camera work**, which libcamera's IPU3 pipeline cannot. See [surface-camd/README.md](surface-camd/README.md) |
+| `surface-camera-setup.sh` | Checks every layer and reports what's broken. `--fix` installs and starts everything. `--report` collects all camera logs into one file |
+| `modprobe.d/surface-ipu3-cameras.conf` | Makes sure the INT3472 driver loads before the sensor drivers |
+| `wireplumber/51-surface-ipu3-cameras.conf` | Hides the raw `ipu3-cio2` nodes from apps (they show only black or green) and names the libcamera cameras |
+| `wireplumber/52-surface-camd-only.conf` | Optional: hide the libcamera cameras when surface-camd provides them |
 
 ## Steps
 
 ```sh
-# 1. See what's wrong (changes nothing)
-./surface-camera-setup.sh
-
-# 2. If it reports "not a linux-surface kernel", install that kernel first.
-#    On Arch-based distros the script prints the exact commands. Reboot into it.
-
-# 3. Install libcamera, the PipeWire plugin and the config files
-sudo ./surface-camera-setup.sh --fix
-systemctl --user restart wireplumber pipewire
-
-# 4. Test
-cam -l
+./surface-camera-setup.sh               # 1. see what's wrong (changes nothing)
+sudo ./surface-camera-setup.sh --fix    # 2. install surface-camd + config, start it
+ffplay /dev/video50                     # 3. front; video51 rear; video52 IR
 ```
 
-`cam -l` should list the front and rear cameras (and the IR camera, if
-`ov7251` is available). After that, GNOME Snapshot, Cheese, OBS and browsers
-(through PipeWire) can use both cameras. For Firefox, set
-`media.webrtc.camera.allow-pipewire` to `true`. For Chromium, enable
-`chrome://flags/#enable-webrtc-pipewire-camera`.
+After that, browsers, video-call apps, OBS and Cheese list "Surface Front
+Camera", "Surface Rear Camera" and "Surface IR Camera".
 
-If you must stay on a stock kernel, add `iommu=pt` to the kernel command
-line. This restores the IPU's DMA, and the modprobe soft dependencies make
-the PMIC-before-sensor ordering likely, but not certain. If a camera is still
-missing, check `sudo dmesg | grep -iE 'ov5693|ov8865|int3472|tps68470'`.
-The linux-surface kernel is still the reliable fix.
+For Windows Hello-style face unlock, install Howdy and set
+`device_path = /dev/video52` in its config.
 
-On WirePlumber 0.4 (older distros), the `.conf` rule file is ignored. You
-still get the cameras, just without the renaming and hiding.
+## When a sensor doesn't appear at all
+
+surface-camd needs the kernel's sensor drivers to probe. The setup script's
+"Sensors" section shows, for each camera, whether:
+
+- the ACPI device exists;
+- an I2C device was created for it;
+- a driver is bound to it.
+
+If a sensor fails there, the failure is in the kernel. Run:
+
+```sh
+sudo ./surface-camera-setup.sh --report
+```
+
+Then attach `~/surface-camera-report.txt` to an issue. It contains the
+following, which is what's needed to write a targeted kernel fix:
+
+- the kernel log lines for the camera drivers;
+- the INT3472 and ACPI state;
+- the media graph;
+- the package versions.
+
+## Notes
+
+- The IR camera needs IR light. surface-camd switches on the IR flood LED
+  if the INT3472 driver exposes it (`/sys/class/leds/*ir_flood*`).
+- If you must stay on a stock kernel, add `iommu=pt` to the kernel command
+  line. Without the linux-surface IPU passthrough patch, the IOMMU blocks the
+  IPU3's DMA.
