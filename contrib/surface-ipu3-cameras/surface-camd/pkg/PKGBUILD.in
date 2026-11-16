@@ -1,0 +1,31 @@
+# Arch Linux package for surface-camd. Generated into ../build/arch by
+# install.sh, which fills in @VERSION@ and @SHA256@.
+pkgname=surface-camd
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="Userspace driver for the IPU3 front, rear and IR cameras on Surface Pro 4/5/6 and Surface Book 1/2"
+arch=('x86_64')
+url="https://github.com/linux-surface/linux-surface"
+license=('GPL-2.0-or-later')
+depends=('glibc' 'v4l2loopback-dkms')
+makedepends=('gcc' 'make')
+source=("surface-camd-$pkgver.tar.gz")
+sha256sums=('@SHA256@')
+
+build() {
+	cd "surface-camd-$pkgver/surface-camd"
+	make
+}
+
+check() {
+	cd "surface-camd-$pkgver/surface-camd"
+	make test
+}
+
+package() {
+	cd "surface-camd-$pkgver/surface-camd"
+	make install DESTDIR="$pkgdir" PREFIX=/usr \
+		SYSTEMDUNITDIR=/usr/lib/systemd/system \
+		MODPROBEDIR=/usr/lib/modprobe.d \
+		MODULESLOADDIR=/usr/lib/modules-load.d
+}

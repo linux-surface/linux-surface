@@ -23,12 +23,44 @@ images with the IPU3 ImgU.
 | `wireplumber/51-surface-ipu3-cameras.conf` | Hides the raw `ipu3-cio2` nodes from apps (they show only black or green) and names the libcamera cameras |
 | `wireplumber/52-surface-camd-only.conf` | Optional: hide the libcamera cameras when surface-camd provides them |
 
-## Steps
+## Install
 
 ```sh
-./surface-camera-setup.sh               # 1. see what's wrong (changes nothing)
-sudo ./surface-camera-setup.sh --fix    # 2. install surface-camd + config, start it
-ffplay /dev/video50                     # 3. front; video51 rear; video52 IR
+./install.sh            # run as your normal user; asks for sudo when needed
+ffplay /dev/video50     # front; /dev/video51 rear; /dev/video52 IR
+```
+
+`install.sh` does the whole job:
+
+1. It installs the build tools, v4l2loopback (DKMS) and the headers for your
+   running kernel.
+2. It compiles surface-camd and runs its tests.
+3. It builds a real package for your distro, so the package manager can
+   update or remove the driver cleanly:
+
+   | Distro family | Tool | Output |
+   |---|---|---|
+   | Arch-based | `makepkg` | `build/arch/*.pkg.tar.zst` |
+   | Debian-based | `dpkg-deb` | `build/deb/*.deb` |
+   | Fedora-based | `rpmbuild` | `build/rpm/RPMS/*/*.rpm` |
+   | Other | `make install` | (no package) |
+
+4. It installs the package.
+5. It reloads v4l2loopback and starts `surface-camd@front`, `@rear` and
+   `@ir`, then reports which cameras came up.
+
+| Option | Effect |
+|---|---|
+| `--cameras "front ir"` | Start only some cameras |
+| `--build-only` | Only build the package (into `build/`) |
+| `--no-start` | Install but don't start the services |
+| `--uninstall` | Stop the services and remove the package |
+
+## Diagnose
+
+```sh
+./surface-camera-setup.sh               # see what's wrong (changes nothing)
+sudo ./surface-camera-setup.sh --report # collect all camera logs into one file
 ```
 
 After that, browsers, video-call apps, OBS and Cheese list "Surface Front
