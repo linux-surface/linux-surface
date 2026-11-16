@@ -179,7 +179,7 @@ index 000000000..f6c17c4e9
 +MODULE_DESCRIPTION("RTC driver for Surface System Aggregator Module");
 +MODULE_LICENSE("GPL");
 -- 
-2.56.0
+2.56.1
 
 From 730426a54a05bd5ce3170762c2d08f673760c592 Mon Sep 17 00:00:00 2001
 From: Maximilian Luz <luzmaximilian@gmail.com>
@@ -207,7 +207,7 @@ index d37a7e4c6..e0c07e5d8 100644
  	{ "MSHW0118", (unsigned long)ssam_node_group_slg1 },
  
 -- 
-2.56.0
+2.56.1
 
 From 17e5977a915bb46c7ad688fa80a81a98e16ab38a Mon Sep 17 00:00:00 2001
 From: Jan Baisch <jan.baisch@protonmail.com>
@@ -247,7 +247,7 @@ index e0c07e5d8..ef87965fc 100644
  	{ "MSHW0107", (unsigned long)ssam_node_group_gen5 },
  
 -- 
-2.56.0
+2.56.1
 
 From 743c726b18f61e965df1a8031cbefecc46808e41 Mon Sep 17 00:00:00 2001
 From: Peter Marshall <petms@proton.me>
@@ -367,7 +367,7 @@ index 0e479e35e..203d21aa7 100644
  	},
  };
 -- 
-2.56.0
+2.56.1
 
 From 22d9088a447734a6716aa3f1c95df3e86db7e1c5 Mon Sep 17 00:00:00 2001
 From: Wu Enqiang <janussss@163.com>
@@ -434,5 +434,52 @@ index 6a8430cb9..8846d22c6 100644
  
  	if (irq < 0)
 -- 
-2.56.0
+2.56.1
+
+From 71fe011e69a05a68b16363024564bb14f2cdb404 Mon Sep 17 00:00:00 2001
+From: Lars Schellhas van Kisfeld
+ <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Date: Mon, 16 Nov 2026 11:00:38 +0100
+Subject: [PATCH] platform/surface: platform_profile: fix uninitialized return
+ in pm_prepare
+
+surface_platform_profile_pm_prepare() declares "int status;" without an
+initializer and only assigns it inside the "if (tpd->has_fan)" block.
+On devices where the "has_fan" property is not set, such as the Surface
+Pro 7 and the Surface Book 3, the function returns whatever happens to be
+on the stack. Any non-zero value makes the PM core abort the transition:
+
+  surface_platform_profile 01:03:01:00:01: PM: device_prepare():
+    surface_platform_profile_pm_prepare [surface_platform_profile]
+    returns -1050009088
+  surface_platform_profile 01:03:01:00:01: PM: not prepared for power
+    transition: code -1050009088
+  PM: Some devices failed to suspend, or early wake event detected
+
+and the machine immediately resumes instead of suspending.
+
+Initialize status to 0 so that devices without a fan report success.
+
+Fixes: 743c726b18f6 ("platform/surface: platform_profile: add fan power state handling")
+Signed-off-by: Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_platform_profile.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/platform/surface/surface_platform_profile.c b/drivers/platform/surface/surface_platform_profile.c
+index 203d21aa7..38d2c3b23 100644
+--- a/drivers/platform/surface/surface_platform_profile.c
++++ b/drivers/platform/surface/surface_platform_profile.c
+@@ -260,7 +260,7 @@ static int surface_platform_profile_probe(struct ssam_device *sdev)
+ static int surface_platform_profile_pm_prepare(struct device *dev)
+ {
+ 	struct ssam_platform_profile_device *tpd;
+-	int status;
++	int status = 0;
+ 
+ 	tpd = dev_get_drvdata(dev);
+ 
+-- 
+2.56.1
 
