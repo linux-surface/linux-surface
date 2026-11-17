@@ -1,0 +1,114 @@
+# shellcheck shell=bash
+# Custom linux-surface kernel: replaces the linux-surface / linux-surface-headers
+# packages.
+#
+# Built on top of ../kernel/PKGBUILD (copied in as PKGBUILD.base by build.sh),
+# so it always uses the same kernel version, Arch patch, Surface patches and
+# config as the official linux-surface package, plus:
+#   - extra-*.patch       your own kernel patches (from patches-extra/)
+#   - custom.config       your own config changes, merged last
+#   - v4l2loopback        built and shipped with the kernel, so surface-camd
+#                         works without DKMS or headers
+#
+# Build with ./build.sh (not makepkg directly): it prepares the directory.
+
+# shellcheck disable=SC2034,SC2154  # makepkg variables
+if [[ ! -f "$startdir/PKGBUILD.base" ]]; then
+  echo "PKGBUILD.base missing: build with ./build.sh, which prepares the directory" >&2
+  exit 1
+fi
+# shellcheck source=/dev/null
+source "$startdir/PKGBUILD.base"
+
+pkgbase=linux-surface-custom
+pkgdesc='Linux (linux-surface, custom build)'
+export KBUILD_BUILD_USER=$pkgbase
+
+_v4l2lb_ver=0.15.4
+_v4l2lb_commit=0f9ee86760b7f2bea174b7e3e7a1d38845da0ab4  # tag v0.15.4
+
+makedepends+=(git)
+
+source+=(
+  custom.config
+  "v4l2loopback::git+https://github.com/umlaeute/v4l2loopback.git#commit=$_v4l2lb_commit"
+)
+sha256sums+=(SKIP SKIP)
+b2sums+=(SKIP SKIP)
+
+# Extra patches, applied after the Surface patches (the base prepare() applies
+# every *.patch in source=() in order). Local files you put there yourself.
+for _p in "$startdir"/extra-*.patch; do
+  [[ -e $_p ]] || continue
+  source+=("${_p##*/}")
+  sha256sums+=(SKIP)
+  b2sums+=(SKIP)
+done
+unset _p
+
+# Keep the base functions under new names, then extend them.
+eval "_base_prepare() $(declare -f prepare | tail -n +2)"
+eval "_base_build() $(declare -f build | tail -n +2)"
+
+prepare() {
+  _base_prepare
+
+  cd "$srcdir/$_srcname"
+  echo "Merging custom.config..."
+  ./scripts/kconfig/merge_config.sh -m .config ../custom.config
+  make olddefconfig
+
+  # v4l2loopback needs the V4L2 core; fail now rather than after the build.
+  case "$(scripts/config -s VIDEO_DEV)" in
+    y|m) ;;
+    *) echo "CONFIG_VIDEO_DEV is disabled; v4l2loopback can't be built" >&2; return 1 ;;
+  esac
+  make -s kernelrelease > version
+  echo "Prepared $pkgbase version $(<version)"
+}
+
+build() {
+  _base_build
+
+  echo "Building v4l2loopback $_v4l2lb_ver..."
+  make -C "$srcdir/$_srcname" M="$srcdir/v4l2loopback" modules
+}
+
+_custom_package() {
+  provides+=(
+    "linux-surface=${pkgver}"
+    V4L2LOOPBACK-MODULE
+  )
+  conflicts=(linux-surface)
+
+  local modulesdir="$pkgdir/usr/lib/modules/$(<"$srcdir/$_srcname/version")"
+  echo "Installing v4l2loopback..."
+  install -Dm644 "$srcdir/v4l2loopback/v4l2loopback.ko" \
+    "$modulesdir/extra/v4l2loopback.ko"
+  strip --strip-debug "$modulesdir/extra/v4l2loopback.ko"
+  zstd -19 -q --rm "$modulesdir/extra/v4l2loopback.ko"
+}
+
+_custom_package-headers() {
+  provides+=("linux-surface-headers=${pkgver}")
+  conflicts=(linux-surface-headers)
+}
+
+# Package functions are written out in full (not as calls) because makepkg
+# reads depends/provides/conflicts from the function text.
+pkgname=(
+  "$pkgbase"
+  "$pkgbase-headers"
+)
+for _p in "${pkgname[@]}"; do
+  _s=${_p#"$pkgbase"}
+  eval "package_$_p() {
+    $(declare -f "_package$_s")
+    _package$_s
+    $(declare -f "_custom_package$_s")
+    _custom_package$_s
+  }"
+done
+unset _p _s
+
+# vim:set ts=8 sts=2 sw=2 et:

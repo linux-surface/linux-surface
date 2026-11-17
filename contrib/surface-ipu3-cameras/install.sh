@@ -108,13 +108,20 @@ KREL="$(uname -r)"
 case "$DEPS" in
     skip) ok "skipped (--skip-deps)";;
     arch)
-        if pacman -Q linux-surface >/dev/null 2>&1 && [[ "$KREL" == *surface* ]]; then
-            HDRS=linux-surface-headers
-        elif [[ "$KREL" == *lts* ]]; then HDRS=linux-lts-headers
-        elif [[ "$KREL" == *zen* ]]; then HDRS=linux-zen-headers
-        else HDRS=linux-headers
+        if pacman -T V4L2LOOPBACK-MODULE >/dev/null 2>&1; then
+            # An installed kernel package ships v4l2loopback (e.g. the custom
+            # linux-surface kernel from pkg/arch/kernel-custom): no DKMS needed.
+            ok "v4l2loopback is shipped by your kernel package (no DKMS needed)"
+            $SUDO pacman -S --needed --noconfirm base-devel v4l-utils
+        else
+            if pacman -Q linux-surface >/dev/null 2>&1 && [[ "$KREL" == *surface* ]]; then
+                HDRS=linux-surface-headers
+            elif [[ "$KREL" == *lts* ]]; then HDRS=linux-lts-headers
+            elif [[ "$KREL" == *zen* ]]; then HDRS=linux-zen-headers
+            else HDRS=linux-headers
+            fi
+            $SUDO pacman -S --needed --noconfirm base-devel v4l2loopback-dkms v4l-utils "$HDRS"
         fi
-        $SUDO pacman -S --needed --noconfirm base-devel v4l2loopback-dkms v4l-utils "$HDRS"
         ;;
     debian)
         $SUDO apt-get update -q || warn "apt-get update failed; continuing"
