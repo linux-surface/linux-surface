@@ -1,0 +1,32 @@
+# Surface Pro 11 camera udev rules
+#
+# 1. Hide the 32 raw IPU7 ISYS capture nodes from applications.
+#    These are non-functional V4L2 devices that confuse Firefox, Zoom, etc.
+#    Set mode 0600 root:root so only root can access them. Remove uaccess/seat
+#    tags to prevent logind from re-adding user ACLs. Clear V4L capabilities
+#    so PipeWire won't enumerate them.
+#    The camera bridge script re-grants ACLs before starting the HAL.
+ATTR{name}=="Intel IPU7 ISYS Capture *", OWNER="root", GROUP="root", MODE="0600", TAG-="uaccess", TAG-="seat", ENV{ID_V4L_CAPABILITIES}=""
+ATTR{name}=="Intel IPU7 ISYS Capture *", RUN+="/bin/setfacl -b /dev/%k"
+
+# 2. Ensure v4l2loopback devices are tagged as capture devices for snap/portal access.
+ATTR{name}=="Surface_Front_Camera", TAG+="uaccess", TAG+="seat", ENV{ID_V4L_CAPABILITIES}=":capture:"
+ATTR{name}=="Surface_Rear_Camera", TAG+="uaccess", TAG+="seat", ENV{ID_V4L_CAPABILITIES}=":capture:"
+
+# 3. Grant the IPU7 PSys character device to the video group so the camera HAL
+#    can program the ISP without root. The OOT psys driver names its node
+#    /dev/ipu7-psys0; older builds used /dev/ipu-psys0 — match both for safety.
+#    TAG+="uaccess" lets logind add a per-user ACL for the active seat user too,
+#    so this works for desktop sessions without explicit group membership.
+#    NOTE: on systemd v259 this rule frequently does NOT take effect at boot —
+#    the PSys cdev has no `subsystem` symlink in sysfs (the driver registers a
+#    bare cdev rather than a class device), and udev silently skips MODE/GROUP
+#    on such nodes. The authoritative permission fix is the `z /dev/ipu7-psys0
+#    0660 root video -` line installed by install.sh into /etc/tmpfiles.d/
+#    camera-hal.conf; keep this udev rule as well so kernels/distros where it
+#    DOES work get the correct state earlier in boot.
+KERNEL=="ipu7-psys[0-9]*|ipu-psys[0-9]*", GROUP="video", MODE="0660", TAG+="uaccess"
+
+# 4. v4l2loopback management node — needed for reloading/reconfiguring the
+#    module from userspace tooling (e.g., bridge restarts).
+KERNEL=="v4l2loopback", GROUP="video", MODE="0660"
