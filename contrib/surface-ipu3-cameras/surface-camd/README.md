@@ -89,11 +89,23 @@ offering the libcamera versions of the cameras.
 - *"Sensor 'ov5693' is not registered with the IPU3"* means the kernel
   driver didn't probe. This is a kernel-level problem. Run
   `sudo ../surface-camera-setup.sh --report` and share the report.
+- *"VIDIOC_REQBUFS failed: Device or resource busy"* when you run
+  `surface-camd` by hand means the service already has that camera open.
+  Stop it first (`sudo systemctl stop surface-camd@front`), or test through
+  the service with `ffplay /dev/video50`.
+- *"VIDIOC_STREAMON failed"* is followed by the formats along the pipeline
+  and a hint to check `sudo dmesg`. surface-camd retries every 3 s while an
+  app is waiting.
 - *"Enabling link ... failed: Device or resource busy"* means another
   program (usually libcamera through PipeWire) is using the camera. See the
   previous section.
 - *"Cannot open output /dev/video50"* means v4l2loopback isn't loaded with
-  the config from `v4l2loopback-surface.conf`.
+  the config from `v4l2loopback-surface.conf`. Another tool's
+  `options v4l2loopback` file can override it; `../surface-camera-setup.sh`
+  lists them. Reload with
+  `sudo modprobe -r v4l2loopback && sudo modprobe v4l2loopback`.
+- The camera is only reserved while an app is watching. Logs show
+  "streaming started", "first frame received" and "streaming stopped (N frames)".
 
 ## Tests
 

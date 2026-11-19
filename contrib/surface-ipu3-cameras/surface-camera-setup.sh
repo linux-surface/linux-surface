@@ -183,6 +183,21 @@ if modinfo v4l2loopback >/dev/null 2>&1; then
 else
     warn "v4l2loopback module not available"
 fi
+# Only one "options v4l2loopback" line takes effect; other tools (OBS,
+# virtual-camera scripts) often ship their own.
+LB_CONFS="$(grep -lsE '^\s*options\s+v4l2loopback' /etc/modprobe.d/*.conf /usr/lib/modprobe.d/*.conf 2>/dev/null || true)"
+if [ "$(printf '%s\n' "$LB_CONFS" | grep -c .)" -gt 1 ]; then
+    warn "several v4l2loopback option files - only one applies; keep v4l2loopback-surface.conf:"
+    printf '%s\n' "$LB_CONFS" | sed 's/^/           /'
+fi
+for n in 50 51 52; do
+    if [ -e "/sys/class/video4linux/video$n/name" ]; then
+        ok "/dev/video$n: $(cat "/sys/class/video4linux/video$n/name")"
+    elif [ -d /sys/module/v4l2loopback ]; then
+        warn "/dev/video$n missing: v4l2loopback was loaded with other options" \
+             "(sudo modprobe -r v4l2loopback && sudo modprobe v4l2loopback)"
+    fi
+done
 for i in front rear ir; do
     st="$(systemctl is-active "surface-camd@$i" 2>/dev/null)"
     case "$st" in

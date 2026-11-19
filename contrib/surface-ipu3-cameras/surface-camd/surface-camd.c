@@ -43,6 +43,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <linux/media.h>
@@ -272,6 +273,8 @@ struct cam {
 	/* devices */
 	struct media media;
 	int sensor_fd, csi2_fd, video_fd, out_fd;
+	struct media_link_desc link;	/* sensor -> CSI-2 receiver */
+	char sensor_name[32], csi2_name[32];
 
 	/* formats */
 	enum kind kind;
@@ -281,10 +284,14 @@ struct cam {
 	int r_idx, b_idx;		/* positions in 2x2 Bayer block */
 	bool rot180;
 
-	/* buffers */
+	/* buffers (only allocated while streaming) */
 	void *buf[NUM_BUFS];
 	size_t buflen[NUM_BUFS];
+	unsigned int nbufs;
 	bool streaming;
+	bool wanted;			/* an application is reading the output */
+	time_t last_try;
+	unsigned long frames, dropped;
 	uint16_t *line0, *line1;
 	uint8_t *rgb_row, *out;
 	size_t out_size;
@@ -380,12 +387,81 @@ static char *find_ir_led(void)
 
 /* ------------------------------------------------------------ pipeline */
 
+/*
+ * Enable the sensor -> CSI-2 link and set the formats on the sensor, the
+ * CSI-2 receiver and the CIO2 video node. Done before every stream start:
+ * other programs (libcamera through PipeWire, a suspend/resume) can change
+ * any of it while surface-camd is idle.
+ */
+static int configure_pipeline(struct cam *c, bool first)
+{
+	struct media_link_desc link = c->link;
+	struct v4l2_subdev_format sf;
+	struct v4l2_format vf;
+
+	link.flags |= MEDIA_LNK_FL_ENABLED;
+	if (xioctl(c->media.fd, MEDIA_IOC_SETUP_LINK, &link) < 0) {
+		logmsg("Enabling link %s -> %s failed: %s%s", c->sensor_name, c->csi2_name,
+		       strerror(errno), errno == EBUSY ? " (another program is streaming from the camera)" : "");
+		return -1;
+	}
+
+	memset(&sf, 0, sizeof(sf));
+	sf.which = V4L2_SUBDEV_FORMAT_ACTIVE;
+	sf.pad = c->link.source.index;
+	sf.format.code = c->mbus_code;
+	sf.format.width = c->w;
+	sf.format.height = c->h;
+	sf.format.field = V4L2_FIELD_NONE;
+	if (xioctl(c->sensor_fd, VIDIOC_SUBDEV_S_FMT, &sf) < 0) {
+		logmsg("Setting sensor format failed: %s", strerror(errno));
+		return -1;
+	}
+	if (sf.format.code != c->mbus_code || (!first && (sf.format.width != c->w || sf.format.height != c->h))) {
+		logmsg("Sensor changed the format to %ux%u code 0x%04x", sf.format.width,
+		       sf.format.height, sf.format.code);
+		return -1;
+	}
+	c->w = sf.format.width;		/* the sensor may round the requested size */
+	c->h = sf.format.height;
+
+	/* CSI-2 receiver sink pad gets the same format. */
+	sf.pad = c->link.sink.index;
+	if (xioctl(c->csi2_fd, VIDIOC_SUBDEV_S_FMT, &sf) < 0) {
+		logmsg("Setting CSI-2 receiver format failed: %s", strerror(errno));
+		return -1;
+	}
+
+	memset(&vf, 0, sizeof(vf));
+	vf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+	vf.fmt.pix_mp.width = c->w;
+	vf.fmt.pix_mp.height = c->h;
+	vf.fmt.pix_mp.pixelformat = cio2_fourcc(c->mbus_code);
+	vf.fmt.pix_mp.field = V4L2_FIELD_NONE;
+	vf.fmt.pix_mp.num_planes = 1;
+	if (xioctl(c->video_fd, VIDIOC_S_FMT, &vf) < 0) {
+		logmsg("Setting CIO2 capture format failed: %s%s", strerror(errno),
+		       errno == EBUSY ? " (another program is using the camera)" : "");
+		return -1;
+	}
+	if (vf.fmt.pix_mp.width != c->w || vf.fmt.pix_mp.height != c->h) {
+		logmsg("CIO2 adjusted size to %ux%u (sensor %ux%u)",
+		       vf.fmt.pix_mp.width, vf.fmt.pix_mp.height, c->w, c->h);
+		return -1;
+	}
+	c->bpl = vf.fmt.pix_mp.plane_fmt[0].bytesperline;
+	if (c->bpl < ipu3_packed_bytes(c->w)) {
+		logmsg("Unexpected CIO2 line stride %u for width %u", c->bpl, c->w);
+		return -1;
+	}
+	return 0;
+}
+
 static void setup_pipeline(struct cam *c)
 {
 	struct entity *sensor, *csi2, *video;
 	struct media_link_desc link, vlink;
 	struct v4l2_subdev_format sf;
-	struct v4l2_format vf;
 	char path[300];
 
 	/* Sensors bind asynchronously after boot; optionally wait for them. */
@@ -421,13 +497,9 @@ static void setup_pipeline(struct cam *c)
 	video = find_entity_by_id(&c->media, vlink.sink.entity);
 	logmsg("pipeline: %s -> %s -> %s", sensor->desc.name, csi2->desc.name,
 	       video->desc.name);
-
-	if (!(link.flags & MEDIA_LNK_FL_ENABLED)) {
-		link.flags |= MEDIA_LNK_FL_ENABLED;
-		if (xioctl(c->media.fd, MEDIA_IOC_SETUP_LINK, &link) < 0)
-			die("Enabling link %s -> %s failed: %s (is another app using the camera?)",
-			    sensor->desc.name, csi2->desc.name, strerror(errno));
-	}
+	c->link = link;
+	snprintf(c->sensor_name, sizeof(c->sensor_name), "%s", sensor->desc.name);
+	snprintf(c->csi2_name, sizeof(c->csi2_name), "%s", csi2->desc.name);
 
 	if (devnode_path(sensor, path, sizeof(path)) < 0 ||
 	    (c->sensor_fd = open(path, O_RDWR | O_CLOEXEC)) < 0)
@@ -439,21 +511,15 @@ static void setup_pipeline(struct cam *c)
 	    (c->video_fd = open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC)) < 0)
 		die("Cannot open %s video node", video->desc.name);
 
-	/* Sensor format: keep its media bus code, pick the requested size. */
+	/* Read the sensor's media bus code; the size comes from --size. */
 	memset(&sf, 0, sizeof(sf));
 	sf.which = V4L2_SUBDEV_FORMAT_ACTIVE;
 	sf.pad = link.source.index;
 	if (xioctl(c->sensor_fd, VIDIOC_SUBDEV_G_FMT, &sf) < 0)
 		die("VIDIOC_SUBDEV_G_FMT on sensor failed: %s", strerror(errno));
-	if (c->req_w && c->req_h) {
-		sf.format.width = c->req_w;
-		sf.format.height = c->req_h;
-		if (xioctl(c->sensor_fd, VIDIOC_SUBDEV_S_FMT, &sf) < 0)
-			die("Setting sensor format failed: %s", strerror(errno));
-	}
 	c->mbus_code = sf.format.code;
-	c->w = sf.format.width;
-	c->h = sf.format.height;
+	c->w = c->req_w ? c->req_w : sf.format.width;
+	c->h = c->req_h ? c->req_h : sf.format.height;
 
 	if (c->mbus_code == MEDIA_BUS_FMT_Y10_1X10) {
 		c->kind = KIND_MONO;
@@ -463,26 +529,9 @@ static void setup_pipeline(struct cam *c)
 		die("Unsupported sensor media bus code 0x%04x", c->mbus_code);
 	}
 
-	/* CSI-2 receiver sink pad gets the same format. */
-	sf.pad = link.sink.index;
-	if (xioctl(c->csi2_fd, VIDIOC_SUBDEV_S_FMT, &sf) < 0)
-		die("Setting CSI-2 receiver format failed: %s", strerror(errno));
-
-	memset(&vf, 0, sizeof(vf));
-	vf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-	vf.fmt.pix_mp.width = c->w;
-	vf.fmt.pix_mp.height = c->h;
-	vf.fmt.pix_mp.pixelformat = cio2_fourcc(c->mbus_code);
-	vf.fmt.pix_mp.field = V4L2_FIELD_NONE;
-	vf.fmt.pix_mp.num_planes = 1;
-	if (xioctl(c->video_fd, VIDIOC_S_FMT, &vf) < 0)
-		die("Setting CIO2 capture format failed: %s", strerror(errno));
-	if (vf.fmt.pix_mp.width != c->w || vf.fmt.pix_mp.height != c->h)
-		die("CIO2 adjusted size to %ux%u (sensor %ux%u)",
-		    vf.fmt.pix_mp.width, vf.fmt.pix_mp.height, c->w, c->h);
-	c->bpl = vf.fmt.pix_mp.plane_fmt[0].bytesperline;
-	if (c->bpl < ipu3_packed_bytes(c->w))
-		die("Unexpected CIO2 line stride %u for width %u", c->bpl, c->w);
+	/* Check the whole configuration once now, so problems show at startup. */
+	if (configure_pipeline(c, true) < 0)
+		die("Configuring the camera pipeline failed");
 
 	/* Controls used by auto exposure. */
 	ctrl_query(c->sensor_fd, &c->exposure, V4L2_CID_EXPOSURE);
@@ -502,7 +551,24 @@ static void setup_pipeline(struct cam *c)
 	       c->rot180 ? ", rotated 180" : "");
 }
 
-static void setup_buffers(struct cam *c)
+static void free_buffers(struct cam *c)
+{
+	struct v4l2_requestbuffers rb = {
+		.count = 0,
+		.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE,
+		.memory = V4L2_MEMORY_MMAP,
+	};
+
+	for (unsigned int i = 0; i < c->nbufs; i++)
+		if (c->buf[i] && c->buf[i] != MAP_FAILED)
+			munmap(c->buf[i], c->buflen[i]);
+	memset(c->buf, 0, sizeof(c->buf));
+	c->nbufs = 0;
+	/* Releasing the buffers lets other programs use the camera again. */
+	xioctl(c->video_fd, VIDIOC_REQBUFS, &rb);
+}
+
+static int alloc_buffers(struct cam *c)
 {
 	struct v4l2_requestbuffers rb = {
 		.count = NUM_BUFS,
@@ -510,10 +576,14 @@ static void setup_buffers(struct cam *c)
 		.memory = V4L2_MEMORY_MMAP,
 	};
 
-	if (xioctl(c->video_fd, VIDIOC_REQBUFS, &rb) < 0 || rb.count < 2)
-		die("VIDIOC_REQBUFS failed: %s", strerror(errno));
-
-	for (unsigned int i = 0; i < NUM_BUFS && i < rb.count; i++) {
+	if (xioctl(c->video_fd, VIDIOC_REQBUFS, &rb) < 0 || rb.count < 2) {
+		logmsg("VIDIOC_REQBUFS failed: %s%s", strerror(errno),
+		       errno == EBUSY ? " - another program is using this camera (libcamera/PipeWire, "
+					"or another surface-camd: check systemctl status 'surface-camd@*')" : "");
+		return -1;
+	}
+	c->nbufs = rb.count < NUM_BUFS ? rb.count : NUM_BUFS;
+	for (unsigned int i = 0; i < c->nbufs; i++) {
 		struct v4l2_plane plane;
 		struct v4l2_buffer b;
 
@@ -524,17 +594,24 @@ static void setup_buffers(struct cam *c)
 		b.index = i;
 		b.m.planes = &plane;
 		b.length = 1;
-		if (xioctl(c->video_fd, VIDIOC_QUERYBUF, &b) < 0)
-			die("VIDIOC_QUERYBUF failed: %s", strerror(errno));
+		if (xioctl(c->video_fd, VIDIOC_QUERYBUF, &b) < 0) {
+			logmsg("VIDIOC_QUERYBUF failed: %s", strerror(errno));
+			free_buffers(c);
+			return -1;
+		}
 		c->buflen[i] = plane.length;
 		c->buf[i] = mmap(NULL, plane.length, PROT_READ | PROT_WRITE,
 				 MAP_SHARED, c->video_fd, plane.m.mem_offset);
-		if (c->buf[i] == MAP_FAILED)
-			die("mmap failed: %s", strerror(errno));
+		if (c->buf[i] == MAP_FAILED) {
+			logmsg("mmap failed: %s", strerror(errno));
+			free_buffers(c);
+			return -1;
+		}
 	}
+	return 0;
 }
 
-static void queue_buf(struct cam *c, unsigned int i)
+static int queue_buf(struct cam *c, unsigned int i)
 {
 	struct v4l2_plane plane;
 	struct v4l2_buffer b;
@@ -546,8 +623,27 @@ static void queue_buf(struct cam *c, unsigned int i)
 	b.index = i;
 	b.m.planes = &plane;
 	b.length = 1;
-	if (xioctl(c->video_fd, VIDIOC_QBUF, &b) < 0)
+	if (xioctl(c->video_fd, VIDIOC_QBUF, &b) < 0) {
 		logmsg("VIDIOC_QBUF failed: %s", strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
+/* Log the formats along the pipeline, to explain a failed stream start. */
+static void log_pipeline_state(struct cam *c)
+{
+	struct v4l2_subdev_format sf;
+
+	for (int k = 0; k < 2; k++) {
+		memset(&sf, 0, sizeof(sf));
+		sf.which = V4L2_SUBDEV_FORMAT_ACTIVE;
+		sf.pad = k ? c->link.sink.index : c->link.source.index;
+		if (xioctl(k ? c->csi2_fd : c->sensor_fd, VIDIOC_SUBDEV_G_FMT, &sf) == 0)
+			logmsg("  %s pad %u: %ux%u code 0x%04x", k ? c->csi2_name : c->sensor_name,
+			       sf.pad, sf.format.width, sf.format.height, sf.format.code);
+	}
+	logmsg("  expected: %ux%u code 0x%04x; kernel log: sudo dmesg | tail -20", c->w, c->h, c->mbus_code);
 }
 
 static int stream_on(struct cam *c)
@@ -556,16 +652,26 @@ static int stream_on(struct cam *c)
 
 	if (c->streaming)
 		return 0;
-	for (unsigned int i = 0; i < NUM_BUFS; i++)
-		queue_buf(c, i);
+	if (configure_pipeline(c, false) < 0 || alloc_buffers(c) < 0)
+		return -1;
+	for (unsigned int i = 0; i < c->nbufs; i++) {
+		if (queue_buf(c, i) < 0) {
+			free_buffers(c);
+			return -1;
+		}
+	}
 	led_set(c, true);
 	if (xioctl(c->video_fd, VIDIOC_STREAMON, &type) < 0) {
 		logmsg("VIDIOC_STREAMON failed: %s", strerror(errno));
+		log_pipeline_state(c);
 		led_set(c, false);
+		xioctl(c->video_fd, VIDIOC_STREAMOFF, &type);	/* returns queued buffers */
+		free_buffers(c);
 		return -1;
 	}
 	c->streaming = true;
 	c->frame = 0;
+	c->frames = c->dropped = 0;
 	logmsg("streaming started");
 	return 0;
 }
@@ -577,9 +683,10 @@ static void stream_off(struct cam *c)
 	if (!c->streaming)
 		return;
 	xioctl(c->video_fd, VIDIOC_STREAMOFF, &type);
+	free_buffers(c);
 	led_set(c, false);
 	c->streaming = false;
-	logmsg("streaming stopped");
+	logmsg("streaming stopped (%lu frames, %lu with errors)", c->frames, c->dropped);
 }
 
 /* -------------------------------------------------------------- output */
@@ -597,9 +704,16 @@ static void setup_output(struct cam *c)
 		c->oh = c->h;
 	}
 
-	c->out_fd = open(c->output, O_RDWR | O_CLOEXEC);
+	/* After boot the v4l2loopback devices can appear a bit later. */
+	for (int t = 0;; t++) {
+		c->out_fd = open(c->output, O_RDWR | O_NONBLOCK | O_CLOEXEC);
+		if (c->out_fd >= 0 || errno != ENOENT || t >= c->wait_s || g_stop)
+			break;
+		sleep(1);
+	}
 	if (c->out_fd < 0)
-		die("Cannot open output %s: %s (is v4l2loopback loaded?)",
+		die("Cannot open output %s: %s (is v4l2loopback loaded with the surface-camd "
+		    "options? sudo modprobe -r v4l2loopback; sudo modprobe v4l2loopback)",
 		    c->output, strerror(errno));
 
 	memset(&f, 0, sizeof(f));
@@ -848,8 +962,14 @@ static void handle_frame(struct cam *c)
 		return;
 	}
 
-	if (!(b.flags & V4L2_BUF_FLAG_ERROR) &&
-	    plane.bytesused >= (size_t)c->bpl * c->h) {
+	if (b.flags & V4L2_BUF_FLAG_ERROR || plane.bytesused < (size_t)c->bpl * c->h) {
+		if (c->dropped++ < 5 || g_verbose)
+			logmsg("frame with errors (flags 0x%x, %u of %zu bytes)", b.flags,
+			       plane.bytesused, (size_t)c->bpl * c->h);
+	} else {
+		c->frames++;
+		if (c->frames == 1)
+			logmsg("first frame received");
 		memset(&st, 0, sizeof(st));
 		if (c->kind == KIND_BAYER)
 			process_bayer(c, c->buf[b.index], &st);
@@ -866,6 +986,7 @@ static void handle_event(struct cam *c)
 {
 	struct v4l2_event ev;
 
+	/* out_fd is non-blocking: this drains the pending events and returns. */
 	while (!xioctl(c->out_fd, VIDIOC_DQEVENT, &ev)) {
 		uint32_t count;
 
@@ -873,10 +994,13 @@ static void handle_event(struct cam *c)
 			continue;
 		memcpy(&count, &ev.u, sizeof(count));
 		dbg("client usage: %u", count);
-		if (count)
+		c->wanted = count > 0;
+		if (c->wanted) {
+			c->last_try = time(NULL);
 			stream_on(c);
-		else
+		} else {
 			stream_off(c);
+		}
 	}
 }
 
@@ -996,13 +1120,19 @@ int main(int argc, char **argv)
 		logmsg("IR flood LED: %s", c.led_path ? c.led_path : "not found (image will be dark without IR light)");
 	}
 
-	signal(SIGINT, on_signal);
-	signal(SIGTERM, on_signal);
-	signal(SIGPIPE, SIG_IGN);
+	{
+		/* No SA_RESTART: a signal must wake up poll() so we exit promptly. */
+		struct sigaction sa;
+
+		memset(&sa, 0, sizeof(sa));
+		sa.sa_handler = on_signal;
+		sigaction(SIGINT, &sa, NULL);
+		sigaction(SIGTERM, &sa, NULL);
+		signal(SIGPIPE, SIG_IGN);
+	}
 
 	build_lut(&c);
 	setup_pipeline(&c);
-	setup_buffers(&c);
 	setup_output(&c);
 
 	if (c.always_on && stream_on(&c) < 0)
@@ -1027,6 +1157,11 @@ int main(int argc, char **argv)
 		if (c.streaming && (p[1].revents & POLLERR)) {
 			logmsg("capture error, restarting stream");
 			stream_off(&c);
+			stream_on(&c);
+		}
+		/* An app is waiting but the start failed (camera busy?): retry. */
+		if ((c.wanted || c.always_on) && !c.streaming && time(NULL) - c.last_try >= 3) {
+			c.last_try = time(NULL);
 			stream_on(&c);
 		}
 	}
