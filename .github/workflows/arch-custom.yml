@@ -1,0 +1,124 @@
+name: Arch (custom packages)
+
+# Builds the custom Arch packages from this branch and uploads them as
+# workflow artifacts (nothing is released or published):
+#   - surface-camd, surface-touch          (a few minutes, every run)
+#   - linux-surface-custom (+ headers)     (several hours: on manual runs, and
+#                                           on pushes that change the kernel)
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel:
+        description: 'Also build the linux-surface-custom kernel (takes several hours)'
+        required: false
+        type: boolean
+        default: true
+
+  push:
+    paths:
+      - 'pkg/arch/kernel/**'
+      - 'pkg/arch/kernel-custom/**'
+      - 'contrib/surface-ipu3-cameras/**'
+      - 'contrib/surface-touch/**'
+      - '.github/workflows/arch-custom.yml'
+      - '.github/scripts/package/arch-custom.sh'
+
+  pull_request:
+    paths:
+      - 'pkg/arch/kernel-custom/**'
+      - 'contrib/surface-ipu3-cameras/**'
+      - 'contrib/surface-touch/**'
+      - '.github/workflows/arch-custom.yml'
+      - '.github/scripts/package/arch-custom.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  userspace:
+    name: Build surface-camd and surface-touch
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: bash ./.github/scripts/package/arch-custom.sh setup-userspace
+
+      - name: Build and test packages
+        run: bash ./.github/scripts/package/arch-custom.sh build-userspace
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: arch-custom-userspace
+          path: pkg/arch/custom-release/*.pkg.tar.zst
+          if-no-files-found: error
+
+  kernel:
+    name: Build linux-surface-custom
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether to build the kernel
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          KERNEL_INPUT: ${{ inputs.kernel }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          build=false
+          if [ "$EVENT" = workflow_dispatch ]; then
+            build="$KERNEL_INPUT"
+          elif [ "$EVENT" = push ]; then
+            # all commits of this push (the first push of a branch has no "before")
+            base="$BEFORE"
+            git cat-file -e "$base^{commit}" 2>/dev/null || base="HEAD~1"
+            if git diff --name-only "$base" HEAD | grep -qE '^pkg/arch/(kernel|kernel-custom)/'; then
+              build=true
+            fi
+          fi
+          echo "Build kernel: $build"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
+      - name: Free disk space
+        if: steps.decide.outputs.build == 'true'
+        run: |
+          # The kernel build tree needs ~15 GB; the runner image ships large
+          # toolchains this build doesn't use.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+
+      - name: Initialize container
+        if: steps.decide.outputs.build == 'true'
+        run: bash ./.github/scripts/container/create.sh archlinux
+
+      - name: Install build dependencies
+        if: steps.decide.outputs.build == 'true'
+        run: |
+          bash ./.github/scripts/container/exec.sh \
+            -- \
+            bash ./.github/scripts/package/arch-custom.sh setup-kernel
+
+      - name: Build packages
+        if: steps.decide.outputs.build == 'true'
+        run: |
+          bash ./.github/scripts/container/exec.sh \
+            -- \
+            bash ./.github/scripts/package/arch-custom.sh build-kernel
+
+      - name: Upload packages
+        if: steps.decide.outputs.build == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: arch-custom-kernel
+          path: pkg/arch/custom-release/*.pkg.tar.zst
+          if-no-files-found: error

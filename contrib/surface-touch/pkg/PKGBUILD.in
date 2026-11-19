@@ -1,0 +1,32 @@
+# Arch Linux package for surface-touch. @VERSION@ and @SHA256@ are filled in
+# by the build script (.github/scripts/package/arch-custom.sh).
+pkgname=surface-touch
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="Touchscreen and pen service for Surface devices: gestures, bindings and a JSON socket API on top of iptsd"
+arch=('x86_64')
+url="https://github.com/linux-surface/linux-surface"
+license=('GPL-2.0-or-later')
+depends=('glibc')
+optdepends=('iptsd: touchscreen and pen input on Surface devices'
+            'python: Python client library')
+makedepends=('gcc' 'make')
+backup=('etc/surface-touchd.conf')
+source=("surface-touch-$pkgver.tar.gz")
+sha256sums=('@SHA256@')
+
+build() {
+	cd "surface-touch-$pkgver"
+	make
+}
+
+check() {
+	cd "surface-touch-$pkgver"
+	make test
+}
+
+package() {
+	cd "surface-touch-$pkgver"
+	make install DESTDIR="$pkgdir" PREFIX=/usr \
+		SYSTEMDUNITDIR=/usr/lib/systemd/system CONFDIR=/etc
+}

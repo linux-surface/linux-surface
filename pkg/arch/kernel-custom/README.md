@@ -64,6 +64,22 @@ uname -r                  # -> 7.3.4-arch1-1-surface-custom
 | `--rollback` | Put back the `linux-surface` you had before (from the pacman cache, or the repo) |
 | `--clean` | Delete `work/` |
 
+## Build on GitHub instead
+
+The `Arch (custom packages)` workflow (`.github/workflows/arch-custom.yml`)
+builds the kernel and headers, plus `surface-camd` and `surface-touch`, on
+GitHub's servers. Run it from the repository's **Actions** tab ("Run
+workflow"). It also runs on pushes that change these packages.
+
+Download the `arch-custom-kernel` and `arch-custom-userspace` artifacts,
+unzip them, and install:
+
+```sh
+sudo pacman -U linux-surface-custom-*.pkg.tar.zst   # answer y to replace linux-surface
+./build.sh --install-only    # alternative: put the files in work/ and let build.sh
+                             # also update the bootloader and set up the cameras
+```
+
 ## Secure Boot
 
 Put `MOK.crt` and `MOK.key` in this directory and install `sbsigntools`.

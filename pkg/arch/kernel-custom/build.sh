@@ -6,6 +6,7 @@
 # Usage (as your normal user; sudo is used where needed):
 #   ./build.sh                build, install, update bootloader, set up cameras
 #   ./build.sh --build-only   only build the packages (into ./work)
+#   ./build.sh --prepare-only only prepare ./work for makepkg (used by CI)
 #   ./build.sh --install-only install packages already built in ./work
 #   ./build.sh --no-camd      don't install the surface-camd camera driver
 #   ./build.sh --jobs N       parallel compile jobs (default: all CPUs)
@@ -31,12 +32,13 @@ JOBS="$(nproc)"
 while [ $# -gt 0 ]; do
     case "$1" in
         --build-only) MODE=build; shift;;
+        --prepare-only) MODE=prepare; shift;;
         --install-only) MODE=install; shift;;
         --rollback) MODE=rollback; shift;;
         --clean) MODE=clean; shift;;
         --no-camd) CAMD=0; shift;;
         --jobs) JOBS="$2"; shift 2;;
-        -h|--help) sed -n '3,17p' "$0"; exit 0;;
+        -h|--help) sed -n '3,18p' "$0"; exit 0;;
         *) echo "unknown option: $1 (see --help)" >&2; exit 1;;
     esac
 done
@@ -47,7 +49,7 @@ warn() { printf '  \033[33m[warn]\033[0m %s\n' "$*"; }
 fail() { printf '  \033[31m[FAIL]\033[0m %s\n' "$*" >&2; exit 1; }
 
 command -v pacman >/dev/null || fail "this builds an Arch Linux package; pacman not found"
-[ "$(id -u)" != 0 ] || fail "run as your normal user (makepkg refuses root); sudo is used where needed"
+[ "$(id -u)" != 0 ] || [ "$MODE" = prepare ] || fail "run as your normal user (makepkg refuses root); sudo is used where needed"
 
 # ------------------------------------------------------------ bootloader
 update_bootloader() {
@@ -115,7 +117,7 @@ find_pkgs() {
     done
 }
 
-if [ "$MODE" = all ] || [ "$MODE" = build ]; then
+if [ "$MODE" = all ] || [ "$MODE" = build ] || [ "$MODE" = prepare ]; then
     step "Preparing $WORK"
     [ -f "$BASE/PKGBUILD" ] || fail "missing $BASE/PKGBUILD"
     mkdir -p "$WORK"
@@ -138,6 +140,8 @@ if [ "$MODE" = all ] || [ "$MODE" = build ]; then
     for k in MOK.crt MOK.key; do [ -f "$HERE/$k" ] && cp "$HERE/$k" "$WORK/"; done
     ver="$(sed -n 's/^pkgver=//p' "$WORK/PKGBUILD.base")"
     ok "linux-surface $ver + $n extra patch(es) + custom.config + v4l2loopback"
+
+    [ "$MODE" = prepare ] && exit 0
 
     step "Building (this takes a long time: 1-3 hours on a Surface Pro 5)"
     echo "  log: $WORK/build.log"
