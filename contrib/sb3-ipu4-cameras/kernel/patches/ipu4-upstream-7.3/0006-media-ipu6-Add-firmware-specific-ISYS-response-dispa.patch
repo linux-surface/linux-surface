@@ -1,0 +1,150 @@
+From 0ce3da70c1f525e6277600ac92291d2ddf89fe75 Mon Sep 17 00:00:00 2001
+From: Ruslan Bay <ruslanbey@proton.me>
+Date: Sat, 10 Oct 2026 13:06:28 +0200
+Subject: [PATCH 06/12] media: ipu6: Add firmware-specific ISYS response
+ dispatch
+
+Separate firmware response dequeueing from common ISYS response
+handling. Add a firmware-operations callback for consuming one response
+and retain the IPU6 implementation as the default, allowing other
+firmware ABIs to reuse the common response handler.
+
+Signed-off-by: Ruslan Bay <ruslanbey@proton.me>
+---
+ drivers/media/pci/intel/ipu6/ipu6-fw-isys.c | 41 ++++++++++++++-------
+ drivers/media/pci/intel/ipu6/ipu6-fw-isys.h |  3 +-
+ drivers/media/pci/intel/ipu6/ipu6-isys.h    |  1 +
+ 3 files changed, 30 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/media/pci/intel/ipu6/ipu6-fw-isys.c b/drivers/media/pci/intel/ipu6/ipu6-fw-isys.c
+index 3cad7d8f9ca9..ae4576025a49 100644
+--- a/drivers/media/pci/intel/ipu6/ipu6-fw-isys.c
++++ b/drivers/media/pci/intel/ipu6/ipu6-fw-isys.c
+@@ -521,23 +521,16 @@ static u32 resp_type_to_index(int type)
+ 	return  ARRAY_SIZE(fw_msg) - 1;
+ }
+ 
+-int ipu6_isys_isr_one(struct ipu6_bus_device *adev)
++void ipu6_isys_handle_response(struct ipu6_bus_device *adev,
++			       struct ipu6_fw_isys_resp_info_abi *resp)
+ {
+ 	struct ipu6_isys *isys = ipu6_bus_get_drvdata(adev);
+-	struct ipu6_fw_isys_resp_info_abi *resp;
+ 	struct ipu6_isys_stream *stream;
+ 	struct ipu6_isys_csi2 *csi2 = NULL;
+ 	struct isys_fw_msgs *isys_fw_msg = NULL;
+ 	u32 index;
+ 	u64 ts;
+ 
+-	if (!isys->fwctx)
+-		return 1;
+-
+-	resp = ipu6_fw_isys_get_resp(isys);
+-	if (!resp)
+-		return 1;
+-
+ 	ts = (u64)resp->timestamp[1] << 32 | resp->timestamp[0];
+ 
+ 	index = resp_type_to_index(resp->type);
+@@ -570,7 +563,8 @@ int ipu6_isys_isr_one(struct ipu6_bus_device *adev)
+ 	}
+ 	stream->error = resp->error_info.error;
+ 
+-	csi2 = ipu6_isys_subdev_to_csi2(stream->asd);
++	if (stream->asd)
++		csi2 = ipu6_isys_subdev_to_csi2(stream->asd);
+ 
+ 	switch (resp->type) {
+ 	case IPU6_FW_ISYS_RESP_TYPE_STREAM_OPEN_DONE:
+@@ -623,8 +617,8 @@ int ipu6_isys_isr_one(struct ipu6_bus_device *adev)
+ 	case IPU6_FW_ISYS_RESP_TYPE_STREAM_CAPTURE_DONE:
+ 		break;
+ 	case IPU6_FW_ISYS_RESP_TYPE_FRAME_SOF:
+-
+-		ipu6_isys_csi2_sof_event_by_stream(stream);
++		if (csi2)
++			ipu6_isys_csi2_sof_event_by_stream(stream);
+ 		stream->seq[stream->seq_index].sequence =
+ 			atomic_read(&stream->sequence) - 1;
+ 		stream->seq[stream->seq_index].timestamp = ts;
+@@ -636,7 +630,8 @@ int ipu6_isys_isr_one(struct ipu6_bus_device *adev)
+ 			% IPU6_ISYS_MAX_PARALLEL_SOF;
+ 		break;
+ 	case IPU6_FW_ISYS_RESP_TYPE_FRAME_EOF:
+-		ipu6_isys_csi2_eof_event_by_stream(stream);
++		if (csi2)
++			ipu6_isys_csi2_eof_event_by_stream(stream);
+ 		dev_dbg(&adev->auxdev.dev,
+ 			"eof: handle %d: (index %u), timestamp 0x%16.16llx\n",
+ 			resp->stream_handle,
+@@ -653,7 +648,24 @@ int ipu6_isys_isr_one(struct ipu6_bus_device *adev)
+ leave_put_stream:
+ 	ipu6_isys_put_stream(stream);
+ leave:
++	return;
++}
++
++static int ipu6_isys_isr_one(struct ipu6_bus_device *adev)
++{
++	struct ipu6_isys *isys = ipu6_bus_get_drvdata(adev);
++	struct ipu6_fw_isys_resp_info_abi *resp;
++
++	if (!isys->fwctx)
++		return 1;
++
++	resp = ipu6_fw_isys_get_resp(isys);
++	if (!resp)
++		return 1;
++
++	ipu6_isys_handle_response(adev, resp);
+ 	ipu6_fw_isys_put_resp(isys);
++
+ 	return 0;
+ }
+ 
+@@ -737,7 +749,7 @@ irqreturn_t ipu6_isys_isr(struct ipu6_bus_device *adev)
+ 
+ 		writel(0, base + IPU6_REG_ISYS_UNISPART_SW_IRQ_REG);
+ 
+-		if (!ipu6_isys_isr_one(adev))
++		if (!adev->auxdrv_data->fw_ops->isr_one(adev))
+ 			status_sw = IPU6_ISYS_UNISPART_IRQ_SW;
+ 		else
+ 			status_sw = 0;
+@@ -957,6 +969,7 @@ static void ipu6_fw_isys_prepare_buf_set(struct isys_fw_msgs *msg,
+ const struct ipu6_fw_isys_ops ipu6_fw_isys_ops = {
+ 	.init = ipu6_fw_isys_init,
+ 	.close = ipu6_fw_isys_close,
++	.isr_one = ipu6_isys_isr_one,
+ 	.cleanup = ipu6_fw_isys_cleanup,
+ 	.prepare_stream_cfg = ipu6_fw_isys_prepare_stream_cfg,
+ 	.prepare_buf_set = ipu6_fw_isys_prepare_buf_set,
+diff --git a/drivers/media/pci/intel/ipu6/ipu6-fw-isys.h b/drivers/media/pci/intel/ipu6/ipu6-fw-isys.h
+index 2a679d995961..de4608a18f41 100644
+--- a/drivers/media/pci/intel/ipu6/ipu6-fw-isys.h
++++ b/drivers/media/pci/intel/ipu6/ipu6-fw-isys.h
+@@ -562,7 +562,8 @@ struct ipu6_fw_proxy_send_queue_token {
+ int ipu6_fw_isys_send_proxy_token(struct ipu6_isys *isys, unsigned int req_id,
+ 				  unsigned int index, unsigned int offset,
+ 				  u32 value);
+-int ipu6_isys_isr_one(struct ipu6_bus_device *adev);
++void ipu6_isys_handle_response(struct ipu6_bus_device *adev,
++			       struct ipu6_fw_isys_resp_info_abi *resp);
+ irqreturn_t ipu6_isys_isr(struct ipu6_bus_device *adev);
+ 
+ #endif
+diff --git a/drivers/media/pci/intel/ipu6/ipu6-isys.h b/drivers/media/pci/intel/ipu6/ipu6-isys.h
+index 3a91f6a34c5a..7d652a06837d 100644
+--- a/drivers/media/pci/intel/ipu6/ipu6-isys.h
++++ b/drivers/media/pci/intel/ipu6/ipu6-isys.h
+@@ -192,6 +192,7 @@ struct isys_fw_msgs {
+ struct ipu6_fw_isys_ops {
+ 	int (*init)(struct ipu6_isys *isys, unsigned int num_streams);
+ 	int (*close)(struct ipu6_isys *isys);
++	int (*isr_one)(struct ipu6_bus_device *adev);
+ 	int (*send_cmd)(struct ipu6_isys *isys,
+ 			const unsigned int stream_handle,
+ 			void *cpu_mapped_buf,
+-- 
+2.56.0
+

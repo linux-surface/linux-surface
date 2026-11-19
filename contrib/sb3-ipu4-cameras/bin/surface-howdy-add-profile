@@ -1,0 +1,82 @@
+#!/bin/bash
+# Add a Howdy face profile — thin wrapper (logic in surface-howdy-enroll-*.sh).
+# English UI. Portable elevate: run0 → pkexec → sudo.
+set -euo pipefail
+
+USER_NAME="${USER_NAME:-${SUDO_USER:-${USER:-}}}"
+if [[ -z "$USER_NAME" || "$USER_NAME" == root ]]; then
+  USER_NAME="$(logname 2>/dev/null || id -un)"
+fi
+TITLE="Howdy — Add Face Profile"
+SELF=/usr/local/bin/surface-howdy-add-profile
+
+elevate() {
+  if command -v run0 >/dev/null 2>&1; then
+    run0 "$@"
+  elif command -v pkexec >/dev/null 2>&1; then
+    pkexec "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+notify() {
+  if [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]] && command -v kdialog >/dev/null; then
+    kdialog --msgbox "$1" --title "$TITLE" || true
+  elif [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]] && command -v zenity >/dev/null; then
+    zenity --info --title="$TITLE" --text="$1" || true
+  else
+    echo "$1"
+  fi
+}
+
+if [[ "${1:-}" != "--run" ]] && [[ "${1:-}" != "--autostart" ]]; then
+  if [[ ! -t 0 || ! -t 1 ]]; then
+    if command -v konsole >/dev/null; then
+      exec konsole --title "$TITLE" -e "$SELF" --run
+    elif command -v gnome-terminal >/dev/null; then
+      exec gnome-terminal --title "$TITLE" -- "$SELF" --run
+    elif command -v xterm >/dev/null; then
+      exec xterm -T "$TITLE" -e "$SELF" --run
+    fi
+  fi
+fi
+[[ "${1:-}" == "--autostart" ]] && exit 0
+
+if ! uname -r | grep -q surface-ipu4; then
+  notify "Howdy IR requires the surface-ipu4 kernel."
+  exit 1
+fi
+
+echo "== Preparing IR camera =="
+set +e
+elevate /usr/local/sbin/surface-howdy-enroll-prepare.sh
+prep=$?
+set -e
+if [[ $prep -ne 0 ]]; then
+  notify "IR camera not ready — cannot add a profile."
+  echo "Press Enter..."; read -r || true
+  exit 1
+fi
+
+echo
+echo "== Look at the IR camera — adding profile: $USER_NAME =="
+echo "   ( Esc / Ctrl+C = cancel )"
+echo
+set +e
+elevate howdy -U "$USER_NAME" add
+rc=$?
+set -e
+
+elevate /usr/local/sbin/surface-howdy-enroll-cleanup.sh || true
+
+if [[ $rc -eq 0 ]]; then
+  echo; echo "Profile saved."
+  notify "Howdy face profile saved."
+else
+  echo; echo "Exit code: $rc"
+  notify "Add Face Profile finished (code $rc)."
+fi
+echo "Press Enter to close..."
+read -r || true
+exit "$rc"

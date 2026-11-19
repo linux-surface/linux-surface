@@ -1,0 +1,125 @@
+From 63f8a48257ef93fff1bd4202bf3d8c9a122f5213 Mon Sep 17 00:00:00 2001
+From: popos123 <popos123@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 22:32:57 +0200
+Subject: [PATCH] uapi: ipu*: use linux/types.h for kernel hdrtest
+
+---
+ include/uapi/linux/ipu-isys.h |  2 +-
+ include/uapi/linux/ipu-psys.h | 58 +++++++++++++++++------------------
+ 2 files changed, 30 insertions(+), 30 deletions(-)
+
+diff --git a/include/uapi/linux/ipu-isys.h b/include/uapi/linux/ipu-isys.h
+index f580aee1c..db93a4bb1 100644
+--- a/include/uapi/linux/ipu-isys.h
++++ b/include/uapi/linux/ipu-isys.h
+@@ -26,6 +26,6 @@
+ 
+ 
+ #define VIDIOC_IPU_GET_DRIVER_VERSION \
+-	_IOWR('v', BASE_VIDIOC_PRIVATE + 3, uint32_t)
++	_IOWR('v', BASE_VIDIOC_PRIVATE + 3, __u32)
+ 
+ #endif /* UAPI_LINUX_IPU_ISYS_H */
+diff --git a/include/uapi/linux/ipu-psys.h b/include/uapi/linux/ipu-psys.h
+index 7fe795443..86dd5bcfb 100644
+--- a/include/uapi/linux/ipu-psys.h
++++ b/include/uapi/linux/ipu-psys.h
+@@ -7,24 +7,24 @@
+ #ifdef __KERNEL__
+ #include <linux/types.h>
+ #else
+-#include <stdint.h>
++#include <linux/types.h>
+ #endif
+ 
+ struct ipu_psys_capability {
+-	uint32_t version;
+-	uint8_t driver[20];
+-	uint32_t pg_count;
+-	uint8_t dev_model[32];
+-	uint32_t reserved[17];
++	__u32 version;
++	__u8 driver[20];
++	__u32 pg_count;
++	__u8 dev_model[32];
++	__u32 reserved[17];
+ } __attribute__ ((packed));
+ 
+ struct ipu_psys_event {
+-	uint32_t type;		/* IPU_PSYS_EVENT_TYPE_ */
+-	uint64_t user_token;
+-	uint64_t issue_id;
+-	uint32_t buffer_idx;
+-	uint32_t error;
+-	int32_t reserved[2];
++	__u32 type;		/* IPU_PSYS_EVENT_TYPE_ */
++	__u64 user_token;
++	__u64 issue_id;
++	__u32 buffer_idx;
++	__u32 error;
++	__s32 reserved[2];
+ } __attribute__ ((packed));
+ 
+ #define IPU_PSYS_EVENT_TYPE_CMD_COMPLETE	1
+@@ -40,16 +40,16 @@ struct ipu_psys_event {
+  * @flags:	flags
+  */
+ struct ipu_psys_buffer {
+-	uint64_t len;
++	__u64 len;
+ 	union {
+ 		int fd;
+ 		void __user *userptr;
+-		uint64_t reserved;
++		__u64 reserved;
+ 	} base;
+-	uint32_t data_offset;
+-	uint32_t bytes_used;
+-	uint32_t flags;
+-	uint32_t reserved[2];
++	__u32 data_offset;
++	__u32 bytes_used;
++	__u32 flags;
++	__u32 reserved[2];
+ } __attribute__ ((packed));
+ 
+ #define IPU_BUFFER_FLAG_INPUT	(1 << 0)
+@@ -79,24 +79,24 @@ struct ipu_psys_buffer {
+  * Specifies a processing command with input and output buffers.
+  */
+ struct ipu_psys_command {
+-	uint64_t issue_id;
+-	uint64_t user_token;
+-	uint32_t priority;
++	__u64 issue_id;
++	__u64 user_token;
++	__u32 priority;
+ 	void __user *pg_manifest;
+ 	struct ipu_psys_buffer __user *buffers;
+ 	int pg;
+-	uint32_t pg_manifest_size;
+-	uint32_t bufcount;
+-	uint32_t min_psys_freq;
+-	uint32_t frame_counter;
+-	uint32_t reserved[2];
++	__u32 pg_manifest_size;
++	__u32 bufcount;
++	__u32 min_psys_freq;
++	__u32 frame_counter;
++	__u32 reserved[2];
+ } __attribute__ ((packed));
+ 
+ struct ipu_psys_manifest {
+-	uint32_t index;
+-	uint32_t size;
++	__u32 index;
++	__u32 size;
+ 	void __user *manifest;
+-	uint32_t reserved[5];
++	__u32 reserved[5];
+ } __attribute__ ((packed));
+ 
+ #define IPU_IOC_QUERYCAP _IOR('A', 1, struct ipu_psys_capability)
+-- 
+2.56.0
+

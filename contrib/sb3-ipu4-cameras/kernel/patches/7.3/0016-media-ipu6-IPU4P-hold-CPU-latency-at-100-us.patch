@@ -1,0 +1,32 @@
+From: loafecho <loafecho@users.noreply.github.com>
+Date: Tue, 21 Oct 2026 00:00:00 +0000
+Subject: [PATCH] media: ipu6: IPU4P: hold CPU latency at 100 us while ISYS is powered
+
+Origin: https://github.com/linux-surface/linux-surface/discussions/1353
+---
+--- a/drivers/media/pci/intel/ipu6/ipu6-isys.c	2026-10-25 20:57:12.961703566 +0100
++++ b/drivers/media/pci/intel/ipu6/ipu6-isys.c	2026-10-25 20:57:12.987703929 +0100
+@@ -103,6 +103,12 @@
+ };
+ 
+ #define ISYS_PM_QOS_VALUE	300
++/*
++ * IPU4P loses CSI-2 data when the CPU package sleeps deeper than C1 while
++ * streaming: on Ice Lake (C2 exit latency 253 us) cameras stall after a
++ * frame or two at 300 us, and stream every time at 200 us or less.
++ */
++#define IPU4P_ISYS_PM_QOS_VALUE	100
+ 
+ static int
+ ipu6_isys_csi2_fw_port_to_index(struct ipu6_isys *isys, unsigned int fw_port)
+@@ -888,7 +894,9 @@
+ 	if (ret)
+ 		return ret;
+ 
+-	cpu_latency_qos_update_request(&isys->pm_qos, ISYS_PM_QOS_VALUE);
++	cpu_latency_qos_update_request(&isys->pm_qos, IS_IPU4P(isp) ?
++				       IPU4P_ISYS_PM_QOS_VALUE :
++				       ISYS_PM_QOS_VALUE);
+ 
+ 	ret = ipu6_buttress_start_tsc_sync(isp);
+ 	if (ret)

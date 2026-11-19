@@ -1,0 +1,107 @@
+From c1e07d284074a5dfa963cad29480352373d71165 Mon Sep 17 00:00:00 2001
+From: Ruslan Bay <ruslanbey@proton.me>
+Date: Sat, 10 Oct 2026 13:06:47 +0200
+Subject: [PATCH 11/12] media: ipu6: Work around IPU4P CSI-2 port 2 timing
+
+Use fixed timing values for the verified Surface Pro 7 front-camera
+configuration (CSI-2 port 2, firmware source 7, two lanes), including
+the lane-count programming order observed in Windows. Retain calculated
+timings and the existing initialization order for other configurations.
+
+Tested on the Surface Pro 7 front camera; other IPU4P systems need testing.
+
+Co-developed-by: supermepsipax <supermepsipax@github>
+Co-developed-by: thisiscamk <thisiscamk@github>
+Co-developed-by: ConsultingFuture4200 <ConsultingFuture4200@github>
+Co-developed-by: georgemihaila <georgemihaila@github>
+
+Signed-off-by: Ruslan Bay <ruslanbey@proton.me>
+---
+ .../media/pci/intel/ipu6/ipu4p-isys-csi-phy.c | 50 ++++++++++++++++---
+ 1 file changed, 42 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/media/pci/intel/ipu6/ipu4p-isys-csi-phy.c b/drivers/media/pci/intel/ipu6/ipu4p-isys-csi-phy.c
+index ec0a36069b01..ffa7d80cd5f2 100644
+--- a/drivers/media/pci/intel/ipu6/ipu4p-isys-csi-phy.c
++++ b/drivers/media/pci/intel/ipu6/ipu4p-isys-csi-phy.c
+@@ -69,6 +69,22 @@ void ipu4p_isys_phy_setup(struct ipu6_isys *isys)
+ 		ipu4p_isys_configure_phy_bb(isp, &ipu4p_phy_bb_configs[i]);
+ }
+ 
++/*
++ * Use fixed timing observed in Windows for the SP7 front camera:
++ * IPU4P CSI-2 port 2, firmware source 7, two-lane D-PHY.
++ */
++static void ipu4p_isys_apply_fixed_2lane_timing(struct ipu6_isys_csi2 *csi2)
++{
++	writel(0, csi2->base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_CLANE);
++	writel(1155, csi2->base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_DLANE(0));
++
++	for (unsigned int i = 0; i < 8; i++) {
++		writel(0, csi2->base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_DLANE(i));
++		writel(1269,
++		       csi2->base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_DLANE(i + 1));
++	}
++}
++
+ static void ipu4p_isys_csi_irq_enable(struct ipu6_isys *isys,
+ 				      unsigned int port)
+ {
+@@ -118,6 +134,7 @@ int ipu4p_isys_phy_set_power(struct ipu6_isys *isys,
+ 	struct ipu6_isys_csi2 *csi2;
+ 	void __iomem *base;
+ 	u32 value;
++	bool fixed_timing;
+ 
+ 	if (!cfg || cfg->port >= isys->pdata->ipdata->csi2.nports)
+ 		return -EINVAL;
+@@ -146,14 +163,30 @@ int ipu4p_isys_phy_set_power(struct ipu6_isys *isys,
+ 	if (!timing)
+ 		return -EINVAL;
+ 
+-	writel(timing->ctermen, base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_CLANE);
+-	writel(timing->csettle, base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_CLANE);
+-
+-	for (unsigned int lane = 0; lane < cfg->nlanes; lane++) {
+-		writel(timing->dtermen,
+-		       base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_DLANE(lane));
+-		writel(timing->dsettle,
+-		       base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_DLANE(lane));
++	writel(timing->ctermen,
++	       base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_CLANE);
++
++	fixed_timing = csi2->port == 2 && cfg->nlanes == 2 &&
++		       csi2->asd.source ==
++		       IPU6_FW_ISYS_STREAM_SRC_CSI2_PORT0 + 7;
++	if (fixed_timing) {
++		ipu4p_isys_apply_fixed_2lane_timing(csi2);
++		dev_dbg(&isys->adev->auxdev.dev,
++			"using fixed SP7 timing for CSI-2 port %u, source 7, two lanes\n",
++			csi2->port);
++
++		/* Windows configures the lane count before RX_CONFIG. */
++		writel(cfg->nlanes, base + IPU4P_CSI2_RX_NOF_ENABLED_LANES);
++	} else {
++		writel(timing->csettle,
++		       base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_CLANE);
++
++		for (unsigned int lane = 0; lane < cfg->nlanes; lane++) {
++			writel(timing->dtermen,
++			       base + IPU4P_CSI2_RX_DLY_CNT_TERMEN_DLANE(lane));
++			writel(timing->dsettle,
++			       base + IPU4P_CSI2_RX_DLY_CNT_SETTLE_DLANE(lane));
++		}
+ 	}
+ 
+ 	value = readl(base + IPU4P_CSI2_RX_CONFIG);
+@@ -162,6 +195,7 @@ int ipu4p_isys_phy_set_power(struct ipu6_isys *isys,
+ 	writel(value, base + IPU4P_CSI2_RX_CONFIG);
+ 
+ 	writel(cfg->nlanes, base + IPU4P_CSI2_RX_NOF_ENABLED_LANES);
++
+ 	writel(0, base + IPU4P_CSI2_RX_ENABLE);
+ 
+ 	ipu4p_isys_csi_irq_enable(isys, cfg->port);
+-- 
+2.56.0
+
