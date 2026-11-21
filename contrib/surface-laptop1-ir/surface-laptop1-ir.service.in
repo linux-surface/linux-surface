@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+[Unit]
+Description=Surface Laptop 1 infrared camera (on demand)
+Wants=pipewire.service
+After=pipewire.service
+PartOf=graphical-session.target
+StartLimitIntervalSec=120
+StartLimitBurst=4
+
+[Service]
+Type=exec
+Environment=SURFACE_IR_MODE=--passive
+ExecStart="@LAUNCHER@" --webcam ${SURFACE_IR_MODE}
+Restart=on-failure
+RestartPreventExitStatus=3
+RestartSec=4
+TimeoutStopSec=5
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+UMask=0077
+
+[Install]
+WantedBy=graphical-session.target
