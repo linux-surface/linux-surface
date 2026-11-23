@@ -36,7 +36,7 @@ This tweak provides two modified EDID blobs so Surface Studio 1 systems will rec
 
 ## Notes
 
-* As of Fedora 45, Gnome (Wayland), Cinnamon (Wayland, Experimental), and X11 sessions recognize the PixelSense Display as one physical monitor. Sway continues to treat each half of the PixelSense Display as separate outputs. I have not tested any other kinds of Wayland sessions other than Gnome, Cinnamon, and Sway.
+* As of Fedora 45, Gnome (Wayland), Cinnamon (Wayland, Experimental), and X11 sessions recognize the PixelSense Display as one physical monitor. Sway and KDE Plasma continue to treat each half of the PixelSense Display as separate outputs. I have not tested any other sessions.
 
 * Please refer to your distribution's documentation to find the appropriate method to add the `drm.edid_firmware` boot argument to your system and to disable all graphical boot splash screens like Plymouth. `grubby` is used on Fedora. Other distributions may have different methods.
 
