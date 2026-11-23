@@ -1,4 +1,4 @@
-From 3a40d937c97a71b8276cede72dfea22d18100b98 Mon Sep 17 00:00:00 2001
+From cc828f317161b68d88d0c945a47cf234625102c9 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Tue, 3 Nov 2020 13:28:04 +0100
 Subject: [PATCH] mwifiex: Add quirk resetting the PCI bridge on MS Surface
@@ -165,7 +165,7 @@ index d6ff964ae..5d30ae39d 100644
 -- 
 2.56.1
 
-From 1d295333de31c4d5e6d35fae210995223c526b65 Mon Sep 17 00:00:00 2001
+From 5f96f3f7660b98e32c8e98bf536752a59cd05d6a Mon Sep 17 00:00:00 2001
 From: Tsuchiya Yuto <kitakar@gmail.com>
 Date: Sun, 4 Oct 2020 00:11:49 +0900
 Subject: [PATCH] mwifiex: pcie: disable bridge_d3 for Surface gen4+
@@ -320,7 +320,7 @@ index 5d30ae39d..c14eb56eb 100644
 -- 
 2.56.1
 
-From 3e103a10fa5c25834a4d5cfb3849b9d3b0f57d96 Mon Sep 17 00:00:00 2001
+From 20a6df2242ace62dcbc205be65cf1bc06487338a Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Jonas=20Dre=C3=9Fler?= <verdre@v0yd.nl>
 Date: Thu, 25 Mar 2021 11:33:02 +0100
 Subject: [PATCH] Bluetooth: btusb: Lower passive lescan interval on Marvell
@@ -352,22 +352,22 @@ discovered.
 
 Patchset: mwifiex
 ---
- drivers/bluetooth/btusb.c | 15 +++++++++++++++
+ drivers/bluetooth/btusb_main.c | 15 +++++++++++++++
  1 file changed, 15 insertions(+)
 
-diff --git a/drivers/bluetooth/btusb.c b/drivers/bluetooth/btusb.c
-index ece1fd426..d98877556 100644
---- a/drivers/bluetooth/btusb.c
-+++ b/drivers/bluetooth/btusb.c
-@@ -69,6 +69,7 @@ static struct usb_driver btusb_driver;
+diff --git a/drivers/bluetooth/btusb_main.c b/drivers/bluetooth/btusb_main.c
+index 67b7271c9..f02aa02ab 100644
+--- a/drivers/bluetooth/btusb_main.c
++++ b/drivers/bluetooth/btusb_main.c
+@@ -68,6 +68,7 @@ static struct usb_driver btusb_driver;
+ #define BTUSB_INTEL_NO_WBS_SUPPORT	BIT(26)
  #define BTUSB_ACTIONS_SEMI		BIT(27)
  #define BTUSB_BARROT			BIT(28)
- #define BTUSB_BROKEN_EXT_SCAN		BIT(29)
-+#define BTUSB_LOWER_LESCAN_INTERVAL	BIT(30)
++#define BTUSB_LOWER_LESCAN_INTERVAL	BIT(29)
  
  static const struct usb_device_id btusb_table[] = {
  	/*
-@@ -485,6 +486,7 @@ static const struct usb_device_id quirks_table[] = {
+@@ -484,6 +485,7 @@ static const struct usb_device_id quirks_table[] = {
  	{ USB_DEVICE(0x1286, 0x2044), .driver_info = BTUSB_MARVELL },
  	{ USB_DEVICE(0x1286, 0x2046), .driver_info = BTUSB_MARVELL },
  	{ USB_DEVICE(0x1286, 0x204e), .driver_info = BTUSB_MARVELL },
@@ -375,7 +375,7 @@ index ece1fd426..d98877556 100644
  
  	/*
  	 * NXP IW610 BT interfaces (Marvell-lineage silicon, same quirk as
-@@ -4382,6 +4384,19 @@ static int btusb_probe(struct usb_interface *intf,
+@@ -4380,6 +4382,19 @@ static int btusb_probe(struct usb_interface *intf,
  	if (id->driver_info & BTUSB_MARVELL)
  		hdev->set_bdaddr = btusb_set_bdaddr_marvell;
  
