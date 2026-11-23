@@ -20,6 +20,10 @@
 # applies with a 3-way merge, all patches in its directory are regenerated.
 # This doubles as a quick validation of the update.
 #
+# Surface patches that conflict with kernel-ark are replaced by the patch file
+# with the same name in pkg/fedora/kernel-surface/overrides (see the README
+# there). The update fails if the commits of a replaced patch file changed.
+#
 # Environment variables (update):
 #   WORK_DIR:    (optional) Directory for the kernel-ark checkout
 #   ARK_REPO:    (optional) kernel-ark repository URL (for testing)
@@ -151,6 +155,27 @@ apply_patch_dir()
     echo "${dir#"${REPO_ROOT}"/}"
 }
 
+# Fail if the commits of a patch file differ from the ones its override was
+# created from (recorded in overrides/<patch>.subjects). The override replaces
+# the whole patch file, so it needs to be updated first.
+#
+# Usage: check_override <patch> <override>
+check_override()
+{
+    local patch="$1"
+    local override="$2"
+    local subjects="${override}.subjects"
+
+    if [ ! -f "${subjects}" ]; then
+        die "${override#"${REPO_ROOT}"/} has no ${subjects##*/}"
+    fi
+
+    if ! diff -u --label "${subjects#"${REPO_ROOT}"/}" --label "${patch#"${REPO_ROOT}"/}" \
+            "${subjects}" <(awk -f "${PACKAGE_DIR}/patch-subjects.awk" "${patch}") >&2; then
+        die "The commits in ${patch#"${REPO_ROOT}"/} changed, ${override#"${REPO_ROOT}"/} needs to be updated (see ${PACKAGE_DIR#"${REPO_ROOT}"/}/overrides/README.md)"
+    fi
+}
+
 cmd_update()
 {
     local version
@@ -236,12 +261,20 @@ cmd_update()
     git checkout -q --detach "${tag}" >&2
 
     # Apply the surface patches. These are generated from our kernel branches
-    # and can't be fixed here.
+    # and can't be fixed here. Patches that conflict with kernel-ark are
+    # replaced by their Fedora version in overrides/.
     log "Applying patches/${series}..."
     for surface_patch in $(find "${REPO_ROOT}/patches/${series}" -maxdepth 1 -name '*.patch' -type f | sort); do
-        if ! git am -q -3 "${surface_patch}" >&2; then
+        patch="${surface_patch}"
+
+        if [ -f "${PACKAGE_DIR}/overrides/$(basename "${surface_patch}")" ]; then
+            patch="${PACKAGE_DIR}/overrides/$(basename "${surface_patch}")"
+            check_override "${surface_patch}" "${patch}"
+        fi
+
+        if ! git am -q -3 "${patch}" >&2; then
             git am --abort >&2 || true
-            die "Patch ${surface_patch#"${REPO_ROOT}"/} does not apply to ${tag}"
+            die "Patch ${patch#"${REPO_ROOT}"/} does not apply to ${tag}"
         fi
     done
 
