@@ -104,6 +104,31 @@ if not sb_avail:
 # Expand globs
 surface_patches = sorted(patches.glob("*.patch"))
 
+# Use the Fedora version of surface patches that conflict with kernel-ark (see
+# overrides/README.md). An override replaces the whole patch file, so make sure
+# that the commits of the original did not change since it was created.
+for i, patch in enumerate(surface_patches):
+    override = script / "overrides" / patch.name
+    subjects = script / "overrides" / (patch.name + ".subjects")
+
+    if not override.exists():
+        continue
+
+    if not subjects.exists():
+        logging.error("ERROR: %s has no %s!" % (override, subjects.name))
+        sys.exit(1)
+
+    current = subprocess.run(
+        ["awk", "-f", script / "patch-subjects.awk", patch],
+        check=True, capture_output=True, text=True,
+    ).stdout
+
+    if current != subjects.read_text():
+        logging.error("ERROR: The commits in %s changed, %s needs to be updated!" % (patch, override))
+        sys.exit(1)
+
+    surface_patches[i] = override
+
 cmd = [script / "build-ark.py"]
 cmd += ["--ark-dir", args.ark_dir]
 cmd += ["--ark-url", args.ark_url]
