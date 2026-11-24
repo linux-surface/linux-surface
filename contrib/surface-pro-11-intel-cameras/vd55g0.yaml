@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: CC0-1.0
+#
+# libcamera simple-IPA tuning for the ST VD55G0 infrared sensor on the
+# Microsoft Surface Pro 11 for Business (Intel).
+#
+# No Agc, deliberately. This sensor exists to light a face with an infrared
+# illuminator for a moment and hand back one frame. Automatic exposure has to
+# ramp before it settles, and every capture starts that ramp again, so the
+# brightness of the first second depends on where the previous run left the
+# controls. Face authentication cannot use a camera whose exposure depends on
+# what happened last time.
+#
+# With Agc absent the IPA leaves V4L2_CID_EXPOSURE and V4L2_CID_ANALOGUE_GAIN
+# alone, so whatever is set before streaming stays set, and every frame is the
+# same. Set them with v4l2-ctl.
+#
+# blackLevel MEASURED: median and mode both exactly 64 at 10 bits -> 4096.
+%YAML 1.1
+---
+version: 1
+algorithms:
+  - BlackLevel:
+      blackLevel: 4096
+...
