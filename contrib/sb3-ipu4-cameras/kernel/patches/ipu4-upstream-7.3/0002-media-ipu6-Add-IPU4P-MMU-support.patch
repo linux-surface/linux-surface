@@ -1,0 +1,225 @@
+From 8f8aabd7c51f43b7a96f36aa72dfccebe5dfb52c Mon Sep 17 00:00:00 2001
+From: Ruslan Bay <ruslanbey@proton.me>
+Date: Fri, 9 Oct 2026 22:53:01 +0200
+Subject: [PATCH 02/12] media: ipu6: Add IPU4P MMU support
+
+The IPU4P MMU uses the same MMUv2 page tables and register programming
+model as IPU6, but differs in register offsets, number of MMU instances,
+and stream block allocations.
+
+Add IPU4P-specific ISYS and PSYS MMU hardware initialization data and
+wire up IPU4P MMU ops in ipu6_mmu_init().
+
+Signed-off-by: Ruslan Bay <ruslanbey@proton.me>
+---
+ drivers/media/pci/intel/ipu6/ipu6-mmu-hw.c    | 109 ++++++++++++++++++
+ drivers/media/pci/intel/ipu6/ipu6-mmu.c       |   7 +-
+ drivers/media/pci/intel/ipu6/ipu6-mmu.h       |   1 +
+ .../media/pci/intel/ipu6/ipu6-platform-regs.h |  11 ++
+ drivers/media/pci/intel/ipu6/ipu6.h           |   2 +
+ 5 files changed, 129 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/pci/intel/ipu6/ipu6-mmu-hw.c b/drivers/media/pci/intel/ipu6/ipu6-mmu-hw.c
+index 2b395fbd5969..ca2b23741585 100644
+--- a/drivers/media/pci/intel/ipu6/ipu6-mmu-hw.c
++++ b/drivers/media/pci/intel/ipu6/ipu6-mmu-hw.c
+@@ -158,6 +158,65 @@ static struct ipu6_mmu_hw ipu6_psys_mmu_hwdata[] = {
+ 	},
+ };
+ 
++static struct ipu6_mmu_hw ipu4p_isys_mmu_hwdata[] = {
++	{
++		.offset = IPU4P_ISYS_IOMMU0_OFFSET,
++		.info_bits = IPU4P_INFO_REQUEST_DESTINATION_PRIMARY,
++		.nr_l1streams = 0,
++		.nr_l2streams = 0,
++		.insert_read_before_invalidate = true,
++	},
++	{
++		.offset = IPU4P_ISYS_IOMMU1_OFFSET,
++		.nr_l1streams = IPU4P_MMU_MAX_TLB_L1_STREAMS,
++		.l1_block_sz = {
++			5, 16, 6, 6, 6, 6, 6, 8, 0, 0, 0, 0, 0, 0, 0, 5,
++		},
++		.nr_l2streams = IPU4P_MMU_MAX_TLB_L2_STREAMS,
++		.l2_block_sz = {
++			2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
++		},
++		.l1_stream_id_reg_offset = IPU4P_MMU_L1_STREAM_ID_REG_OFFSET,
++		.l2_stream_id_reg_offset = IPU4P_MMU_L2_STREAM_ID_REG_OFFSET,
++	},
++};
++
++static struct ipu6_mmu_hw ipu4p_psys_mmu_hwdata[] = {
++	{
++		.offset = IPU4P_PSYS_IOMMU0_OFFSET,
++		.info_bits = IPU4P_INFO_REQUEST_DESTINATION_PRIMARY,
++		.nr_l1streams = 0,
++		.nr_l2streams = 0,
++		.insert_read_before_invalidate = true,
++	},
++	{
++		.offset = IPU4P_PSYS_IOMMU1_OFFSET,
++		.nr_l1streams = IPU4P_MMU_MAX_TLB_L1_STREAMS,
++		.l1_block_sz = {
++			2, 5, 4, 2, 2, 10, 5, 16, 10, 5, 0, 0, 0, 0, 0, 3,
++		},
++		.nr_l2streams = IPU4P_MMU_MAX_TLB_L2_STREAMS,
++		.l2_block_sz = {
++			2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
++		},
++		.l1_stream_id_reg_offset = IPU4P_MMU_L1_STREAM_ID_REG_OFFSET,
++		.l2_stream_id_reg_offset = IPU4P_MMU_L2_STREAM_ID_REG_OFFSET,
++	},
++	{
++		.offset = IPU4P_PSYS_IOMMU1R_OFFSET,
++		.nr_l1streams = IPU4P_MMU_MAX_TLB_L1_STREAMS,
++		.l1_block_sz = {
++			2, 6, 5, 16, 16, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 3,
++		},
++		.nr_l2streams = IPU4P_MMU_MAX_TLB_L2_STREAMS,
++		.l2_block_sz = {
++			2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
++		},
++		.l1_stream_id_reg_offset = IPU4P_MMU_L1_STREAM_ID_REG_OFFSET,
++		.l2_stream_id_reg_offset = IPU4P_MMU_L2_STREAM_ID_REG_OFFSET,
++	},
++};
++
+ struct ipu6_mmu_hwdata {
+ 	struct ipu6_mmu_hw *hwdata;
+ 	unsigned int nr_mmus;
+@@ -210,6 +269,17 @@ static void __ipu6_tlb_invalidate(struct ipu6_mmu *mmu)
+ 	spin_unlock_irqrestore(&mmu->ready_lock, flags);
+ }
+ 
++static const struct ipu6_mmu_hwdata ipu4p_mmu_hwdata_lookup[IPU_SUBSYS_NUM] = {
++	[IPU_PSYS] = {
++		.hwdata = ipu4p_psys_mmu_hwdata,
++		.nr_mmus = ARRAY_SIZE(ipu4p_psys_mmu_hwdata),
++	},
++	[IPU_ISYS] = {
++		.hwdata = ipu4p_isys_mmu_hwdata,
++		.nr_mmus = ARRAY_SIZE(ipu4p_isys_mmu_hwdata),
++	},
++};
++
+ static int __ipu6_mmu_hw_init(struct ipu6_mmu *mmu)
+ {
+ 	struct ipu6_mmu_info *mmu_info = mmu->dmap->mmu_info;
+@@ -289,8 +359,47 @@ static int __ipu6_mmu_init_hw_data(struct ipu6_mmu *mmu, struct device *dev,
+ 	return 0;
+ }
+ 
++static int __ipu4p_mmu_init_hw_data(struct ipu6_mmu *mmu, struct device *dev,
++				    void __iomem *base)
++{
++	const struct ipu6_mmu_hwdata *lookup;
++	struct ipu6_mmu_hw *mmu_hw, *src;
++	unsigned int i, nr_mmus;
++
++	if (mmu->mmid >= IPU_SUBSYS_NUM)
++		return -EINVAL;
++
++	lookup = &ipu4p_mmu_hwdata_lookup[mmu->mmid];
++	src = lookup->hwdata;
++	nr_mmus = lookup->nr_mmus;
++
++	mmu_hw = devm_kcalloc(dev, nr_mmus, sizeof(*mmu_hw), GFP_KERNEL);
++	if (!mmu_hw)
++		return -ENOMEM;
++
++	for (i = 0; i < nr_mmus; i++) {
++		if (src[i].nr_l1streams > IPU4P_MMU_MAX_TLB_L1_STREAMS ||
++		    src[i].nr_l2streams > IPU4P_MMU_MAX_TLB_L2_STREAMS)
++			return -EINVAL;
++
++		mmu_hw[i] = src[i];
++		mmu_hw[i].base = base + src[i].offset;
++	}
++
++	mmu->nr_mmus = nr_mmus;
++	mmu->ipu6_mmu_hw = mmu_hw;
++
++	return 0;
++}
++
+ const struct ipu6_mmu_hw_ops ipu6_mmu_ops = {
+ 	.init_hw_data = __ipu6_mmu_init_hw_data,
+ 	.hw_init = __ipu6_mmu_hw_init,
+ 	.tlb_invalidate = __ipu6_tlb_invalidate,
+ };
++
++const struct ipu6_mmu_hw_ops ipu4p_mmu_ops = {
++	.init_hw_data = __ipu4p_mmu_init_hw_data,
++	.hw_init = __ipu6_mmu_hw_init,
++	.tlb_invalidate = __ipu6_tlb_invalidate,
++};
+diff --git a/drivers/media/pci/intel/ipu6/ipu6-mmu.c b/drivers/media/pci/intel/ipu6/ipu6-mmu.c
+index 243d438786ba..93e3be1ef09e 100644
+--- a/drivers/media/pci/intel/ipu6/ipu6-mmu.c
++++ b/drivers/media/pci/intel/ipu6/ipu6-mmu.c
+@@ -684,7 +684,12 @@ struct ipu6_mmu *ipu6_mmu_init(struct device *dev,
+ 	if (!mmu)
+ 		return ERR_PTR(-ENOMEM);
+ 
+-	mmu->ops = IS_IPU7(isp) ? &ipu7_mmu_ops : &ipu6_mmu_ops;
++	if (IS_IPU7(isp))
++		mmu->ops = &ipu7_mmu_ops;
++	else if (IS_IPU4P(isp))
++		mmu->ops = &ipu4p_mmu_ops;
++	else
++		mmu->ops = &ipu6_mmu_ops;
+ 	mmu->mmid = mmid;
+ 	mmu->ready = false;
+ 	INIT_LIST_HEAD(&mmu->vma_list);
+diff --git a/drivers/media/pci/intel/ipu6/ipu6-mmu.h b/drivers/media/pci/intel/ipu6/ipu6-mmu.h
+index 44880478d242..455604eb8b64 100644
+--- a/drivers/media/pci/intel/ipu6/ipu6-mmu.h
++++ b/drivers/media/pci/intel/ipu6/ipu6-mmu.h
+@@ -197,6 +197,7 @@ struct ipu6_mmu {
+ };
+ 
+ extern const struct ipu6_mmu_hw_ops ipu6_mmu_ops;
++extern const struct ipu6_mmu_hw_ops ipu4p_mmu_ops;
+ extern const struct ipu6_mmu_hw_ops ipu7_mmu_ops;
+ 
+ struct ipu6_mmu *ipu6_mmu_init(struct device *dev,
+diff --git a/drivers/media/pci/intel/ipu6/ipu6-platform-regs.h b/drivers/media/pci/intel/ipu6/ipu6-platform-regs.h
+index b883385adb44..f08e7e8fd87d 100644
+--- a/drivers/media/pci/intel/ipu6/ipu6-platform-regs.h
++++ b/drivers/media/pci/intel/ipu6/ipu6-platform-regs.h
+@@ -14,6 +14,17 @@
+  */
+ #define IPU6_UNIFIED_OFFSET			0
+ 
++#define IPU4P_ISYS_IOMMU0_OFFSET		0x000e0000
++#define IPU4P_ISYS_IOMMU1_OFFSET		0x000e0100
++
++#define IPU4P_PSYS_IOMMU0_OFFSET		0x000b0000
++#define IPU4P_PSYS_IOMMU1_OFFSET		0x000b0100
++#define IPU4P_PSYS_IOMMU1R_OFFSET		0x000b0600
++
++#define IPU4P_MMU_L1_STREAM_ID_REG_OFFSET	0x0c
++#define IPU4P_MMU_L2_STREAM_ID_REG_OFFSET	0x4c
++#define IPU4P_INFO_REQUEST_DESTINATION_PRIMARY	BIT(4)
++
+ #define IPU6_ISYS_IOMMU0_OFFSET		0x2e0000
+ #define IPU6_ISYS_IOMMU1_OFFSET		0x2e0500
+ #define IPU6_ISYS_IOMMUI_OFFSET		0x2e0a00
+diff --git a/drivers/media/pci/intel/ipu6/ipu6.h b/drivers/media/pci/intel/ipu6/ipu6.h
+index 321ca1d57157..2afbd70cae74 100644
+--- a/drivers/media/pci/intel/ipu6/ipu6.h
++++ b/drivers/media/pci/intel/ipu6/ipu6.h
+@@ -93,6 +93,8 @@ struct ipu6_device {
+ 
+ #define IPU6_MMU_MAX_TLB_L1_STREAMS	32
+ #define IPU6_MMU_MAX_TLB_L2_STREAMS	32
++#define IPU4P_MMU_MAX_TLB_L1_STREAMS	16
++#define IPU4P_MMU_MAX_TLB_L2_STREAMS	16
+ #define IPU6_MAX_LI_BLOCK_ADDR		128
+ #define IPU6_MAX_L2_BLOCK_ADDR		64
+ 
+-- 
+2.56.0
+

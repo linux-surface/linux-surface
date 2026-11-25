@@ -1,0 +1,47 @@
+From c05133a8c8db472493852d8bbfa0f4ffb3620ee2 Mon Sep 17 00:00:00 2001
+From: surface-ipu4 <surface-ipu4@localhost>
+Date: Tue, 20 Oct 2026 19:03:57 +0200
+Subject: [PATCH] media: i2c: ov5693: SB3 MIPI_CTRL00 module param
+
+---
+ drivers/media/i2c/ov5693.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
+index 02236f3db19d..33a7f7a5b45a 100644
+--- a/drivers/media/i2c/ov5693.c
++++ b/drivers/media/i2c/ov5693.c
+@@ -35,6 +35,18 @@
+ #define OV5693_STOP_STREAMING			0x00
+ #define OV5693_SW_RESET				0x01
+ 
++/*
++ * MIPI_CTRL00 — Windows ov5693.sys writes 0x2d at stream-on
++ * (linux-surface #2171 / #2252). Default skip; module param for bring-up.
++ */
++#define OV5693_MIPI_CTRL00_REG			CCI_REG8(0x4800)
++#define OV5693_MIPI_CTRL00_WINDOWS		0x2d
++
++static unsigned int mipi_ctrl00;
++module_param(mipi_ctrl00, uint, 0644);
++MODULE_PARM_DESC(mipi_ctrl00,
++		 "OV5693 MIPI_CTRL00 (0x4800) at stream-on; 0=skip (Windows=0x2d)");
++
+ #define OV5693_REG_CHIP_ID			CCI_REG16(0x300a)
+ /* Yes, this is right. The datasheet for the OV5693 gives its ID as 0x5690 */
+ #define OV5693_CHIP_ID				0x5690
+@@ -611,6 +623,11 @@ static int ov5693_enable_streaming(struct ov5693_device *ov5693, bool enable)
+ {
+ 	int ret = 0;
+ 
++	/* Optional Windows MIPI_CTRL00 before stream-on (SB3 bring-up). */
++	if (enable && mipi_ctrl00)
++		cci_write(ov5693->regmap, OV5693_MIPI_CTRL00_REG,
++			  mipi_ctrl00 & 0xff, &ret);
++
+ 	cci_write(ov5693->regmap, OV5693_SW_STREAM_REG,
+ 		  enable ? OV5693_START_STREAMING : OV5693_STOP_STREAMING,
+ 		  &ret);
+-- 
+2.56.0
+

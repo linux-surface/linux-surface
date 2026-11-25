@@ -1,0 +1,14 @@
+#!/bin/bash
+# Prefer this over /usr/bin/howdy-gtk (PATH: /usr/local/bin first).
+# --start-auth-ui freezes KDE lock / plasmalogin on Wayland — never run it.
+# CLI `howdy test` still gets the real UI for other flags.
+set -euo pipefail
+if [[ "${1:-}" == "--start-auth-ui" ]]; then
+  exit 0
+fi
+case "${PAM_SERVICE:-}" in
+  kde|plasmalogin|plasmalogin-autologin|login|gdm*|sddm*)
+    exit 0
+    ;;
+esac
+exec /usr/bin/howdy-gtk "$@"

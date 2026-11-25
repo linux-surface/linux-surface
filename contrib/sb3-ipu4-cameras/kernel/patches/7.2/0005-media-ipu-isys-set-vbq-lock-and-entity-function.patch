@@ -1,0 +1,53 @@
+From f2f1ac4d122a87110d8dd918108aa4bbf3f04400 Mon Sep 17 00:00:00 2001
+From: popos123 <popos123@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 00:54:52 +0200
+Subject: [PATCH] media: ipu-isys: set vbq.lock and CSI2 entity.function for
+ 7.x
+
+Linux 7.x vb2_core_queue_init() requires q->lock. Also set
+MEDIA_ENT_F_VID_IF_BRIDGE on ISYS subdevs (TPG overrides to sensor).
+---
+ drivers/media/pci/intel/ipu-isys-queue.c  | 5 ++++-
+ drivers/media/pci/intel/ipu-isys-subdev.c | 3 +++
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/pci/intel/ipu-isys-queue.c b/drivers/media/pci/intel/ipu-isys-queue.c
+index 6bdaea972..5c25ddd1f 100644
+--- a/drivers/media/pci/intel/ipu-isys-queue.c
++++ b/drivers/media/pci/intel/ipu-isys-queue.c
+@@ -1391,7 +1391,8 @@ struct vb2_ops ipu_isys_queue_ops = {
+ 
+ int ipu_isys_queue_init(struct ipu_isys_queue *aq)
+ {
+-	struct ipu_isys *isys = ipu_isys_queue_to_video(aq)->isys;
++	struct ipu_isys_video *av = ipu_isys_queue_to_video(aq);
++	struct ipu_isys *isys = av->isys;
+ 	int rval;
+ 
+ 	if (!aq->vbq.io_modes)
+@@ -1399,6 +1400,8 @@ int ipu_isys_queue_init(struct ipu_isys_queue *aq)
+ 	aq->vbq.drv_priv = aq;
+ //	aq->vbq.allow_requests = true;
+ 	aq->vbq.ops = &ipu_isys_queue_ops;
++	/* Required by vb2_core_queue_init() since Linux 7.x (see ipu6-isys). */
++	aq->vbq.lock = &av->mutex;
+ 	aq->vbq.mem_ops = &vb2_dma_contig_memops;
+ 	aq->vbq.timestamp_flags = (wall_clock_ts_on) ?
+ 	    V4L2_BUF_FLAG_TIMESTAMP_UNKNOWN : V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
+diff --git a/drivers/media/pci/intel/ipu-isys-subdev.c b/drivers/media/pci/intel/ipu-isys-subdev.c
+index c3094e0a9..93c713e22 100644
+--- a/drivers/media/pci/intel/ipu-isys-subdev.c
++++ b/drivers/media/pci/intel/ipu-isys-subdev.c
+@@ -942,6 +942,9 @@ int ipu_isys_subdev_init(struct ipu_isys_subdev *asd,
+ 	for (i = num_sink; i < num_pads; i++)
+ 		asd->pad[i].flags = MEDIA_PAD_FL_SOURCE;
+ 
++	/* TPG overrides to MEDIA_ENT_F_CAM_SENSOR after this init. */
++	asd->sd.entity.function = MEDIA_ENT_F_VID_IF_BRIDGE;
++
+ 	rval = media_entity_pads_init(&asd->sd.entity, num_pads, asd->pad);
+ 	if (rval)
+ 		goto out_mutex_destroy;
+-- 
+2.56.0
+

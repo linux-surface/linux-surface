@@ -1,0 +1,34 @@
+# IPU6 raw Capture nodes — root only. Do NOT grant video/uaccess (Discord/Chrome
+# would open them as "ipu6" and hang / show garbage).
+ACTION=="add|change", SUBSYSTEM=="video4linux", ATTR{name}=="Intel IPU6*", \
+  GROUP="root", MODE="0600", TAG-="uaccess", \
+  ENV{ID_V4L_PRODUCT}="Intel-IPU6", ENV{ID_V4L_CAPABILITIES}=":", \
+  ENV{PIPEWIRE_IGNORE}="1", ENV{ID_MM_CANDIDATE}="0"
+
+ACTION=="add|change", SUBSYSTEM=="video4linux", ATTR{name}=="Intel IPU*", \
+  GROUP="root", MODE="0600", TAG-="uaccess", \
+  ENV{ID_V4L_PRODUCT}="Intel-IPU", ENV{ID_V4L_CAPABILITIES}=":", \
+  ENV{PIPEWIRE_IGNORE}="1", ENV{ID_MM_CANDIDATE}="0"
+
+ACTION=="add|change", SUBSYSTEM=="video4linux", DRIVERS=="intel-ipu6", \
+  GROUP="root", MODE="0600", TAG-="uaccess", \
+  ENV{PIPEWIRE_IGNORE}="1", ENV{ID_MM_CANDIDATE}="0"
+
+ACTION=="add|change", SUBSYSTEM=="media", DEVPATH=="*intel-ipu*", \
+  GROUP="root", MODE="0600", TAG-="uaccess"
+
+ACTION=="add|change", SUBSYSTEM=="video4linux", KERNEL=="v4l-subdev*", \
+  GROUP="root", MODE="0600", TAG-="uaccess", ENV{PIPEWIRE_IGNORE}="1"
+
+# Back RGB loopbacks — browser / Discord / Chrome must see these
+SUBSYSTEM=="video4linux", ATTR{name}=="Surface-Back-Standard", GROUP="video", MODE="0666", TAG+="uaccess", ENV{ID_V4L_CAPABILITIES}=":capture:", ENV{ID_V4L_PRODUCT}="Surface-Back-Standard", ENV{PIPEWIRE_IGNORE}="0"
+SUBSYSTEM=="video4linux", ATTR{name}=="Surface-Back-HQ", GROUP="video", MODE="0666", TAG+="uaccess", ENV{ID_V4L_CAPABILITIES}=":capture:", ENV{ID_V4L_PRODUCT}="Surface-Back-HQ", ENV{PIPEWIRE_IGNORE}="0"
+SUBSYSTEM=="video4linux", ATTR{name}=="Surface-Back-Fast", GROUP="video", MODE="0666", TAG+="uaccess", ENV{ID_V4L_CAPABILITIES}=":capture:", ENV{ID_V4L_PRODUCT}="Surface-Back-Fast", ENV{PIPEWIRE_IGNORE}="0"
+
+# Front — hidden until CSI2-2 DPHY works (white frames otherwise)
+SUBSYSTEM=="video4linux", ATTR{name}=="Surface-Front-Standard", GROUP="root", MODE="0600", TAG-="uaccess", ENV{ID_V4L_CAPABILITIES}=":", ENV{PIPEWIRE_IGNORE}="1"
+SUBSYSTEM=="video4linux", ATTR{name}=="Surface-Front-HQ", GROUP="root", MODE="0600", TAG-="uaccess", ENV{ID_V4L_CAPABILITIES}=":", ENV{PIPEWIRE_IGNORE}="1"
+SUBSYSTEM=="video4linux", ATTR{name}=="Surface-Front-Fast", GROUP="root", MODE="0600", TAG-="uaccess", ENV{ID_V4L_CAPABILITIES}=":", ENV{PIPEWIRE_IGNORE}="1"
+
+# IR — Howdy only
+SUBSYSTEM=="video4linux", ATTR{name}=="Surface-IR-Howdy", GROUP="root", MODE="0600", TAG-="uaccess", ENV{ID_V4L_PRODUCT}="Surface-IR-Howdy", ENV{ID_V4L_CAPABILITIES}=":", ENV{PIPEWIRE_IGNORE}="1"

@@ -1,0 +1,53 @@
+From: I232826 <i232826@users.noreply.github.com>
+Subject: [PATCH] media: ov7251: optional strobe output for an IR emitter
+
+Surface IR emitter via sensor strobe (module_param strobe_pattern).
+Source: https://github.com/I232826/surface-kit (discussion #1353)
+
+--- a/drivers/media/i2c/ov7251.c
++++ b/drivers/media/i2c/ov7251.c
+@@ -41,6 +41,9 @@
+ #define OV7251_TIMING_FORMAT2		0x3821
+ #define OV7251_TIMING_FORMAT2_MIRROR	BIT(2)
+ #define OV7251_PRE_ISP_00		0x5e00
++#define OV7251_PAD_OEN_STROBE		0x3005
++#define OV7251_PAD_OEN_STROBE_ENABLE	0x08
++#define OV7251_STROBE_PATTERN		0x3b81
+ #define OV7251_PRE_ISP_00_TEST_PATTERN	BIT(7)
+ #define OV7251_PLL1_PRE_DIV_REG		0x30b4
+ #define OV7251_PLL1_MULT_REG		0x30b3
+@@ -234,6 +237,15 @@
+ 	[OV7251_24_MHZ] = &ov7251_pll_cfgs_24_mhz,
+ };
+ 
++/*
++ * Surface Pro 7: the sensor's strobe output drives the IR emitter. Values from
++ * the Windows driver: 0xff keeps it lit on every frame, 0xaa on alternate ones.
++ * 0 (the default) leaves the strobe output off.
++ */
++static int strobe_pattern;
++module_param(strobe_pattern, int, 0644);
++MODULE_PARM_DESC(strobe_pattern, "Strobe pattern for an IR emitter (0 = off)");
++
+ static const struct reg_value ov7251_global_init_setting[] = {
+ 	{ 0x0103, 0x01 },
+ 	{ 0x303b, 0x02 },
+@@ -1369,6 +1381,18 @@
+ 			dev_err(ov7251->dev, "could not sync v4l2 controls\n");
+ 			goto err_power_down;
+ 		}
++		if (strobe_pattern > 0 && strobe_pattern <= 0xff) {
++			ret = ov7251_write_reg(ov7251, OV7251_STROBE_PATTERN,
++					       strobe_pattern);
++			if (ret < 0)
++				goto err_power_down;
++
++			ret = ov7251_write_reg(ov7251, OV7251_PAD_OEN_STROBE,
++					       OV7251_PAD_OEN_STROBE_ENABLE);
++			if (ret < 0)
++				goto err_power_down;
++		}
++
+ 		ret = ov7251_write_reg(ov7251, OV7251_SC_MODE_SELECT,
+ 				       OV7251_SC_MODE_SELECT_STREAMING);
+ 		if (ret)

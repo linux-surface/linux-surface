@@ -1,0 +1,13 @@
+#%PAM-1.0
+# Optional Face unlock PAM stack (on-demand). Default /etc/pam.d/kde stays
+# password-only so a stuck IR path can never freeze the lock screen.
+auth        required                                     pam_env.so
+auth        optional                                     pam_exec.so quiet /usr/local/sbin/surface-face-auth-prepare.sh
+auth        optional                                     pam_exec.so quiet /usr/local/sbin/surface-ir-wait-auth.sh
+auth        sufficient                                   pam_howdy.so
+auth        required                                     pam_faildelay.so delay=1000000
+auth        required                                     pam_deny.so
+account     include                                      system-auth
+password    include                                      system-auth
+session     include                                      system-auth
+session     optional                                     pam_exec.so quiet /usr/local/sbin/surface-ir-pam-session.sh

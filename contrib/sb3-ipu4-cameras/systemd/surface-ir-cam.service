@@ -1,0 +1,19 @@
+[Unit]
+Description=Surface Book 3 IR camera loopback (Howdy)
+After=surface-ipu4-late.service surface-front-cam.service surface-lc-webcam.service
+Wants=surface-ipu4-late.service
+ConditionKernelVersion=*surface-ipu4*
+ConditionPathExists=/run/surface-howdy/cameras-ready
+
+[Service]
+Type=simple
+ExecStartPre=-/bin/bash -c 'chmod 600 /dev/video66 2>/dev/null || true'
+ExecStart=/usr/bin/python3 /usr/local/libexec/surface_lc_webcamd.py --mode ir
+Restart=on-failure
+RestartSec=2
+KillMode=control-group
+TimeoutStopSec=8
+FinalKillSignal=SIGKILL
+
+[Install]
+WantedBy=multi-user.target

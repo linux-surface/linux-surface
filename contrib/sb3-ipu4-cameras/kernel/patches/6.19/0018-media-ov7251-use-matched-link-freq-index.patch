@@ -1,0 +1,26 @@
+From: I232826 <i232826@users.noreply.github.com>
+Subject: [PATCH] media: ov7251: use the index of the matched link frequency
+
+The loop looks for a firmware link frequency in the driver's link_freq[] and
+leaves its index in j, but link_freq_idx was set from i, the position in the
+firmware's list. With a single firmware entry of 319.2 MHz (Surface IR) i is 0,
+so the sensor was set up for and reported 240 MHz.
+
+Source: https://github.com/I232826/surface-kit (discussion #1353)
+
+---
+ drivers/media/i2c/ov7251.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/media/i2c/ov7251.c b/drivers/media/i2c/ov7251.c
+--- a/drivers/media/i2c/ov7251.c
++++ b/drivers/media/i2c/ov7251.c
+@@ -1523,7 +1523,7 @@ static int ov7251_check_hwcfg(struct ov7251 *ov7251)
+ 		goto out_free_bus_cfg;
+ 	}
+ 
+-	ov7251->link_freq_idx = i;
++	ov7251->link_freq_idx = j;
+ 
+ out_free_bus_cfg:
+ 	v4l2_fwnode_endpoint_free(&bus_cfg);
