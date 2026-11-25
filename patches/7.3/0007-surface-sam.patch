@@ -1,0 +1,1698 @@
+From 4ad6e3d96260d12e52195c943cd84ead1539aa08 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 17 Jun 2022 02:14:00 +0200
+Subject: [PATCH] rtc: Add basic support for RTC via Surface System Aggregator
+ Module
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/rtc/Kconfig       |   7 +++
+ drivers/rtc/Makefile      |   1 +
+ drivers/rtc/rtc-surface.c | 129 ++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 137 insertions(+)
+ create mode 100644 drivers/rtc/rtc-surface.c
+
+diff --git a/drivers/rtc/Kconfig b/drivers/rtc/Kconfig
+index dcf9bdaea..a44d2b4b6 100644
+--- a/drivers/rtc/Kconfig
++++ b/drivers/rtc/Kconfig
+@@ -1446,6 +1446,13 @@ config RTC_DRV_NTXEC
+ 	  embedded controller found in certain e-book readers designed by the
+ 	  original design manufacturer Netronix.
+ 
++config RTC_DRV_SURFACE
++	tristate "Microsoft Surface Aggregator RTC"
++	depends on SURFACE_AGGREGATOR
++	depends on SURFACE_AGGREGATOR_BUS
++	help
++	  TODO
++
+ comment "on-CPU RTC drivers"
+ 
+ config RTC_DRV_ASM9260
+diff --git a/drivers/rtc/Makefile b/drivers/rtc/Makefile
+index 0347645b0..34f2cacd0 100644
+--- a/drivers/rtc/Makefile
++++ b/drivers/rtc/Makefile
+@@ -185,6 +185,7 @@ obj-$(CONFIG_RTC_DRV_SUN4V)	+= rtc-sun4v.o
+ obj-$(CONFIG_RTC_DRV_SUN6I)	+= rtc-sun6i.o
+ obj-$(CONFIG_RTC_DRV_SUNPLUS)	+= rtc-sunplus.o
+ obj-$(CONFIG_RTC_DRV_SUNXI)	+= rtc-sunxi.o
++obj-$(CONFIG_RTC_DRV_SURFACE)	+= rtc-surface.o
+ obj-$(CONFIG_RTC_DRV_TEGRA)	+= rtc-tegra.o
+ obj-$(CONFIG_RTC_DRV_TEST)	+= rtc-test.o
+ obj-$(CONFIG_RTC_DRV_TI_K3)	+= rtc-ti-k3.o
+diff --git a/drivers/rtc/rtc-surface.c b/drivers/rtc/rtc-surface.c
+new file mode 100644
+index 000000000..f6c17c4e9
+--- /dev/null
++++ b/drivers/rtc/rtc-surface.c
+@@ -0,0 +1,129 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * AC driver for 7th-generation Microsoft Surface devices via Surface System
++ * Aggregator Module (SSAM).
++ *
++ * Copyright (C) 2019-2021 Maximilian Luz <luzmaximilian@gmail.com>
++ */
++
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/rtc.h>
++#include <linux/slab.h>
++#include <linux/types.h>
++
++#include <linux/surface_aggregator/device.h>
++
++struct surface_rtc {
++	struct ssam_device *sdev;
++	struct rtc_device *rtc;
++};
++
++SSAM_DEFINE_SYNC_REQUEST_R(__ssam_rtc_get_unix_time, __le32, {
++	.target_category = SSAM_SSH_TC_SAM,
++	.target_id       = SSAM_SSH_TID_SAM,
++	.instance_id     = 0x00,
++	.command_id      = 0x10,
++});
++
++SSAM_DEFINE_SYNC_REQUEST_W(__ssam_rtc_set_unix_time, __le32, {
++	.target_category = SSAM_SSH_TC_SAM,
++	.target_id       = SSAM_SSH_TID_SAM,
++	.instance_id     = 0x00,
++	.command_id      = 0x0f,
++});
++
++static int ssam_rtc_get_unix_time(struct surface_rtc *srtc, u32 *time)
++{
++	__le32 time_le;
++	int status;
++
++	status = __ssam_rtc_get_unix_time(srtc->sdev->ctrl, &time_le);
++	if (status)
++		return status;
++
++	*time = le32_to_cpu(time_le);
++	return 0;
++}
++
++static int ssam_rtc_set_unix_time(struct surface_rtc *srtc, u32 time)
++{
++	__le32 time_le = cpu_to_le32(time);
++
++	return __ssam_rtc_set_unix_time(srtc->sdev->ctrl, &time_le);
++}
++
++static int surface_rtc_read_time(struct device *dev, struct rtc_time *tm)
++{
++	struct surface_rtc *srtc = dev_get_drvdata(dev);
++	int status;
++	u32 time;
++
++	status = ssam_rtc_get_unix_time(srtc, &time);
++	if (status)
++		return status;
++
++	rtc_time64_to_tm(time, tm);
++	return 0;
++}
++
++static int surface_rtc_set_time(struct device *dev, struct rtc_time *tm)
++{
++	struct surface_rtc *srtc = dev_get_drvdata(dev);
++	time64_t time = rtc_tm_to_time64(tm);
++
++	return ssam_rtc_set_unix_time(srtc, (u32)time);
++}
++
++static const struct rtc_class_ops surface_rtc_ops = {
++	.read_time = surface_rtc_read_time,
++	.set_time = surface_rtc_set_time,
++};
++
++static int surface_rtc_probe(struct ssam_device *sdev)
++{
++	struct surface_rtc *srtc;
++
++	srtc = devm_kzalloc(&sdev->dev, sizeof(*srtc), GFP_KERNEL);
++	if (!srtc)
++		return -ENOMEM;
++
++	srtc->sdev = sdev;
++
++	srtc->rtc = devm_rtc_allocate_device(&sdev->dev);
++	if (IS_ERR(srtc->rtc))
++		return PTR_ERR(srtc->rtc);
++
++	srtc->rtc->ops = &surface_rtc_ops;
++	srtc->rtc->range_max = U32_MAX;
++
++	ssam_device_set_drvdata(sdev, srtc);
++
++	return devm_rtc_register_device(srtc->rtc);
++}
++
++static void surface_rtc_remove(struct ssam_device *sdev)
++{
++	/* Device-managed allocations take care of everything... */
++}
++
++static const struct ssam_device_id surface_rtc_match[] = {
++	{ SSAM_SDEV(SAM, SAM, 0x00, 0x00) },
++	{ },
++};
++MODULE_DEVICE_TABLE(ssam, surface_rtc_match);
++
++static struct ssam_device_driver surface_rtc_driver = {
++	.probe = surface_rtc_probe,
++	.remove = surface_rtc_remove,
++	.match_table = surface_rtc_match,
++	.driver = {
++		.name = "surface_rtc",
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++	},
++};
++module_ssam_device_driver(surface_rtc_driver);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("RTC driver for Surface System Aggregator Module");
++MODULE_LICENSE("GPL");
+-- 
+2.56.1
+
+From 9f0594c1f6077486b2d18d90b347ee0c40c9e8a2 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 20 Apr 2025 01:05:14 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add Surface Laptop 7
+ (ACPI)
+
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 2cb8278d9..a91d72a7d 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -486,6 +486,9 @@ static const struct acpi_device_id ssam_platform_hub_acpi_match[] = {
+ 	/* Surface Laptop 6 */
+ 	{ "MSHW0530", (unsigned long)ssam_node_group_sl6 },
+ 
++	/* Surface Laptop 7 */
++	{ "MSHW0551", (unsigned long)ssam_node_group_sl7 },
++
+ 	/* Surface Laptop Go 1 */
+ 	{ "MSHW0118", (unsigned long)ssam_node_group_slg1 },
+ 
+-- 
+2.56.1
+
+From c857ad8e75801f8ba1a30495942d334b96519f97 Mon Sep 17 00:00:00 2001
+From: Jan Baisch <jan.baisch@protonmail.com>
+Date: Wed, 12 Aug 2026 14:52:38 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add Surface Pro 12
+ (Intel)
+
+Add SAM client device nodes for the Surface Pro 12 (Intel), identified
+by the MSHW0743 platform-hub ACPI ID.
+
+Like the Surface Pro 10 and Surface Pro 11 (Intel), the device uses the
+same SAM client device layout as the Surface Pro 9, so reuse
+ssam_node_group_sp9.
+
+This enables the Surface Aggregator Module client devices required for
+the device's platform functionality.
+
+Signed-off-by: Jan Baisch <jan.baisch@protonmail.com>
+Link: https://github.com/linux-surface/kernel/pull/171
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index a91d72a7d..acb8de097 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -459,6 +459,9 @@ static const struct acpi_device_id ssam_platform_hub_acpi_match[] = {
+ 	/* Surface Pro 11 */
+ 	{ "MSHW0583", (unsigned long)ssam_node_group_sp9 },
+ 
++	/* Surface Pro 12 (Intel) */
++	{ "MSHW0743", (unsigned long)ssam_node_group_sp9 },
++
+ 	/* Surface Book 2 */
+ 	{ "MSHW0107", (unsigned long)ssam_node_group_gen5 },
+ 
+-- 
+2.56.1
+
+From b5eb02993ff8756ec64bf23362c92d847f543a08 Mon Sep 17 00:00:00 2001
+From: Peter Marshall <petms@proton.me>
+Date: Mon, 22 Jun 2026 11:26:33 -0400
+Subject: [PATCH] platform/surface: platform_profile: add fan power state
+ handling
+
+Add functionality that switches the fan off if a fan is present when
+entering a suspend transition and switches it back to normal operation
+afterward.
+
+Patchset: surface-sam
+---
+ .../surface/surface_platform_profile.c        | 63 +++++++++++++++++++
+ 1 file changed, 63 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_platform_profile.c b/drivers/platform/surface/surface_platform_profile.c
+index 0e479e35e..203d21aa7 100644
+--- a/drivers/platform/surface/surface_platform_profile.c
++++ b/drivers/platform/surface/surface_platform_profile.c
+@@ -32,6 +32,11 @@ enum ssam_fan_profile {
+ 	SSAM_FAN_PROFILE_BEST_PERFORMANCE   = 4,
+ };
+ 
++enum ssam_fan_state {
++	SSAM_FAN_STATE_NORMAL  = 1,
++	SSAM_FAN_STATE_STANDBY = 2,
++};
++
+ struct ssam_tmp_profile_info {
+ 	__le32 profile;
+ 	__le16 unknown1;
+@@ -61,6 +66,13 @@ SSAM_DEFINE_SYNC_REQUEST_W(__ssam_fan_profile_set, u8, {
+ 	.instance_id = 0x01,
+ });
+ 
++SSAM_DEFINE_SYNC_REQUEST_W(__ssam_fan_state_set, u8, {
++	.target_category = SSAM_SSH_TC_FAN,
++	.target_id = SSAM_SSH_TID_SAM,
++	.command_id = 0x0f,
++	.instance_id = 0x01,
++});
++
+ static int ssam_tmp_profile_get(struct ssam_device *sdev, enum ssam_tmp_profile *p)
+ {
+ 	struct ssam_tmp_profile_info info;
+@@ -88,6 +100,13 @@ static int ssam_fan_profile_set(struct ssam_device *sdev, enum ssam_fan_profile
+ 	return ssam_retry(__ssam_fan_profile_set, sdev->ctrl, &profile);
+ }
+ 
++static int ssam_fan_state_set(struct ssam_device *sdev, enum ssam_fan_state s)
++{
++	const u8 state = s;
++
++	return ssam_retry(__ssam_fan_state_set, sdev->ctrl, &state);
++}
++
+ static int convert_ssam_tmp_to_profile(struct ssam_device *sdev, enum ssam_tmp_profile p)
+ {
+ 	switch (p) {
+@@ -236,6 +255,49 @@ static int surface_platform_profile_probe(struct ssam_device *sdev)
+ 	return PTR_ERR_OR_ZERO(tpd->ppdev);
+ }
+ 
++#ifdef CONFIG_PM_SLEEP
++
++static int surface_platform_profile_pm_prepare(struct device *dev)
++{
++	struct ssam_platform_profile_device *tpd;
++	int status;
++
++	tpd = dev_get_drvdata(dev);
++
++	if (tpd->has_fan) {
++		status = ssam_fan_state_set(tpd->sdev, SSAM_FAN_STATE_STANDBY);
++		if (status)
++			dev_err(&tpd->sdev->dev, "pm: fan standby notification failed");
++	}
++
++	return status;
++}
++
++static void surface_platform_profile_pm_complete(struct device *dev)
++{
++	struct ssam_platform_profile_device *tpd;
++	int status;
++
++	tpd = dev_get_drvdata(dev);
++
++	if (tpd->has_fan) {
++		status = ssam_fan_state_set(tpd->sdev, SSAM_FAN_STATE_NORMAL);
++		if (status)
++			dev_err(&tpd->sdev->dev, "pm: fan resume notification failed");
++	}
++}
++
++static const struct dev_pm_ops surface_platform_profile_pm_ops = {
++	.prepare  = surface_platform_profile_pm_prepare,
++	.complete = surface_platform_profile_pm_complete,
++};
++
++#else /* CONFIG_PM_SLEEP */
++
++static const struct dev_pm_ops surface_platform_profile_pm_ops = { };
++
++#endif /* CONFIG_PM_SLEEP */
++
+ static const struct ssam_device_id ssam_platform_profile_match[] = {
+ 	{ SSAM_SDEV(TMP, SAM, 0x00, 0x01) },
+ 	{ },
+@@ -247,6 +309,7 @@ static struct ssam_device_driver surface_platform_profile = {
+ 	.match_table = ssam_platform_profile_match,
+ 	.driver = {
+ 		.name = "surface_platform_profile",
++		.pm = &surface_platform_profile_pm_ops,
+ 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
+ 	},
+ };
+-- 
+2.56.1
+
+From b2584e775e7c2090586fb82d7023a2075989a989 Mon Sep 17 00:00:00 2001
+From: Wu Enqiang <janussss@163.com>
+Date: Sat, 24 Oct 2026 13:49:21 +0800
+Subject: [PATCH] surface: aggregator: propagate -EPROBE_DEFER from
+ ssam_irq_setup()
+
+gpiod_get() can fail with -EPROBE_DEFER when the GPIO controller
+providing the "ssam_wakeup-int" GPIO has not been probed yet. The
+current error path falls back to fwnode_irq_get(), which returns
+-EINVAL because this device only declares GPIO resources. The probe
+then fails hard and is never retried.
+
+This has been reported across various Surface devices since v6.12,
+including the Pro 6 and Pro 9 that were used to reproduce it. With
+the SSAM controller down, dependent ACPI devices, e.g. the battery
+with its _DEP on the SAN node, are never enumerated and battery
+status is missing.
+
+Use gpiod_get_optional() and propagate errors to the caller so that
+probing is deferred until the GPIO controller becomes available. Only
+when no wakeup GPIO is described at all, fall back to fwnode_irq_get().
+
+Fixes: b27622f13172 ("platform/surface: Add OF support")
+Reported-by: Chris Simpson <chris@nilk.net>
+Link: https://lore.kernel.org/platform-driver-x86/d0bb21cc-6d3c-4526-8204-2511da51a6ac@nilk.net
+Link: https://github.com/linux-surface/linux-surface/issues/2219
+Tested-by: Chris Simpson <chris@nilk.net>
+Tested-by: Wu Enqiang <janussss@163.com>
+Cc: stable@vger.kernel.org
+Signed-off-by: Wu Enqiang <janussss@163.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/aggregator/controller.c | 16 ++++++++++++----
+ 1 file changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
+index 6a8430cb9..8846d22c6 100644
+--- a/drivers/platform/surface/aggregator/controller.c
++++ b/drivers/platform/surface/aggregator/controller.c
+@@ -2753,12 +2753,20 @@ int ssam_irq_setup(struct ssam_controller *ctrl)
+ 	 */
+ 	const int irqf = IRQF_ONESHOT | IRQF_TRIGGER_RISING | IRQF_NO_AUTOEN;
+ 
+-	gpiod = gpiod_get(dev, "ssam_wakeup-int", GPIOD_ASIS);
+-	if (IS_ERR(gpiod)) {
+-		irq = fwnode_irq_get(dev_fwnode(dev), 0);
+-	} else {
++	/*
++	 * Only fall back to the fwnode IRQ if no wakeup GPIO is described
++	 * at all. Any other error, in particular -EPROBE_DEFER while the
++	 * GPIO controller has not been registered yet, must reach the probe.
++	 */
++	gpiod = gpiod_get_optional(dev, "ssam_wakeup-int", GPIOD_ASIS);
++	if (IS_ERR(gpiod))
++		return PTR_ERR(gpiod);
++
++	if (gpiod) {
+ 		irq = gpiod_to_irq(gpiod);
+ 		gpiod_put(gpiod);
++	} else {
++		irq = fwnode_irq_get(dev_fwnode(dev), 0);
+ 	}
+ 
+ 	if (irq < 0)
+-- 
+2.56.1
+
+From 1f5c1cff4aeb47dd60f789ca874ede59667c2e33 Mon Sep 17 00:00:00 2001
+From: Lars Schellhas van Kisfeld
+ <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Date: Mon, 16 Nov 2026 11:00:38 +0100
+Subject: [PATCH] platform/surface: platform_profile: fix uninitialized return
+ in pm_prepare
+
+surface_platform_profile_pm_prepare() declares "int status;" without an
+initializer and only assigns it inside the "if (tpd->has_fan)" block.
+On devices where the "has_fan" property is not set, such as the Surface
+Pro 7 and the Surface Book 3, the function returns whatever happens to be
+on the stack. Any non-zero value makes the PM core abort the transition:
+
+  surface_platform_profile 01:03:01:00:01: PM: device_prepare():
+    surface_platform_profile_pm_prepare [surface_platform_profile]
+    returns -1050009088
+  surface_platform_profile 01:03:01:00:01: PM: not prepared for power
+    transition: code -1050009088
+  PM: Some devices failed to suspend, or early wake event detected
+
+and the machine immediately resumes instead of suspending.
+
+Initialize status to 0 so that devices without a fan report success.
+
+Fixes: 743c726b18f6 ("platform/surface: platform_profile: add fan power state handling")
+Signed-off-by: Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_platform_profile.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/platform/surface/surface_platform_profile.c b/drivers/platform/surface/surface_platform_profile.c
+index 203d21aa7..38d2c3b23 100644
+--- a/drivers/platform/surface/surface_platform_profile.c
++++ b/drivers/platform/surface/surface_platform_profile.c
+@@ -260,7 +260,7 @@ static int surface_platform_profile_probe(struct ssam_device *sdev)
+ static int surface_platform_profile_pm_prepare(struct device *dev)
+ {
+ 	struct ssam_platform_profile_device *tpd;
+-	int status;
++	int status = 0;
+ 
+ 	tpd = dev_get_drvdata(dev);
+ 
+-- 
+2.56.1
+
+From 70a9b0ee5e0e2fadc7f6d44225416a2db91e2a61 Mon Sep 17 00:00:00 2001
+From: Lars Schellhas van Kisfeld
+ <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Date: Mon, 9 Nov 2026 18:04:52 +0100
+Subject: [PATCH] platform/surface: aggregator_registry: Add thermal sensors
+ and fan speed for Surface Book 3
+
+The Surface Book 3 EC provides the same thermal sensor (TMP, function 2)
+and fan speed (FAN, instance 1) interfaces as the newer devices that
+already list them, but the Surface Book 3 node group does not include
+them. Add both nodes so that surface_temp and surface_fan can bind.
+
+Tested on a Surface Book 3 (15", i7-1065G7) by registering the same two
+nodes from an out-of-tree module: surface_temp exposes the nine EC
+sensors (I_RTS1 to I_RTS8 and I_VTS1, names reported by the EC) and
+surface_fan reports the fan speed. The values match the raw EC readings
+obtained through the SSAM cdev.
+
+The fan maximum already follows the platform profile on this device
+(about 6000 to 8000 rpm from low-power to performance), so keep the
+platform profile node without the has_fan property.
+
+The analysis, the out-of-tree test module and this changelog were
+prepared with the help of an AI coding assistant (Claude, Anthropic).
+I reviewed the change and tested it on the device as described above.
+
+Link: https://github.com/linux-surface/kernel/issues/117
+Signed-off-by: Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index acb8de097..b5b7f24bc 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -241,6 +241,8 @@ static const struct software_node *ssam_node_group_sb3[] = {
+ 	&ssam_node_bat_main,
+ 	&ssam_node_bat_sb3base,
+ 	&ssam_node_tmp_perf_profile,
++	&ssam_node_tmp_sensors,
++	&ssam_node_fan_speed,
+ 	&ssam_node_bas_dtx,
+ 	&ssam_node_hid_base_keyboard,
+ 	&ssam_node_hid_base_touchpad,
+-- 
+2.56.1
+
+From 1d343922a9df427db5538470f4514c5d4209c7fa Mon Sep 17 00:00:00 2001
+From: Lars Schellhas van Kisfeld
+ <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Date: Sun, 15 Nov 2026 12:33:06 +0100
+Subject: [PATCH] hwmon: surface_temp: Add support for the KIP thermal sensors
+
+On the Surface Book 3, the base (keyboard and peripheral controller, KIP)
+has its own set of thermal sensors behind the same TMP interface as the
+ones on the main controller (SAM). Add a match entry for the KIP target
+so that the driver can bind to such a node.
+
+Devices only get a TMP node on the KIP target if the registry lists one
+for them, so this does not change anything for other devices.
+
+Tested on a Surface Book 3 (15", i7-1065G7) with the registry node from
+the next patch, registered from an out-of-tree module: the driver binds
+and exposes the nine base sensors (I_RTS1 to I_RTS8 and I_VTS1, names
+reported by the EC).
+
+The analysis, the out-of-tree test module and this changelog were
+prepared with the help of an AI coding assistant (Claude, Anthropic).
+I reviewed the change and tested it on the device as described above.
+
+Link: https://github.com/linux-surface/kernel/issues/117
+Signed-off-by: Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Patchset: surface-sam
+---
+ drivers/hwmon/surface_temp.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/hwmon/surface_temp.c b/drivers/hwmon/surface_temp.c
+index cd21f331f..ba51c567a 100644
+--- a/drivers/hwmon/surface_temp.c
++++ b/drivers/hwmon/surface_temp.c
+@@ -216,6 +216,7 @@ static int ssam_temp_probe(struct ssam_device *sdev)
+ 
+ static const struct ssam_device_id ssam_temp_match[] = {
+ 	{ SSAM_SDEV(TMP, SAM, 0x00, 0x02) },
++	{ SSAM_SDEV(TMP, KIP, 0x00, 0x02) },
+ 	{ },
+ };
+ MODULE_DEVICE_TABLE(ssam, ssam_temp_match);
+-- 
+2.56.1
+
+From 2e21355ed8a7f7732220f59ee37ff238511744f8 Mon Sep 17 00:00:00 2001
+From: Lars Schellhas van Kisfeld
+ <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Date: Sun, 15 Nov 2026 12:33:06 +0100
+Subject: [PATCH] platform/surface: aggregator_registry: Add base thermal
+ sensors for Surface Book 3
+
+The Surface Book 3 base provides a second set of thermal sensors on the
+KIP target. Add the node below the base hub, like the other base
+devices, so that it is removed when the clipboard is detached and added
+again on attach, and so that surface_temp can bind to it.
+
+On Windows, the skin temperature of the base (I_VTS1 on KIP) is the
+input of the power management loop that limits the dGPU.
+
+Tested on a Surface Book 3 (15", i7-1065G7) by registering the same node
+below the base hub from an out-of-tree module, together with the
+surface_temp match entry from the previous patch: a second
+surface_thermal hwmon device appears with the nine base sensors. Both
+hwmon devices report the same sensor names, as provided by the EC; they
+can be told apart by their device path.
+
+The analysis, the out-of-tree test module and this changelog were
+prepared with the help of an AI coding assistant (Claude, Anthropic).
+I reviewed the change and tested it on the device as described above.
+
+Link: https://github.com/linux-surface/kernel/issues/117
+Signed-off-by: Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index b5b7f24bc..1fa4c2fd9 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -95,6 +95,12 @@ static const struct software_node ssam_node_tmp_sensors = {
+ 	.parent = &ssam_node_root,
+ };
+ 
++/* Thermal sensors of the Surface Book 3 base (KIP). */
++static const struct software_node ssam_node_tmp_sensors_sb3base = {
++	.name = "ssam:01:03:02:00:02",
++	.parent = &ssam_node_hub_base,
++};
++
+ /* Fan speed function. */
+ static const struct software_node ssam_node_fan_speed = {
+ 	.name = "ssam:01:05:01:01:01",
+@@ -242,6 +248,7 @@ static const struct software_node *ssam_node_group_sb3[] = {
+ 	&ssam_node_bat_sb3base,
+ 	&ssam_node_tmp_perf_profile,
+ 	&ssam_node_tmp_sensors,
++	&ssam_node_tmp_sensors_sb3base,
+ 	&ssam_node_fan_speed,
+ 	&ssam_node_bas_dtx,
+ 	&ssam_node_hid_base_keyboard,
+-- 
+2.56.1
+
+From c2d9e71f63704b7ea22af56f333ddc09450cf31a Mon Sep 17 00:00:00 2001
+From: Lars Schellhas van Kisfeld
+ <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Date: Sun, 15 Nov 2026 13:15:45 +0100
+Subject: [PATCH] hwmon: surface_fan: Add support for the KIP fans
+
+The Surface Book 3 base (keyboard and peripheral controller, KIP) has
+two fans of its own, with the same FAN interface as the fan on the main
+controller (SAM), on instances 1 and 2. Add match entries for them so
+that the driver can bind to such nodes.
+
+Devices only get FAN nodes on the KIP target if the registry lists them,
+so this does not change anything for other devices.
+
+Tested on a Surface Book 3 (15", i7-1065G7) with the registry nodes from
+the next patch, registered from an out-of-tree module: the driver binds
+to both base fans. They report 0 rpm at idle; under dGPU load, the raw
+EC readings through the SSAM cdev showed both fans at about 2700 rpm
+after roughly two minutes.
+
+The analysis, the out-of-tree test module and this changelog were
+prepared with the help of an AI coding assistant (Claude, Anthropic).
+I reviewed the change and tested it on the device as described above.
+
+Link: https://github.com/linux-surface/kernel/issues/117
+Signed-off-by: Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Patchset: surface-sam
+---
+ drivers/hwmon/surface_fan.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/hwmon/surface_fan.c b/drivers/hwmon/surface_fan.c
+index aafb4ac92..5fb18ae6c 100644
+--- a/drivers/hwmon/surface_fan.c
++++ b/drivers/hwmon/surface_fan.c
+@@ -64,6 +64,8 @@ static int surface_fan_probe(struct ssam_device *sdev)
+ 
+ static const struct ssam_device_id ssam_fan_match[] = {
+ 	{ SSAM_SDEV(FAN, SAM, 0x01, 0x01) },
++	{ SSAM_SDEV(FAN, KIP, 0x01, 0x01) },
++	{ SSAM_SDEV(FAN, KIP, 0x02, 0x01) },
+ 	{},
+ };
+ MODULE_DEVICE_TABLE(ssam, ssam_fan_match);
+-- 
+2.56.1
+
+From d48ee777a7237162ccad1264109ec3dfa64df205 Mon Sep 17 00:00:00 2001
+From: Lars Schellhas van Kisfeld
+ <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Date: Sun, 15 Nov 2026 13:15:46 +0100
+Subject: [PATCH] platform/surface: aggregator_registry: Add base fans for
+ Surface Book 3
+
+The Surface Book 3 base has two fans on the KIP target (instances 1 and
+2), which start up under dGPU load. Add their fan speed nodes below the
+base hub, like the other base devices, so that surface_fan can bind to
+them.
+
+Tested on a Surface Book 3 (15", i7-1065G7) by registering the same
+nodes below the base hub from an out-of-tree module, together with the
+surface_fan match entries from the previous patch: two more surface_fan
+hwmon devices appear for the base fans.
+
+The analysis, the out-of-tree test module and this changelog were
+prepared with the help of an AI coding assistant (Claude, Anthropic).
+I reviewed the change and tested it on the device as described above.
+
+Link: https://github.com/linux-surface/kernel/issues/117
+Signed-off-by: Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Patchset: surface-sam
+---
+ .../platform/surface/surface_aggregator_registry.c  | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 1fa4c2fd9..d61dbea04 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -107,6 +107,17 @@ static const struct software_node ssam_node_fan_speed = {
+ 	.parent = &ssam_node_root,
+ };
+ 
++/* Fan speed functions of the Surface Book 3 base (KIP, two fans). */
++static const struct software_node ssam_node_fan_speed_sb3base_1 = {
++	.name = "ssam:01:05:02:01:01",
++	.parent = &ssam_node_hub_base,
++};
++
++static const struct software_node ssam_node_fan_speed_sb3base_2 = {
++	.name = "ssam:01:05:02:02:01",
++	.parent = &ssam_node_hub_base,
++};
++
+ /* Tablet-mode switch via KIP subsystem. */
+ static const struct software_node ssam_node_kip_tablet_switch = {
+ 	.name = "ssam:01:0e:01:00:01",
+@@ -250,6 +261,8 @@ static const struct software_node *ssam_node_group_sb3[] = {
+ 	&ssam_node_tmp_sensors,
+ 	&ssam_node_tmp_sensors_sb3base,
+ 	&ssam_node_fan_speed,
++	&ssam_node_fan_speed_sb3base_1,
++	&ssam_node_fan_speed_sb3base_2,
+ 	&ssam_node_bas_dtx,
+ 	&ssam_node_hid_base_keyboard,
+ 	&ssam_node_hid_base_touchpad,
+-- 
+2.56.1
+
+From 9718de8a33e4356ee823aaae421c9dbe517b625d Mon Sep 17 00:00:00 2001
+From: Lars Schellhas van Kisfeld
+ <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Date: Mon, 16 Nov 2026 17:00:35 +0100
+Subject: [PATCH] platform/surface: aggregator_registry: Add has_dptf property
+ for battery and AC
+
+The battery subsystem of the Surface Aggregator Module EC has two DPTF
+commands: the battery data (command 0x53) and the adapter rating
+(command 0x0f). Not every EC supports them. An EC that does not support
+a command does not answer it, so the request runs into a timeout and the
+drivers cannot find out about the support by sending the request.
+
+Add software nodes for the AC adapter and the primary battery with the
+boolean property "has_dptf", and use them in the groups of the devices
+whose EC supports the commands. The secondary battery of the Surface
+Book 3 gets the property as well. The surface_battery and surface_charger
+drivers send the requests only if the property is set (next patches).
+
+Surface Laptop 3 (15", AMD) and 4, Surface Pro 7+ and Surface Pro 9, 10
+and 11 (Intel) shared a group with devices that have no evidence (see
+below). They get their own group with the property. The device IDs
+without evidence stay on the old group.
+
+Devices that get the property, and why. M: the EC was measured to answer
+both commands. P: the Windows power management configuration of the
+device uses the battery data and the adapter rating, i.e. it expects
+the EC to answer. D: the Windows driver package of the device contains
+the component that provides this data to the configuration.
+
+  Surface Book 3 (13.5", 15")                      M (15"), P, D
+  Surface Laptop 3 (15", AMD)                      P
+  Surface Laptop 4 (13", Intel; 15", AMD)          P, D
+  Surface Laptop 5, 6                              P
+  Surface Laptop Go 1, 3                           P
+  Surface Laptop Go 2                              P, D
+  Surface Laptop Studio 1                          P, D
+  Surface Laptop Studio 2                          P
+  Surface Pro 7+                                   P, D
+  Surface Pro 8                                    P, D
+  Surface Pro 9                                    P
+  Surface Pro 10 (also 5G), Surface Pro 11         P, D
+  Surface Pro 9 5G (ARM)                           P
+  Surface Pro 11 (ARM)                             P, D
+
+Devices without the property, because the evidence above is missing
+for them: Surface Laptop 3 (13", Intel), Surface Pro 7 and Surface Pro 12
+(Intel). All other groups have no battery nodes. The property can be
+added for more devices when someone measures them.
+
+The analysis, the patch and this changelog were prepared with the help
+of an AI coding assistant (Claude, Anthropic). I reviewed the change.
+
+Link: https://github.com/linux-surface/surface-aggregator-module/issues/29
+Signed-off-by: Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c     | 119 ++++++++++++++----
+ 1 file changed, 92 insertions(+), 27 deletions(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index d61dbea04..a7141dac9 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -51,6 +51,12 @@ static const struct software_node ssam_node_hub_base = {
+ 	.parent = &ssam_node_root,
+ };
+ 
++/* Property of the battery and AC adapter devices of an EC with DPTF support. */
++static const struct property_entry ssam_node_has_dptf[] = {
++	PROPERTY_ENTRY_BOOL("has_dptf"),
++	{ }
++};
++
+ /* AC adapter. */
+ static const struct software_node ssam_node_bat_ac = {
+ 	.name = "ssam:01:02:01:01:01",
+@@ -67,6 +73,25 @@ static const struct software_node ssam_node_bat_main = {
+ static const struct software_node ssam_node_bat_sb3base = {
+ 	.name = "ssam:01:02:02:01:00",
+ 	.parent = &ssam_node_hub_base,
++	.properties = ssam_node_has_dptf,
++};
++
++/*
++ * AC adapter and primary battery of devices whose EC answers the DPTF
++ * requests (battery data, adapter rating). Sending these requests to an EC
++ * that does not support them runs into a timeout, so the drivers only send
++ * them if the device has the "has_dptf" property.
++ */
++static const struct software_node ssam_node_bat_ac_dptf = {
++	.name = "ssam:01:02:01:01:01",
++	.parent = &ssam_node_root,
++	.properties = ssam_node_has_dptf,
++};
++
++static const struct software_node ssam_node_bat_main_dptf = {
++	.name = "ssam:01:02:01:01:00",
++	.parent = &ssam_node_root,
++	.properties = ssam_node_has_dptf,
+ };
+ 
+ /* Platform profile / performance-mode device without a fan. */
+@@ -254,8 +279,8 @@ static const struct software_node *ssam_node_group_gen5[] = {
+ static const struct software_node *ssam_node_group_sb3[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_hub_base,
+-	&ssam_node_bat_ac,
+-	&ssam_node_bat_main,
++	&ssam_node_bat_ac_dptf,
++	&ssam_node_bat_main_dptf,
+ 	&ssam_node_bat_sb3base,
+ 	&ssam_node_tmp_perf_profile,
+ 	&ssam_node_tmp_sensors,
+@@ -271,7 +296,7 @@ static const struct software_node *ssam_node_group_sb3[] = {
+ 	NULL,
+ };
+ 
+-/* Devices for Surface Laptop 3 and 4. */
++/* Devices for Surface Laptop 3 (13", Intel), without DPTF. */
+ static const struct software_node *ssam_node_group_sl3[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_bat_ac,
+@@ -283,11 +308,23 @@ static const struct software_node *ssam_node_group_sl3[] = {
+ 	NULL,
+ };
+ 
++/* Devices for Surface Laptop 3 (15", AMD) and 4 (13", Intel; 15", AMD), with DPTF. */
++static const struct software_node *ssam_node_group_sl3_dptf[] = {
++	&ssam_node_root,
++	&ssam_node_bat_ac_dptf,
++	&ssam_node_bat_main_dptf,
++	&ssam_node_tmp_perf_profile,
++	&ssam_node_hid_main_keyboard,
++	&ssam_node_hid_main_touchpad,
++	&ssam_node_hid_main_iid5,
++	NULL,
++};
++
+ /* Devices for Surface Laptop 5. */
+ static const struct software_node *ssam_node_group_sl5[] = {
+ 	&ssam_node_root,
+-	&ssam_node_bat_ac,
+-	&ssam_node_bat_main,
++	&ssam_node_bat_ac_dptf,
++	&ssam_node_bat_main_dptf,
+ 	&ssam_node_tmp_perf_profile_with_fan,
+ 	&ssam_node_tmp_sensors,
+ 	&ssam_node_fan_speed,
+@@ -301,8 +338,8 @@ static const struct software_node *ssam_node_group_sl5[] = {
+ /* Devices for Surface Laptop 6. */
+ static const struct software_node *ssam_node_group_sl6[] = {
+ 	&ssam_node_root,
+-	&ssam_node_bat_ac,
+-	&ssam_node_bat_main,
++	&ssam_node_bat_ac_dptf,
++	&ssam_node_bat_main_dptf,
+ 	&ssam_node_tmp_perf_profile_with_fan,
+ 	&ssam_node_tmp_sensors,
+ 	&ssam_node_fan_speed,
+@@ -327,8 +364,8 @@ static const struct software_node *ssam_node_group_sl7[] = {
+ /* Devices for Surface Laptop Studio 1. */
+ static const struct software_node *ssam_node_group_sls1[] = {
+ 	&ssam_node_root,
+-	&ssam_node_bat_ac,
+-	&ssam_node_bat_main,
++	&ssam_node_bat_ac_dptf,
++	&ssam_node_bat_main_dptf,
+ 	&ssam_node_tmp_perf_profile,
+ 	&ssam_node_pos_tablet_switch,
+ 	&ssam_node_hid_sam_keyboard,
+@@ -343,8 +380,8 @@ static const struct software_node *ssam_node_group_sls1[] = {
+ /* Devices for Surface Laptop Studio 2. */
+ static const struct software_node *ssam_node_group_sls2[] = {
+ 	&ssam_node_root,
+-	&ssam_node_bat_ac,
+-	&ssam_node_bat_main,
++	&ssam_node_bat_ac_dptf,
++	&ssam_node_bat_main_dptf,
+ 	&ssam_node_tmp_perf_profile_with_fan,
+ 	&ssam_node_tmp_sensors,
+ 	&ssam_node_fan_speed,
+@@ -359,13 +396,13 @@ static const struct software_node *ssam_node_group_sls2[] = {
+ /* Devices for Surface Laptop Go. */
+ static const struct software_node *ssam_node_group_slg1[] = {
+ 	&ssam_node_root,
+-	&ssam_node_bat_ac,
+-	&ssam_node_bat_main,
++	&ssam_node_bat_ac_dptf,
++	&ssam_node_bat_main_dptf,
+ 	&ssam_node_tmp_perf_profile,
+ 	NULL,
+ };
+ 
+-/* Devices for Surface Pro 7 and Surface Pro 7+. */
++/* Devices for Surface Pro 7, without DPTF. */
+ static const struct software_node *ssam_node_group_sp7[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_bat_ac,
+@@ -374,12 +411,21 @@ static const struct software_node *ssam_node_group_sp7[] = {
+ 	NULL,
+ };
+ 
++/* Devices for Surface Pro 7+, with DPTF. */
++static const struct software_node *ssam_node_group_sp7_dptf[] = {
++	&ssam_node_root,
++	&ssam_node_bat_ac_dptf,
++	&ssam_node_bat_main_dptf,
++	&ssam_node_tmp_perf_profile,
++	NULL,
++};
++
+ /* Devices for Surface Pro 8 */
+ static const struct software_node *ssam_node_group_sp8[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_hub_kip,
+-	&ssam_node_bat_ac,
+-	&ssam_node_bat_main,
++	&ssam_node_bat_ac_dptf,
++	&ssam_node_bat_main_dptf,
+ 	&ssam_node_tmp_perf_profile,
+ 	&ssam_node_kip_tablet_switch,
+ 	&ssam_node_hid_kip_keyboard,
+@@ -391,7 +437,7 @@ static const struct software_node *ssam_node_group_sp8[] = {
+ 	NULL,
+ };
+ 
+-/* Devices for Surface Pro 9, 10 and 11 (Intel/x86) */
++/* Devices for Surface Pro 12 (Intel/x86), without DPTF. */
+ static const struct software_node *ssam_node_group_sp9[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_hub_kip,
+@@ -410,12 +456,31 @@ static const struct software_node *ssam_node_group_sp9[] = {
+ 	NULL,
+ };
+ 
++/* Devices for Surface Pro 9, 10 and 11 (Intel/x86), with DPTF. */
++static const struct software_node *ssam_node_group_sp9_dptf[] = {
++	&ssam_node_root,
++	&ssam_node_hub_kip,
++	&ssam_node_bat_ac_dptf,
++	&ssam_node_bat_main_dptf,
++	&ssam_node_tmp_perf_profile_with_fan,
++	&ssam_node_tmp_sensors,
++	&ssam_node_fan_speed,
++	&ssam_node_pos_tablet_switch,
++	&ssam_node_hid_kip_keyboard,
++	&ssam_node_hid_kip_penstash,
++	&ssam_node_hid_kip_touchpad,
++	&ssam_node_hid_kip_fwupd,
++	&ssam_node_hid_sam_sensors,
++	&ssam_node_hid_sam_ucm_ucsi,
++	NULL,
++};
++
+ /* Devices for Surface Pro 9 5G (ARM/QCOM) */
+ static const struct software_node *ssam_node_group_sp9_5g[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_hub_kip,
+-	&ssam_node_bat_ac,
+-	&ssam_node_bat_main,
++	&ssam_node_bat_ac_dptf,
++	&ssam_node_bat_main_dptf,
+ 	&ssam_node_tmp_sensors,
+ 	&ssam_node_hid_kip_keyboard,
+ 	&ssam_node_hid_kip_penstash,
+@@ -430,8 +495,8 @@ static const struct software_node *ssam_node_group_sp9_5g[] = {
+ static const struct software_node *ssam_node_group_sp11[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_hub_kip,
+-	&ssam_node_bat_ac,
+-	&ssam_node_bat_main,
++	&ssam_node_bat_ac_dptf,
++	&ssam_node_bat_main_dptf,
+ 	&ssam_node_tmp_sensors,
+ 	&ssam_node_hid_kip_keyboard,
+ 	&ssam_node_hid_kip_penstash,
+@@ -467,19 +532,19 @@ static const struct acpi_device_id ssam_platform_hub_acpi_match[] = {
+ 	{ "MSHW0116", (unsigned long)ssam_node_group_sp7 },
+ 
+ 	/* Surface Pro 7+ */
+-	{ "MSHW0119", (unsigned long)ssam_node_group_sp7 },
++	{ "MSHW0119", (unsigned long)ssam_node_group_sp7_dptf },
+ 
+ 	/* Surface Pro 8 */
+ 	{ "MSHW0263", (unsigned long)ssam_node_group_sp8 },
+ 
+ 	/* Surface Pro 9 */
+-	{ "MSHW0343", (unsigned long)ssam_node_group_sp9 },
++	{ "MSHW0343", (unsigned long)ssam_node_group_sp9_dptf },
+ 
+ 	/* Surface Pro 10 */
+-	{ "MSHW0510", (unsigned long)ssam_node_group_sp9 },
++	{ "MSHW0510", (unsigned long)ssam_node_group_sp9_dptf },
+ 
+ 	/* Surface Pro 11 */
+-	{ "MSHW0583", (unsigned long)ssam_node_group_sp9 },
++	{ "MSHW0583", (unsigned long)ssam_node_group_sp9_dptf },
+ 
+ 	/* Surface Pro 12 (Intel) */
+ 	{ "MSHW0743", (unsigned long)ssam_node_group_sp9 },
+@@ -500,10 +565,10 @@ static const struct acpi_device_id ssam_platform_hub_acpi_match[] = {
+ 	{ "MSHW0114", (unsigned long)ssam_node_group_sl3 },
+ 
+ 	/* Surface Laptop 3 (15", AMD) and 4 (15", AMD) */
+-	{ "MSHW0110", (unsigned long)ssam_node_group_sl3 },
++	{ "MSHW0110", (unsigned long)ssam_node_group_sl3_dptf },
+ 
+ 	/* Surface Laptop 4 (13", Intel) */
+-	{ "MSHW0250", (unsigned long)ssam_node_group_sl3 },
++	{ "MSHW0250", (unsigned long)ssam_node_group_sl3_dptf },
+ 
+ 	/* Surface Laptop 5 */
+ 	{ "MSHW0350", (unsigned long)ssam_node_group_sl5 },
+-- 
+2.56.1
+
+From 46b44821e973a7b2f6eccd9eb9920c5ece154b74 Mon Sep 17 00:00:00 2001
+From: Lars Schellhas van Kisfeld
+ <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Date: Mon, 16 Nov 2026 21:20:34 +0100
+Subject: [PATCH] power: supply: surface_battery: Add DPTF battery data
+
+The battery subsystem of the Surface Aggregator Module EC provides the
+data that platform power management (DPTF) uses: the battery's peak and
+sustained power, its impedance and no-load voltage, the power available
+from the connected sources and the rest-of-platform power. The EC sends
+it as event 0x53 when the power source changes, and answers a request
+with the same command ID. The driver already receives the event, but
+drops it ("TODO: Implement support for DPTF event").
+
+Request the data at probe time, when the external power changes and after
+resume from suspend (it can be stale then, for example if the power was
+disconnected while suspended), update it from the event, and expose it in
+a "dptf" attribute group on the battery. The attribute names and units
+follow the DPTF battery participant (drivers/acpi/dptf/dptf_power.c,
+INT3532). The group name is neutral on purpose: the driver does not
+implement that participant's interface.
+
+An EC that does not support the command does not answer the request and
+the request runs into a timeout, so the driver cannot use the request to
+find out about the support. It handles the data only on devices that
+have the "has_dptf" device property, which the Surface Aggregator
+registry sets for the devices that support it. Everywhere else the
+driver sends no request, ignores the event and does not create the
+attribute group. If the request fails on a device with the property,
+the driver logs a warning and goes on without the data.
+
+The first byte of the data is a version, which is 1 on the Surface Book 3.
+The driver warns once per device about any other value but still exposes
+the data, since the layout is checked by its length.
+
+User space uses this to reproduce the Windows power management, which
+sets, for example, the platform power limit (psys) from the available
+input power. On Linux it otherwise stays at its boot value.
+
+Tested on a Surface Book 3 (15", i7-1065G7, 7.3.4-1-surface) with the
+three patches built out of tree: the values for both batteries match
+the raw EC data read through the SSAM debug device, and unplugging and
+replugging the Surface PSU (with a USB-C charger connected) updated
+the base battery's available input power within a second (119.25 W ->
+65 W -> 119.25 W). Over 60 s at idle the driver sent no 0x53 request
+and no SAM request timed out.
+
+The analysis, the patch and this changelog were prepared with the help
+of an AI coding assistant (Claude, Anthropic). I reviewed the change.
+
+Link: https://github.com/linux-surface/surface-aggregator-module/issues/29
+Link: https://github.com/linux-surface/linux-surface/issues/2383
+Signed-off-by: Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Patchset: surface-sam
+---
+ .../ABI/testing/sysfs-class-power-surface     |  92 +++++++++
+ drivers/power/supply/surface_battery.c        | 175 +++++++++++++++++-
+ 2 files changed, 261 insertions(+), 6 deletions(-)
+
+diff --git a/Documentation/ABI/testing/sysfs-class-power-surface b/Documentation/ABI/testing/sysfs-class-power-surface
+index 79cde4dcf..739cbb5ee 100644
+--- a/Documentation/ABI/testing/sysfs-class-power-surface
++++ b/Documentation/ABI/testing/sysfs-class-power-surface
+@@ -13,3 +13,95 @@ Description:
+ 
+ 		Valid values: In micro-Wh or micro-Ah, depending on the power unit
+ 		of the battery
++
++What:		/sys/class/power_supply/<supply_name>/dptf/max_platform_power_mw
++Date:		November 2026
++KernelVersion:	7.4
++Contact:	Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
++Description:
++		Maximum peak power the battery can deliver, in mW (DPTF PMAX).
++
++		The embedded controller provides this value for platform power
++		management (DPTF) and updates it when the power source changes
++		and on resume from suspend.
++		The attribute is only present on devices whose embedded
++		controller is known to provide the data.
++
++		Access: Read
++
++What:		/sys/class/power_supply/<supply_name>/dptf/max_steady_state_power_mw
++Date:		November 2026
++KernelVersion:	7.4
++Contact:	Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
++Description:
++		Maximum sustained power the battery can deliver, in mW (DPTF PBSS).
++
++		The embedded controller provides this value for platform power
++		management (DPTF) and updates it when the power source changes
++		and on resume from suspend.
++		The attribute is only present on devices whose embedded
++		controller is known to provide the data.
++
++		Access: Read
++
++What:		/sys/class/power_supply/<supply_name>/dptf/high_freq_impedance_mohm
++Date:		November 2026
++KernelVersion:	7.4
++Contact:	Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
++Description:
++		High-frequency impedance of the battery, in mOhm (DPTF RBHF).
++
++		The embedded controller provides this value for platform power
++		management (DPTF) and updates it when the power source changes
++		and on resume from suspend.
++		The attribute is only present on devices whose embedded
++		controller is known to provide the data.
++
++		Access: Read
++
++What:		/sys/class/power_supply/<supply_name>/dptf/no_load_voltage_mv
++Date:		November 2026
++KernelVersion:	7.4
++Contact:	Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
++Description:
++		No-load voltage of the battery, in mV (DPTF VBNL).
++
++		The embedded controller provides this value for platform power
++		management (DPTF) and updates it when the power source changes
++		and on resume from suspend.
++		The attribute is only present on devices whose embedded
++		controller is known to provide the data.
++
++		Access: Read
++
++What:		/sys/class/power_supply/<supply_name>/dptf/available_input_power_mw
++Date:		November 2026
++KernelVersion:	7.4
++Contact:	Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
++Description:
++		Power available to the platform from the connected power sources,
++		in mW, as reported by the embedded controller.
++
++		The embedded controller provides this value for platform power
++		management (DPTF) and updates it when the power source changes
++		and on resume from suspend.
++		The attribute is only present on devices whose embedded
++		controller is known to provide the data.
++
++		Access: Read
++
++What:		/sys/class/power_supply/<supply_name>/dptf/rest_of_platform_power_mw
++Date:		November 2026
++KernelVersion:	7.4
++Contact:	Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
++Description:
++		Power of the rest of the platform, in mW (DPTF PROP), as reported
++		by the embedded controller.
++
++		The embedded controller provides this value for platform power
++		management (DPTF) and updates it when the power source changes
++		and on resume from suspend.
++		The attribute is only present on devices whose embedded
++		controller is known to provide the data.
++
++		Access: Read
+diff --git a/drivers/power/supply/surface_battery.c b/drivers/power/supply/surface_battery.c
+index 1273b6082..a3176c34d 100644
+--- a/drivers/power/supply/surface_battery.c
++++ b/drivers/power/supply/surface_battery.c
+@@ -12,6 +12,7 @@
+ #include <linux/module.h>
+ #include <linux/mutex.h>
+ #include <linux/power_supply.h>
++#include <linux/property.h>
+ #include <linux/sysfs.h>
+ #include <linux/types.h>
+ #include <linux/workqueue.h>
+@@ -81,6 +82,26 @@ struct spwr_bst {
+ 
+ static_assert(sizeof(struct spwr_bst) == 16);
+ 
++/*
++ * Battery data for platform power management (DPTF), command 0x53. The EC
++ * also sends it as an event when the power source changes. The field names
++ * follow the DPTF battery participant (see drivers/acpi/dptf/dptf_power.c).
++ */
++struct spwr_dptf {
++	__u8 version;
++	__le32 max_platform_power;	/* mW, peak power the battery can deliver (PMAX) */
++	__le32 max_steady_state_power;	/* mW, sustained battery power (PBSS) */
++	__le16 high_freq_impedance;	/* mOhm (RBHF) */
++	__le16 no_load_voltage;		/* mV (VBNL) */
++	__le32 available_input_power;	/* mW, power available from all sources */
++	__le32 rest_of_platform_power;	/* mW (PROP) */
++} __packed;
++
++static_assert(sizeof(struct spwr_dptf) == 21);
++
++/* The only DPTF data version seen on devices so far (Surface Book 3). */
++#define SPWR_DPTF_VERSION		1
++
+ #define SPWR_BIX_REVISION		0
+ #define SPWR_BATTERY_VALUE_UNKNOWN	0xffffffff
+ 
+@@ -102,6 +123,12 @@ SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_bst, struct spwr_bst, {
+ 	.command_id      = 0x03,
+ });
+ 
++/* Get battery data for platform power management (DPTF). */
++SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_dptf, struct spwr_dptf, {
++	.target_category = SSAM_SSH_TC_BAT,
++	.command_id      = 0x53,
++});
++
+ /* Set battery trip point (_BTP). */
+ SSAM_DEFINE_SYNC_REQUEST_CL_W(ssam_bat_set_btp, __le32, {
+ 	.target_category = SSAM_SSH_TC_BAT,
+@@ -134,6 +161,10 @@ struct spwr_battery_device {
+ 	struct spwr_bix bix;
+ 	struct spwr_bst bst;
+ 	u32 alarm;
++
++	bool has_dptf;		/* the device supports the DPTF request (device property) */
++	bool dptf_version_warned;
++	struct spwr_dptf dptf;
+ };
+ 
+ 
+@@ -196,6 +227,47 @@ static int spwr_battery_load_bst(struct spwr_battery_device *bat)
+ 	return ssam_retry(ssam_bat_get_bst, bat->sdev, &bat->bst);
+ }
+ 
++static void spwr_battery_check_dptf_version(struct spwr_battery_device *bat)
++{
++	lockdep_assert_held(&bat->lock);
++
++	if (bat->dptf.version == SPWR_DPTF_VERSION || bat->dptf_version_warned)
++		return;
++
++	bat->dptf_version_warned = true;
++	dev_warn(&bat->sdev->dev, "unexpected DPTF data version %u, the values may be wrong\n",
++		 bat->dptf.version);
++}
++
++static int spwr_battery_load_dptf_unlocked(struct spwr_battery_device *bat)
++{
++	int status;
++
++	lockdep_assert_held(&bat->lock);
++
++	status = ssam_retry(ssam_bat_get_dptf, bat->sdev, &bat->dptf);
++	if (!status)
++		spwr_battery_check_dptf_version(bat);
++
++	return status;
++}
++
++/* Reload the DPTF data, which can go stale while the driver is not notified. */
++static void spwr_battery_reload_dptf(struct spwr_battery_device *bat)
++{
++	int status;
++
++	if (!bat->has_dptf)
++		return;
++
++	mutex_lock(&bat->lock);
++	status = spwr_battery_load_dptf_unlocked(bat);
++	mutex_unlock(&bat->lock);
++
++	if (status)
++		dev_warn(&bat->sdev->dev, "failed to update DPTF data: %d\n", status);
++}
++
+ static int spwr_battery_set_alarm_unlocked(struct spwr_battery_device *bat, u32 value)
+ {
+ 	__le32 value_le = cpu_to_le32(value);
+@@ -340,6 +412,23 @@ static int spwr_battery_recheck_status(struct spwr_battery_device *bat)
+ 	return status;
+ }
+ 
++static int spwr_battery_update_dptf(struct spwr_battery_device *bat, const struct ssam_event *event)
++{
++	if (!bat->has_dptf)
++		return 0;
++
++	if (event->length < sizeof(bat->dptf))
++		return -EPROTO;
++
++	mutex_lock(&bat->lock);
++	memcpy(&bat->dptf, event->data, sizeof(bat->dptf));
++	spwr_battery_check_dptf_version(bat);
++	mutex_unlock(&bat->lock);
++
++	power_supply_changed(bat->psy);
++	return 0;
++}
++
+ static u32 spwr_notify_bat(struct ssam_event_notifier *nf, const struct ssam_event *event)
+ {
+ 	struct spwr_battery_device *bat = container_of(nf, struct spwr_battery_device, notif);
+@@ -376,10 +465,7 @@ static u32 spwr_notify_bat(struct ssam_event_notifier *nf, const struct ssam_eve
+ 		break;
+ 
+ 	case SAM_EVENT_CID_BAT_DPTF:
+-		/*
+-		 * TODO: Implement support for DPTF event.
+-		 */
+-		status = 0;
++		status = spwr_battery_update_dptf(bat, event);
+ 		break;
+ 
+ 	default:
+@@ -397,6 +483,9 @@ static void spwr_battery_update_bst_workfn(struct work_struct *work)
+ 
+ 	bat = container_of(dwork, struct spwr_battery_device, update_work);
+ 
++	/* The EC does not send the DPTF event for every power source change. */
++	spwr_battery_reload_dptf(bat);
++
+ 	status = spwr_battery_update_bst(bat, false);
+ 	if (status) {
+ 		dev_err(&bat->sdev->dev, "failed to update battery state: %d\n", status);
+@@ -713,7 +802,62 @@ static struct attribute *spwr_battery_attrs[] = {
+ 	&dev_attr_alarm.attr,
+ 	NULL,
+ };
+-ATTRIBUTE_GROUPS(spwr_battery);
++
++static const struct attribute_group spwr_battery_group = {
++	.attrs = spwr_battery_attrs,
++};
++
++/* -- DPTF attributes. ------------------------------------------------------ */
++
++#define SPWR_DPTF_SHOW(_name, _field, _get)						\
++static ssize_t _name##_show(struct device *dev, struct device_attribute *attr, char *buf)	\
++{											\
++	struct spwr_battery_device *bat = power_supply_get_drvdata(dev_to_psy(dev));	\
++	u32 value;									\
++											\
++	mutex_lock(&bat->lock);								\
++	value = _get(&bat->dptf._field);						\
++	mutex_unlock(&bat->lock);							\
++											\
++	return sysfs_emit(buf, "%u\n", value);						\
++}											\
++static DEVICE_ATTR_RO(_name)
++
++SPWR_DPTF_SHOW(max_platform_power_mw, max_platform_power, get_unaligned_le32);
++SPWR_DPTF_SHOW(max_steady_state_power_mw, max_steady_state_power, get_unaligned_le32);
++SPWR_DPTF_SHOW(high_freq_impedance_mohm, high_freq_impedance, get_unaligned_le16);
++SPWR_DPTF_SHOW(no_load_voltage_mv, no_load_voltage, get_unaligned_le16);
++SPWR_DPTF_SHOW(available_input_power_mw, available_input_power, get_unaligned_le32);
++SPWR_DPTF_SHOW(rest_of_platform_power_mw, rest_of_platform_power, get_unaligned_le32);
++
++static struct attribute *spwr_dptf_attrs[] = {
++	&dev_attr_max_platform_power_mw.attr,
++	&dev_attr_max_steady_state_power_mw.attr,
++	&dev_attr_high_freq_impedance_mohm.attr,
++	&dev_attr_no_load_voltage_mv.attr,
++	&dev_attr_available_input_power_mw.attr,
++	&dev_attr_rest_of_platform_power_mw.attr,
++	NULL,
++};
++
++static umode_t spwr_dptf_is_visible(struct kobject *kobj, struct attribute *attr, int n)
++{
++	struct spwr_battery_device *bat = power_supply_get_drvdata(dev_to_psy(kobj_to_dev(kobj)));
++
++	return bat->has_dptf ? attr->mode : 0;
++}
++
++static const struct attribute_group spwr_dptf_group = {
++	.name = "dptf",
++	.attrs = spwr_dptf_attrs,
++	.is_visible = spwr_dptf_is_visible,
++};
++
++static const struct attribute_group *spwr_battery_groups[] = {
++	&spwr_battery_group,
++	&spwr_dptf_group,
++	NULL,
++};
+ 
+ 
+ /* -- Device setup. --------------------------------------------------------- */
+@@ -755,6 +899,12 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
+ 	if ((le32_to_cpu(sta) & SAM_BATTERY_STA_OK) != SAM_BATTERY_STA_OK)
+ 		return -ENODEV;
+ 
++	/*
++	 * The EC does not answer the DPTF request if it does not support it,
++	 * so only send it if the device is marked as supporting it.
++	 */
++	bat->has_dptf = device_property_read_bool(&bat->sdev->dev, "has_dptf");
++
+ 	/* Satisfy lockdep although we are in an exclusive context here. */
+ 	mutex_lock(&bat->lock);
+ 
+@@ -764,6 +914,14 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
+ 		return status;
+ 	}
+ 
++	if (bat->has_dptf) {
++		status = spwr_battery_load_dptf_unlocked(bat);
++		if (status) {
++			dev_warn(&bat->sdev->dev, "failed to load DPTF data: %d\n", status);
++			bat->has_dptf = false;
++		}
++	}
++
+ 	if (spwr_battery_present(bat)) {
+ 		u32 cap_warn = get_unaligned_le32(&bat->bix.design_cap_warn);
+ 
+@@ -810,7 +968,12 @@ static int spwr_battery_register(struct spwr_battery_device *bat)
+ 
+ static int __maybe_unused surface_battery_resume(struct device *dev)
+ {
+-	return spwr_battery_recheck_full(dev_get_drvdata(dev));
++	struct spwr_battery_device *bat = dev_get_drvdata(dev);
++
++	/* The power source can have changed while suspended. */
++	spwr_battery_reload_dptf(bat);
++
++	return spwr_battery_recheck_full(bat);
+ }
+ static SIMPLE_DEV_PM_OPS(surface_battery_pm_ops, NULL, surface_battery_resume);
+ 
+-- 
+2.56.1
+
+From 9a1fb0a454ea5f9981d7e6a86609568d9f68091c Mon Sep 17 00:00:00 2001
+From: Lars Schellhas van Kisfeld
+ <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Date: Mon, 16 Nov 2026 21:20:45 +0100
+Subject: [PATCH] power: supply: surface_charger: Add the adapter rating
+
+The EC also reports the power rating of the connected adapter (DPTF
+ARTG, command 0x0f), next to the power source (PSRC, 0x0d) that the
+driver already reads. Expose it as dptf/adapter_rating_mw on the AC
+device, with the name and unit of the DPTF power participant
+(drivers/acpi/dptf/dptf_power.c, INT3407). The group name is neutral on
+purpose: the driver does not implement that participant's interface.
+Reading it fails with ENODATA while the EC reports no known rating. The
+driver requests the value on every read and caches nothing, so it is
+never stale after resume.
+
+An EC that does not support the command does not answer the request and
+the request runs into a timeout, so the driver cannot use the request to
+find out about the support. It creates the attribute only on devices
+that have the "has_dptf" device property, which the Surface Aggregator
+registry sets for the devices that support it, and sends no request
+otherwise.
+
+Tested on a Surface Book 3 (15", i7-1065G7, 7.3.4-1-surface) with the
+three patches built out of tree: it reads 120000 with the Surface PSU,
+matching the raw EC data read through the SSAM debug device, and 65000
+while only a 65 W USB-C charger was connected.
+
+The analysis, the patch and this changelog were prepared with the help
+of an AI coding assistant (Claude, Anthropic). I reviewed the change.
+
+Link: https://github.com/linux-surface/surface-aggregator-module/issues/29
+Signed-off-by: Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
+Patchset: surface-sam
+---
+ .../ABI/testing/sysfs-class-power-surface     | 13 ++++
+ drivers/power/supply/surface_charger.c        | 60 +++++++++++++++++++
+ 2 files changed, 73 insertions(+)
+
+diff --git a/Documentation/ABI/testing/sysfs-class-power-surface b/Documentation/ABI/testing/sysfs-class-power-surface
+index 739cbb5ee..176533cd3 100644
+--- a/Documentation/ABI/testing/sysfs-class-power-surface
++++ b/Documentation/ABI/testing/sysfs-class-power-surface
+@@ -105,3 +105,16 @@ Description:
+ 		controller is known to provide the data.
+ 
+ 		Access: Read
++
++What:		/sys/class/power_supply/<supply_name>/dptf/adapter_rating_mw
++Date:		November 2026
++KernelVersion:	7.4
++Contact:	Lars Schellhas van Kisfeld <lars.schellhas-van-kisfeld@schellhasconsulting.de>
++Description:
++		Power rating of the connected adapter, in mW (DPTF ARTG), as
++		reported by the embedded controller. Reading it fails with
++		ENODATA while no rating is known. The attribute is only present
++		on devices whose embedded controller is known to provide the
++		value.
++
++		Access: Read
+diff --git a/drivers/power/supply/surface_charger.c b/drivers/power/supply/surface_charger.c
+index d4bba6b41..e397a0c98 100644
+--- a/drivers/power/supply/surface_charger.c
++++ b/drivers/power/supply/surface_charger.c
+@@ -11,6 +11,7 @@
+ #include <linux/module.h>
+ #include <linux/mutex.h>
+ #include <linux/power_supply.h>
++#include <linux/property.h>
+ #include <linux/types.h>
+ 
+ #include <linux/surface_aggregator/device.h>
+@@ -40,6 +41,15 @@ SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_psrc, __le32, {
+ });
+ 
+ 
++/* Get the power rating of the connected adapter (DPTF ARTG), in mW. */
++SSAM_DEFINE_SYNC_REQUEST_CL_R(ssam_bat_get_artg, __le32, {
++	.target_category = SSAM_SSH_TC_BAT,
++	.command_id      = 0x0f,
++});
++
++/* ARTG value while no rating is known (e.g. no adapter connected). */
++#define SPWR_AC_ARTG_UNKNOWN		0x80000000
++
+ /* -- Device structures. ---------------------------------------------------- */
+ 
+ struct spwr_psy_properties {
+@@ -59,6 +69,7 @@ struct spwr_ac_device {
+ 	struct mutex lock;  /* Guards access to state below. */
+ 
+ 	__le32 state;
++	bool has_artg;	/* the device supports the ARTG request (device property) */
+ };
+ 
+ 
+@@ -164,6 +175,48 @@ static int spwr_ac_get_property(struct power_supply *psy, enum power_supply_prop
+ }
+ 
+ 
++/* -- DPTF attributes. ------------------------------------------------------ */
++
++static ssize_t adapter_rating_mw_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct spwr_ac_device *ac = power_supply_get_drvdata(dev_to_psy(dev));
++	__le32 artg;
++	int status;
++
++	status = ssam_retry(ssam_bat_get_artg, ac->sdev, &artg);
++	if (status)
++		return status;
++
++	if (le32_to_cpu(artg) == SPWR_AC_ARTG_UNKNOWN)
++		return -ENODATA;
++
++	return sysfs_emit(buf, "%u\n", le32_to_cpu(artg));
++}
++static DEVICE_ATTR_RO(adapter_rating_mw);
++
++static struct attribute *spwr_ac_dptf_attrs[] = {
++	&dev_attr_adapter_rating_mw.attr,
++	NULL,
++};
++
++static umode_t spwr_ac_dptf_is_visible(struct kobject *kobj, struct attribute *attr, int n)
++{
++	struct spwr_ac_device *ac = power_supply_get_drvdata(dev_to_psy(kobj_to_dev(kobj)));
++
++	return ac->has_artg ? attr->mode : 0;
++}
++
++static const struct attribute_group spwr_ac_dptf_group = {
++	.name = "dptf",
++	.attrs = spwr_ac_dptf_attrs,
++	.is_visible = spwr_ac_dptf_is_visible,
++};
++
++static const struct attribute_group *spwr_ac_groups[] = {
++	&spwr_ac_dptf_group,
++	NULL,
++};
++
+ /* -- Device setup. --------------------------------------------------------- */
+ 
+ static char *battery_supplied_to[] = {
+@@ -208,7 +261,14 @@ static int spwr_ac_register(struct spwr_ac_device *ac)
+ 	if ((le32_to_cpu(sta) & SAM_BATTERY_STA_OK) != SAM_BATTERY_STA_OK)
+ 		return -ENODEV;
+ 
++	/*
++	 * An EC that does not support the ARTG request does not answer it, so
++	 * only send it on devices marked as supporting it.
++	 */
++	ac->has_artg = device_property_read_bool(&ac->sdev->dev, "has_dptf");
++
+ 	psy_cfg.drv_data = ac;
++	psy_cfg.attr_grp = spwr_ac_groups;
+ 	psy_cfg.supplied_to = battery_supplied_to;
+ 	psy_cfg.num_supplicants = ARRAY_SIZE(battery_supplied_to);
+ 
+-- 
+2.56.1
+
+From 30468578a62e2d4debab47d0297dcce55ed6aefc Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Tue, 17 Nov 2026 20:30:03 +0100
+Subject: [PATCH] platform/surface: aggregator_registry: Rename SP9 node group
+ to SP12
+
+The ssam_node_group_sp9 group used to be shared by the Surface Pro 9, 10
+and 11 (Intel). Those devices now use ssam_node_group_sp9_dptf, which adds
+the has_dptf property, leaving the group only for the Surface Pro 12
+(Intel). Rename it to match its actual user, which also avoids confusion
+with the Surface Pro 9 5G group.
+
+No functional change.
+
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index a7141dac9..8b3344766 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -438,7 +438,7 @@ static const struct software_node *ssam_node_group_sp8[] = {
+ };
+ 
+ /* Devices for Surface Pro 12 (Intel/x86), without DPTF. */
+-static const struct software_node *ssam_node_group_sp9[] = {
++static const struct software_node *ssam_node_group_sp12[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_hub_kip,
+ 	&ssam_node_bat_ac,
+@@ -547,7 +547,7 @@ static const struct acpi_device_id ssam_platform_hub_acpi_match[] = {
+ 	{ "MSHW0583", (unsigned long)ssam_node_group_sp9_dptf },
+ 
+ 	/* Surface Pro 12 (Intel) */
+-	{ "MSHW0743", (unsigned long)ssam_node_group_sp9 },
++	{ "MSHW0743", (unsigned long)ssam_node_group_sp12 },
+ 
+ 	/* Surface Book 2 */
+ 	{ "MSHW0107", (unsigned long)ssam_node_group_gen5 },
+-- 
+2.56.1
+

@@ -1,0 +1,51 @@
+From 2d4cd827e3fc8aec6dee8da356eda809152d34ce Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 12 Mar 2023 01:41:57 +0100
+Subject: [PATCH] platform/surface: gpe: Add support for Surface Pro 9
+
+Add the lid GPE used by the Surface Pro 9.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-gpe
+---
+ drivers/platform/surface/surface_gpe.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_gpe.c b/drivers/platform/surface/surface_gpe.c
+index c219b840d491..69c4352e8406 100644
+--- a/drivers/platform/surface/surface_gpe.c
++++ b/drivers/platform/surface/surface_gpe.c
+@@ -41,6 +41,11 @@ static const struct property_entry lid_device_props_l4F[] = {
+ 	{},
+ };
+ 
++static const struct property_entry lid_device_props_l52[] = {
++	PROPERTY_ENTRY_U32("gpe", 0x52),
++	{},
++};
++
+ static const struct property_entry lid_device_props_l57[] = {
+ 	PROPERTY_ENTRY_U32("gpe", 0x57),
+ 	{},
+@@ -107,6 +112,18 @@ static const struct dmi_system_id dmi_lid_device_table[] = {
+ 		},
+ 		.driver_data = (void *)lid_device_props_l4B,
+ 	},
++	{
++		/*
++		 * We match for SKU here due to product name clash with the ARM
++		 * version.
++		 */
++		.ident = "Surface Pro 9",
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "Surface_Pro_9_2038"),
++		},
++		.driver_data = (void *)lid_device_props_l52,
++	},
+ 	{
+ 		.ident = "Surface Book 1",
+ 		.matches = {
+-- 
+2.44.0
+

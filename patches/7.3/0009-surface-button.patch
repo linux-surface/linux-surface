@@ -1,0 +1,227 @@
+From 9977177a168dda73c96ccc059319462fcaddbf20 Mon Sep 17 00:00:00 2001
+From: Sachi King <nakato@nakato.io>
+Date: Tue, 5 Oct 2021 00:05:09 +1100
+Subject: [PATCH] Input: soc_button_array - support AMD variant Surface devices
+
+The power button on the AMD variant of the Surface Laptop uses the
+same MSHW0040 device ID as the 5th and later generation of Surface
+devices, however they report 0 for their OEM platform revision.  As the
+_DSM does not exist on the devices requiring special casing, check for
+the existance of the _DSM to determine if soc_button_array should be
+loaded.
+
+Fixes: c394159310d0 ("Input: soc_button_array - add support for newer surface devices")
+Co-developed-by: Maximilian Luz <luzmaximilian@gmail.com>
+
+Signed-off-by: Sachi King <nakato@nakato.io>
+Patchset: surface-button
+---
+ drivers/input/misc/soc_button_array.c | 33 +++++++--------------------
+ 1 file changed, 8 insertions(+), 25 deletions(-)
+
+diff --git a/drivers/input/misc/soc_button_array.c b/drivers/input/misc/soc_button_array.c
+index 064243677..aa86f0007 100644
+--- a/drivers/input/misc/soc_button_array.c
++++ b/drivers/input/misc/soc_button_array.c
+@@ -547,8 +547,8 @@ static const struct soc_device_data soc_device_MSHW0028 = {
+  * Both, the Surface Pro 4 (surfacepro3_button.c) and the above mentioned
+  * devices use MSHW0040 for power and volume buttons, however the way they
+  * have to be addressed differs. Make sure that we only load this drivers
+- * for the correct devices by checking the OEM Platform Revision provided by
+- * the _DSM method.
++ * for the correct devices by checking if the OEM Platform Revision DSM call
++ * exists.
+  */
+ #define MSHW0040_DSM_REVISION		0x01
+ #define MSHW0040_DSM_GET_OMPR		0x02	// get OEM Platform Revision
+@@ -559,31 +559,14 @@ static const guid_t MSHW0040_DSM_UUID =
+ static int soc_device_check_MSHW0040(struct device *dev)
+ {
+ 	acpi_handle handle = ACPI_HANDLE(dev);
+-	union acpi_object *result;
+-	u64 oem_platform_rev = 0;	// valid revisions are nonzero
+-
+-	// get OEM platform revision
+-	result = acpi_evaluate_dsm_typed(handle, &MSHW0040_DSM_UUID,
+-					 MSHW0040_DSM_REVISION,
+-					 MSHW0040_DSM_GET_OMPR, NULL,
+-					 ACPI_TYPE_INTEGER);
+-
+-	if (result) {
+-		oem_platform_rev = result->integer.value;
+-		ACPI_FREE(result);
+-	}
+-
+-	/*
+-	 * If the revision is zero here, the _DSM evaluation has failed. This
+-	 * indicates that we have a Pro 4 or Book 1 and this driver should not
+-	 * be used.
+-	 */
+-	if (oem_platform_rev == 0)
+-		return -ENODEV;
++	bool exists;
+ 
+-	dev_dbg(dev, "OEM Platform Revision %llu\n", oem_platform_rev);
++	// check if OEM platform revision DSM call exists
++	exists = acpi_check_dsm(handle, &MSHW0040_DSM_UUID,
++				MSHW0040_DSM_REVISION,
++				BIT(MSHW0040_DSM_GET_OMPR));
+ 
+-	return 0;
++	return exists ? 0 : -ENODEV;
+ }
+ 
+ /*
+-- 
+2.56.1
+
+From 046369429c7fe835118ebe154182cea4ef888da1 Mon Sep 17 00:00:00 2001
+From: Sachi King <nakato@nakato.io>
+Date: Tue, 5 Oct 2021 00:22:57 +1100
+Subject: [PATCH] platform/surface: surfacepro3_button: don't load on amd
+ variant
+
+The AMD variant of the Surface Laptop report 0 for their OEM platform
+revision.  The Surface devices that require the surfacepro3_button
+driver do not have the _DSM that gets the OEM platform revision.  If the
+method does not exist, load surfacepro3_button.
+
+Fixes: 64dd243d7356 ("platform/x86: surfacepro3_button: Fix device check")
+Co-developed-by: Maximilian Luz <luzmaximilian@gmail.com>
+
+Signed-off-by: Sachi King <nakato@nakato.io>
+Patchset: surface-button
+---
+ drivers/platform/surface/surfacepro3_button.c | 31 ++++---------------
+ 1 file changed, 6 insertions(+), 25 deletions(-)
+
+diff --git a/drivers/platform/surface/surfacepro3_button.c b/drivers/platform/surface/surfacepro3_button.c
+index b38aa0100..add5d003b 100644
+--- a/drivers/platform/surface/surfacepro3_button.c
++++ b/drivers/platform/surface/surfacepro3_button.c
+@@ -148,37 +148,18 @@ static int surface_button_resume(struct device *dev)
+ /*
+  * Surface Pro 4 and Surface Book 2 / Surface Pro 2017 use the same device
+  * ID (MSHW0040) for the power/volume buttons. Make sure this is the right
+- * device by checking for the _DSM method and OEM Platform Revision.
++ * device by checking for the _DSM method and OEM Platform Revision DSM
++ * function.
+  *
+  * Returns true if the driver should bind to this device, i.e. the device is
+  * either MSWH0028 (Pro 3) or MSHW0040 on a Pro 4 or Book 1.
+  */
+ static bool surface_button_check_MSHW0040(struct device *dev, acpi_handle handle)
+ {
+-	union acpi_object *result;
+-	u64 oem_platform_rev = 0;	// valid revisions are nonzero
+-
+-	// get OEM platform revision
+-	result = acpi_evaluate_dsm_typed(handle, &MSHW0040_DSM_UUID,
+-					 MSHW0040_DSM_REVISION,
+-					 MSHW0040_DSM_GET_OMPR,
+-					 NULL, ACPI_TYPE_INTEGER);
+-
+-	/*
+-	 * If evaluating the _DSM fails, the method is not present. This means
+-	 * that we have either MSHW0028 or MSHW0040 on Pro 4 or Book 1, so we
+-	 * should use this driver. We use revision 0 indicating it is
+-	 * unavailable.
+-	 */
+-
+-	if (result) {
+-		oem_platform_rev = result->integer.value;
+-		ACPI_FREE(result);
+-	}
+-
+-	dev_dbg(dev, "OEM Platform Revision %llu\n", oem_platform_rev);
+-
+-	return oem_platform_rev == 0;
++	// make sure that OEM platform revision DSM call does not exist
++	return !acpi_check_dsm(handle, &MSHW0040_DSM_UUID,
++			       MSHW0040_DSM_REVISION,
++			       BIT(MSHW0040_DSM_GET_OMPR));
+ }
+ 
+ 
+-- 
+2.56.1
+
+From 53e7106a85f9f4608667d663702aec4f61ea584a Mon Sep 17 00:00:00 2001
+From: Jan Baisch <jan.baisch@protonmail.com>
+Date: Wed, 12 Aug 2026 16:34:02 +0200
+Subject: [PATCH] Input: soc_button_array: defer MSHW0040 probe until GPIO is
+ ready
+
+MSHW0040 Surface devices use GPIO index 0 for the physical power
+button. On the Surface Pro 12 for Business Intel, soc_button_array
+can probe before the Panther Lake GPIO provider is ready. On affected
+boots, the GPIO lookups for the power and volume buttons return
+-EPROBE_DEFER.
+
+Reloading the unchanged soc_button_array driver after the GPIO provider
+has initialized makes the driver bind and all three buttons work.
+
+The generic button creation path deliberately ignores -EPROBE_DEFER
+because some Intel platforms expose virtual GPIO resources which never
+acquire a GPIO provider. Propagating that error from the generic path
+has previously caused severe deferred-probe loops on such systems.
+
+Instead, check the known real MSHW0040 power-button GPIO before
+creating any child devices and propagate only -EPROBE_DEFER. Keep all
+other lookup errors and the generic virtual-GPIO handling unchanged.
+
+This follows the direction already considered during the original
+MSHW0040 Surface button support discussion, while avoiding the generic
+error propagation that was later reverted.
+
+The Surface Pro 12 Intel provides a reliable reproducer with both
+CONFIG_INPUT_SOC_BUTTON_ARRAY and CONFIG_PINCTRL_INTEL_PLATFORM built
+as modules.
+
+Link: https://github.com/linux-surface/linux-surface/issues/2144#issuecomment-5226810584
+Link: https://github.com/linux-surface/linux-surface/issues/61
+Link: https://lore.kernel.org/all/20190516142523.117978-3-luzmaximilian@gmail.com/
+Link: https://lore.kernel.org/all/65b265d2-f7a8-bcd7-e63f-f8efb7349324@gmail.com/
+Signed-off-by: Jan Baisch <jan.baisch@protonmail.com>
+Link: https://github.com/linux-surface/kernel/pull/172
+Patchset: surface-button
+---
+ drivers/input/misc/soc_button_array.c | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/input/misc/soc_button_array.c b/drivers/input/misc/soc_button_array.c
+index aa86f0007..80f8bb3f6 100644
+--- a/drivers/input/misc/soc_button_array.c
++++ b/drivers/input/misc/soc_button_array.c
+@@ -560,13 +560,27 @@ static int soc_device_check_MSHW0040(struct device *dev)
+ {
+ 	acpi_handle handle = ACPI_HANDLE(dev);
+ 	bool exists;
++	int gpio, irq, error;
+ 
+ 	// check if OEM platform revision DSM call exists
+ 	exists = acpi_check_dsm(handle, &MSHW0040_DSM_UUID,
+ 				MSHW0040_DSM_REVISION,
+ 				BIT(MSHW0040_DSM_GET_OMPR));
++	if (!exists)
++		return -ENODEV;
+ 
+-	return exists ? 0 : -ENODEV;
++	/*
++	 * Explicitly check if the GPIO controller is ready. The generic
++	 * button creation path deliberately ignores -EPROBE_DEFER because
++	 * some Intel platforms expose virtual GPIO resources which never
++	 * acquire a GPIO provider. MSHW0040, however, is expected to have
++	 * a real power-button GPIO at index 0.
++	 */
++	error = soc_button_lookup_gpio(dev, 0, &gpio, &irq);
++	if (error == -EPROBE_DEFER)
++		return error;
++
++	return 0;
+ }
+ 
+ /*
+-- 
+2.56.1
+

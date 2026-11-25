@@ -1,0 +1,25 @@
+From 420e2d82753a8d3f7db063313602f96ae85ecba6 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 30 Jun 2024 17:10:28 +0200
+Subject: [PATCH] kbuild: Link sign-file statically
+
+---
+ scripts/Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/scripts/Makefile b/scripts/Makefile
+index 3434a82a119f..260009afa0f9 100644
+--- a/scripts/Makefile
++++ b/scripts/Makefile
+@@ -36,7 +36,7 @@ HOSTLDLIBS_sorttable = -lpthread
+ HOSTCFLAGS_asn1_compiler.o = -I$(srctree)/include
+ HOSTCFLAGS_sign-file.o = $(shell $(HOSTPKG_CONFIG) --cflags libcrypto 2> /dev/null)
+ HOSTCFLAGS_sign-file.o += -I$(srctree)/tools/include/uapi/
+-HOSTLDLIBS_sign-file = $(shell $(HOSTPKG_CONFIG) --libs libcrypto 2> /dev/null || echo -lcrypto)
++HOSTLDLIBS_sign-file = -Wl,-Bstatic $(shell $(HOSTPKG_CONFIG) --static --libs libcrypto | sed 's/-ldl//' 2> /dev/null || echo -lcrypto) -Wl,-Bdynamic -ldl
+ 
+ ifdef CONFIG_UNWINDER_ORC
+ ifeq ($(ARCH),x86_64)
+-- 
+2.56.0
+

@@ -1,0 +1,72 @@
+From 94973b24d4136293be23603a914967747da0c6a7 Mon Sep 17 00:00:00 2001
+From: Alok Tiwari <alok.a.tiwari@oracle.com>
+Date: Wed, 8 Apr 2026 13:12:34 +0100
+Subject: [PATCH 4/8] rxrpc: Fix use of wrong skb when comparing queued RESP
+ challenge serial
+
+In rxrpc_post_response(), the code should be comparing the challenge serial
+number from the cached response before deciding to switch to a newer
+response, but looks at the newer packet private data instead, rendering the
+comparison always false.
+
+Fix this by switching to look at the older packet.
+
+Fix further[1] to substitute the new packet in place of the old one if
+newer and also to release whichever we don't use.
+
+Fixes: 5800b1cf3fd8 ("rxrpc: Allow CHALLENGEs to the passed to the app for a RESPONSE")
+Signed-off-by: Alok Tiwari <alok.a.tiwari@oracle.com>
+Signed-off-by: David Howells <dhowells@redhat.com>
+Reviewed-by: Jeffrey Altman <jaltman@auristor.com>
+cc: Marc Dionne <marc.dionne@auristor.com>
+cc: Simon Horman <horms@kernel.org>
+cc: linux-afs@lists.infradead.org
+cc: stable@kernel.org
+Link: https://sashiko.dev/#/patchset/20260319150150.4189381-1-dhowells%40redhat.com [1]
+Link: https://patch.msgid.link/20260408121252.2249051-7-dhowells@redhat.com
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+(cherry picked from commit b33f5741bb187db8ff32e8f5b96def77cc94dfca)
+---
+ include/trace/events/rxrpc.h | 1 +
+ net/rxrpc/conn_event.c       | 5 +++--
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/include/trace/events/rxrpc.h b/include/trace/events/rxrpc.h
+index 8a338f370de9..94f804ec8831 100644
+--- a/include/trace/events/rxrpc.h
++++ b/include/trace/events/rxrpc.h
+@@ -183,6 +183,7 @@
+ 	EM(rxrpc_skb_put_input,			"PUT input    ") \
+ 	EM(rxrpc_skb_put_jumbo_subpacket,	"PUT jumbo-sub") \
+ 	EM(rxrpc_skb_put_oob,			"PUT oob      ") \
++	EM(rxrpc_skb_put_old_response,		"PUT old-resp ") \
+ 	EM(rxrpc_skb_put_purge,			"PUT purge    ") \
+ 	EM(rxrpc_skb_put_purge_oob,		"PUT purge-oob") \
+ 	EM(rxrpc_skb_put_response,		"PUT response ") \
+diff --git a/net/rxrpc/conn_event.c b/net/rxrpc/conn_event.c
+index 98ad9b51ca2c..c50cbfc5a313 100644
+--- a/net/rxrpc/conn_event.c
++++ b/net/rxrpc/conn_event.c
+@@ -557,11 +557,11 @@ void rxrpc_post_response(struct rxrpc_connection *conn, struct sk_buff *skb)
+ 	spin_lock_irq(&local->lock);
+ 	old = conn->tx_response;
+ 	if (old) {
+-		struct rxrpc_skb_priv *osp = rxrpc_skb(skb);
++		struct rxrpc_skb_priv *osp = rxrpc_skb(old);
+ 
+ 		/* Always go with the response to the most recent challenge. */
+ 		if (after(sp->resp.challenge_serial, osp->resp.challenge_serial))
+-			conn->tx_response = old;
++			conn->tx_response = skb;
+ 		else
+ 			old = skb;
+ 	} else {
+@@ -569,4 +569,5 @@ void rxrpc_post_response(struct rxrpc_connection *conn, struct sk_buff *skb)
+ 	}
+ 	spin_unlock_irq(&local->lock);
+ 	rxrpc_poke_conn(conn, rxrpc_conn_get_poke_response);
++	rxrpc_free_skb(old, rxrpc_skb_put_old_response);
+ }
+-- 
+2.53.0
+

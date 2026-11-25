@@ -1,0 +1,93 @@
+From d212b3c25132358b7e3a6e9644fe7f6fa83cec6d Mon Sep 17 00:00:00 2001
+From: Dorian Stoll <dorian.stoll@tmsp.io>
+Date: Tue, 30 Sep 2025 20:12:29 +0200
+Subject: [PATCH 4/6] Install scripts and service files for keeping the surface
+ kernel the default
+
+Signed-off-by: Dorian Stoll <dorian.stoll@tmsp.io>
+---
+ redhat/kernel.spec.template | 33 +++++++++++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+diff --git a/redhat/kernel.spec.template b/redhat/kernel.spec.template
+index b6bc160bac72..9adc564bcde1 100644
+--- a/redhat/kernel.spec.template
++++ b/redhat/kernel.spec.template
+@@ -1178,6 +1178,11 @@ Source4000: README.rst
+ Source4001: rpminspect.yaml
+ Source4002: gating.yaml
+ 
++Source4100: linux-surface-default-watchdog.path
++Source4101: linux-surface-default-watchdog.service
++Source4102: linux-surface-default-watchdog.py
++Source4103: 90-linux-surface-default-watchdog.preset
++
+ ## Patches needed for building this package
+ 
+ %if !%{nopatches}
+@@ -1220,6 +1225,7 @@ Requires(pre): %{initrd_prereq}\
+ Requires(pre): ((linux-firmware >= 20150904-56.git6ebf5d57) if linux-firmware)\
+ Recommends: linux-firmware\
+ Recommends: iptsd\
++Recommends: %{package_name}-default-watchdog\
+ Requires(preun): systemd >= 200\
+ Conflicts: xfsprogs < 4.3.0-1\
+ Conflicts: xorg-x11-drv-vmmouse < 13.0.99\
+@@ -1234,6 +1240,13 @@ AutoProv: yes\
+ %{nil}
+ 
+ 
++%package default-watchdog
++Summary: Watchdog service ensuring that the surface kernel stays the default kernel.
++%description default-watchdog
++This package provides a systemd service that will automatically keep
++the surface kernel as the default kernel in GRUB, even if a newer stock
++kernel has been installed.
++
+ %package doc
+ Summary: Various documentation bits found in the kernel source
+ %description doc
+@@ -3699,6 +3712,11 @@ find Documentation -type d | xargs chmod u+w
+ 
+ cd linux-%{KVERREL}
+ 
++install -D -m644 "%{SOURCE4100}" -t "%{buildroot}%{_unitdir}"
++install -D -m644 "%{SOURCE4101}" -t "%{buildroot}%{_unitdir}"
++install -D -m755 "%{SOURCE4102}" -t "%{buildroot}%{_bindir}"
++install -D -m755 "%{SOURCE4103}" -t "%{buildroot}%{_presetdir}"
++
+ %if %{with_doc}
+ docdir=$RPM_BUILD_ROOT%{_datadir}/doc/kernel-doc-%{specversion}-%{pkgrelease}
+ 
+@@ -4146,6 +4164,15 @@ install -m 644 $_kmap_basedir/kernel-map.json $_kmap_destbase/kernel-map-%{KVERR
+ ### scripts
+ ###
+ 
++%post default-watchdog
++%systemd_post linux-surface-default-watchdog.path
++
++%preun default-watchdog
++%systemd_preun linux-surface-default-watchdog.path
++
++%postun default-watchdog
++%systemd_postun_with_restart linux-surface-default-watchdog.path
++
+ %if %{with_tools}
+ %post -n %{name}-tools-libs
+ /sbin/ldconfig
+@@ -4701,6 +4728,12 @@ fi\
+ %{_datadir}/%{name}-kmap-internal/kernel-map-%{KVERREL}.json
+ %endif
+ 
++%files default-watchdog
++%{_bindir}/linux-surface-default-watchdog.py
++%{_unitdir}/linux-surface-default-watchdog.path
++%{_unitdir}/linux-surface-default-watchdog.service
++%{_presetdir}/90-linux-surface-default-watchdog.preset
++
+ # empty meta-package
+ %if %{with_stock_base}
+ %ifnarch noarch %{nobuildarches}
+-- 
+2.56.0
+

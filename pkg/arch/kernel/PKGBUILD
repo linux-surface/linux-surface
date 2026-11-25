@@ -1,0 +1,333 @@
+# Maintainer: Maximilian Luz <m@mxnluz.io>
+# Maintainer: Blaž Hrastnik <blaz@mxxn.io>
+# Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+
+pkgbase=linux-surface
+pkgver=7.3.6.arch1
+pkgrel=1
+pkgdesc='Linux'
+url='https://github.com/archlinux/linux'
+arch=(
+  x86_64
+)
+license=(GPL-2.0-only)
+makedepends=(
+  bc
+  binutils
+  cpio
+  gettext
+  glibc
+  libelf
+  libgcc
+  openssl
+  pahole
+  perl
+  python
+  rust
+  rust-bindgen
+  rust-src
+  tar
+  xxhash
+  xz
+  zlib
+  zstd
+  # ignoring deps for docs because we don't build docs package
+)
+optdepends=(
+  'iptsd: Touchscreen support'
+  'linux-firmware: Firmware files for Linux'
+  'linux-firmware-marvell: Firmware files for Marvell WiFi / Bluetooth'
+)
+options=(
+  !debug
+  !strip
+)
+_srcname=linux-${pkgver%.*}
+_srctag=v${pkgver%.*}-${pkgver##*.}
+source=(
+  https://cdn.kernel.org/pub/linux/kernel/v${pkgver%%.*}.x/${_srcname}.tar.{xz,sign}
+  $url/releases/download/$_srctag/linux-$_srctag.patch.zst{,.sig}
+  surface.config # surface specific options
+  arch.config    # config changes for linux-surface kernel
+  0001-secureboot.patch
+  0002-surface3.patch
+  0003-mwifiex.patch
+  0004-ath10k.patch
+  0005-ipts.patch
+  0006-ithc.patch
+  0007-surface-sam.patch
+  0008-surface-sam-over-hid.patch
+  0009-surface-button.patch
+  0010-surface-typecover.patch
+  0011-surface-shutdown.patch
+  0012-surface-gpe.patch
+  0013-cameras.patch
+  0014-amd-gpio.patch
+  0015-hid-surface.patch
+)
+source_x86_64=(config.x86_64)
+validpgpkeys=(
+  ABAF11C65A2970B130ABE3C479BE3E4300411886  # Linus Torvalds
+  647F28654894E3BD457199BE38DBBDC86092693E  # Greg Kroah-Hartman
+  83BC8889351B5DEBBB68416EB8AC08600F108CDF  # Jan Alexander Steffens (heftig)
+)
+b2sums=('78da05b71d4fb975d759e7e9f74917531fc06b0740cdf9eab69b1d7b838d6a0cc19a087a629bb41eb4ae77f9ca745cd309e4d90911e4b74347016a059b3fac02'
+        'SKIP'
+        '5ca895061b555f0561546525f1ab213fe27c1ba7e6a0bbe0f4c6bc7b135db707bd8162d47d107bf2ec862a09b34f970a3b151c6267540d3b20366e102e3421e7'
+        'SKIP'
+        '9e294314ac3b53e6dd25067af6ffe040a23ff2a9cf958a5e15bc47c342fe0fe8a184aa4134c80368965054bee48b2579ab8ca4505d29495fd0e280578840a9dc'
+        'bef7974dde3a01be7f15d3731bf475c8b979c1fd879a550a692e3f4df48c6712b80e9e13e6fd1ad4fbfa563d45787e3bcab1e81cf2dfbb195cd1e24fa0d6ac99'
+        '086f53842c10a310e1b2999788f1a4e9efd8e37a7258b21dee2e1daa521958691baa225b9401560d2055504b7efc3e22ac9969c8afa212f55c71504eb069ae97'
+        '114bc0487a539bf06bbde62e7dd6a1d4a309f4b63faa60441141c9889b3f98676b1d114a3e711e431eec243fdac68b740e6b3d291257faa84087f670d7b0854c'
+        '3b3e99865d6221fe66cc377135121e16dd26af077e82a9f449b7f53359c50dfb47fc027e999275cee9717d7f1d7c18e40b0f3380fce13754fe7c6af9e85380b7'
+        '800549be3df01be0416eefd9e44151a046289570a0eb2a88b21cddc5a7ff13d11e4049aabb4ad464ecb37eee8de4c76af0373f39e646e88f59d2164aa4772249'
+        'ed68e57969e8d28fc7a4488ac4919d8f1df61a6cedb7acaf06fd13ddccb414e571a4367be61463d9eeab99d3ea9ed2893d600a203f0bd0cbd2be75320eb7c35d'
+        '2ab74c7a7093b266c24e7228f8fa06291da1cf6213772e5e93e29d0603099018969009f8f7ebf74bea35da89caf083d8a07c14833a62754bf7410d1fc66b0d32'
+        '86c0d610920875c41c8befe2102185dba1ec5894ff4a9da302156cdcda4c8e99e9c08e5c406fc15a8677366f5de3bae1d414af17cf8ec46ab041c5663abaf0f0'
+        '4cfb84e1cc443c0c75efb8f6472771ecb8d5a778ec3f20cb699c6e66b2dc14705456fa583cc07447122139081f80897b9f066fd7edd8dfc31907d95e45a37ee5'
+        'fd1c8de6c3c5c69d28f42203fd2e5e64e8128af057c8f01141714a01b92de0c186a8c158e5f6a9d12ae01995972adf1c9b9d6ff98bd6776c8ecc30c446fa2cc3'
+        '8e3851d8f59069455d54c15fc6b0f936256a76ea3ab863be288ab90fbf16a6feb8af901565e436414748d85ee24597a4a0c35d0a2fe2beb442f9448952d3d9a1'
+        '70b3bbc66d6b3f8a4c88e04df6edd7ca521e3497eeea55808c09b9c828e06518ec7e0282cde692b00f10203f2f0eafd07e325a83b6b3b506e6ca2ea4e94df7d5'
+        '818dcc44690d23cc19a7efa6fcdc9b7822b36f06aa54c5c7a03002689d81a739c0befcba0666c5ad4701c12a1e0a8a97ee08508a3ad219e89caceaf51a9cf303'
+        'a1a728629946cb63c55d12c2ff3d35fb4c3bc6908f5b38d42f1e9c040ad276bee642b2809b5f4c54c3c671624d56324d66c6851851104cb8d1b9861d9c644ba9'
+        'a19743700bf4ef0a907c5ca93523641ad9093db45082c9bfba68b0e2265530839b7594c03472ed6bacb205a87080e14913ec3629b1f6360dc7f2196496a1a327'
+        'bd688bb5f61fb3a8f659756f80c7d45b9c4cf366cadf41cd5d84c0f5addc55bed3eccc058fae2a8eb747ea6f18f8639208c8ad2dc38614a4a01e450947a83a30')
+b2sums_x86_64=('717e22962ab421d31fed9e50f9c82e58dc749a76823fb540b8e4830b467aa8d38ace5121105d70d6c6ef317551bcf7b796cdc15e6c896df9d62225c320b77262')
+
+# https://www.kernel.org/pub/linux/kernel/v7.x/sha256sums.asc
+sha256sums=('8183d475a76a0faffa92d6cd500af421f589dfd0300a0f1060bb875e11d45723'
+            'SKIP'
+            'e76df8ca615ad71eb9cc214b8293202287a4efb1136098972a832d2ce72a02bf'
+            'SKIP'
+            '0f81da33cc04ee29f01744d0c10ce3fc771703d67122620118a042ea20837e8f'
+            'd59305c5bd457969cf9e0dcd473b7c7a298acff7e8529a836dd15ec75fd6238c'
+            'de66a958e61770cb328ff29b217f69948ed2b50691aee01f226eefd06ac6539e'
+            'f2b144580cf5b058ce4b1be6b31a5013b3cd621fe84144605eae50088bf54f41'
+            '91a69d245eba0da31310af5695b943b7833940c0d4524b2426b7a10220add779'
+            'd8b21f3a542265c90992bea1832d64cff3403b64c4462c47891f77d0ce40f6c3'
+            'ada723dba4de774a0c095fdf597e808c9018f4a290a03f10586ce2950bf5be93'
+            '39b0477dffffee8d83bedd597420bdec5c10329b8bd3c49251d82d3a2cd1b58f'
+            '9fbb0ccc3ff73bc72412eaed3c2f2370ba55ac0835648023f6f9571e8dad80f3'
+            '6dd826b0919a3503c9016fcf12f07d0259c7aef5953b6c56a4e0cd5fa0d51d44'
+            'e4f42ec53c08d232c82ebdba05ddd0d58bd1c1a45458693fcf4f1f8bf004052a'
+            '65f6f6fedb90a31b7a4e135f103248ed92f44d74a959617919ca1a23648c1751'
+            '9167da82ba76bc56fe59dfa329cd92821a7870692f8b0fc33349c3b14443ceb5'
+            'd05df8040547b62eec8e75993368054e4dd6dba7da82426b5ab1f86121862a39'
+            '8c3dda409b896e99ea3dfc64e70c3ad162993778a46c6d841bc0083893425290'
+            'c20048415dd0b2c5a0e8a43b1bdf7647808567233312c7beb901c08edabcdae3'
+            '1e6cba750c59ceb468364c8624b1c5b0f31417fe8f8d2d204604fe1581576c4a')
+
+export KBUILD_BUILD_HOST=archlinux
+export KBUILD_BUILD_USER=$pkgbase
+export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EPOCH})"
+
+# optional certificate and key for secure boot signing
+_mok_crt="$PWD/MOK.crt"
+_mok_key="$PWD/MOK.key"
+
+prepare() {
+  cd $_srcname
+
+  echo "Setting version..."
+  echo "-$pkgrel" > localversion.10-pkgrel
+  echo "${pkgbase#linux}" > localversion.20-pkgname
+
+  local src
+  for src in "${source[@]}"; do
+    src="${src%%::*}"
+    src="${src##*/}"
+    src="${src%.zst}"
+    [[ $src = *.patch ]] || continue
+    echo "Applying patch $src..."
+    patch -Np1 < "../$src"
+  done
+
+  echo "Setting config..."
+  ./scripts/kconfig/merge_config.sh -m ../config.$CARCH ../surface.config ../arch.config
+  make olddefconfig
+  diff -u ../config.$CARCH .config || :
+
+  make -s kernelrelease > version
+  echo "Prepared $pkgbase version $(<version)"
+}
+
+build() {
+  cd $_srcname
+
+  make all
+}
+
+_package() {
+  pkgdesc="The $pkgdesc kernel and modules"
+  depends=(
+    coreutils
+    initramfs
+    kmod
+  )
+  optdepends=(
+    "$pkgbase-headers: headers and scripts for building modules"
+    'linux-firmware: firmware images needed for some devices'
+    'scx-scheds: to use sched-ext schedulers'
+    'wireless-regdb: to set the correct wireless channels of your country'
+  )
+  provides=(
+    KSMBD-MODULE
+    NTSYNC-MODULE
+    VIRTUALBOX-GUEST-MODULES
+    WIREGUARD-MODULE
+  )
+  replaces=(
+    virtualbox-guest-modules-arch
+    wireguard-arch
+  )
+
+  cd $_srcname
+  local modulesdir="$pkgdir/usr/lib/modules/$(<version)"
+  local image_name="$(make -s image_name)"
+
+  # sign boot image if the prequisites are available
+  if [[ -f "$_mok_crt" ]] && [[ -f "$_mok_key" ]] && [[ -x "$(command -v sbsign)" ]]; then
+    echo "Signing boot image..."
+    sbsign --key "$_mok_key" --cert "$_mok_crt" --output "$image_name" "$image_name"
+  fi
+
+  echo "Installing boot image..."
+  # systemd expects to find the kernel here to allow hibernation
+  # https://github.com/systemd/systemd/commit/edda44605f06a41fb86b7ab8128dcf99161d2344
+  install -Dm644 "$image_name" "$modulesdir/vmlinuz"
+
+  # Used by mkinitcpio to name the kernel
+  echo "$pkgbase" | install -Dm644 /dev/stdin "$modulesdir/pkgbase"
+
+  echo "Installing modules..."
+  ZSTD_CLEVEL=19 make INSTALL_MOD_PATH="$pkgdir/usr" INSTALL_MOD_STRIP=1 \
+    DEPMOD=/doesnt/exist modules_install  # Suppress depmod
+
+  # remove build link
+  rm "$modulesdir"/build
+}
+
+_package-headers() {
+  pkgdesc="Headers and scripts for building modules for the $pkgdesc kernel"
+  depends=(
+    binutils
+    glibc
+    libelf
+    libgcc
+    openssl
+    pahole
+    xxhash
+    zlib
+    zstd
+  )
+  provides=(LINUX-HEADERS)
+
+  cd $_srcname
+  local builddir="$pkgdir/usr/lib/modules/$(<version)/build"
+
+  local karch
+  case $CARCH in
+    x86_64) karch=x86 ;;
+    *) echo "Unknown CARCH $CARCH"; exit 1 ;;
+  esac
+
+  echo "Installing build files..."
+  install -Dt "$builddir" -m644 .config Makefile Module.symvers System.map \
+    localversion.* version vmlinux
+  install -Dt "$builddir/kernel" -m644 kernel/Makefile
+  install -Dt "$builddir/arch/$karch" -m644 arch/$karch/Makefile
+  cp -t "$builddir" -a scripts
+  ln -srt "$builddir" "$builddir/scripts/gdb/vmlinux-gdb.py"
+
+  if [[ $(scripts/config -s CONFIG_HAVE_STACK_VALIDATION) = y ]]; then
+    install -Dt "$builddir/tools/objtool" tools/objtool/objtool
+  fi
+
+  if [[ $(scripts/config -s CONFIG_DEBUG_INFO_BTF_MODULES) = y ]]; then
+    install -Dt "$builddir/tools/bpf/resolve_btfids" tools/bpf/resolve_btfids/resolve_btfids
+  fi
+
+  echo "Installing headers..."
+  cp -t "$builddir" -a include
+  cp -t "$builddir/arch/$karch" -a arch/$karch/include
+  install -Dt "$builddir/arch/$karch/kernel" -m644 arch/$karch/kernel/asm-offsets.s
+
+  install -Dt "$builddir/drivers/md" -m644 drivers/md/*.h
+  install -Dt "$builddir/net/mac80211" -m644 net/mac80211/*.h
+
+  # https://bugs.archlinux.org/task/13146
+  install -Dt "$builddir/drivers/media/i2c" -m644 drivers/media/i2c/msp3400-driver.h
+
+  # https://bugs.archlinux.org/task/20402
+  install -Dt "$builddir/drivers/media/usb/dvb-usb" -m644 drivers/media/usb/dvb-usb/*.h
+  install -Dt "$builddir/drivers/media/dvb-frontends" -m644 drivers/media/dvb-frontends/*.h
+  install -Dt "$builddir/drivers/media/tuners" -m644 drivers/media/tuners/*.h
+
+  # https://bugs.archlinux.org/task/71392
+  install -Dt "$builddir/drivers/iio/common/hid-sensors" -m644 drivers/iio/common/hid-sensors/*.h
+
+  echo "Installing KConfig files..."
+  find . -name 'Kconfig*' -exec install -Dm644 {} "$builddir/{}" \;
+
+  if [[ $(scripts/config -s CONFIG_RUST) = y ]]; then
+    echo "Installing Rust files..."
+    install -Dt "$builddir/rust" -m644 rust/*.rmeta
+    install -Dt "$builddir/rust" rust/*.so
+  fi
+
+  echo "Installing unstripped VDSO..."
+  make INSTALL_MOD_PATH="$pkgdir/usr" vdso_install \
+    link=  # Suppress build-id symlinks
+
+  echo "Removing unneeded architectures..."
+  local arch
+  for arch in "$builddir"/arch/*/; do
+    [[ $arch = */$karch/ ]] && continue
+    echo "Removing $(basename "$arch")"
+    rm -r "$arch"
+  done
+
+  echo "Removing documentation..."
+  rm -r "$builddir/Documentation"
+
+  echo "Removing broken symlinks..."
+  find -L "$builddir" -type l -printf 'Removing %P\n' -delete
+
+  echo "Removing loose objects..."
+  find "$builddir" -type f -name '*.o' -printf 'Removing %P\n' -delete
+
+  echo "Stripping build tools..."
+  local file
+  while read -rd '' file; do
+    case "$(file -Sib "$file")" in
+      application/x-sharedlib\;*)      # Libraries (.so)
+        strip -v $STRIP_SHARED "$file" ;;
+      application/x-archive\;*)        # Libraries (.a)
+        strip -v $STRIP_STATIC "$file" ;;
+      application/x-executable\;*)     # Binaries
+        strip -v $STRIP_BINARIES "$file" ;;
+      application/x-pie-executable\;*) # Relocatable binaries
+        strip -v $STRIP_SHARED "$file" ;;
+    esac
+  done < <(find "$builddir" -type f -perm -u+x ! -name vmlinux -print0)
+
+  echo "Stripping vmlinux..."
+  strip -v $STRIP_STATIC "$builddir/vmlinux"
+
+  echo "Adding symlink..."
+  mkdir -p "$pkgdir/usr/src"
+  ln -sr "$builddir" "$pkgdir/usr/src/$pkgbase"
+}
+
+pkgname=(
+  "$pkgbase"
+  "$pkgbase-headers"
+)
+for _p in "${pkgname[@]}"; do
+  eval "package_$_p() {
+    $(declare -f "_package${_p#$pkgbase}")
+    _package${_p#$pkgbase}
+  }"
+done
+
+# vim:set ts=8 sts=2 sw=2 et:

@@ -1,0 +1,1337 @@
+From cebca0467ba24265a1e51432ac35beac33891a6e Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Thu, 9 May 2024 16:15:49 +0200
+Subject: [PATCH] serial: Clear UPF_DEAD before calling
+ tty_port_register_device_attr_serdev()
+
+If a serdev_device_driver is already loaded for a serdev_tty_port when it
+gets registered by tty_port_register_device_attr_serdev() then that
+driver's probe() method will be called immediately.
+
+The serdev_device_driver's probe() method should then be able to call
+serdev_device_open() successfully, but because UPF_DEAD is still dead
+serdev_device_open() will fail with -ENXIO in this scenario:
+
+  serdev_device_open()
+  ctrl->ops->open()	/* this callback being ttyport_open() */
+  tty->ops->open()	/* this callback being uart_open() */
+  tty_port_open()
+  port->ops->activate()	/* this callback being uart_port_activate() */
+  Find bit UPF_DEAD is set in uport->flags and fail with errno -ENXIO.
+
+Fix this be clearing UPF_DEAD before tty_port_register_device_attr_serdev()
+note this only moves up the UPD_DEAD clearing a small bit, before:
+
+  tty_port_register_device_attr_serdev();
+  mutex_unlock(&tty_port.mutex);
+  uart_port.flags &= ~UPF_DEAD;
+  mutex_unlock(&port_mutex);
+
+after:
+
+  uart_port.flags &= ~UPF_DEAD;
+  tty_port_register_device_attr_serdev();
+  mutex_unlock(&tty_port.mutex);
+  mutex_unlock(&port_mutex);
+
+Reported-by: Weifeng Liu <weifeng.liu.z@gmail.com>
+Closes: https://lore.kernel.org/platform-driver-x86/20240505130800.2546640-1-weifeng.liu.z@gmail.com/
+Tested-by: Weifeng Liu <weifeng.liu.z@gmail.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Link: https://lore.kernel.org/r/20240509141549.63704-1-hdegoede@redhat.com
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+Patchset: surface-sam
+---
+ drivers/tty/serial/serial_core.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/tty/serial/serial_core.c b/drivers/tty/serial/serial_core.c
+index c476d884356d..b47a277978a0 100644
+--- a/drivers/tty/serial/serial_core.c
++++ b/drivers/tty/serial/serial_core.c
+@@ -3211,6 +3211,9 @@ static int serial_core_add_one_port(struct uart_driver *drv, struct uart_port *u
+ 	if (uport->attr_group)
+ 		uport->tty_groups[1] = uport->attr_group;
+ 
++	/* Ensure serdev drivers can call serdev_device_open() right away */
++	uport->flags &= ~UPF_DEAD;
++
+ 	/*
+ 	 * Register the port whether it's detected or not.  This allows
+ 	 * setserial to be used to alter this port's parameters.
+@@ -3221,6 +3224,7 @@ static int serial_core_add_one_port(struct uart_driver *drv, struct uart_port *u
+ 	if (!IS_ERR(tty_dev)) {
+ 		device_set_wakeup_capable(tty_dev, 1);
+ 	} else {
++		uport->flags |= UPF_DEAD;
+ 		dev_err(uport->dev, "Cannot register tty device on line %d\n",
+ 		       uport->line);
+ 	}
+@@ -3426,8 +3430,6 @@ int serial_core_register_port(struct uart_driver *drv, struct uart_port *port)
+ 	if (ret)
+ 		goto err_unregister_port_dev;
+ 
+-	port->flags &= ~UPF_DEAD;
+-
+ 	mutex_unlock(&port_mutex);
+ 
+ 	return 0;
+-- 
+2.45.2
+
+From e453ab926ce00cd87c30f55342031d4f3bf78e53 Mon Sep 17 00:00:00 2001
+From: Weifeng Liu <weifeng.liu.z@gmail.com>
+Date: Sun, 5 May 2024 21:07:50 +0800
+Subject: [PATCH] platform/surface: aggregator: Log critical errors during SAM
+ probing
+
+Emits messages upon errors during probing of SAM.  Hopefully this could
+provide useful context to user for the purpose of diagnosis when
+something miserable happen.
+
+Reviewed-by: Maximilian Luz <luzmaximilian@gmail.com>
+Reviewed-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Signed-off-by: Weifeng Liu <weifeng.liu.z@gmail.com>
+Link: https://lore.kernel.org/r/20240505130800.2546640-3-weifeng.liu.z@gmail.com
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/aggregator/core.c | 42 ++++++++++++++--------
+ 1 file changed, 28 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/platform/surface/aggregator/core.c b/drivers/platform/surface/aggregator/core.c
+index ba550eaa06fc..797d0645bd77 100644
+--- a/drivers/platform/surface/aggregator/core.c
++++ b/drivers/platform/surface/aggregator/core.c
+@@ -618,15 +618,17 @@ static const struct acpi_gpio_mapping ssam_acpi_gpios[] = {
+ 
+ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ {
+-	struct acpi_device *ssh = ACPI_COMPANION(&serdev->dev);
++	struct device *dev = &serdev->dev;
++	struct acpi_device *ssh = ACPI_COMPANION(dev);
+ 	struct ssam_controller *ctrl;
+ 	acpi_status astatus;
+ 	int status;
+ 
+-	if (gpiod_count(&serdev->dev, NULL) < 0)
+-		return -ENODEV;
++	status = gpiod_count(dev, NULL);
++	if (status < 0)
++		return dev_err_probe(dev, status, "no GPIO found\n");
+ 
+-	status = devm_acpi_dev_add_driver_gpios(&serdev->dev, ssam_acpi_gpios);
++	status = devm_acpi_dev_add_driver_gpios(dev, ssam_acpi_gpios);
+ 	if (status)
+ 		return status;
+ 
+@@ -637,8 +639,10 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 
+ 	/* Initialize controller. */
+ 	status = ssam_controller_init(ctrl, serdev);
+-	if (status)
++	if (status) {
++		dev_err_probe(dev, status, "failed to initialize ssam controller\n");
+ 		goto err_ctrl_init;
++	}
+ 
+ 	ssam_controller_lock(ctrl);
+ 
+@@ -646,12 +650,14 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 	serdev_device_set_drvdata(serdev, ctrl);
+ 	serdev_device_set_client_ops(serdev, &ssam_serdev_ops);
+ 	status = serdev_device_open(serdev);
+-	if (status)
++	if (status) {
++		dev_err_probe(dev, status, "failed to open serdev device\n");
+ 		goto err_devopen;
++	}
+ 
+ 	astatus = ssam_serdev_setup_via_acpi(ssh->handle, serdev);
+ 	if (ACPI_FAILURE(astatus)) {
+-		status = -ENXIO;
++		status = dev_err_probe(dev, -ENXIO, "failed to setup serdev\n");
+ 		goto err_devinit;
+ 	}
+ 
+@@ -667,25 +673,33 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 	 * states.
+ 	 */
+ 	status = ssam_log_firmware_version(ctrl);
+-	if (status)
++	if (status) {
++		dev_err_probe(dev, status, "failed to get firmware version\n");
+ 		goto err_initrq;
++	}
+ 
+ 	status = ssam_ctrl_notif_d0_entry(ctrl);
+-	if (status)
++	if (status) {
++		dev_err_probe(dev, status, "D0-entry notification failed\n");
+ 		goto err_initrq;
++	}
+ 
+ 	status = ssam_ctrl_notif_display_on(ctrl);
+-	if (status)
++	if (status) {
++		dev_err_probe(dev, status, "display-on notification failed\n");
+ 		goto err_initrq;
++	}
+ 
+-	status = sysfs_create_group(&serdev->dev.kobj, &ssam_sam_group);
++	status = sysfs_create_group(&dev->kobj, &ssam_sam_group);
+ 	if (status)
+ 		goto err_initrq;
+ 
+ 	/* Set up IRQ. */
+ 	status = ssam_irq_setup(ctrl);
+-	if (status)
++	if (status) {
++		dev_err_probe(dev, status, "failed to setup IRQ\n");
+ 		goto err_irq;
++	}
+ 
+ 	/* Finally, set main controller reference. */
+ 	status = ssam_try_set_controller(ctrl);
+@@ -702,7 +716,7 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ 	 *       resumed. In short, this causes some spurious unwanted wake-ups.
+ 	 *       For now let's thus default power/wakeup to false.
+ 	 */
+-	device_set_wakeup_capable(&serdev->dev, true);
++	device_set_wakeup_capable(dev, true);
+ 	acpi_dev_clear_dependencies(ssh);
+ 
+ 	return 0;
+@@ -710,7 +724,7 @@ static int ssam_serial_hub_probe(struct serdev_device *serdev)
+ err_mainref:
+ 	ssam_irq_free(ctrl);
+ err_irq:
+-	sysfs_remove_group(&serdev->dev.kobj, &ssam_sam_group);
++	sysfs_remove_group(&dev->kobj, &ssam_sam_group);
+ err_initrq:
+ 	ssam_controller_lock(ctrl);
+ 	ssam_controller_shutdown(ctrl);
+-- 
+2.45.2
+
+From d3ddbc07009ade7bd60e9575b4d280e44c8c2f63 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 19 Apr 2024 20:41:47 +0200
+Subject: [PATCH] platform/surface: aggregator: Fix warning when controller is
+ destroyed in probe
+
+There is a small window in ssam_serial_hub_probe() where the controller
+is initialized but has not been started yet. Specifically, between
+ssam_controller_init() and ssam_controller_start(). Any failure in this
+window, for example caused by a failure of serdev_device_open(),
+currently results in an incorrect warning being emitted.
+
+In particular, any failure in this window results in the controller
+being destroyed via ssam_controller_destroy(). This function checks the
+state of the controller and, in an attempt to validate that the
+controller has been cleanly shut down before we try and deallocate any
+resources, emits a warning if that state is not SSAM_CONTROLLER_STOPPED.
+
+However, since we have only just initialized the controller and have not
+yet started it, its state is SSAM_CONTROLLER_INITIALIZED. Note that this
+is the only point at which the controller has this state, as it will
+change after we start the controller with ssam_controller_start() and
+never revert back. Further, at this point no communication has taken
+place and the sender and receiver threads have not been started yet (and
+we may not even have an open serdev device either).
+
+Therefore, it is perfectly safe to call ssam_controller_destroy() with a
+state of SSAM_CONTROLLER_INITIALIZED. This, however, means that the
+warning currently being emitted is incorrect. Fix it by extending the
+check.
+
+Fixes: c167b9c7e3d6 ("platform/surface: Add Surface Aggregator subsystem")
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/aggregator/controller.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/platform/surface/aggregator/controller.c b/drivers/platform/surface/aggregator/controller.c
+index 7fc602e01487..7e89f547999b 100644
+--- a/drivers/platform/surface/aggregator/controller.c
++++ b/drivers/platform/surface/aggregator/controller.c
+@@ -1354,7 +1354,8 @@ void ssam_controller_destroy(struct ssam_controller *ctrl)
+ 	if (ctrl->state == SSAM_CONTROLLER_UNINITIALIZED)
+ 		return;
+ 
+-	WARN_ON(ctrl->state != SSAM_CONTROLLER_STOPPED);
++	WARN_ON(ctrl->state != SSAM_CONTROLLER_STOPPED &&
++		ctrl->state != SSAM_CONTROLLER_INITIALIZED);
+ 
+ 	/*
+ 	 * Note: New events could still have been received after the previous
+-- 
+2.45.2
+
+From 46aeacf7b116bd6e1711b1678f8c8c9d631e95c9 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 22 Oct 2023 14:57:11 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for
+ Surface Laptop Go 3
+
+Add SAM client device nodes for the Surface Laptop Go 3. It seems to use
+the same SAM client devices as the Surface Laptop Go 1 and 2, so re-use
+their node group.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 035d6b4105cd..74688a2ed4b2 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -374,6 +374,9 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
+ 	/* Surface Laptop Go 2 */
+ 	{ "MSHW0290", (unsigned long)ssam_node_group_slg1 },
+ 
++	/* Surface Laptop Go 3 */
++	{ "MSHW0440", (unsigned long)ssam_node_group_slg1 },
++
+ 	/* Surface Laptop Studio */
+ 	{ "MSHW0123", (unsigned long)ssam_node_group_sls },
+ 
+-- 
+2.45.2
+
+From e42a81ec22305c91f44562c0386f651dfdc48db1 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Mon, 20 Nov 2023 19:47:00 +0100
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for
+ Surface Laptop Studio 2
+
+Add SAM client device nodes for the Surface Laptop Studio 2 (SLS2). The
+SLS2 is quite similar to the SLS1, but it does not provide the touchpad
+as a SAM-HID device. Therefore, add a new node group for the SLS2 and
+update the comments accordingly
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c     | 25 ++++++++++++++++---
+ 1 file changed, 21 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 74688a2ed4b2..f02a933160ff 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -253,8 +253,8 @@ static const struct software_node *ssam_node_group_sl5[] = {
+ 	NULL,
+ };
+ 
+-/* Devices for Surface Laptop Studio. */
+-static const struct software_node *ssam_node_group_sls[] = {
++/* Devices for Surface Laptop Studio 1. */
++static const struct software_node *ssam_node_group_sls1[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+@@ -269,6 +269,20 @@ static const struct software_node *ssam_node_group_sls[] = {
+ 	NULL,
+ };
+ 
++/* Devices for Surface Laptop Studio 2. */
++static const struct software_node *ssam_node_group_sls2[] = {
++	&ssam_node_root,
++	&ssam_node_bat_ac,
++	&ssam_node_bat_main,
++	&ssam_node_tmp_pprof,
++	&ssam_node_pos_tablet_switch,
++	&ssam_node_hid_sam_keyboard,
++	&ssam_node_hid_sam_penstash,
++	&ssam_node_hid_sam_sensors,
++	&ssam_node_hid_sam_ucm_ucsi,
++	NULL,
++};
++
+ /* Devices for Surface Laptop Go. */
+ static const struct software_node *ssam_node_group_slg1[] = {
+ 	&ssam_node_root,
+@@ -377,8 +391,11 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
+ 	/* Surface Laptop Go 3 */
+ 	{ "MSHW0440", (unsigned long)ssam_node_group_slg1 },
+ 
+-	/* Surface Laptop Studio */
+-	{ "MSHW0123", (unsigned long)ssam_node_group_sls },
++	/* Surface Laptop Studio 1 */
++	{ "MSHW0123", (unsigned long)ssam_node_group_sls1 },
++
++	/* Surface Laptop Studio 2 */
++	{ "MSHW0360", (unsigned long)ssam_node_group_sls2 },
+ 
+ 	{ },
+ };
+-- 
+2.45.2
+
+From 779ad78ae568b1bf03927655133b23bdee5fc77c Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sun, 9 Jun 2024 20:05:57 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for
+ Surface Laptop 6
+
+Add SAM client device nodes for the Surface Laptop Studio 6 (SL6). The
+SL6 is similar to the SL5, with the typical battery/AC, platform
+profile, and HID nodes. It also has support for the newly supported fan
+interface.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c     | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index f02a933160ff..34df1bdad83b 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -253,6 +253,22 @@ static const struct software_node *ssam_node_group_sl5[] = {
+ 	NULL,
+ };
+ 
++/* Devices for Surface Laptop 6. */
++static const struct software_node *ssam_node_group_sl6[] = {
++	&ssam_node_root,
++	&ssam_node_bat_ac,
++	&ssam_node_bat_main,
++	&ssam_node_tmp_perf_profile_with_fan,
++	&ssam_node_tmp_sensors,
++	&ssam_node_fan_speed,
++	&ssam_node_hid_main_keyboard,
++	&ssam_node_hid_main_touchpad,
++	&ssam_node_hid_main_iid5,
++	&ssam_node_hid_sam_sensors,
++	&ssam_node_hid_sam_ucm_ucsi,
++	NULL,
++};
++
+ /* Devices for Surface Laptop Studio 1. */
+ static const struct software_node *ssam_node_group_sls1[] = {
+ 	&ssam_node_root,
+@@ -382,6 +398,9 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
+ 	/* Surface Laptop 5 */
+ 	{ "MSHW0350", (unsigned long)ssam_node_group_sl5 },
+ 
++	/* Surface Laptop 6 */
++	{ "MSHW0530", (unsigned long)ssam_node_group_sl5 },
++
+ 	/* Surface Laptop Go 1 */
+ 	{ "MSHW0118", (unsigned long)ssam_node_group_slg1 },
+ 
+-- 
+2.45.2
+
+From 4a7f3f74a7d92f3e0567f7e876e77bf7c8bbcf6d Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sat, 30 Dec 2023 18:07:54 +0100
+Subject: [PATCH] hwmon: Add thermal sensor driver for Surface Aggregator
+ Module
+
+Some of the newer Microsoft Surface devices (such as the Surface Book
+3 and Pro 9) have thermal sensors connected via the Surface Aggregator
+Module (the embedded controller on those devices). Add a basic driver
+to read out the temperature values of those sensors.
+
+Link: https://github.com/linux-surface/surface-aggregator-module/issues/59
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/hwmon/Kconfig        |  10 +++
+ drivers/hwmon/Makefile       |   1 +
+ drivers/hwmon/surface_temp.c | 165 +++++++++++++++++++++++++++++++++++
+ 3 files changed, 176 insertions(+)
+ create mode 100644 drivers/hwmon/surface_temp.c
+
+diff --git a/drivers/hwmon/Kconfig b/drivers/hwmon/Kconfig
+index 83945397b6eb..338ef73c96a3 100644
+--- a/drivers/hwmon/Kconfig
++++ b/drivers/hwmon/Kconfig
+@@ -2070,6 +2070,16 @@ config SENSORS_SURFACE_FAN
+ 
+ 	  Select M or Y here, if you want to be able to read the fan's speed.
+ 
++config SENSORS_SURFACE_TEMP
++	tristate "Microsoft Surface Thermal Sensor Driver"
++	depends on SURFACE_AGGREGATOR
++	help
++	  Driver for monitoring thermal sensors connected via the Surface
++	  Aggregator Module (embedded controller) on Microsoft Surface devices.
++
++	  This driver can also be built as a module. If so, the module
++	  will be called surface_temp.
++
+ config SENSORS_ADC128D818
+ 	tristate "Texas Instruments ADC128D818"
+ 	depends on I2C
+diff --git a/drivers/hwmon/Makefile b/drivers/hwmon/Makefile
+index 5c31808f6378..de8bc99719e6 100644
+--- a/drivers/hwmon/Makefile
++++ b/drivers/hwmon/Makefile
+@@ -208,6 +208,7 @@ obj-$(CONFIG_SENSORS_SMSC47M192)+= smsc47m192.o
+ obj-$(CONFIG_SENSORS_SPARX5)	+= sparx5-temp.o
+ obj-$(CONFIG_SENSORS_STTS751)	+= stts751.o
+ obj-$(CONFIG_SENSORS_SURFACE_FAN)+= surface_fan.o
++obj-$(CONFIG_SENSORS_SURFACE_TEMP)+= surface_temp.o
+ obj-$(CONFIG_SENSORS_SY7636A)	+= sy7636a-hwmon.o
+ obj-$(CONFIG_SENSORS_AMC6821)	+= amc6821.o
+ obj-$(CONFIG_SENSORS_TC74)	+= tc74.o
+diff --git a/drivers/hwmon/surface_temp.c b/drivers/hwmon/surface_temp.c
+new file mode 100644
+index 000000000000..48c3e826713f
+--- /dev/null
++++ b/drivers/hwmon/surface_temp.c
+@@ -0,0 +1,165 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Thermal sensor subsystem driver for Surface System Aggregator Module (SSAM).
++ *
++ * Copyright (C) 2022-2023 Maximilian Luz <luzmaximilian@gmail.com>
++ */
++
++#include <linux/bitops.h>
++#include <linux/hwmon.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/types.h>
++
++#include <linux/surface_aggregator/controller.h>
++#include <linux/surface_aggregator/device.h>
++
++
++/* -- SAM interface. -------------------------------------------------------- */
++
++SSAM_DEFINE_SYNC_REQUEST_CL_R(__ssam_tmp_get_available_sensors, __le16, {
++	.target_category = SSAM_SSH_TC_TMP,
++	.command_id      = 0x04,
++});
++
++SSAM_DEFINE_SYNC_REQUEST_MD_R(__ssam_tmp_get_temperature, __le16, {
++	.target_category = SSAM_SSH_TC_TMP,
++	.command_id      = 0x01,
++});
++
++static int ssam_tmp_get_available_sensors(struct ssam_device *sdev, s16 *sensors)
++{
++	__le16 sensors_le;
++	int status;
++
++	status = __ssam_tmp_get_available_sensors(sdev, &sensors_le);
++	if (status)
++		return status;
++
++	*sensors = le16_to_cpu(sensors_le);
++	return 0;
++}
++
++static int ssam_tmp_get_temperature(struct ssam_device *sdev, u8 iid, long *temperature)
++{
++	__le16 temp_le;
++	int status;
++
++	status = __ssam_tmp_get_temperature(sdev->ctrl, sdev->uid.target, iid, &temp_le);
++	if (status)
++		return status;
++
++	/* Convert 1/10 °K to 1/1000 °C */
++	*temperature = (le16_to_cpu(temp_le) - 2731) * 100L;
++	return 0;
++}
++
++
++/* -- Driver.---------------------------------------------------------------- */
++
++struct ssam_temp {
++	struct ssam_device *sdev;
++	s16 sensors;
++};
++
++static umode_t ssam_temp_hwmon_is_visible(const void *data,
++					  enum hwmon_sensor_types type,
++					  u32 attr, int channel)
++{
++	const struct ssam_temp *ssam_temp = data;
++
++	if (!(ssam_temp->sensors & BIT(channel)))
++		return 0;
++
++	return 0444;
++}
++
++static int ssam_temp_hwmon_read(struct device *dev,
++				enum hwmon_sensor_types type,
++				u32 attr, int channel, long *value)
++{
++	const struct ssam_temp *ssam_temp = dev_get_drvdata(dev);
++
++	return ssam_tmp_get_temperature(ssam_temp->sdev, channel + 1, value);
++}
++
++static const struct hwmon_channel_info * const ssam_temp_hwmon_info[] = {
++	HWMON_CHANNEL_INFO(chip,
++			   HWMON_C_REGISTER_TZ),
++	/* We have at most 16 thermal sensor channels. */
++	HWMON_CHANNEL_INFO(temp,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT,
++			   HWMON_T_INPUT),
++	NULL
++};
++
++static const struct hwmon_ops ssam_temp_hwmon_ops = {
++	.is_visible = ssam_temp_hwmon_is_visible,
++	.read = ssam_temp_hwmon_read,
++};
++
++static const struct hwmon_chip_info ssam_temp_hwmon_chip_info = {
++	.ops = &ssam_temp_hwmon_ops,
++	.info = ssam_temp_hwmon_info,
++};
++
++static int ssam_temp_probe(struct ssam_device *sdev)
++{
++	struct ssam_temp *ssam_temp;
++	struct device *hwmon_dev;
++	s16 sensors;
++	int status;
++
++	status = ssam_tmp_get_available_sensors(sdev, &sensors);
++	if (status)
++		return status;
++
++	ssam_temp = devm_kzalloc(&sdev->dev, sizeof(*ssam_temp), GFP_KERNEL);
++	if (!ssam_temp)
++		return -ENOMEM;
++
++	ssam_temp->sdev = sdev;
++	ssam_temp->sensors = sensors;
++
++	hwmon_dev = devm_hwmon_device_register_with_info(&sdev->dev,
++			"surface_thermal", ssam_temp, &ssam_temp_hwmon_chip_info,
++			NULL);
++	if (IS_ERR(hwmon_dev))
++		return PTR_ERR(hwmon_dev);
++
++	return 0;
++}
++
++static const struct ssam_device_id ssam_temp_match[] = {
++	{ SSAM_SDEV(TMP, SAM, 0x00, 0x02) },
++	{ },
++};
++MODULE_DEVICE_TABLE(ssam, ssam_temp_match);
++
++static struct ssam_device_driver ssam_temp = {
++	.probe = ssam_temp_probe,
++	.match_table = ssam_temp_match,
++	.driver = {
++		.name = "surface_temp",
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++	},
++};
++module_ssam_device_driver(ssam_temp);
++
++MODULE_AUTHOR("Maximilian Luz <luzmaximilian@gmail.com>");
++MODULE_DESCRIPTION("Thermal sensor subsystem driver for Surface System Aggregator Module");
++MODULE_LICENSE("GPL");
+-- 
+2.45.2
+
+From 98e9eaae15a93f4dbe3898d3c188e710b791528a Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sat, 30 Dec 2023 18:12:23 +0100
+Subject: [PATCH] hwmon: surface_temp: Add support for sensor names
+
+The thermal subsystem of the Surface Aggregator Module allows us to
+query the names of the respective thermal sensors. Forward those to
+userspace.
+
+Signed-off-by: Ivor Wanders <ivor@iwanders.net>
+Co-Developed-by: Maximilian Luz <luzmaximilian@gmail.com>
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/hwmon/surface_temp.c | 113 +++++++++++++++++++++++++++++------
+ 1 file changed, 96 insertions(+), 17 deletions(-)
+
+diff --git a/drivers/hwmon/surface_temp.c b/drivers/hwmon/surface_temp.c
+index 48c3e826713f..4c08926139db 100644
+--- a/drivers/hwmon/surface_temp.c
++++ b/drivers/hwmon/surface_temp.c
+@@ -17,6 +17,27 @@
+ 
+ /* -- SAM interface. -------------------------------------------------------- */
+ 
++/*
++ * Available sensors are indicated by a 16-bit bitfield, where a 1 marks the
++ * presence of a sensor. So we have at most 16 possible sensors/channels.
++ */
++#define SSAM_TMP_SENSOR_MAX_COUNT 16
++
++/*
++ * All names observed so far are 6 characters long, but there's only
++ * zeros after the name, so perhaps they can be longer. This number reflects
++ * the maximum zero-padded space observed in the returned buffer.
++ */
++#define SSAM_TMP_SENSOR_NAME_LENGTH 18
++
++struct ssam_tmp_get_name_rsp {
++	__le16 unknown1;
++	char unknown2;
++	char name[SSAM_TMP_SENSOR_NAME_LENGTH];
++} __packed;
++
++static_assert(sizeof(struct ssam_tmp_get_name_rsp) == 21);
++
+ SSAM_DEFINE_SYNC_REQUEST_CL_R(__ssam_tmp_get_available_sensors, __le16, {
+ 	.target_category = SSAM_SSH_TC_TMP,
+ 	.command_id      = 0x04,
+@@ -27,6 +48,11 @@ SSAM_DEFINE_SYNC_REQUEST_MD_R(__ssam_tmp_get_temperature, __le16, {
+ 	.command_id      = 0x01,
+ });
+ 
++SSAM_DEFINE_SYNC_REQUEST_MD_R(__ssam_tmp_get_name, struct ssam_tmp_get_name_rsp, {
++	.target_category = SSAM_SSH_TC_TMP,
++	.command_id      = 0x0e,
++});
++
+ static int ssam_tmp_get_available_sensors(struct ssam_device *sdev, s16 *sensors)
+ {
+ 	__le16 sensors_le;
+@@ -54,12 +80,37 @@ static int ssam_tmp_get_temperature(struct ssam_device *sdev, u8 iid, long *temp
+ 	return 0;
+ }
+ 
++static int ssam_tmp_get_name(struct ssam_device *sdev, u8 iid, char *buf, size_t buf_len)
++{
++	struct ssam_tmp_get_name_rsp name_rsp;
++	int status;
++
++	status =  __ssam_tmp_get_name(sdev->ctrl, sdev->uid.target, iid, &name_rsp);
++	if (status)
++		return status;
++
++	/*
++	 * This should not fail unless the name in the returned struct is not
++	 * null-terminated or someone changed something in the struct
++	 * definitions above, since our buffer and struct have the same
++	 * capacity by design. So if this fails blow this up with a warning.
++	 * Since the more likely cause is that the returned string isn't
++	 * null-terminated, we might have received garbage (as opposed to just
++	 * an incomplete string), so also fail the function.
++	 */
++	status = strscpy(buf, name_rsp.name, buf_len);
++	WARN_ON(status < 0);
++
++	return status < 0 ? status : 0;
++}
++
+ 
+ /* -- Driver.---------------------------------------------------------------- */
+ 
+ struct ssam_temp {
+ 	struct ssam_device *sdev;
+ 	s16 sensors;
++	char names[SSAM_TMP_SENSOR_MAX_COUNT][SSAM_TMP_SENSOR_NAME_LENGTH];
+ };
+ 
+ static umode_t ssam_temp_hwmon_is_visible(const void *data,
+@@ -83,33 +134,47 @@ static int ssam_temp_hwmon_read(struct device *dev,
+ 	return ssam_tmp_get_temperature(ssam_temp->sdev, channel + 1, value);
+ }
+ 
++static int ssam_temp_hwmon_read_string(struct device *dev,
++				       enum hwmon_sensor_types type,
++				       u32 attr, int channel, const char **str)
++{
++	const struct ssam_temp *ssam_temp = dev_get_drvdata(dev);
++
++	*str = ssam_temp->names[channel];
++	return 0;
++}
++
+ static const struct hwmon_channel_info * const ssam_temp_hwmon_info[] = {
+ 	HWMON_CHANNEL_INFO(chip,
+ 			   HWMON_C_REGISTER_TZ),
+-	/* We have at most 16 thermal sensor channels. */
++	/*
++	 * We have at most SSAM_TMP_SENSOR_MAX_COUNT = 16 thermal sensor
++	 * channels.
++	 */
+ 	HWMON_CHANNEL_INFO(temp,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT,
+-			   HWMON_T_INPUT),
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL,
++			   HWMON_T_INPUT | HWMON_T_LABEL),
+ 	NULL
+ };
+ 
+ static const struct hwmon_ops ssam_temp_hwmon_ops = {
+ 	.is_visible = ssam_temp_hwmon_is_visible,
+ 	.read = ssam_temp_hwmon_read,
++	.read_string = ssam_temp_hwmon_read_string,
+ };
+ 
+ static const struct hwmon_chip_info ssam_temp_hwmon_chip_info = {
+@@ -122,6 +187,7 @@ static int ssam_temp_probe(struct ssam_device *sdev)
+ 	struct ssam_temp *ssam_temp;
+ 	struct device *hwmon_dev;
+ 	s16 sensors;
++	int channel;
+ 	int status;
+ 
+ 	status = ssam_tmp_get_available_sensors(sdev, &sensors);
+@@ -135,6 +201,19 @@ static int ssam_temp_probe(struct ssam_device *sdev)
+ 	ssam_temp->sdev = sdev;
+ 	ssam_temp->sensors = sensors;
+ 
++	/* Retrieve the name for each available sensor. */
++	for (channel = 0; channel < SSAM_TMP_SENSOR_MAX_COUNT; channel++)
++	{
++		if (!(sensors & BIT(channel)))
++			continue;
++
++		status = ssam_tmp_get_name(sdev, channel + 1,
++					   ssam_temp->names[channel],
++					   SSAM_TMP_SENSOR_NAME_LENGTH);
++		if (status)
++			return status;
++	}
++
+ 	hwmon_dev = devm_hwmon_device_register_with_info(&sdev->dev,
+ 			"surface_thermal", ssam_temp, &ssam_temp_hwmon_chip_info,
+ 			NULL);
+-- 
+2.45.2
+
+From fdf1850fe9d4ee229a5602361be23c126ce65c8a Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Sat, 30 Dec 2023 18:21:12 +0100
+Subject: [PATCH] platform/surface: aggregator_registry: Add support for
+ thermal sensors on the Surface Pro 9
+
+The Surface Pro 9 has thermal sensors connected via the Surface
+Aggregator Module. Add a device node to support those.
+
+Signed-off-by: Maximilian Luz <luzmaximilian@gmail.com>
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 34df1bdad83b..c0bf0cadcd25 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -74,6 +74,12 @@ static const struct software_node ssam_node_tmp_pprof = {
+ 	.parent = &ssam_node_root,
+ };
+ 
++/* Thermal sensors. */
++static const struct software_node ssam_node_tmp_sensors = {
++	.name = "ssam:01:03:01:00:02",
++	.parent = &ssam_node_root,
++};
++
+ /* Fan speed function. */
+ static const struct software_node ssam_node_fan_speed = {
+ 	.name = "ssam:01:05:01:01:01",
+@@ -341,6 +347,7 @@ static const struct software_node *ssam_node_group_sp9[] = {
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+ 	&ssam_node_tmp_pprof,
++	&ssam_node_tmp_sensors,
+ 	&ssam_node_fan_speed,
+ 	&ssam_node_pos_tablet_switch,
+ 	&ssam_node_hid_kip_keyboard,
+-- 
+2.45.2
+
+From c98dd80f6541a1bd7108324f65d77a04a6978e39 Mon Sep 17 00:00:00 2001
+From: Ivor Wanders <ivor@iwanders.net>
+Date: Sat, 16 Dec 2023 15:56:39 -0500
+Subject: [PATCH] platform/surface: platform_profile: add fan profile switching
+
+Change naming from tmp to platform profile to clarify the module may
+interact with both the TMP and FAN subystems. Add functionality that
+switches the fan profile when the platform profile is changed.
+
+Signed-off-by: Ivor Wanders <ivor@iwanders.net>
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c     | 38 +++++---
+ .../surface/surface_platform_profile.c        | 86 ++++++++++++++++---
+ 2 files changed, 100 insertions(+), 24 deletions(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index c0bf0cadcd25..07a4c4e1120d 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -68,8 +68,8 @@ static const struct software_node ssam_node_bat_sb3base = {
+ 	.parent = &ssam_node_hub_base,
+ };
+ 
+-/* Platform profile / performance-mode device. */
+-static const struct software_node ssam_node_tmp_pprof = {
++/* Platform profile / performance-mode device without a fan. */
++static const struct software_node ssam_node_tmp_perf_profile = {
+ 	.name = "ssam:01:03:01:00:01",
+ 	.parent = &ssam_node_root,
+ };
+@@ -86,6 +86,20 @@ static const struct software_node ssam_node_fan_speed = {
+ 	.parent = &ssam_node_root,
+ };
+ 
++/* Platform profile / performance-mode device with a fan, such that
++ * the fan controller profile can also be switched.
++ */
++static const struct property_entry ssam_node_tmp_perf_profile_has_fan[] = {
++	PROPERTY_ENTRY_BOOL("has_fan"),
++	{ }
++};
++
++static const struct software_node ssam_node_tmp_perf_profile_with_fan = {
++	.name = "ssam:01:03:01:00:01",
++	.parent = &ssam_node_root,
++	.properties = ssam_node_tmp_perf_profile_has_fan,
++};
++
+ /* Tablet-mode switch via KIP subsystem. */
+ static const struct software_node ssam_node_kip_tablet_switch = {
+ 	.name = "ssam:01:0e:01:00:01",
+@@ -214,7 +228,7 @@ static const struct software_node ssam_node_pos_tablet_switch = {
+  */
+ static const struct software_node *ssam_node_group_gen5[] = {
+ 	&ssam_node_root,
+-	&ssam_node_tmp_pprof,
++	&ssam_node_tmp_perf_profile,
+ 	NULL,
+ };
+ 
+@@ -225,7 +239,7 @@ static const struct software_node *ssam_node_group_sb3[] = {
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+ 	&ssam_node_bat_sb3base,
+-	&ssam_node_tmp_pprof,
++	&ssam_node_tmp_perf_profile,
+ 	&ssam_node_bas_dtx,
+ 	&ssam_node_hid_base_keyboard,
+ 	&ssam_node_hid_base_touchpad,
+@@ -239,7 +253,7 @@ static const struct software_node *ssam_node_group_sl3[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+-	&ssam_node_tmp_pprof,
++	&ssam_node_tmp_perf_profile,
+ 	&ssam_node_hid_main_keyboard,
+ 	&ssam_node_hid_main_touchpad,
+ 	&ssam_node_hid_main_iid5,
+@@ -251,7 +265,7 @@ static const struct software_node *ssam_node_group_sl5[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+-	&ssam_node_tmp_pprof,
++	&ssam_node_tmp_perf_profile,
+ 	&ssam_node_hid_main_keyboard,
+ 	&ssam_node_hid_main_touchpad,
+ 	&ssam_node_hid_main_iid5,
+@@ -280,7 +294,7 @@ static const struct software_node *ssam_node_group_sls1[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+-	&ssam_node_tmp_pprof,
++	&ssam_node_tmp_perf_profile,
+ 	&ssam_node_pos_tablet_switch,
+ 	&ssam_node_hid_sam_keyboard,
+ 	&ssam_node_hid_sam_penstash,
+@@ -296,7 +310,7 @@ static const struct software_node *ssam_node_group_sls2[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+-	&ssam_node_tmp_pprof,
++	&ssam_node_tmp_perf_profile,
+ 	&ssam_node_pos_tablet_switch,
+ 	&ssam_node_hid_sam_keyboard,
+ 	&ssam_node_hid_sam_penstash,
+@@ -310,7 +324,7 @@ static const struct software_node *ssam_node_group_slg1[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+-	&ssam_node_tmp_pprof,
++	&ssam_node_tmp_perf_profile,
+ 	NULL,
+ };
+ 
+@@ -319,7 +333,7 @@ static const struct software_node *ssam_node_group_sp7[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+-	&ssam_node_tmp_pprof,
++	&ssam_node_tmp_perf_profile,
+ 	NULL,
+ };
+ 
+@@ -329,7 +343,7 @@ static const struct software_node *ssam_node_group_sp8[] = {
+ 	&ssam_node_hub_kip,
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+-	&ssam_node_tmp_pprof,
++	&ssam_node_tmp_perf_profile,
+ 	&ssam_node_kip_tablet_switch,
+ 	&ssam_node_hid_kip_keyboard,
+ 	&ssam_node_hid_kip_penstash,
+@@ -346,7 +360,7 @@ static const struct software_node *ssam_node_group_sp9[] = {
+ 	&ssam_node_hub_kip,
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+-	&ssam_node_tmp_pprof,
++	&ssam_node_tmp_perf_profile_with_fan,
+ 	&ssam_node_tmp_sensors,
+ 	&ssam_node_fan_speed,
+ 	&ssam_node_pos_tablet_switch,
+diff --git a/drivers/platform/surface/surface_platform_profile.c b/drivers/platform/surface/surface_platform_profile.c
+index a5a3941b3f43..e54d0a8f7daa 100644
+--- a/drivers/platform/surface/surface_platform_profile.c
++++ b/drivers/platform/surface/surface_platform_profile.c
+@@ -1,7 +1,7 @@
+ // SPDX-License-Identifier: GPL-2.0+
+ /*
+  * Surface Platform Profile / Performance Mode driver for Surface System
+- * Aggregator Module (thermal subsystem).
++ * Aggregator Module (thermal and fan subsystem).
+  *
+  * Copyright (C) 2021-2022 Maximilian Luz <luzmaximilian@gmail.com>
+  */
+@@ -14,6 +14,7 @@
+ 
+ #include <linux/surface_aggregator/device.h>
+ 
++// Enum for the platform performance profile sent to the TMP module.
+ enum ssam_tmp_profile {
+ 	SSAM_TMP_PROFILE_NORMAL             = 1,
+ 	SSAM_TMP_PROFILE_BATTERY_SAVER      = 2,
+@@ -21,15 +22,26 @@ enum ssam_tmp_profile {
+ 	SSAM_TMP_PROFILE_BEST_PERFORMANCE   = 4,
+ };
+ 
++// Enum for the fan profile sent to the FAN module. This fan profile is
++// only sent to the EC if the 'has_fan' property is set. The integers are
++// not a typo, they differ from the performance profile indices.
++enum ssam_fan_profile {
++	SSAM_FAN_PROFILE_NORMAL             = 2,
++	SSAM_FAN_PROFILE_BATTERY_SAVER      = 1,
++	SSAM_FAN_PROFILE_BETTER_PERFORMANCE = 3,
++	SSAM_FAN_PROFILE_BEST_PERFORMANCE   = 4,
++};
++
+ struct ssam_tmp_profile_info {
+ 	__le32 profile;
+ 	__le16 unknown1;
+ 	__le16 unknown2;
+ } __packed;
+ 
+-struct ssam_tmp_profile_device {
++struct ssam_platform_profile_device {
+ 	struct ssam_device *sdev;
+ 	struct platform_profile_handler handler;
++	bool has_fan;
+ };
+ 
+ SSAM_DEFINE_SYNC_REQUEST_CL_R(__ssam_tmp_profile_get, struct ssam_tmp_profile_info, {
+@@ -42,6 +54,13 @@ SSAM_DEFINE_SYNC_REQUEST_CL_W(__ssam_tmp_profile_set, __le32, {
+ 	.command_id      = 0x03,
+ });
+ 
++SSAM_DEFINE_SYNC_REQUEST_W(__ssam_fan_profile_set, char, {
++	.target_category = SSAM_SSH_TC_FAN,
++	.target_id = SSAM_SSH_TID_SAM,
++	.command_id = 0x0e,
++	.instance_id = 0x01,
++});
++
+ static int ssam_tmp_profile_get(struct ssam_device *sdev, enum ssam_tmp_profile *p)
+ {
+ 	struct ssam_tmp_profile_info info;
+@@ -62,7 +81,14 @@ static int ssam_tmp_profile_set(struct ssam_device *sdev, enum ssam_tmp_profile
+ 	return ssam_retry(__ssam_tmp_profile_set, sdev, &profile_le);
+ }
+ 
+-static int convert_ssam_to_profile(struct ssam_device *sdev, enum ssam_tmp_profile p)
++static int ssam_fan_profile_set(struct ssam_device *sdev, enum ssam_fan_profile p)
++{
++	char profile = p;
++
++	return ssam_retry(__ssam_fan_profile_set, sdev->ctrl, &profile);
++}
++
++static int convert_ssam_tmp_to_profile(struct ssam_device *sdev, enum ssam_tmp_profile p)
+ {
+ 	switch (p) {
+ 	case SSAM_TMP_PROFILE_NORMAL:
+@@ -83,7 +109,8 @@ static int convert_ssam_to_profile(struct ssam_device *sdev, enum ssam_tmp_profi
+ 	}
+ }
+ 
+-static int convert_profile_to_ssam(struct ssam_device *sdev, enum platform_profile_option p)
++
++static int convert_profile_to_ssam_tmp(struct ssam_device *sdev, enum platform_profile_option p)
+ {
+ 	switch (p) {
+ 	case PLATFORM_PROFILE_LOW_POWER:
+@@ -105,20 +132,42 @@ static int convert_profile_to_ssam(struct ssam_device *sdev, enum platform_profi
+ 	}
+ }
+ 
++static int convert_profile_to_ssam_fan(struct ssam_device *sdev, enum platform_profile_option p)
++{
++	switch (p) {
++	case PLATFORM_PROFILE_LOW_POWER:
++		return SSAM_FAN_PROFILE_BATTERY_SAVER;
++
++	case PLATFORM_PROFILE_BALANCED:
++		return SSAM_FAN_PROFILE_NORMAL;
++
++	case PLATFORM_PROFILE_BALANCED_PERFORMANCE:
++		return SSAM_FAN_PROFILE_BETTER_PERFORMANCE;
++
++	case PLATFORM_PROFILE_PERFORMANCE:
++		return SSAM_FAN_PROFILE_BEST_PERFORMANCE;
++
++	default:
++		/* This should have already been caught by platform_profile_store(). */
++		WARN(true, "unsupported platform profile");
++		return -EOPNOTSUPP;
++	}
++}
++
+ static int ssam_platform_profile_get(struct platform_profile_handler *pprof,
+ 				     enum platform_profile_option *profile)
+ {
+-	struct ssam_tmp_profile_device *tpd;
++	struct ssam_platform_profile_device *tpd;
+ 	enum ssam_tmp_profile tp;
+ 	int status;
+ 
+-	tpd = container_of(pprof, struct ssam_tmp_profile_device, handler);
++	tpd = container_of(pprof, struct ssam_platform_profile_device, handler);
+ 
+ 	status = ssam_tmp_profile_get(tpd->sdev, &tp);
+ 	if (status)
+ 		return status;
+ 
+-	status = convert_ssam_to_profile(tpd->sdev, tp);
++	status = convert_ssam_tmp_to_profile(tpd->sdev, tp);
+ 	if (status < 0)
+ 		return status;
+ 
+@@ -129,21 +178,32 @@ static int ssam_platform_profile_get(struct platform_profile_handler *pprof,
+ static int ssam_platform_profile_set(struct platform_profile_handler *pprof,
+ 				     enum platform_profile_option profile)
+ {
+-	struct ssam_tmp_profile_device *tpd;
++	struct ssam_platform_profile_device *tpd;
+ 	int tp;
+ 
+-	tpd = container_of(pprof, struct ssam_tmp_profile_device, handler);
++	tpd = container_of(pprof, struct ssam_platform_profile_device, handler);
++
++	tp = convert_profile_to_ssam_tmp(tpd->sdev, profile);
++	if (tp < 0)
++		return tp;
+ 
+-	tp = convert_profile_to_ssam(tpd->sdev, profile);
++	tp = ssam_tmp_profile_set(tpd->sdev, tp);
+ 	if (tp < 0)
+ 		return tp;
+ 
+-	return ssam_tmp_profile_set(tpd->sdev, tp);
++	if (tpd->has_fan) {
++		tp = convert_profile_to_ssam_fan(tpd->sdev, profile);
++		if (tp < 0)
++			return tp;
++		tp = ssam_fan_profile_set(tpd->sdev, tp);
++	}
++
++	return tp;
+ }
+ 
+ static int surface_platform_profile_probe(struct ssam_device *sdev)
+ {
+-	struct ssam_tmp_profile_device *tpd;
++	struct ssam_platform_profile_device *tpd;
+ 
+ 	tpd = devm_kzalloc(&sdev->dev, sizeof(*tpd), GFP_KERNEL);
+ 	if (!tpd)
+@@ -154,6 +214,8 @@ static int surface_platform_profile_probe(struct ssam_device *sdev)
+ 	tpd->handler.profile_get = ssam_platform_profile_get;
+ 	tpd->handler.profile_set = ssam_platform_profile_set;
+ 
++	tpd->has_fan = device_property_read_bool(&sdev->dev, "has_fan");
++
+ 	set_bit(PLATFORM_PROFILE_LOW_POWER, tpd->handler.choices);
+ 	set_bit(PLATFORM_PROFILE_BALANCED, tpd->handler.choices);
+ 	set_bit(PLATFORM_PROFILE_BALANCED_PERFORMANCE, tpd->handler.choices);
+-- 
+2.45.2
+
+From 4adc9fe7e3e43927845ff1711d8f0a7c0a3c7e74 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Mon, 10 Jun 2024 21:47:47 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add fan and thermal
+ sensor support for Surface Laptop 5
+
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 07a4c4e1120d..4dc79f791d39 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -265,7 +265,9 @@ static const struct software_node *ssam_node_group_sl5[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+-	&ssam_node_tmp_perf_profile,
++	&ssam_node_tmp_perf_profile_with_fan,
++	&ssam_node_tmp_sensors,
++	&ssam_node_fan_speed,
+ 	&ssam_node_hid_main_keyboard,
+ 	&ssam_node_hid_main_touchpad,
+ 	&ssam_node_hid_main_iid5,
+-- 
+2.45.2
+
+From df74cd4f195731eec0d7423b9b5ac5ad54e66206 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Mon, 10 Jun 2024 21:48:02 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add fan and thermal
+ sensor support for Surface Laptop Studio 2
+
+Patchset: surface-sam
+---
+ drivers/platform/surface/surface_aggregator_registry.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 4dc79f791d39..77f903a04d12 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -312,7 +312,9 @@ static const struct software_node *ssam_node_group_sls2[] = {
+ 	&ssam_node_root,
+ 	&ssam_node_bat_ac,
+ 	&ssam_node_bat_main,
+-	&ssam_node_tmp_perf_profile,
++	&ssam_node_tmp_perf_profile_with_fan,
++	&ssam_node_tmp_sensors,
++	&ssam_node_fan_speed,
+ 	&ssam_node_pos_tablet_switch,
+ 	&ssam_node_hid_sam_keyboard,
+ 	&ssam_node_hid_sam_penstash,
+-- 
+2.45.2
+
+From fbda016e6525668c554714feb8aa09e1baa3d174 Mon Sep 17 00:00:00 2001
+From: Maximilian Luz <luzmaximilian@gmail.com>
+Date: Fri, 28 Jun 2024 22:31:37 +0200
+Subject: [PATCH] platform/surface: aggregator_registry: Add Support for
+ Surface Pro 10
+
+Patchset: surface-sam
+---
+ .../surface/surface_aggregator_registry.c     | 22 +++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/drivers/platform/surface/surface_aggregator_registry.c b/drivers/platform/surface/surface_aggregator_registry.c
+index 77f903a04d12..7d01d989d2a4 100644
+--- a/drivers/platform/surface/surface_aggregator_registry.c
++++ b/drivers/platform/surface/surface_aggregator_registry.c
+@@ -377,6 +377,25 @@ static const struct software_node *ssam_node_group_sp9[] = {
+ 	NULL,
+ };
+ 
++/* Devices for Surface Pro 10 */
++static const struct software_node *ssam_node_group_sp10[] = {
++	&ssam_node_root,
++	&ssam_node_hub_kip,
++	&ssam_node_bat_ac,
++	&ssam_node_bat_main,
++	&ssam_node_tmp_perf_profile_with_fan,
++	&ssam_node_tmp_sensors,
++	&ssam_node_fan_speed,
++	&ssam_node_pos_tablet_switch,
++	&ssam_node_hid_kip_keyboard,
++	&ssam_node_hid_kip_penstash,
++	&ssam_node_hid_kip_touchpad,
++	&ssam_node_hid_kip_fwupd,
++	&ssam_node_hid_sam_sensors,
++	&ssam_node_hid_sam_ucm_ucsi,
++	NULL,
++};
++
+ 
+ /* -- SSAM platform/meta-hub driver. ---------------------------------------- */
+ 
+@@ -399,6 +418,9 @@ static const struct acpi_device_id ssam_platform_hub_match[] = {
+ 	/* Surface Pro 9 */
+ 	{ "MSHW0343", (unsigned long)ssam_node_group_sp9 },
+ 
++	/* Surface Pro 10 */
++	{ "MSHW0510", (unsigned long)ssam_node_group_sp10 },
++
+ 	/* Surface Book 2 */
+ 	{ "MSHW0107", (unsigned long)ssam_node_group_gen5 },
+ 
+-- 
+2.45.2
+

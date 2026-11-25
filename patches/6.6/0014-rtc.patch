@@ -1,0 +1,110 @@
+From 55aabf536ba74a27665aa48413ff958be42cb8eb Mon Sep 17 00:00:00 2001
+From: "Bart Groeneveld | GPX Solutions B.V" <bart@gpxbv.nl>
+Date: Mon, 5 Dec 2022 16:08:46 +0100
+Subject: [PATCH] acpi: allow usage of acpi_tad on HW-reduced platforms
+
+The specification [1] allows so-called HW-reduced platforms,
+which do not implement everything, especially the wakeup related stuff.
+
+In that case, it is still usable as a RTC. This is helpful for [2]
+and [3], which is about a device with no other working RTC,
+but it does have an HW-reduced TAD, which can be used as a RTC instead.
+
+[1]: https://uefi.org/specs/ACPI/6.5/09_ACPI_Defined_Devices_and_Device_Specific_Objects.html#time-and-alarm-device
+[2]: https://bugzilla.kernel.org/show_bug.cgi?id=212313
+[3]: https://github.com/linux-surface/linux-surface/issues/415
+
+Signed-off-by: Bart Groeneveld | GPX Solutions B.V. <bart@gpxbv.nl>
+Patchset: rtc
+---
+ drivers/acpi/acpi_tad.c | 36 ++++++++++++++++++++++++------------
+ 1 file changed, 24 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/acpi/acpi_tad.c b/drivers/acpi/acpi_tad.c
+index 33c3b16af556..900445d06623 100644
+--- a/drivers/acpi/acpi_tad.c
++++ b/drivers/acpi/acpi_tad.c
+@@ -432,6 +432,14 @@ static ssize_t caps_show(struct device *dev, struct device_attribute *attr,
+ 
+ static DEVICE_ATTR_RO(caps);
+ 
++static struct attribute *acpi_tad_attrs[] = {
++	&dev_attr_caps.attr,
++	NULL,
++};
++static const struct attribute_group acpi_tad_attr_group = {
++	.attrs	= acpi_tad_attrs,
++};
++
+ static ssize_t ac_alarm_store(struct device *dev, struct device_attribute *attr,
+ 			      const char *buf, size_t count)
+ {
+@@ -480,15 +488,14 @@ static ssize_t ac_status_show(struct device *dev, struct device_attribute *attr,
+ 
+ static DEVICE_ATTR_RW(ac_status);
+ 
+-static struct attribute *acpi_tad_attrs[] = {
+-	&dev_attr_caps.attr,
++static struct attribute *acpi_tad_ac_attrs[] = {
+ 	&dev_attr_ac_alarm.attr,
+ 	&dev_attr_ac_policy.attr,
+ 	&dev_attr_ac_status.attr,
+ 	NULL,
+ };
+-static const struct attribute_group acpi_tad_attr_group = {
+-	.attrs	= acpi_tad_attrs,
++static const struct attribute_group acpi_tad_ac_attr_group = {
++	.attrs	= acpi_tad_ac_attrs,
+ };
+ 
+ static ssize_t dc_alarm_store(struct device *dev, struct device_attribute *attr,
+@@ -564,13 +571,18 @@ static int acpi_tad_remove(struct platform_device *pdev)
+ 
+ 	pm_runtime_get_sync(dev);
+ 
++	if (dd->capabilities & ACPI_TAD_AC_WAKE)
++		sysfs_remove_group(&dev->kobj, &acpi_tad_ac_attr_group);
++
+ 	if (dd->capabilities & ACPI_TAD_DC_WAKE)
+ 		sysfs_remove_group(&dev->kobj, &acpi_tad_dc_attr_group);
+ 
+ 	sysfs_remove_group(&dev->kobj, &acpi_tad_attr_group);
+ 
+-	acpi_tad_disable_timer(dev, ACPI_TAD_AC_TIMER);
+-	acpi_tad_clear_status(dev, ACPI_TAD_AC_TIMER);
++	if (dd->capabilities & ACPI_TAD_AC_WAKE) {
++		acpi_tad_disable_timer(dev, ACPI_TAD_AC_TIMER);
++		acpi_tad_clear_status(dev, ACPI_TAD_AC_TIMER);
++	}
+ 	if (dd->capabilities & ACPI_TAD_DC_WAKE) {
+ 		acpi_tad_disable_timer(dev, ACPI_TAD_DC_TIMER);
+ 		acpi_tad_clear_status(dev, ACPI_TAD_DC_TIMER);
+@@ -613,12 +625,6 @@ static int acpi_tad_probe(struct platform_device *pdev)
+ 		goto remove_handler;
+ 	}
+ 
+-	if (!acpi_has_method(handle, "_PRW")) {
+-		dev_info(dev, "Missing _PRW\n");
+-		ret = -ENODEV;
+-		goto remove_handler;
+-	}
+-
+ 	dd = devm_kzalloc(dev, sizeof(*dd), GFP_KERNEL);
+ 	if (!dd) {
+ 		ret = -ENOMEM;
+@@ -649,6 +655,12 @@ static int acpi_tad_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		goto fail;
+ 
++	if (caps & ACPI_TAD_AC_WAKE) {
++		ret = sysfs_create_group(&dev->kobj, &acpi_tad_ac_attr_group);
++		if (ret)
++			goto fail;
++	}
++
+ 	if (caps & ACPI_TAD_DC_WAKE) {
+ 		ret = sysfs_create_group(&dev->kobj, &acpi_tad_dc_attr_group);
+ 		if (ret)
+-- 
+2.44.0
+

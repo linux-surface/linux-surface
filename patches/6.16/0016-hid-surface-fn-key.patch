@@ -1,0 +1,157 @@
+From 8ec2ee811c7d8c373f0a012f09f8f1582a6c3cdb Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ciar=C3=A1n=20Coffey?= <github@ccoffey.ie>
+Date: Fri, 10 Oct 2025 19:04:03 +0100
+Subject: [PATCH] HID: Add hid-surface driver to filter BTN_0 (FN key)
+
+The Surface Aggregator Module firmware incorrectly reports the FN key
+as BTN_0 (button 256) through runtime HID events. This button can get
+stuck in pressed state, flooding the input system and breaking focus
+tracking in KWin Wayland compositor.
+
+Add a new hid-surface driver that filters BTN_0 events using the event
+callback. The FN key should be handled as a hardware modifier and not
+reported to the OS.
+
+Tested on Surface Laptop 4 AMD with KDE Plasma Wayland. After the fix:
+- FN key combinations work correctly (volume, brightness)
+- Focus tracking no longer breaks
+- Mouse clicks work on all windows
+
+Fixes: https://github.com/linux-surface/linux-surface/issues/1851
+---
+ drivers/hid/Kconfig       |  8 ++++
+ drivers/hid/Makefile      |  1 +
+ drivers/hid/hid-surface.c | 90 +++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 99 insertions(+)
+ create mode 100644 drivers/hid/hid-surface.c
+
+diff --git a/drivers/hid/Kconfig b/drivers/hid/Kconfig
+index d6bc87be4854..ebb29cd695fe 100644
+--- a/drivers/hid/Kconfig
++++ b/drivers/hid/Kconfig
+@@ -1131,6 +1131,14 @@ config HID_SUNPLUS
+ 	help
+ 	Support for Sunplus wireless desktop.
+ 
++config HID_SURFACE
++	tristate "Microsoft Surface"
++	depends on SURFACE_AGGREGATOR
++	help
++	Say Y here to enable HID driver for Microsoft Surface integrated
++	keyboard and touchpad. This driver filters out erroneous BTN_0
++	(FN key) events that can cause input focus issues.
++
+ config HID_RMI
+ 	tristate "Synaptics RMI4 device support"
+ 	select RMI4_CORE
+diff --git a/drivers/hid/Makefile b/drivers/hid/Makefile
+index d939da7ac2e8..db4e80893ce5 100644
+--- a/drivers/hid/Makefile
++++ b/drivers/hid/Makefile
+@@ -173,6 +173,7 @@ obj-$(CONFIG_INTEL_ISH_HID)	+= intel-ish-hid/
+ obj-$(CONFIG_AMD_SFH_HID)       += amd-sfh-hid/
+ 
+ obj-$(CONFIG_SURFACE_HID_CORE)  += surface-hid/
++obj-$(CONFIG_HID_SURFACE)	+= hid-surface.o
+ 
+ obj-$(CONFIG_INTEL_THC_HID)     += intel-thc-hid/
+ 
+diff --git a/drivers/hid/hid-surface.c b/drivers/hid/hid-surface.c
+new file mode 100644
+index 000000000000..a171ea65672f
+--- /dev/null
++++ b/drivers/hid/hid-surface.c
+@@ -0,0 +1,90 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * HID driver for Microsoft Surface devices
++ *
++ * Copyright (c) 2025 Linux Surface Project
++ */
++
++#include <linux/device.h>
++#include <linux/hid.h>
++#include <linux/input.h>
++#include <linux/module.h>
++
++#include "hid-ids.h"
++
++/*
++ * The Surface Aggregator Module firmware incorrectly reports the FN key
++ * as BTN_0 (button 256). This button can get stuck in pressed state,
++ * flooding the input system and breaking focus tracking in some
++ * compositors. Filter out BTN_0 as FN should be handled as a hardware
++ * modifier, not reported to the OS.
++ */
++static int surface_input_mapping(struct hid_device *hdev, struct hid_input *hi,
++				  struct hid_field *field, struct hid_usage *usage,
++				  unsigned long **bit, int *max)
++{
++	/*
++	 * Filter BTN_0 during input mapping in case it appears in the
++	 * HID descriptor (defense in depth).
++	 */
++	if (usage->type == EV_KEY && usage->code == BTN_0)
++		return -1;  /* Don't map this usage */
++
++	return 0;  /* Use default mapping */
++}
++
++static int surface_event(struct hid_device *hdev, struct hid_field *field,
++			  struct hid_usage *usage, __s32 value)
++{
++	/*
++	 * The Surface Aggregator Module firmware reports the FN key as BTN_0
++	 * at runtime. This button can get stuck in pressed state, flooding
++	 * the input system and breaking focus tracking. Filter out these
++	 * events as FN should be a hardware modifier, not reported to the OS.
++	 */
++	if (usage->type == EV_KEY && usage->code == BTN_0)
++		return 1;  /* Event handled, don't process further */
++
++	return 0;  /* Process event normally */
++}
++
++static int surface_probe(struct hid_device *hdev, const struct hid_device_id *id)
++{
++	int ret;
++
++	ret = hid_parse(hdev);
++	if (ret) {
++		hid_err(hdev, "parse failed\n");
++		return ret;
++	}
++
++	ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
++	if (ret) {
++		hid_err(hdev, "hw start failed\n");
++		return ret;
++	}
++
++	return 0;
++}
++
++static const struct hid_device_id surface_devices[] = {
++	{ HID_DEVICE(BUS_HOST, HID_GROUP_GENERIC,
++		     USB_VENDOR_ID_MICROSOFT, 0x09AE) },  /* Surface Keyboard */
++	{ HID_DEVICE(BUS_HOST, HID_GROUP_GENERIC,
++		     USB_VENDOR_ID_MICROSOFT, 0x09AF) },  /* Surface Mouse/Touchpad */
++	{ }
++};
++MODULE_DEVICE_TABLE(hid, surface_devices);
++
++static struct hid_driver surface_driver = {
++	.name = "surface",
++	.id_table = surface_devices,
++	.probe = surface_probe,
++	.input_mapping = surface_input_mapping,
++	.event = surface_event,
++};
++module_hid_driver(surface_driver);
++
++MODULE_AUTHOR("Linux Surface Project");
++MODULE_DESCRIPTION("Microsoft Surface HID driver");
++MODULE_LICENSE("GPL");
+-- 
+2.51.0
+
