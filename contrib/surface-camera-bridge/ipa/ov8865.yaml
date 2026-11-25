@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: CC0-1.0
+#
+# IPU3 IPA tuning file for the OmniVision OV8865 front camera on the
+# Microsoft Surface Go 2. libcamera 0.1.0 and its upstream IPU3 IPA do
+# not ship per-sensor tuning data for the ov8865, so without this file
+# the IPA proxy fails with:
+#     ERROR IPAProxy: Configuration file 'ov8865.yaml' not found
+# and the camera will not stream.
+#
+# This file is a minimal enable-list with no per-sensor calibration
+# values. The IPU3 IPA algorithms hardcode their parameters in C++, so
+# adding real tuning here would not improve image quality — that takes
+# a C++ patch to the IPA. Image quality is instead compensated by the
+# surface-camera-bridge userspace pipeline (colorchannelmixer + eq in
+# ffmpeg, plus direct writes to the ov8865 v4l2-subdev to raise
+# exposure and analogue gain out of their near-minimum driver defaults).
+#
+%YAML 1.1
+---
+version: 1
+algorithms:
+  - Af:
+  - Agc:
+  - Awb:
+  - BlackLevelCorrection:
+  - ToneMapping:
+...
