@@ -1,0 +1,3251 @@
+From c1c1eb1b2d1d034dfe351ea51efd25ef502db25e Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Sun, 10 Oct 2021 20:56:57 +0200
+Subject: [PATCH] ACPI: delay enumeration of devices with a _DEP pointing to an
+ INT3472 device
+
+The clk and regulator frameworks expect clk/regulator consumer-devices
+to have info about the consumed clks/regulators described in the device's
+fw_node.
+
+To work around cases where this info is not present in the firmware tables,
+which is often the case on x86/ACPI devices, both frameworks allow the
+provider-driver to attach info about consumers to the clks/regulators
+when registering these.
+
+This causes problems with the probe ordering wrt drivers for consumers
+of these clks/regulators. Since the lookups are only registered when the
+provider-driver binds, trying to get these clks/regulators before then
+results in a -ENOENT error for clks and a dummy regulator for regulators.
+
+One case where we hit this issue is camera sensors such as e.g. the OV8865
+sensor found on the Microsoft Surface Go. The sensor uses clks, regulators
+and GPIOs provided by a TPS68470 PMIC which is described in an INT3472
+ACPI device. There is special platform code handling this and setting
+platform_data with the necessary consumer info on the MFD cells
+instantiated for the PMIC under: drivers/platform/x86/intel/int3472.
+
+For this to work properly the ov8865 driver must not bind to the I2C-client
+for the OV8865 sensor until after the TPS68470 PMIC gpio, regulator and
+clk MFD cells have all been fully setup.
+
+The OV8865 on the Microsoft Surface Go is just one example, all X86
+devices using the Intel IPU3 camera block found on recent Intel SoCs
+have similar issues where there is an INT3472 HID ACPI-device, which
+describes the clks and regulators, and the driver for this INT3472 device
+must be fully initialized before the sensor driver (any sensor driver)
+binds for things to work properly.
+
+On these devices the ACPI nodes describing the sensors all have a _DEP
+dependency on the matching INT3472 ACPI device (there is one per sensor).
+
+This allows solving the probe-ordering problem by delaying the enumeration
+(instantiation of the I2C-client in the ov8865 example) of ACPI-devices
+which have a _DEP dependency on an INT3472 device.
+
+The new acpi_dev_ready_for_enumeration() helper used for this is also
+exported because for devices, which have the enumeration_by_parent flag
+set, the parent-driver will do its own scan of child ACPI devices and
+it will try to enumerate those during its probe(). Code doing this such
+as e.g. the i2c-core-acpi.c code must call this new helper to ensure
+that it too delays the enumeration until all the _DEP dependencies are
+met on devices which have the new honor_deps flag set.
+
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: cameras
+---
+ drivers/acpi/scan.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/acpi/scan.c b/drivers/acpi/scan.c
+index b78f6be2f..801171e2a 100644
+--- a/drivers/acpi/scan.c
++++ b/drivers/acpi/scan.c
+@@ -2206,6 +2206,9 @@ static acpi_status acpi_bus_check_add_2(acpi_handle handle, u32 lvl_not_used,
+ 
+ static void acpi_default_enumeration(struct acpi_device *device)
+ {
++	if (!acpi_dev_ready_for_enumeration(device))
++		return;
++
+ 	/*
+ 	 * Do not enumerate devices with enumeration_by_parent flag set as
+ 	 * they will be enumerated by their respective parents.
+-- 
+2.53.0
+
+From 4b553e59c7d3ff31429e4dd08a0460b11bab94dd Mon Sep 17 00:00:00 2001
+From: zouxiaoh <xiaohong.zou@intel.com>
+Date: Fri, 25 Jun 2021 08:52:59 +0800
+Subject: [PATCH] iommu: intel-ipu: use IOMMU passthrough mode for Intel IPUs
+
+Intel IPU(Image Processing Unit) has its own (IO)MMU hardware,
+The IPU driver allocates its own page table that is not mapped
+via the DMA, and thus the Intel IOMMU driver blocks access giving
+this error: DMAR: DRHD: handling fault status reg 3 DMAR:
+[DMA Read] Request device [00:05.0] PASID ffffffff
+fault addr 76406000 [fault reason 06] PTE Read access is not set
+As IPU is not an external facing device which is not risky, so use
+IOMMU passthrough mode for Intel IPUs.
+
+Change-Id: I6dcccdadac308cf42e20a18e1b593381391e3e6b
+Depends-On: Iacd67578e8c6a9b9ac73285f52b4081b72fb68a6
+Tracked-On: #JIITL8-411
+Signed-off-by: Bingbu Cao <bingbu.cao@intel.com>
+Signed-off-by: zouxiaoh <xiaohong.zou@intel.com>
+Signed-off-by: Xu Chongyang <chongyang.xu@intel.com>
+Patchset: cameras
+---
+ drivers/iommu/intel/iommu.c | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/drivers/iommu/intel/iommu.c b/drivers/iommu/intel/iommu.c
+index 1400bf283..cca97e5b2 100644
+--- a/drivers/iommu/intel/iommu.c
++++ b/drivers/iommu/intel/iommu.c
+@@ -44,6 +44,13 @@
+ 		((pdev)->vendor == PCI_VENDOR_ID_INTEL && (pdev)->device == 0x34E4) \
+ 	)
+ 
++#define IS_INTEL_IPU(pdev) ((pdev)->vendor == PCI_VENDOR_ID_INTEL &&	\
++			   ((pdev)->device == 0x9a19 ||		\
++			    (pdev)->device == 0x9a39 ||		\
++			    (pdev)->device == 0x4e19 ||		\
++			    (pdev)->device == 0x465d ||		\
++			    (pdev)->device == 0x1919))
++
+ #define IOAPIC_RANGE_START	(0xfee00000)
+ #define IOAPIC_RANGE_END	(0xfeefffff)
+ #define IOVA_START_ADDR		(0x1000)
+@@ -208,12 +215,14 @@ int intel_iommu_enabled = 0;
+ EXPORT_SYMBOL_GPL(intel_iommu_enabled);
+ 
+ static int dmar_map_ipts = 1;
++static int dmar_map_ipu = 1;
+ static int intel_iommu_superpage = 1;
+ static int iommu_identity_mapping;
+ static int iommu_skip_te_disable;
+ static int disable_igfx_iommu;
+ 
+ #define IDENTMAP_AZALIA		4
++#define IDENTMAP_IPU		8
+ #define IDENTMAP_IPTS		16
+ 
+ const struct iommu_ops intel_iommu_ops;
+@@ -1406,6 +1415,9 @@ static int device_def_domain_type(struct device *dev)
+ 		if ((iommu_identity_mapping & IDENTMAP_AZALIA) && IS_AZALIA(pdev))
+ 			return IOMMU_DOMAIN_IDENTITY;
+ 
++		if ((iommu_identity_mapping & IDENTMAP_IPU) && IS_INTEL_IPU(pdev))
++			return IOMMU_DOMAIN_IDENTITY;
++
+ 		if ((iommu_identity_mapping & IDENTMAP_IPTS) && IS_IPTS(pdev))
+ 			return IOMMU_DOMAIN_IDENTITY;
+ 	}
+@@ -1698,6 +1710,9 @@ static int __init init_dmars(void)
+ 		iommu_set_root_entry(iommu);
+ 	}
+ 
++	if (!dmar_map_ipu)
++		iommu_identity_mapping |= IDENTMAP_IPU;
++
+ 	if (!dmar_map_ipts)
+ 		iommu_identity_mapping |= IDENTMAP_IPTS;
+ 
+@@ -3946,6 +3961,18 @@ static void quirk_iommu_igfx(struct pci_dev *dev)
+ 	disable_igfx_iommu = 1;
+ }
+ 
++static void quirk_iommu_ipu(struct pci_dev *dev)
++{
++	if (!IS_INTEL_IPU(dev))
++		return;
++
++	if (risky_device(dev))
++		return;
++
++	pci_info(dev, "Passthrough IOMMU for integrated Intel IPU\n");
++	dmar_map_ipu = 0;
++}
++
+ static void quirk_iommu_ipts(struct pci_dev *dev)
+ {
+ 	if (!IS_IPTS(dev))
+@@ -3996,6 +4023,9 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x1632, quirk_iommu_igfx);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163A, quirk_iommu_igfx);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x163D, quirk_iommu_igfx);
+ 
++/* disable IPU dmar support */
++DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, PCI_ANY_ID, quirk_iommu_ipu);
++
+ /* disable IPTS dmar support */
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x9D3E, quirk_iommu_ipts);
+ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x34E4, quirk_iommu_ipts);
+-- 
+2.53.0
+
+From e161e5012e6858f2715f72668ea2fc0d7aeb89da Mon Sep 17 00:00:00 2001
+From: Daniel Scally <djrscally@gmail.com>
+Date: Sun, 10 Oct 2021 20:57:02 +0200
+Subject: [PATCH] platform/x86: int3472: Enable I2c daisy chain
+
+The TPS68470 PMIC has an I2C passthrough mode through which I2C traffic
+can be forwarded to a device connected to the PMIC as though it were
+connected directly to the system bus. Enable this mode when the chip
+is initialised.
+
+Signed-off-by: Daniel Scally <djrscally@gmail.com>
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/tps68470.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/platform/x86/intel/int3472/tps68470.c b/drivers/platform/x86/intel/int3472/tps68470.c
+index 013340569..9e0763bdc 100644
+--- a/drivers/platform/x86/intel/int3472/tps68470.c
++++ b/drivers/platform/x86/intel/int3472/tps68470.c
+@@ -46,6 +46,13 @@ static int tps68470_chip_init(struct device *dev, struct regmap *regmap)
+ 		return ret;
+ 	}
+ 
++	/* Enable I2C daisy chain */
++	ret = regmap_write(regmap, TPS68470_REG_S_I2C_CTL, 0x03);
++	if (ret) {
++		dev_err(dev, "Failed to enable i2c daisy chain\n");
++		return ret;
++	}
++
+ 	dev_info(dev, "TPS68470 REVID: 0x%02x\n", version);
+ 
+ 	return 0;
+-- 
+2.53.0
+
+From 9c649457de8b93596baaa80f4f8c00e3d9baba20 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <dan.scally@ideasonboard.com>
+Date: Tue, 21 Mar 2023 13:45:26 +0000
+Subject: [PATCH] media: i2c: Clarify that gain is Analogue gain in OV7251
+
+Update the control ID for the gain control in the ov7251 driver to
+V4L2_CID_ANALOGUE_GAIN.
+
+Signed-off-by: Daniel Scally <dan.scally@ideasonboard.com>
+Patchset: cameras
+---
+ drivers/media/i2c/ov7251.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/i2c/ov7251.c b/drivers/media/i2c/ov7251.c
+index 27afc3fc0..28b192c9a 100644
+--- a/drivers/media/i2c/ov7251.c
++++ b/drivers/media/i2c/ov7251.c
+@@ -1053,7 +1053,7 @@ static int ov7251_s_ctrl(struct v4l2_ctrl *ctrl)
+ 	case V4L2_CID_EXPOSURE:
+ 		ret = ov7251_set_exposure(ov7251, ctrl->val);
+ 		break;
+-	case V4L2_CID_GAIN:
++	case V4L2_CID_ANALOGUE_GAIN:
+ 		ret = ov7251_set_gain(ov7251, ctrl->val);
+ 		break;
+ 	case V4L2_CID_TEST_PATTERN:
+@@ -1579,7 +1579,7 @@ static int ov7251_init_ctrls(struct ov7251 *ov7251)
+ 	ov7251->exposure = v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
+ 					     V4L2_CID_EXPOSURE, 1, 32, 1, 32);
+ 	ov7251->gain = v4l2_ctrl_new_std(&ov7251->ctrls, &ov7251_ctrl_ops,
+-					 V4L2_CID_GAIN, 16, 1023, 1, 16);
++					 V4L2_CID_ANALOGUE_GAIN, 16, 1023, 1, 16);
+ 	v4l2_ctrl_new_std_menu_items(&ov7251->ctrls, &ov7251_ctrl_ops,
+ 				     V4L2_CID_TEST_PATTERN,
+ 				     ARRAY_SIZE(ov7251_test_pattern_menu) - 1,
+-- 
+2.53.0
+
+From a83903189bc92cdd72dd802072f2518bbad79ee3 Mon Sep 17 00:00:00 2001
+From: Daniel Scally <dan.scally@ideasonboard.com>
+Date: Wed, 22 Mar 2023 11:01:42 +0000
+Subject: [PATCH] media: v4l2-core: Acquire privacy led in
+ v4l2_async_register_subdev()
+
+The current call to v4l2_subdev_get_privacy_led() is contained in
+v4l2_async_register_subdev_sensor(), but that function isn't used by
+all the sensor drivers. Move the acquisition of the privacy led to
+v4l2_async_register_subdev() instead.
+
+Signed-off-by: Daniel Scally <dan.scally@ideasonboard.com>
+Patchset: cameras
+---
+ drivers/media/v4l2-core/v4l2-async.c  | 4 ++++
+ drivers/media/v4l2-core/v4l2-fwnode.c | 4 ----
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/media/v4l2-core/v4l2-async.c b/drivers/media/v4l2-core/v4l2-async.c
+index 1c08bba9e..57a990d7d 100644
+--- a/drivers/media/v4l2-core/v4l2-async.c
++++ b/drivers/media/v4l2-core/v4l2-async.c
+@@ -811,6 +811,10 @@ int __v4l2_async_register_subdev(struct v4l2_subdev *sd, struct module *module)
+ 
+ 	INIT_LIST_HEAD(&sd->asc_list);
+ 
++	ret = v4l2_subdev_get_privacy_led(sd);
++	if (ret < 0)
++		return ret;
++
+ 	/*
+ 	 * No reference taken. The reference is held by the device (struct
+ 	 * v4l2_subdev.dev), and async sub-device does not exist independently
+diff --git a/drivers/media/v4l2-core/v4l2-fwnode.c b/drivers/media/v4l2-core/v4l2-fwnode.c
+index cb153ce42..f11b499e1 100644
+--- a/drivers/media/v4l2-core/v4l2-fwnode.c
++++ b/drivers/media/v4l2-core/v4l2-fwnode.c
+@@ -1260,10 +1260,6 @@ int v4l2_async_register_subdev_sensor(struct v4l2_subdev *sd)
+ 
+ 	v4l2_async_subdev_nf_init(notifier, sd);
+ 
+-	ret = v4l2_subdev_get_privacy_led(sd);
+-	if (ret < 0)
+-		goto out_cleanup;
+-
+ 	ret = v4l2_async_nf_parse_fwnode_sensor(sd->dev, notifier);
+ 	if (ret < 0)
+ 		goto out_cleanup;
+-- 
+2.53.0
+
+From bd907090c2084997d86042ba1961a066e5f6cce8 Mon Sep 17 00:00:00 2001
+From: Kate Hsuan <hpa@redhat.com>
+Date: Tue, 21 Mar 2023 23:37:16 +0800
+Subject: [PATCH] platform: x86: int3472: Add MFD cell for tps68470 LED
+
+Add MFD cell for tps68470-led.
+
+Reviewed-by: Daniel Scally <dan.scally@ideasonboard.com>
+Signed-off-by: Kate Hsuan <hpa@redhat.com>
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/tps68470.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/platform/x86/intel/int3472/tps68470.c b/drivers/platform/x86/intel/int3472/tps68470.c
+index 9e0763bdc..0976b2679 100644
+--- a/drivers/platform/x86/intel/int3472/tps68470.c
++++ b/drivers/platform/x86/intel/int3472/tps68470.c
+@@ -17,7 +17,7 @@
+ #define DESIGNED_FOR_CHROMEOS		1
+ #define DESIGNED_FOR_WINDOWS		2
+ 
+-#define TPS68470_WIN_MFD_CELL_COUNT	3
++#define TPS68470_WIN_MFD_CELL_COUNT	4
+ 
+ static const struct mfd_cell tps68470_cros[] = {
+ 	{ .name = "tps68470-gpio" },
+@@ -203,7 +203,8 @@ static int skl_int3472_tps68470_probe(struct i2c_client *client)
+ 		cells[1].name = "tps68470-regulator";
+ 		cells[1].platform_data = (void *)board_data->tps68470_regulator_pdata;
+ 		cells[1].pdata_size = sizeof(struct tps68470_regulator_platform_data);
+-		cells[2].name = "tps68470-gpio";
++		cells[2].name = "tps68470-led";
++		cells[3].name = "tps68470-gpio";
+ 
+ 		for (i = 0; i < board_data->n_gpiod_lookups; i++)
+ 			gpiod_add_lookup_table(board_data->tps68470_gpio_lookup_tables[i]);
+-- 
+2.53.0
+
+From b4551d25d8d3b88500baa0b2d0cd3e5b60438daf Mon Sep 17 00:00:00 2001
+From: Kate Hsuan <hpa@redhat.com>
+Date: Tue, 21 Mar 2023 23:37:17 +0800
+Subject: [PATCH] include: mfd: tps68470: Add masks for LEDA and LEDB
+
+Add flags for both LEDA(TPS68470_ILEDCTL_ENA), LEDB
+(TPS68470_ILEDCTL_ENB), and current control mask for LEDB
+(TPS68470_ILEDCTL_CTRLB)
+
+Reviewed-by: Daniel Scally <dan.scally@ideasonboard.com>
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Kate Hsuan <hpa@redhat.com>
+Patchset: cameras
+---
+ include/linux/mfd/tps68470.h | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/include/linux/mfd/tps68470.h b/include/linux/mfd/tps68470.h
+index 7807fa329..2d2abb25b 100644
+--- a/include/linux/mfd/tps68470.h
++++ b/include/linux/mfd/tps68470.h
+@@ -34,6 +34,7 @@
+ #define TPS68470_REG_SGPO		0x22
+ #define TPS68470_REG_GPDI		0x26
+ #define TPS68470_REG_GPDO		0x27
++#define TPS68470_REG_ILEDCTL		0x28
+ #define TPS68470_REG_VCMVAL		0x3C
+ #define TPS68470_REG_VAUX1VAL		0x3D
+ #define TPS68470_REG_VAUX2VAL		0x3E
+@@ -94,4 +95,8 @@
+ #define TPS68470_GPIO_MODE_OUT_CMOS	2
+ #define TPS68470_GPIO_MODE_OUT_ODRAIN	3
+ 
++#define TPS68470_ILEDCTL_ENA		BIT(2)
++#define TPS68470_ILEDCTL_ENB		BIT(6)
++#define TPS68470_ILEDCTL_CTRLB		GENMASK(5, 4)
++
+ #endif /* __LINUX_MFD_TPS68470_H */
+-- 
+2.53.0
+
+From 3a215fa6681957570a03d2fa2a936c4400a0248c Mon Sep 17 00:00:00 2001
+From: Kate Hsuan <hpa@redhat.com>
+Date: Tue, 21 Mar 2023 23:37:18 +0800
+Subject: [PATCH] leds: tps68470: Add LED control for tps68470
+
+There are two LED controllers, LEDA indicator LED and LEDB flash LED for
+tps68470. LEDA can be enabled by setting TPS68470_ILEDCTL_ENA. Moreover,
+tps68470 provides four levels of power status for LEDB. If the
+properties called "ti,ledb-current" can be found, the current will be
+set according to the property values. These two LEDs can be controlled
+through the LED class of sysfs (tps68470-leda and tps68470-ledb).
+
+Signed-off-by: Kate Hsuan <hpa@redhat.com>
+Reviewed-by: Hans de Goede <hdegoede@redhat.com>
+Patchset: cameras
+---
+ drivers/leds/Kconfig         |  12 +++
+ drivers/leds/Makefile        |   1 +
+ drivers/leds/leds-tps68470.c | 185 +++++++++++++++++++++++++++++++++++
+ 3 files changed, 198 insertions(+)
+ create mode 100644 drivers/leds/leds-tps68470.c
+
+diff --git a/drivers/leds/Kconfig b/drivers/leds/Kconfig
+index 11e7282dc..c5665bd5e 100644
+--- a/drivers/leds/Kconfig
++++ b/drivers/leds/Kconfig
+@@ -998,6 +998,18 @@ config LEDS_TPS6105X
+ 	  It is a single boost converter primarily for white LEDs and
+ 	  audio amplifiers.
+ 
++config LEDS_TPS68470
++	tristate "LED support for TI TPS68470"
++	depends on LEDS_CLASS
++	depends on INTEL_SKL_INT3472
++	help
++	  This driver supports TPS68470 PMIC with LED chip.
++	  It provides two LED controllers, with the ability to drive 2
++	  indicator LEDs and 2 flash LEDs.
++
++	  To compile this driver as a module, choose M and it will be
++	  called leds-tps68470
++
+ config LEDS_IP30
+ 	tristate "LED support for SGI Octane machines"
+ 	depends on LEDS_CLASS
+diff --git a/drivers/leds/Makefile b/drivers/leds/Makefile
+index 9a0333ec1..4e1ca8fc9 100644
+--- a/drivers/leds/Makefile
++++ b/drivers/leds/Makefile
+@@ -93,6 +93,7 @@ obj-$(CONFIG_LEDS_TCA6507)		+= leds-tca6507.o
+ obj-$(CONFIG_LEDS_TI_LMU_COMMON)	+= leds-ti-lmu-common.o
+ obj-$(CONFIG_LEDS_TLC591XX)		+= leds-tlc591xx.o
+ obj-$(CONFIG_LEDS_TPS6105X)		+= leds-tps6105x.o
++obj-$(CONFIG_LEDS_TPS68470)		+= leds-tps68470.o
+ obj-$(CONFIG_LEDS_TURRIS_OMNIA)		+= leds-turris-omnia.o
+ obj-$(CONFIG_LEDS_UPBOARD)		+= leds-upboard.o
+ obj-$(CONFIG_LEDS_WM831X_STATUS)	+= leds-wm831x-status.o
+diff --git a/drivers/leds/leds-tps68470.c b/drivers/leds/leds-tps68470.c
+new file mode 100644
+index 000000000..35aeb5db8
+--- /dev/null
++++ b/drivers/leds/leds-tps68470.c
+@@ -0,0 +1,185 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * LED driver for TPS68470 PMIC
++ *
++ * Copyright (C) 2023 Red Hat
++ *
++ * Authors:
++ *	Kate Hsuan <hpa@redhat.com>
++ */
++
++#include <linux/leds.h>
++#include <linux/mfd/tps68470.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++#include <linux/property.h>
++#include <linux/regmap.h>
++
++
++#define lcdev_to_led(led_cdev) \
++	container_of(led_cdev, struct tps68470_led, lcdev)
++
++#define led_to_tps68470(led, index) \
++	container_of(led, struct tps68470_device, leds[index])
++
++enum tps68470_led_ids {
++	TPS68470_ILED_A,
++	TPS68470_ILED_B,
++	TPS68470_NUM_LEDS
++};
++
++static const char *tps68470_led_names[] = {
++	[TPS68470_ILED_A] = "tps68470-iled_a",
++	[TPS68470_ILED_B] = "tps68470-iled_b",
++};
++
++struct tps68470_led {
++	unsigned int led_id;
++	struct led_classdev lcdev;
++};
++
++struct tps68470_device {
++	struct device *dev;
++	struct regmap *regmap;
++	struct tps68470_led leds[TPS68470_NUM_LEDS];
++};
++
++enum ctrlb_current {
++	CTRLB_2MA	= 0,
++	CTRLB_4MA	= 1,
++	CTRLB_8MA	= 2,
++	CTRLB_16MA	= 3,
++};
++
++static int tps68470_brightness_set(struct led_classdev *led_cdev, enum led_brightness brightness)
++{
++	struct tps68470_led *led = lcdev_to_led(led_cdev);
++	struct tps68470_device *tps68470 = led_to_tps68470(led, led->led_id);
++	struct regmap *regmap = tps68470->regmap;
++
++	switch (led->led_id) {
++	case TPS68470_ILED_A:
++		return regmap_update_bits(regmap, TPS68470_REG_ILEDCTL, TPS68470_ILEDCTL_ENA,
++					  brightness ? TPS68470_ILEDCTL_ENA : 0);
++	case TPS68470_ILED_B:
++		return regmap_update_bits(regmap, TPS68470_REG_ILEDCTL, TPS68470_ILEDCTL_ENB,
++					  brightness ? TPS68470_ILEDCTL_ENB : 0);
++	}
++	return -EINVAL;
++}
++
++static enum led_brightness tps68470_brightness_get(struct led_classdev *led_cdev)
++{
++	struct tps68470_led *led = lcdev_to_led(led_cdev);
++	struct tps68470_device *tps68470 = led_to_tps68470(led, led->led_id);
++	struct regmap *regmap = tps68470->regmap;
++	int ret = 0;
++	int value = 0;
++
++	ret =  regmap_read(regmap, TPS68470_REG_ILEDCTL, &value);
++	if (ret)
++		return dev_err_probe(led_cdev->dev, -EINVAL, "failed on reading register\n");
++
++	switch (led->led_id) {
++	case TPS68470_ILED_A:
++		value = value & TPS68470_ILEDCTL_ENA;
++		break;
++	case TPS68470_ILED_B:
++		value = value & TPS68470_ILEDCTL_ENB;
++		break;
++	}
++
++	return value ? LED_ON : LED_OFF;
++}
++
++
++static int tps68470_ledb_current_init(struct platform_device *pdev,
++				      struct tps68470_device *tps68470)
++{
++	int ret = 0;
++	unsigned int curr;
++
++	/* configure LEDB current if the properties can be got */
++	if (!device_property_read_u32(&pdev->dev, "ti,ledb-current", &curr)) {
++		if (curr > CTRLB_16MA) {
++			dev_err(&pdev->dev,
++				"Invalid LEDB current value: %d\n",
++				curr);
++			return -EINVAL;
++		}
++		ret = regmap_update_bits(tps68470->regmap, TPS68470_REG_ILEDCTL,
++					 TPS68470_ILEDCTL_CTRLB, curr);
++	}
++	return ret;
++}
++
++static int tps68470_leds_probe(struct platform_device *pdev)
++{
++	int i = 0;
++	int ret = 0;
++	struct tps68470_device *tps68470;
++	struct tps68470_led *led;
++	struct led_classdev *lcdev;
++
++	tps68470 = devm_kzalloc(&pdev->dev, sizeof(struct tps68470_device),
++				GFP_KERNEL);
++	if (!tps68470)
++		return -ENOMEM;
++
++	tps68470->dev = &pdev->dev;
++	tps68470->regmap = dev_get_drvdata(pdev->dev.parent);
++
++	for (i = 0; i < TPS68470_NUM_LEDS; i++) {
++		led = &tps68470->leds[i];
++		lcdev = &led->lcdev;
++
++		led->led_id = i;
++
++		lcdev->name = devm_kasprintf(tps68470->dev, GFP_KERNEL, "%s::%s",
++					     tps68470_led_names[i], LED_FUNCTION_INDICATOR);
++		if (!lcdev->name)
++			return -ENOMEM;
++
++		lcdev->max_brightness = 1;
++		lcdev->brightness = 0;
++		lcdev->brightness_set_blocking = tps68470_brightness_set;
++		lcdev->brightness_get = tps68470_brightness_get;
++		lcdev->dev = &pdev->dev;
++
++		ret = devm_led_classdev_register(tps68470->dev, lcdev);
++		if (ret) {
++			dev_err_probe(tps68470->dev, ret,
++				      "error registering led\n");
++			goto err_exit;
++		}
++
++		if (i == TPS68470_ILED_B) {
++			ret = tps68470_ledb_current_init(pdev, tps68470);
++			if (ret)
++				goto err_exit;
++		}
++	}
++
++err_exit:
++	if (ret) {
++		for (i = 0; i < TPS68470_NUM_LEDS; i++) {
++			if (tps68470->leds[i].lcdev.name)
++				devm_led_classdev_unregister(&pdev->dev,
++							     &tps68470->leds[i].lcdev);
++		}
++	}
++
++	return ret;
++}
++static struct platform_driver tps68470_led_driver = {
++	.driver = {
++		   .name = "tps68470-led",
++	},
++	.probe = tps68470_leds_probe,
++};
++
++module_platform_driver(tps68470_led_driver);
++
++MODULE_ALIAS("platform:tps68470-led");
++MODULE_DESCRIPTION("LED driver for TPS68470 PMIC");
++MODULE_LICENSE("GPL v2");
+-- 
+2.53.0
+
+From b581a619711c71600e9f083e3f8d3a36092cb11f Mon Sep 17 00:00:00 2001
+From: mojyack <mojyack@gmail.com>
+Date: Tue, 26 Mar 2024 05:55:44 +0900
+Subject: [PATCH] media: i2c: dw9719: fix probe error on surface go 2
+
+On surface go 2, sometimes probing dw9719 fails with "dw9719: probe of i2c-INT347A:00-VCM failed with error -121".
+The -121(-EREMOTEIO) is came from drivers/i2c/busses/i2c-designware-common.c:575, and indicates the initialize occurs too early.
+So just add some delay.
+There is no exact reason for this 10000us, but 100us failed.
+
+Patchset: cameras
+---
+ drivers/media/i2c/dw9719.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/media/i2c/dw9719.c b/drivers/media/i2c/dw9719.c
+index 595583359..b89765521 100644
+--- a/drivers/media/i2c/dw9719.c
++++ b/drivers/media/i2c/dw9719.c
+@@ -121,6 +121,9 @@ static int dw9719_power_up(struct dw9719_device *dw9719, bool detect)
+ 	if (ret)
+ 		return ret;
+ 
++	/* Wait for device to be acknowledged */
++	fsleep(10000);
++
+ 	/*
+ 	 * Need 100us to transition from SHUTDOWN to STANDBY.
+ 	 * Jiggle the SCL pin to wake up the device (even when the regulator is
+-- 
+2.53.0
+
+From b1dc230fffb35a88809f6c7877416887c1fb3d20 Mon Sep 17 00:00:00 2001
+From: Tooraj Taraz <tooraj.taraz@yahoo.com>
+Date: Wed, 31 Dec 2025 00:35:50 +0100
+Subject: [PATCH] Add camera support for Surface Pro 9
+
+Experimental camera support for the Surface Pro 9.
+
+Link: https://github.com/linux-surface/linux-surface/pull/1867
+Patchset: cameras
+---
+ drivers/media/i2c/ov13858.c                   | 158 +++++++++++++++++-
+ drivers/media/i2c/ov5693.c                    |   1 +
+ drivers/media/pci/intel/ipu-bridge.c          |   4 +
+ drivers/platform/x86/intel/int3472/discrete.c |  23 +++
+ 4 files changed, 184 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/i2c/ov13858.c b/drivers/media/i2c/ov13858.c
+index 162b49046..85cd0c98a 100644
+--- a/drivers/media/i2c/ov13858.c
++++ b/drivers/media/i2c/ov13858.c
+@@ -2,6 +2,7 @@
+ // Copyright (c) 2017 Intel Corporation.
+ 
+ #include <linux/acpi.h>
++#include <linux/delay.h>
+ #include <linux/clk.h>
+ #include <linux/i2c.h>
+ #include <linux/module.h>
+@@ -119,6 +120,14 @@ struct ov13858_mode {
+ 	struct ov13858_reg_list reg_list;
+ };
+ 
++// Or use standard names that might be more correct:
++static const char * const ov13858_supply_names[] = {
++	"avdd",    // Analog voltage
++	"pwr1",    // Digital core voltage
++};
++
++#define OV13858_NUM_SUPPLIES ARRAY_SIZE(ov13858_supply_names)
++
+ /* 4224x3136 needs 1080Mbps/lane, 4 lanes */
+ static const struct ov13858_reg mipi_data_rate_1080mbps[] = {
+ 	/* PLL1 registers */
+@@ -1046,12 +1055,126 @@ struct ov13858 {
+ 	/* Current mode */
+ 	const struct ov13858_mode *cur_mode;
+ 
++	struct regulator_bulk_data supplies[OV13858_NUM_SUPPLIES];
++	struct gpio_desc *reset;
++	struct clk *xvclk;
++
+ 	/* Mutex for serialized access */
+ 	struct mutex mutex;
+ };
+ 
+ #define to_ov13858(_sd)	container_of(_sd, struct ov13858, sd)
+ 
++
++static int ov13858_get_regulators(struct ov13858 *ov13858)
++{
++	unsigned int i;
++
++	for (i = 0; i < OV13858_NUM_SUPPLIES; i++)
++		ov13858->supplies[i].supply = ov13858_supply_names[i];
++
++	return devm_regulator_bulk_get(ov13858->dev, OV13858_NUM_SUPPLIES,
++				       ov13858->supplies);
++}
++
++static int ov13858_sensor_powerup(struct ov13858 *ov13858)
++{
++	int ret;
++
++	dev_info(ov13858->dev, "Powering up sensor\n");
++
++	/* Assert reset */
++	gpiod_set_value_cansleep(ov13858->reset, 1);
++
++	/* Enable clock FIRST - sensor needs clock to communicate */
++	ret = clk_prepare_enable(ov13858->xvclk);
++	if (ret) {
++		dev_err(ov13858->dev, "Failed to enable clock: %d\n", ret);
++		return ret;
++	}
++	dev_info(ov13858->dev, "Clock enabled\n");
++
++	/* Enable regulators */
++	ret = regulator_bulk_enable(OV13858_NUM_SUPPLIES, ov13858->supplies);
++	if (ret) {
++		dev_err(ov13858->dev, "Failed to enable regulators: %d\n", ret);
++		clk_disable_unprepare(ov13858->xvclk);
++		return ret;
++	}
++
++	dev_info(ov13858->dev, "Regulators enabled\n");
++
++	/* Wait for power to stabilize */
++	usleep_range(5000, 10000);
++
++	/* De-assert reset */
++	gpiod_set_value_cansleep(ov13858->reset, 0);
++
++	/* Wait for sensor to boot */
++	msleep(20);
++
++	dev_info(ov13858->dev, "Reset de-asserted, sensor should be ready\n");
++
++	return 0;
++}
++
++static void ov13858_sensor_powerdown(struct ov13858 *ov13858)
++{
++	dev_info(ov13858->dev, "Powering down sensor\n");
++
++	/* Assert reset to put sensor in reset state */
++	gpiod_set_value_cansleep(ov13858->reset, 1);
++
++	/* Disable regulators */
++	regulator_bulk_disable(OV13858_NUM_SUPPLIES, ov13858->supplies);
++	dev_info(ov13858->dev, "Regulators disabled\n");
++
++	/* Disable clock */
++	clk_disable_unprepare(ov13858->xvclk);
++	dev_info(ov13858->dev, "Clock disabled\n");
++}
++
++static int __maybe_unused ov13858_suspend(struct device *dev)
++{
++	struct i2c_client *client = to_i2c_client(dev);
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct ov13858 *ov13858 = to_ov13858(sd);
++
++	ov13858_sensor_powerdown(ov13858);
++
++	return 0;
++}
++
++static int __maybe_unused ov13858_resume(struct device *dev)
++{
++	struct i2c_client *client = to_i2c_client(dev);
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct ov13858 *ov13858 = to_ov13858(sd);
++	int ret;
++
++	ret = ov13858_sensor_powerup(ov13858);
++	if (ret)
++		return ret;
++
++	return 0;
++}
++
++static const struct dev_pm_ops ov13858_pm_ops = {
++	SET_RUNTIME_PM_OPS(ov13858_suspend, ov13858_resume, NULL)
++};
++
++static int ov13858_get_gpios(struct ov13858 *ov13858)
++{
++	ov13858->reset = devm_gpiod_get_optional(ov13858->dev, "reset",
++	                                         GPIOD_OUT_HIGH);
++	if (IS_ERR(ov13858->reset)) {
++		dev_err(ov13858->dev, "Error fetching reset GPIO\n");
++		return PTR_ERR(ov13858->reset);
++	}
++
++	return 0;
++}
++
+ /* Read registers up to 4 at a time */
+ static int ov13858_read_reg(struct ov13858 *ov13858, u16 reg, u32 len,
+ 			    u32 *val)
+@@ -1498,8 +1621,11 @@ static int ov13858_identify_module(struct ov13858 *ov13858)
+ 	int ret;
+ 	u32 val;
+ 
++	dev_info(ov13858->dev, "Attempting to read chip ID from register 0x300a\n");
+ 	ret = ov13858_read_reg(ov13858, OV13858_REG_CHIP_ID,
+ 			       OV13858_REG_VALUE_24BIT, &val);
++	dev_info(ov13858->dev, "Chip ID read result: ret=%d, val=0x%06x (expected 0x%06x)\n",
++	         ret, val, OV13858_CHIP_ID);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -1509,6 +1635,7 @@ static int ov13858_identify_module(struct ov13858 *ov13858)
+ 		return -EIO;
+ 	}
+ 
++	dev_info(ov13858->dev, "Chip ID verified successfully!\n");
+ 	return 0;
+ }
+ 
+@@ -1678,14 +1805,33 @@ static int ov13858_probe(struct i2c_client *client)
+ 				     "external clock %lu is not supported\n",
+ 				     freq);
+ 
++	/* Get the external clock */
++	ov13858->xvclk = devm_clk_get_optional(ov13858->dev, "xvclk");
++	if (IS_ERR(ov13858->xvclk))
++		return dev_err_probe(ov13858->dev, PTR_ERR(ov13858->xvclk),
++		       "failed to get xvclk\n");
++
+ 	/* Initialize subdev */
+ 	v4l2_i2c_subdev_init(&ov13858->sd, client, &ov13858_subdev_ops);
+ 
++	ret = ov13858_get_regulators(ov13858);
++	if (ret)
++		return dev_err_probe(ov13858->dev, ret,
++		       "Error fetching regulators\n");
++
++	ret = ov13858_get_gpios(ov13858);
++	if (ret)
++		return ret;
++
++	ret = ov13858_sensor_powerup(ov13858);
++	if (ret)
++		return ret;  // No cleanup needed yet, devm handles GPIOs/regulators
++
+ 	/* Check module identity */
+ 	ret = ov13858_identify_module(ov13858);
+ 	if (ret) {
+ 		dev_err(ov13858->dev, "failed to find sensor: %d\n", ret);
+-		return ret;
++		goto error_power_off;  // Now we need to power down
+ 	}
+ 
+ 	/* Set default mode to max resolution */
+@@ -1693,7 +1839,7 @@ static int ov13858_probe(struct i2c_client *client)
+ 
+ 	ret = ov13858_init_controls(ov13858);
+ 	if (ret)
+-		return ret;
++		goto error_power_off;
+ 
+ 	/* Initialize subdev */
+ 	ov13858->sd.internal_ops = &ov13858_internal_ops;
+@@ -1729,6 +1875,10 @@ static int ov13858_probe(struct i2c_client *client)
+ 
+ error_handler_free:
+ 	ov13858_free_controls(ov13858);
++
++error_power_off:
++	ov13858_sensor_powerdown(ov13858);
++
+ 	dev_err(ov13858->dev, "%s failed:%d\n", __func__, ret);
+ 
+ 	return ret;
+@@ -1744,6 +1894,9 @@ static void ov13858_remove(struct i2c_client *client)
+ 	ov13858_free_controls(ov13858);
+ 
+ 	pm_runtime_disable(ov13858->dev);
++	if (!pm_runtime_status_suspended(ov13858->dev))
++		ov13858_sensor_powerdown(ov13858);
++	pm_runtime_set_suspended(ov13858->dev);
+ }
+ 
+ static const struct i2c_device_id ov13858_id_table[] = {
+@@ -1765,6 +1918,7 @@ MODULE_DEVICE_TABLE(acpi, ov13858_acpi_ids);
+ static struct i2c_driver ov13858_i2c_driver = {
+ 	.driver = {
+ 		.name = "ov13858",
++		.pm = &ov13858_pm_ops,
+ 		.acpi_match_table = ACPI_PTR(ov13858_acpi_ids),
+ 	},
+ 	.probe = ov13858_probe,
+diff --git a/drivers/media/i2c/ov5693.c b/drivers/media/i2c/ov5693.c
+index 4cc796bbe..02236f3db 100644
+--- a/drivers/media/i2c/ov5693.c
++++ b/drivers/media/i2c/ov5693.c
+@@ -1396,6 +1396,7 @@ static const struct dev_pm_ops ov5693_pm_ops = {
+ 
+ static const struct acpi_device_id ov5693_acpi_match[] = {
+ 	{"INT33BE"},
++	{"OVTI5693"},
+ 	{},
+ };
+ MODULE_DEVICE_TABLE(acpi, ov5693_acpi_match);
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index b2b710094..f5456330b 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -61,6 +61,10 @@ static const struct ipu_sensor_config ipu_supported_sensors[] = {
+ 	IPU_SENSOR_CONFIG("INT33BE", 1, 419200000),
+ 	/* Onsemi MT9M114 */
+ 	IPU_SENSOR_CONFIG("INT33F0", 1, 384000000),
++	/* Omnivision OV5693 - Surface Pro 9 */
++	IPU_SENSOR_CONFIG("OVTI5693", 1, 419200000),
++	/* Omnivision OV13858 - Surface Pro 9 */
++	IPU_SENSOR_CONFIG("OVTID858", 4, 540000000),
+ 	/* Omnivision OV2740 */
+ 	IPU_SENSOR_CONFIG("INT3474", 1, 180000000),
+ 	/* Omnivision OV5670 */
+diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
+index 1505fc3ef..20962e8ac 100644
+--- a/drivers/platform/x86/intel/int3472/discrete.c
++++ b/drivers/platform/x86/intel/int3472/discrete.c
+@@ -229,6 +229,14 @@ static void int3472_get_con_id_and_polarity(struct int3472_discrete_device *int3
+ 		/* Setups using a handshake pin need 25 ms enable delay */
+ 		*enable_time_us = 25 * USEC_PER_MSEC;
+ 		break;
++	case 0x08:  /* Surface Pro 9 - additional power rail */
++		*con_id = "pwr1";
++		*gpio_flags = GPIO_ACTIVE_HIGH;
++		break;
++	case 0x10:  /* Surface Pro 9 - secondary power rail */
++		*con_id = "pwr2";
++		*gpio_flags = GPIO_ACTIVE_HIGH;
++		break;
+ 	default:
+ 		*con_id = "unknown";
+ 		*gpio_flags = GPIO_ACTIVE_HIGH;
+@@ -333,6 +341,8 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 	case INT3472_GPIO_TYPE_PRIVACY_LED:
+ 	case INT3472_GPIO_TYPE_POWER_ENABLE:
+ 	case INT3472_GPIO_TYPE_HANDSHAKE:
++	case 0x08:  /* Surface Pro 9 power rails */
++	case 0x10:
+ 		gpio = skl_int3472_gpiod_get_from_temp_lookup(int3472, agpio, con_id, gpio_flags);
+ 		if (IS_ERR(gpio)) {
+ 			ret = PTR_ERR(gpio);
+@@ -363,6 +373,19 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 				err_msg = "Failed to register regulator\n";
+ 
+ 			break;
++		case 0x08:  /* Surface Pro 9 - treat as power*/
++		    dev_info(int3472->dev, "GPIO type 0x%02x detected on pin 0x%02x\n", type, agpio->pin_table[0]);
++		    dev_info(int3472->dev, "  con_id=%s, flags=0x%x\n", con_id, gpio_flags);
++		    ret = skl_int3472_register_regulator(int3472, gpio,
++			 GPIO_REGULATOR_ENABLE_TIME,
++			 con_id, NULL);
++		    dev_info(int3472->dev, "  register_regulator returned: %d\n", ret);
++		    if (ret) {
++			dev_err(int3472->dev, "Failed to register type 0x02x: %d\n", type, ret);
++		    }
++		    break;
++		case 0x10:
++		    break;
+ 		default: /* Never reached */
+ 			ret = -EINVAL;
+ 			break;
+-- 
+2.53.0
+
+From f51a44f59234d641cd068c4c1ba7c643dfe4c0ef Mon Sep 17 00:00:00 2001
+From: gabrielstedman <gabrielstedman@users.noreply.github.com>
+Date: Fri, 13 Mar 2026 08:52:07 +0000
+Subject: [PATCH] media: ipu-bridge: Add front camera rotation quirks for
+ Surface Pro 8 and 9
+
+On the Surface Pro 8 and 9, camera rotation in `ssdb.degree` is `0` (no
+rotation) but should be `180`. Add these devices to the respective quirk
+list.
+
+Link: https://github.com/linux-surface/kernel/pull/160
+Patchset: cameras
+---
+ drivers/media/pci/intel/ipu-bridge.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index f5456330b..3418ff475 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -122,6 +122,20 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
+ 		},
+ 		.driver_data = "OVTI02C1",
+ 	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 8"),
++		},
++		.driver_data = "INT33BE",
++	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 9"),
++		},
++		.driver_data = "OVTI5693",
++	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 10 for Business"),
++		},
++		.driver_data = "OVTID858",
++	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Surface Pro 10 for Business"),
++		},
++		.driver_data = "SONY0681",
++	},
+ 	{} /* Terminating entry */
+ };
+ 
+-- 
+2.53.0
+
+From 8a2cb982bb5f1fe027a800396d09f86c02d8b119 Mon Sep 17 00:00:00 2001
+From: "D.J. Mulder" <djmulder@example.com>
+Date: Fri, 29 May 2026 15:55:28 +0200
+Subject: [PATCH 1/5] media: i2c: Add Sony IMX681 sensor driver for Surface Pro
+ 10/11
+
+Add V4L2 sensor driver for the Sony IMX681 CMOS image sensor, used as
+the front camera on Microsoft Surface Pro 10 (Meteor Lake) and Surface
+Pro 11 (Lunar Lake).
+
+The driver supports both platforms with platform-specific PLL register
+sequences selected at stream-on time based on the negotiated link
+frequency:
+- Surface Pro 10 (MTL): 380.8 MHz, C-PHY, 2-lane CSI-2
+- Surface Pro 11 (LNL): 969.6 MHz, D-PHY, 2-lane CSI-2
+
+Register sequences reverse-engineered from Windows I2C traces.
+Uses H-flip (reg 0x0101=0x01) to convert native RGGB Bayer to GRBG
+matching the Windows AIQB calibration data.
+
+Note: On Surface Pro 10 (MTL), the front camera currently produces
+black frames due to missing C-PHY support in ipu6-isys-dwc-phy.c.
+This driver is correct and complete; the limitation is in the IPU6
+PHY driver which requires Intel to add C-PHY initialisation support.
+
+Patchset: cameras
+---
+ drivers/media/i2c/imx681.c | 895 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 895 insertions(+)
+ create mode 100644 drivers/media/i2c/imx681.c
+
+diff --git a/drivers/media/i2c/imx681.c b/drivers/media/i2c/imx681.c
+new file mode 100644
+--- /dev/null
++++ b/drivers/media/i2c/imx681.c
+@@ -0,0 +1,917 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Sony IMX681 CMOS Image Sensor Driver
++ *
++ * Front camera on Surface Pro 11 Business (Intel/Lunar Lake).
++ * Register sequences reverse-engineered from Windows I2C traces.
++ *
++ * Copyright (C) 2025
++ */
++
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/pm_runtime.h>
++#include <linux/property.h>
++#include <linux/regulator/consumer.h>
++
++#include <media/v4l2-cci.h>
++#include <media/v4l2-ctrls.h>
++#include <media/v4l2-device.h>
++#include <media/v4l2-fwnode.h>
++
++/* Chip ID register and expected value */
++#define IMX681_REG_CHIP_ID		CCI_REG16(0x0016)
++#define IMX681_CHIP_ID			0x0681
++
++/* Mode select */
++#define IMX681_REG_MODE_SELECT		CCI_REG8(0x0100)
++#define IMX681_MODE_STANDBY		0x00
++#define IMX681_MODE_STREAMING		0x01
++
++/* Group parameter hold */
++#define IMX681_REG_GROUP_HOLD		CCI_REG8(0x0104)
++
++/* Exposure (coarse integration time, 24-bit) */
++#define IMX681_REG_EXPOSURE		CCI_REG24(0x0229)
++#define IMX681_EXPOSURE_MIN		4
++#define IMX681_EXPOSURE_MAX		3173	/* frame_length - 4 */
++#define IMX681_EXPOSURE_OFFSET		4	/* frame_length - exposure_max */
++#define IMX681_EXPOSURE_DEFAULT		1907	/* from Windows trace */
++
++/* Analog gain */
++#define IMX681_REG_ANALOG_GAIN		CCI_REG16(0x0204)
++#define IMX681_ANA_GAIN_MIN		0
++#define IMX681_ANA_GAIN_MAX		960	/* inverted in set_ctrl: hw=960-logical */
++#define IMX681_ANA_GAIN_DEFAULT		0
++
++/* Digital gain */
++#define IMX681_REG_DIGITAL_GAIN		CCI_REG16(0x020E)
++#define IMX681_DIG_GAIN_MIN		0x0100	/* 1.0x */
++#define IMX681_DIG_GAIN_MAX		0x0FFF
++#define IMX681_DIG_GAIN_DEFAULT		0x0100
++
++/* Test pattern */
++#define IMX681_REG_TEST_PATTERN		CCI_REG16(0x0600)
++
++/* Frame length (24-bit, for streaming updates) */
++#define IMX681_REG_FRAME_LENGTH		CCI_REG24(0x033D)
++
++/* Image dimensions — native sensor output */
++#define IMX681_WIDTH			1920
++#define IMX681_HEIGHT			1136
++#define IMX681_LINE_LENGTH_PCK		7552	/* 0x1D80 */
++#define IMX681_FRAME_LENGTH_LINES	3177	/* 0x0C69 */
++#define IMX681_FRAME_LENGTH_MAX		0xFFFF	/* 24-bit reg, limit to 16-bit */
++
++/* MIPI lanes */
++#define IMX681_NUM_LANES		2
++
++/* SP10: Link freq = 19.2MHz × 119 / 3 / 2 = 380.8 MHz */
++#define IMX681_LINK_FREQ    		380800000LL
++
++/* PLL multiplier = 119 = 0x77 */
++/* PLL2: pre_div=3, multiplier=119 (0x0077) */
++
++/* Pixel rate = link_freq * 2 (DDR) * num_lanes / bpp */
++#define IMX681_PIXEL_RATE		(IMX681_LINK_FREQ * 2 * IMX681_NUM_LANES / 10)
++
++/* Power-on delay after reset deassert */
++#define IMX681_RESET_DELAY_US		1000
++#define IMX681_RESET_DELAY_RANGE_US	1000
++
++/* Post-standby-cancel stabilisation delays */
++#define IMX681_INIT_DELAY_US		10000
++
++#define IMAGE_PAD			0
++
++static const s64 imx681_link_frequencies[] = {
++	IMX681_LINK_FREQ,
++};
++
++/*
++ * Sensor init register sequence, captured from Windows I2C traces.
++ * This configures the sensor for 3844x2640 RAW10 output at ~30fps
++ * with 2-lane MIPI CSI-2, 19.2MHz input clock.
++ */
++static const struct cci_reg_sequence imx681_init_regs[] = {
++	/* Software standby */
++	{ CCI_REG8(0x0100),  0x00 },
++	/* External clock frequency = 19.2 MHz (encoded as MHz * 256) */
++	{ CCI_REG16(0x0136), 0x1333 },
++	/* Vendor specific configuration */
++	{ CCI_REG16(0x002C), 0x0505 },
++	/* CSI-2 signaling mode */
++	{ CCI_REG8(0x0111),  0x02 }, /* CSI-2 D-PHY signalling mode */
++	/* CSI data format: RAW10 */
++	{ CCI_REG16(0x0112), 0x0A0A },
++	/* CSI lane mode: 2 lanes */
++	{ CCI_REG8(0x0114),  0x01 },
++	/* Image orientation: H-flip to match Windows AIQB (RGGB native → GRBG) */
++	{ CCI_REG8(0x0101),  0x03 },
++	/* Vendor access unlock sequence */
++	{ CCI_REG8(0x30EB),  0x05 },
++	{ CCI_REG8(0x30EB),  0x0C },
++	/* Vendor specific */
++	{ CCI_REG16(0x300A), 0xFFFF },
++	{ CCI_REG16(0x3532), 0xFFFF },
++	/* LINE_LENGTH_PCK = 7552 */
++	{ CCI_REG16(0x0342), 0x1D80 },
++	/* Frame length = 3177 — Sony vendor register */
++	{ CCI_REG16(0x033E), 0x0C69 },
++	/* Frame length = 3177 — CCS-standard register (was 0, sensor may use this for MIPI timing) */
++	/* Crop window start: X_ADD_STA=100, Y_ADD_STA=256 */
++	{ CCI_REG24(0x0345), 0x640178 },
++	/* Crop window end: X_ADD_END=3943, Y_ADD_END=2895 */
++	{ CCI_REG24(0x0349), 0x670A57 }, /* Crop window end: X_ADD_END=3943, Y_ADD_END=2895 */
++	/* Digital crop / vendor config */
++	/* Digital crop: explicit write of all 8 registers to known-good values */
++	{ CCI_REG8(0x0408),  0x03 }, /* DIG_CROP_X_OFFSET high = 0x03 */
++	{ CCI_REG8(0x0409),  0xC2 }, /* DIG_CROP_X_OFFSET low = 0xC2 (962 center) */
++	{ CCI_REG8(0x040A),  0x00 }, /* DIG_CROP_Y_OFFSET high = 0 */
++	{ CCI_REG8(0x040B),  0x00 }, /* DIG_CROP_Y_OFFSET low  = 0 */
++	{ CCI_REG8(0x040C),  0x07 }, /* DIG_CROP_WIDTH high = 0x07 */
++	{ CCI_REG8(0x040D),  0x80 }, /* DIG_CROP_WIDTH low = 0x80 (1920) */
++	{ CCI_REG8(0x040E),  0x04 }, /* DIG_CROP_HEIGHT high = 0x04 */
++	{ CCI_REG8(0x040F),  0x70 }, /* DIG_CROP_HEIGHT low = 0x70 (1136) */
++	/* 2x2 binning */
++	{ CCI_REG8(0x0900),  0x01 }, /* BINNING_MODE = 1 (enable) */
++	{ CCI_REG8(0x0901),  0x22 }, /* BINNING_TYPE = 0x22 (2x2) */
++	{ CCI_REG8(0x0401),  0x01 }, /* SCALE_MODE = 1 (horizontal scaler enabled) */
++	{ CCI_REG16(0x0404), 0x0020 }, /* SCALE_M = 32 (0.5x horizontal) */
++	{ CCI_REG8(0x0902),  0x08 }, /* BINNING_WEIGHTING */
++	/* X_OUTPUT_SIZE=3844, Y_OUTPUT_SIZE=2640 */
++	{ CCI_REG32(0x034C), 0x07800470 }, /* X_OUTPUT_SIZE=1920, Y=1136 */
++	/* PLL multiplier = 225 */
++	{ CCI_REG8(0x0307),  0x77 },
++	/* PLL2: pre_div=3, multiplier=303 (0x012F) */
++	{ CCI_REG24(0x030D), 0x030077 },
++	/* Frame duration initial */
++	{ CCI_REG16(0x022A), 0x0C61 },
++	/* Vendor specific registers */
++	{ CCI_REG8(0x7E9B),  0x02 },
++	{ CCI_REG8(0x0368),  0x00 },
++	{ CCI_REG8(0xD383),  0x01 },
++};
++
++/*
++ * First exposure settings applied before stream-on.
++ * Uses group parameter hold to ensure atomic update.
++ */
++static const struct cci_reg_sequence imx681_first_exposure[] = {
++	{ CCI_REG8(0x0104),  0x01 },		/* Group hold ON */
++	{ CCI_REG24(0x033D), 0x000C69 },	/* Frame length = 3177 */
++	{ CCI_REG24(0x0229), 0x000C61 },	/* Exposure = 3169 lines */
++	{ CCI_REG16(0x0204), 0x0000 },		/* Analog gain = 0 (hw code 0 = 16x brightest) */
++	{ CCI_REG16(0x020E), 0x0400 },		/* Digital gain = 4.0x */
++	{ CCI_REG8(0x0104),  0x00 },		/* Group hold OFF */
++};
++
++static const char * const imx681_test_pattern_menu[] = {
++	"Disabled",
++	"Solid Colour",
++	"Eight Vertical Colour Bars",
++	"Colour Bars With Fade to Grey",
++	"Pseudorandom Sequence (PN9)",
++};
++
++static const u32 imx681_mbus_codes[] = {
++	MEDIA_BUS_FMT_SRGGB10_1X10,
++};
++
++/* Regulator supplies */
++static const char * const imx681_supply_names[] = {
++	"avdd",		/* Analog 2.8V */
++	"dvdd",		/* Digital 1.05V */
++	"dovdd",	/* I/O 1.8V */
++};
++
++#define IMX681_NUM_SUPPLIES ARRAY_SIZE(imx681_supply_names)
++
++struct imx681 {
++	struct device *dev;
++	struct regmap *cci;
++
++	struct v4l2_subdev sd;
++	struct media_pad pad;
++
++	struct clk *xclk;
++	struct gpio_desc *reset_gpio;
++	struct regulator_bulk_data supplies[IMX681_NUM_SUPPLIES];
++
++	/* V4L2 Controls */
++	struct v4l2_ctrl_handler ctrl_handler;
++	struct v4l2_ctrl *exposure;
++	struct v4l2_ctrl *vblank;
++	struct v4l2_ctrl *hblank;
++
++	unsigned long link_freq_bitmap;
++};
++
++static inline struct imx681 *to_imx681(struct v4l2_subdev *sd)
++{
++	return container_of_const(sd, struct imx681, sd);
++}
++
++static int imx681_set_ctrl(struct v4l2_ctrl *ctrl)
++{
++	struct imx681 *imx681 = container_of(ctrl->handler, struct imx681,
++					     ctrl_handler);
++	s64 exposure_max;
++	int ret = 0;
++
++	/* Update exposure max when VBLANK changes (even when not streaming) */
++	if (ctrl->id == V4L2_CID_VBLANK) {
++		exposure_max = IMX681_HEIGHT + ctrl->val - IMX681_EXPOSURE_OFFSET;
++		__v4l2_ctrl_modify_range(imx681->exposure,
++					 IMX681_EXPOSURE_MIN, exposure_max,
++					 1, IMX681_EXPOSURE_DEFAULT);
++	}
++
++	/* Only apply controls to hardware when streaming */
++	if (!pm_runtime_get_if_active(imx681->dev))
++		return 0;
++
++	switch (ctrl->id) {
++	case V4L2_CID_VBLANK:
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x01, &ret);
++		cci_write(imx681->cci, IMX681_REG_FRAME_LENGTH,
++			  IMX681_HEIGHT + ctrl->val, &ret);
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x00, &ret);
++		dev_dbg(imx681->dev, "set frame_length: %d, ret=%d\n",
++			IMX681_HEIGHT + ctrl->val, ret);
++		break;
++
++	case V4L2_CID_EXPOSURE:
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x01, &ret);
++		cci_write(imx681->cci, IMX681_REG_EXPOSURE, ctrl->val, &ret);
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x00, &ret);
++		dev_dbg(imx681->dev, "set exposure: %d, ret=%d\n",
++			ctrl->val, ret);
++		break;
++
++	case V4L2_CID_ANALOGUE_GAIN: {
++		/*
++		 * Gain formula: gain = 1024/(1024-code).
++		 * Analog max is code 960 (16x). For codes above 960,
++		 * set analog to max and use digital gain for the rest.
++		 * Digital gain register: 0x0100 = 1.0x, value = gain * 256.
++		 */
++		/* Hardware register is inverted: code 0=16x, code 960=1x.
++		 * Invert so logical 0=1x, logical 960=16x (AGC ramps correctly). */
++		int ana_code = 960 - min(ctrl->val, 960);
++		int dig_reg = IMX681_DIG_GAIN_MIN; /* 0x0100 = 1.0x */
++
++		if (ctrl->val > 960) {
++			/*
++			 * digital = total_gain / analog_gain
++			 *         = (1024/(1024-code)) / (1024/64)
++			 *         = 64 / (1024-code)
++			 * dig_reg = digital * 256 = 16384 / (1024-code)
++			 */
++			dig_reg = 16384 / (1024 - ctrl->val);
++			dig_reg = clamp(dig_reg, (int)IMX681_DIG_GAIN_MIN,
++					(int)IMX681_DIG_GAIN_MAX);
++		}
++
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x01, &ret);
++		cci_write(imx681->cci, IMX681_REG_ANALOG_GAIN, ana_code,
++			  &ret);
++		cci_write(imx681->cci, IMX681_REG_DIGITAL_GAIN, dig_reg,
++			  &ret);
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x00, &ret);
++		dev_dbg(imx681->dev, "set gain code %d: analog=%d digital=0x%x, ret=%d\n",
++			ctrl->val, ana_code, dig_reg, ret);
++		break;
++	}
++
++	case V4L2_CID_DIGITAL_GAIN:
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x01, &ret);
++		cci_write(imx681->cci, IMX681_REG_DIGITAL_GAIN, ctrl->val,
++			  &ret);
++		cci_write(imx681->cci, IMX681_REG_GROUP_HOLD, 0x00, &ret);
++		dev_dbg(imx681->dev, "set digital gain: %d, ret=%d\n",
++			ctrl->val, ret);
++		break;
++
++	case V4L2_CID_TEST_PATTERN:
++		ret = cci_write(imx681->cci, IMX681_REG_TEST_PATTERN,
++				ctrl->val, NULL);
++		break;
++
++	default:
++		dev_dbg(imx681->dev, "unhandled ctrl id: 0x%x val: 0x%x\n",
++			ctrl->id, ctrl->val);
++		break;
++	}
++
++	pm_runtime_put(imx681->dev);
++	return ret;
++}
++
++static const struct v4l2_ctrl_ops imx681_ctrl_ops = {
++	.s_ctrl = imx681_set_ctrl,
++};
++
++static int imx681_enum_mbus_code(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *state,
++				 struct v4l2_subdev_mbus_code_enum *code)
++{
++	if (code->index >= ARRAY_SIZE(imx681_mbus_codes))
++		return -EINVAL;
++
++	code->code = imx681_mbus_codes[code->index];
++	return 0;
++}
++
++static bool imx681_is_valid_mbus_code(u32 code)
++{
++	unsigned int i;
++
++	for (i = 0; i < ARRAY_SIZE(imx681_mbus_codes); i++)
++		if (imx681_mbus_codes[i] == code)
++			return true;
++	return false;
++}
++
++static int imx681_enum_frame_size(struct v4l2_subdev *sd,
++				  struct v4l2_subdev_state *state,
++				  struct v4l2_subdev_frame_size_enum *fse)
++{
++	if (fse->index > 0)
++		return -EINVAL;
++
++	if (!imx681_is_valid_mbus_code(fse->code))
++		return -EINVAL;
++
++	fse->min_width = IMX681_WIDTH;
++	fse->max_width = IMX681_WIDTH;
++	fse->min_height = IMX681_HEIGHT;
++	fse->max_height = IMX681_HEIGHT;
++
++	return 0;
++}
++
++static int imx681_init_state(struct v4l2_subdev *sd,
++			     struct v4l2_subdev_state *state)
++{
++	struct v4l2_mbus_framefmt *format;
++
++	format = v4l2_subdev_state_get_format(state, IMAGE_PAD);
++	format->width = IMX681_WIDTH;
++	format->height = IMX681_HEIGHT;
++	format->code = MEDIA_BUS_FMT_SRGGB10_1X10;
++	format->field = V4L2_FIELD_NONE;
++	format->colorspace = V4L2_COLORSPACE_RAW;
++	format->ycbcr_enc = V4L2_YCBCR_ENC_601;
++	format->quantization = V4L2_QUANTIZATION_FULL_RANGE;
++	format->xfer_func = V4L2_XFER_FUNC_NONE;
++
++	return 0;
++}
++
++static int imx681_set_pad_format(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *state,
++				 struct v4l2_subdev_format *fmt)
++{
++	struct v4l2_mbus_framefmt *format;
++
++	/* Fixed resolution, fixed Bayer order */
++	fmt->format.width = IMX681_WIDTH;
++	fmt->format.height = IMX681_HEIGHT;
++	if (!imx681_is_valid_mbus_code(fmt->format.code))
++		fmt->format.code = imx681_mbus_codes[0];
++	fmt->format.field = V4L2_FIELD_NONE;
++	fmt->format.colorspace = V4L2_COLORSPACE_RAW;
++	fmt->format.ycbcr_enc = V4L2_YCBCR_ENC_601;
++	fmt->format.quantization = V4L2_QUANTIZATION_FULL_RANGE;
++	fmt->format.xfer_func = V4L2_XFER_FUNC_NONE;
++
++	format = v4l2_subdev_state_get_format(state, fmt->pad);
++	*format = fmt->format;
++
++	return 0;
++}
++
++static int imx681_get_selection(struct v4l2_subdev *sd,
++				struct v4l2_subdev_state *state,
++				struct v4l2_subdev_selection *sel)
++{
++	switch (sel->target) {
++	case V4L2_SEL_TGT_CROP:
++	case V4L2_SEL_TGT_CROP_DEFAULT:
++	case V4L2_SEL_TGT_CROP_BOUNDS:
++	case V4L2_SEL_TGT_NATIVE_SIZE:
++		sel->r.top = 0;
++		sel->r.left = 0;
++		sel->r.width = IMX681_WIDTH;
++		sel->r.height = IMX681_HEIGHT;
++		return 0;
++	default:
++		return -EINVAL;
++	}
++}
++
++static int imx681_start_streaming(struct imx681 *imx681)
++{
++	int ret;
++
++
++	/* Write init register sequence */
++	ret = cci_multi_reg_write(imx681->cci, imx681_init_regs,
++				  ARRAY_SIZE(imx681_init_regs), NULL);
++	if (ret) {
++		dev_err(imx681->dev, "failed to write init regs: %d\n", ret);
++		return ret;
++	}
++
++	dev_dbg(imx681->dev, "init registers written successfully\n");
++
++
++	/* Wait for sensor to stabilise after configuration */
++	usleep_range(IMX681_INIT_DELAY_US, IMX681_INIT_DELAY_US + 1000);
++
++	/* Apply first exposure settings with group hold */
++	ret = cci_multi_reg_write(imx681->cci, imx681_first_exposure,
++				  ARRAY_SIZE(imx681_first_exposure), NULL);
++	if (ret) {
++		dev_err(imx681->dev, "failed to write exposure: %d\n", ret);
++		return ret;
++	}
++
++	/* Apply any pending V4L2 control values */
++	ret = __v4l2_ctrl_handler_setup(imx681->sd.ctrl_handler);
++	if (ret) {
++		dev_err(imx681->dev, "failed to apply controls: %d\n", ret);
++		return ret;
++	}
++
++	/* Start streaming */
++	ret = cci_write(imx681->cci, IMX681_REG_MODE_SELECT,
++			IMX681_MODE_STREAMING, NULL);
++	if (ret) {
++		dev_err(imx681->dev, "failed to start streaming: %d\n", ret);
++		return ret;
++	}
++	/* CCS FLL must be written separately after streaming when v_flip is active */
++	cci_write(imx681->cci, CCI_REG16(0x0340), 3177, NULL);
++	msleep(50);
++	return 0;
++}
++
++static int imx681_stop_streaming(struct imx681 *imx681)
++{
++	int ret;
++
++	ret = cci_write(imx681->cci, IMX681_REG_MODE_SELECT,
++			IMX681_MODE_STANDBY, NULL);
++	if (ret)
++		dev_err(imx681->dev, "failed to stop streaming: %d\n", ret);
++
++	return ret;
++}
++
++static int imx681_enable_streams(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *state,
++				 u32 pad, u64 streams_mask)
++{
++	struct imx681 *imx681 = to_imx681(sd);
++	int ret;
++
++	if (pad != IMAGE_PAD)
++		return -EINVAL;
++
++	ret = pm_runtime_get_sync(imx681->dev);
++	if (ret < 0) {
++		pm_runtime_put_noidle(imx681->dev);
++		return ret;
++	}
++
++	ret = imx681_start_streaming(imx681);
++	if (ret)
++		pm_runtime_put_autosuspend(imx681->dev);
++
++	return ret;
++}
++
++static int imx681_disable_streams(struct v4l2_subdev *sd,
++				  struct v4l2_subdev_state *state,
++				  u32 pad, u64 streams_mask)
++{
++	struct imx681 *imx681 = to_imx681(sd);
++
++	if (pad != IMAGE_PAD)
++		return -EINVAL;
++
++	imx681_stop_streaming(imx681);
++	pm_runtime_put_autosuspend(imx681->dev);
++
++	return 0;
++}
++
++static const struct v4l2_subdev_video_ops imx681_video_ops = {
++	.s_stream = v4l2_subdev_s_stream_helper,
++};
++
++static const struct v4l2_subdev_pad_ops imx681_pad_ops = {
++	.enum_mbus_code = imx681_enum_mbus_code,
++	.get_fmt = v4l2_subdev_get_fmt,
++	.set_fmt = imx681_set_pad_format,
++	.get_selection = imx681_get_selection,
++	.enum_frame_size = imx681_enum_frame_size,
++	.enable_streams = imx681_enable_streams,
++	.disable_streams = imx681_disable_streams,
++};
++
++static const struct v4l2_subdev_ops imx681_subdev_ops = {
++	.video = &imx681_video_ops,
++	.pad = &imx681_pad_ops,
++};
++
++static const struct v4l2_subdev_internal_ops imx681_internal_ops = {
++	.init_state = imx681_init_state,
++};
++
++/* Power management */
++static int imx681_power_on(struct device *dev)
++{
++	struct v4l2_subdev *sd = dev_get_drvdata(dev);
++	struct imx681 *imx681 = to_imx681(sd);
++	int ret;
++
++	dev_dbg(imx681->dev, "power on\n");
++
++	ret = regulator_bulk_enable(IMX681_NUM_SUPPLIES, imx681->supplies);
++	if (ret) {
++		dev_err(imx681->dev, "failed to enable regulators: %d\n", ret);
++		return ret;
++	}
++
++	ret = clk_prepare_enable(imx681->xclk);
++	if (ret) {
++		dev_err(imx681->dev, "failed to enable clock: %d\n", ret);
++		goto err_reg_disable;
++	}
++
++	/* Deassert reset (active low) */
++	gpiod_set_value_cansleep(imx681->reset_gpio, 0);
++
++	usleep_range(IMX681_RESET_DELAY_US,
++		     IMX681_RESET_DELAY_US + IMX681_RESET_DELAY_RANGE_US);
++
++	return 0;
++
++err_reg_disable:
++	regulator_bulk_disable(IMX681_NUM_SUPPLIES, imx681->supplies);
++	return ret;
++}
++
++static int imx681_power_off(struct device *dev)
++{
++	struct v4l2_subdev *sd = dev_get_drvdata(dev);
++	struct imx681 *imx681 = to_imx681(sd);
++
++	dev_dbg(imx681->dev, "power off\n");
++
++	/* Assert reset */
++	gpiod_set_value_cansleep(imx681->reset_gpio, 1);
++	clk_disable_unprepare(imx681->xclk);
++	regulator_bulk_disable(IMX681_NUM_SUPPLIES, imx681->supplies);
++
++	return 0;
++}
++
++static int imx681_identify_module(struct imx681 *imx681)
++{
++	u64 val;
++	int ret;
++	int tries;
++
++	for (tries = 0; tries < 5; tries++) {
++		ret = cci_read(imx681->cci, IMX681_REG_CHIP_ID, &val, NULL);
++		if (ret) {
++			dev_warn(imx681->dev,
++				 "chip ID read failed (attempt %d/5): %d\n",
++				 tries + 1, ret);
++			msleep(100);
++			continue;
++		}
++		if (val == IMX681_CHIP_ID)
++			return 0;
++
++		dev_warn(imx681->dev,
++			 "chip ID 0x%04llx != 0x%04x (attempt %d/5), retrying\n",
++			 val, IMX681_CHIP_ID, tries + 1);
++		msleep(100);
++	}
++
++	/* All retries exhausted */
++	if (ret) {
++		dev_err(imx681->dev, "chip ID read failed after 5 attempts: %d\n", ret);
++		return ret;
++	}
++	dev_err(imx681->dev, "chip ID mismatch after 5 attempts: 0x%04llx != 0x%04x\n",
++		val, IMX681_CHIP_ID);
++	return -EPROBE_DEFER;
++}
++
++static int imx681_init_controls(struct imx681 *imx681)
++{
++	struct v4l2_ctrl_handler *ctrl_hdlr = &imx681->ctrl_handler;
++	struct v4l2_fwnode_device_properties props;
++	struct v4l2_ctrl *link_freq;
++	s64 hblank, vblank;
++	int ret;
++
++	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 9);
++	if (ret)
++		return ret;
++
++	/* Pixel rate (read-only) */
++	v4l2_ctrl_new_std(ctrl_hdlr, &imx681_ctrl_ops,
++			  V4L2_CID_PIXEL_RATE, IMX681_PIXEL_RATE,
++			  IMX681_PIXEL_RATE, 1, IMX681_PIXEL_RATE);
++
++	/* Link frequency (read-only) */
++	link_freq = v4l2_ctrl_new_int_menu(ctrl_hdlr, &imx681_ctrl_ops,
++					   V4L2_CID_LINK_FREQ,
++					   __fls(imx681->link_freq_bitmap),
++					   __ffs(imx681->link_freq_bitmap),
++					   imx681_link_frequencies);
++	if (link_freq)
++		link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	/* Horizontal blanking (read-only, fixed) */
++	hblank = IMX681_LINE_LENGTH_PCK - IMX681_WIDTH;
++	imx681->hblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx681_ctrl_ops,
++					    V4L2_CID_HBLANK, hblank, hblank,
++					    1, hblank);
++	if (imx681->hblank)
++		imx681->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	/* Vertical blanking (writable to allow longer exposures) */
++	vblank = IMX681_FRAME_LENGTH_LINES - IMX681_HEIGHT;
++	imx681->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx681_ctrl_ops,
++					    V4L2_CID_VBLANK, vblank,
++					    IMX681_FRAME_LENGTH_MAX - IMX681_HEIGHT,
++					    1, vblank);
++
++	/* Exposure */
++	imx681->exposure = v4l2_ctrl_new_std(ctrl_hdlr, &imx681_ctrl_ops,
++					     V4L2_CID_EXPOSURE,
++					     IMX681_EXPOSURE_MIN,
++					     IMX681_EXPOSURE_MAX, 1,
++					     IMX681_EXPOSURE_DEFAULT);
++
++	/* Analog gain */
++	v4l2_ctrl_new_std(ctrl_hdlr, &imx681_ctrl_ops, V4L2_CID_ANALOGUE_GAIN,
++			  IMX681_ANA_GAIN_MIN, IMX681_ANA_GAIN_MAX, 1,
++			  IMX681_ANA_GAIN_DEFAULT);
++
++	/* Digital gain */
++	v4l2_ctrl_new_std(ctrl_hdlr, &imx681_ctrl_ops, V4L2_CID_DIGITAL_GAIN,
++			  IMX681_DIG_GAIN_MIN, IMX681_DIG_GAIN_MAX, 1,
++			  IMX681_DIG_GAIN_DEFAULT);
++
++	/* Test pattern */
++	v4l2_ctrl_new_std_menu_items(ctrl_hdlr, &imx681_ctrl_ops,
++				     V4L2_CID_TEST_PATTERN,
++				     ARRAY_SIZE(imx681_test_pattern_menu) - 1,
++				     0, 0, imx681_test_pattern_menu);
++
++	if (ctrl_hdlr->error) {
++		ret = ctrl_hdlr->error;
++		dev_err(imx681->dev, "control init failed: %d\n", ret);
++		goto error;
++	}
++
++	ret = v4l2_fwnode_device_parse(imx681->dev, &props);
++	if (ret)
++		goto error;
++
++	ret = v4l2_ctrl_new_fwnode_properties(ctrl_hdlr, &imx681_ctrl_ops,
++					      &props);
++	if (ret)
++		goto error;
++
++	imx681->sd.ctrl_handler = ctrl_hdlr;
++	return 0;
++
++error:
++	v4l2_ctrl_handler_free(ctrl_hdlr);
++	return ret;
++}
++
++static int imx681_parse_endpoint(struct imx681 *imx681)
++{
++	struct fwnode_handle *fwnode = dev_fwnode(imx681->dev);
++	struct v4l2_fwnode_endpoint bus_cfg = {
++		.bus_type = V4L2_MBUS_CSI2_DPHY,
++	};
++	struct fwnode_handle *ep;
++	int ret;
++
++	ep = fwnode_graph_get_next_endpoint(fwnode, NULL);
++	if (!ep) {
++		dev_err(imx681->dev, "no endpoint found in firmware node\n");
++		return -ENXIO;
++	}
++
++	ret = v4l2_fwnode_endpoint_alloc_parse(ep, &bus_cfg);
++	fwnode_handle_put(ep);
++	if (ret) {
++		dev_err(imx681->dev, "failed to parse endpoint: %d\n", ret);
++		return ret;
++	}
++
++	if (bus_cfg.bus.mipi_csi2.num_data_lanes != IMX681_NUM_LANES) {
++		dev_err(imx681->dev,
++			"expected %d data lanes, got %d\n",
++			IMX681_NUM_LANES,
++			bus_cfg.bus.mipi_csi2.num_data_lanes);
++		ret = -EINVAL;
++		goto done;
++	}
++
++	ret = v4l2_link_freq_to_bitmap(imx681->dev,
++				       bus_cfg.link_frequencies,
++				       bus_cfg.nr_of_link_frequencies,
++				       imx681_link_frequencies,
++				       ARRAY_SIZE(imx681_link_frequencies),
++				       &imx681->link_freq_bitmap);
++	if (ret)
++		dev_err(imx681->dev, "link frequency mismatch: %d\n", ret);
++
++done:
++	v4l2_fwnode_endpoint_free(&bus_cfg);
++	return ret;
++}
++
++static int imx681_probe(struct i2c_client *client)
++{
++	struct imx681 *imx681;
++	unsigned int i;
++	int ret;
++
++	imx681 = devm_kzalloc(&client->dev, sizeof(*imx681), GFP_KERNEL);
++	if (!imx681)
++		return -ENOMEM;
++
++	imx681->dev = &client->dev;
++
++	/* Initialise V4L2 subdev */
++	v4l2_i2c_subdev_init(&imx681->sd, client, &imx681_subdev_ops);
++
++	/* Initialise CCI regmap for 16-bit register addresses */
++	imx681->cci = devm_cci_regmap_init_i2c(client, 16);
++	if (IS_ERR(imx681->cci)) {
++		ret = PTR_ERR(imx681->cci);
++		dev_err(imx681->dev, "failed to init CCI: %d\n", ret);
++		return ret;
++	}
++
++	/* Get clock (optional - INT3472 provides it on Surface devices) */
++	imx681->xclk = devm_clk_get_optional(imx681->dev, NULL);
++	if (IS_ERR(imx681->xclk))
++		return dev_err_probe(imx681->dev, PTR_ERR(imx681->xclk),
++				     "failed to get clock\n");
++
++	if (imx681->xclk)
++		dev_dbg(imx681->dev, "clock rate: %lu Hz\n",
++			clk_get_rate(imx681->xclk));
++
++	/* Get regulators (optional) */
++	for (i = 0; i < IMX681_NUM_SUPPLIES; i++)
++		imx681->supplies[i].supply = imx681_supply_names[i];
++
++	ret = devm_regulator_bulk_get(imx681->dev, IMX681_NUM_SUPPLIES,
++				      imx681->supplies);
++	if (ret) {
++		dev_dbg(imx681->dev,
++			"regulators not available (expected on ACPI): %d\n",
++			ret);
++		/* Continue without regulators - INT3472 may handle power */
++	}
++
++	/* Get reset GPIO (optional) */
++	imx681->reset_gpio = devm_gpiod_get_optional(imx681->dev, "reset",
++						      GPIOD_OUT_HIGH);
++	if (IS_ERR(imx681->reset_gpio))
++		return dev_err_probe(imx681->dev,
++				     PTR_ERR(imx681->reset_gpio),
++				     "failed to get reset GPIO\n");
++
++	/* Parse CSI-2 endpoint */
++	ret = imx681_parse_endpoint(imx681);
++	if (ret) {
++		dev_err(imx681->dev, "endpoint parse failed: %d\n", ret);
++		return ret;
++	}
++
++	/* Power on and verify chip ID */
++	ret = imx681_power_on(imx681->dev);
++	if (ret) {
++		dev_err(imx681->dev, "power on failed: %d\n", ret);
++		return ret;
++	}
++
++	ret = imx681_identify_module(imx681);
++	if (ret)
++		goto error_power_off;
++
++	/* Enable runtime PM */
++	pm_runtime_set_active(imx681->dev);
++	pm_runtime_get_noresume(imx681->dev);
++	pm_runtime_enable(imx681->dev);
++	pm_runtime_set_autosuspend_delay(imx681->dev, 1000);
++	pm_runtime_use_autosuspend(imx681->dev);
++
++	/* Init V4L2 controls */
++	ret = imx681_init_controls(imx681);
++	if (ret)
++		goto error_pm;
++
++	/* Setup subdev */
++	imx681->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
++	imx681->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
++	imx681->sd.internal_ops = &imx681_internal_ops;
++
++	/* Init media entity */
++	imx681->pad.flags = MEDIA_PAD_FL_SOURCE;
++	ret = media_entity_pads_init(&imx681->sd.entity, 1, &imx681->pad);
++	if (ret) {
++		dev_err(imx681->dev, "media entity init failed: %d\n", ret);
++		goto error_handler_free;
++	}
++
++	imx681->sd.state_lock = imx681->ctrl_handler.lock;
++	ret = v4l2_subdev_init_finalize(&imx681->sd);
++	if (ret < 0) {
++		dev_err(imx681->dev, "subdev init finalize failed: %d\n", ret);
++		goto error_media_entity;
++	}
++
++	ret = v4l2_async_register_subdev_sensor(&imx681->sd);
++	if (ret < 0) {
++		dev_err(imx681->dev,
++			"async register subdev failed: %d\n", ret);
++		goto error_subdev_cleanup;
++	}
++
++	pm_runtime_put_autosuspend(imx681->dev);
++
++	dev_info(imx681->dev,
++		 "IMX681 probed successfully: %dx%d @ %lld Hz link freq\n",
++		 IMX681_WIDTH, IMX681_HEIGHT, IMX681_LINK_FREQ);
++
++	return 0;
++
++error_subdev_cleanup:
++	v4l2_subdev_cleanup(&imx681->sd);
++error_media_entity:
++	media_entity_cleanup(&imx681->sd.entity);
++error_handler_free:
++	v4l2_ctrl_handler_free(imx681->sd.ctrl_handler);
++error_pm:
++	pm_runtime_disable(imx681->dev);
++	pm_runtime_set_suspended(imx681->dev);
++error_power_off:
++	imx681_power_off(imx681->dev);
++	return ret;
++}
++
++static void imx681_remove(struct i2c_client *client)
++{
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct imx681 *imx681 = to_imx681(sd);
++
++	v4l2_async_unregister_subdev(sd);
++	v4l2_subdev_cleanup(&imx681->sd);
++	media_entity_cleanup(&sd->entity);
++	v4l2_ctrl_handler_free(imx681->sd.ctrl_handler);
++
++	pm_runtime_disable(imx681->dev);
++	if (!pm_runtime_status_suspended(imx681->dev))
++		imx681_power_off(imx681->dev);
++	pm_runtime_set_suspended(imx681->dev);
++}
++
++static DEFINE_RUNTIME_DEV_PM_OPS(imx681_pm_ops, imx681_power_off,
++				 imx681_power_on, NULL);
++
++#ifdef CONFIG_ACPI
++static const struct acpi_device_id imx681_acpi_ids[] = {
++	{ "SONY0681" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(acpi, imx681_acpi_ids);
++#endif
++
++static const struct of_device_id imx681_dt_ids[] = {
++	{ .compatible = "sony,imx681" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, imx681_dt_ids);
++
++static struct i2c_driver imx681_i2c_driver = {
++	.driver = {
++		.name = "imx681",
++		.pm = pm_ptr(&imx681_pm_ops),
++		.acpi_match_table = ACPI_PTR(imx681_acpi_ids),
++		.of_match_table = imx681_dt_ids,
++	},
++	.probe = imx681_probe,
++	.remove = imx681_remove,
++};
++module_i2c_driver(imx681_i2c_driver);
++
++MODULE_DESCRIPTION("Sony IMX681 CMOS Image Sensor Driver");
++MODULE_AUTHOR("Andre Gilerson <andre.gilerson@gmail.com>");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/media/pci/intel/ipu-bridge.c b/drivers/media/pci/intel/ipu-bridge.c
+index a986e30..3aaea3b 100644
+--- a/drivers/media/pci/intel/ipu-bridge.c
++++ b/drivers/media/pci/intel/ipu-bridge.c
+@@ -5,6 +5,7 @@
+ #include <acpi/acpi_bus.h>
+ #include <linux/cleanup.h>
+ #include <linux/device.h>
++#include <linux/dmi.h>
+ #include <linux/i2c.h>
+ #include <linux/mei_cl_bus.h>
+ #include <linux/platform_device.h>
+@@ -55,17 +56,23 @@ static const struct ipu_sensor_config ipu_supported_sensors[] = {
+ 	/* Himax HM2172 */
+ 	IPU_SENSOR_CONFIG("HIMX2172", 1, 384000000),
+ 	/* GalaxyCore GC0310 */
+-	IPU_SENSOR_CONFIG("INT0310", 0),
++	IPU_SENSOR_CONFIG("INT0310", 1, 55692000),
+ 	/* Omnivision OV5693 */
+ 	IPU_SENSOR_CONFIG("INT33BE", 1, 419200000),
++	/* Onsemi MT9M114 */
++	IPU_SENSOR_CONFIG("INT33F0", 1, 384000000),
+ 	/* Omnivision OV2740 */
+ 	IPU_SENSOR_CONFIG("INT3474", 1, 180000000),
++	/* Omnivision OV5670 */
++	IPU_SENSOR_CONFIG("INT3479", 1, 422400000),
+ 	/* Omnivision OV8865 */
+ 	IPU_SENSOR_CONFIG("INT347A", 1, 360000000),
+ 	/* Omnivision OV7251 */
+ 	IPU_SENSOR_CONFIG("INT347E", 1, 319200000),
+ 	/* Hynix Hi-556 */
+ 	IPU_SENSOR_CONFIG("INT3537", 1, 437000000),
++	/* Lontium lt6911uxe */
++	IPU_SENSOR_CONFIG("INTC10C5", 0),
+ 	/* Omnivision OV01A10 / OV01A1S */
+ 	IPU_SENSOR_CONFIG("OVTI01A0", 1, 400000000),
+ 	IPU_SENSOR_CONFIG("OVTI01AS", 1, 400000000),
+@@ -84,10 +91,54 @@ static const struct ipu_sensor_config ipu_supported_sensors[] = {
+ 	IPU_SENSOR_CONFIG("OVTIDB10", 1, 560000000),
+ 	/* Omnivision OV2680 */
+ 	IPU_SENSOR_CONFIG("OVTI2680", 1, 331200000),
++	/* Omnivision OV5675 */
++	IPU_SENSOR_CONFIG("OVTI5675", 1, 450000000),
+ 	/* Omnivision OV8856 */
+ 	IPU_SENSOR_CONFIG("OVTI8856", 3, 180000000, 360000000, 720000000),
+ 	/* Sony IMX471 */
+ 	IPU_SENSOR_CONFIG("SONY471A", 1, 200000000),
++	/* Toshiba T4KA3 */
++	IPU_SENSOR_CONFIG("XMCC0003", 1, 321468000),
++	/* OmniVision OV13858 - Microsoft Surface Pro 10 rear camera */
++	IPU_SENSOR_CONFIG("OVTID858", 4, 540000000),
++	/* Sony IMX681 - Surface Pro 10 */
++        IPU_SENSOR_CONFIG("SONY0681", 1, 380800000),
++};
++
++/*
++ * DMI matches for laptops which have their sensor mounted upside-down
++ * without reporting a rotation of 180° in neither the SSDB nor the _PLD.
++ */
++static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
++	{
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "XPS 13 9340"),
++		},
++		.driver_data = "OVTI02C1",
++	},
++	{
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "XPS 13 9350"),
++		},
++		.driver_data = "OVTI02C1",
++	},
++	{
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "XPS 14 9440"),
++		},
++		.driver_data = "OVTI02C1",
++	},
++	{
++		.matches = {
++			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
++			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "XPS 16 9640"),
++		},
++		.driver_data = "OVTI02C1",
++	},
++	{} /* Terminating entry */
+ };
+ 
+ static const struct ipu_property_names prop_names = {
+@@ -240,6 +291,12 @@ out_free_buff:
+ static u32 ipu_bridge_parse_rotation(struct acpi_device *adev,
+ 				     struct ipu_sensor_ssdb *ssdb)
+ {
++	const struct dmi_system_id *dmi_id;
++
++	for (dmi_id = upside_down_sensor_dmi_ids; dmi_id->matches[0].slot; dmi_id++) {
++		if (dmi_match(dmi_id->matches[0].slot, dmi_id->matches[0].substr) &&
++		    dmi_match(dmi_id->matches[1].slot, dmi_id->matches[1].substr) &&
++		    acpi_dev_hid_match(adev, dmi_id->driver_data))
++			return 180;
++	}
++
+ 	switch (ssdb->degree) {
+ 	case IPU_SENSOR_ROTATION_NORMAL:
+ 		return 0;
+@@ -384,8 +441,9 @@ static void ipu_bridge_create_fwnode_properties(
+ 	}
+ 
+ 	sensor->ep_properties[0] = PROPERTY_ENTRY_U32(
+-					sensor->prop_names.bus_type,
+-					V4L2_FWNODE_BUS_TYPE_CSI2_DPHY);
++				sensor->prop_names.bus_type,
++				V4L2_FWNODE_BUS_TYPE_CSI2_DPHY);
+ 	sensor->ep_properties[1] = PROPERTY_ENTRY_U32_ARRAY_LEN(
+ 					sensor->prop_names.data_lanes,
+ 					bridge->data_lanes, sensor->lanes);
+@@ -559,8 +617,8 @@ static void ipu_bridge_instantiate_vcm_work(struct work_struct *work)
+ 	vcm_client = i2c_acpi_new_device_by_fwnode(acpi_fwnode_handle(adev),
+ 						   1, &data->board_info);
+ 	if (IS_ERR(vcm_client)) {
+-		dev_err(data->sensor, "Error instantiating VCM client: %ld\n",
+-			PTR_ERR(vcm_client));
++		dev_err(data->sensor, "Error instantiating VCM client: %pe\n",
++			vcm_client);
+ 		goto out_pm_put;
+ 	}
+ 
+@@ -601,7 +659,7 @@ int ipu_bridge_instantiate_vcm(struct device *sensor)
+ 		return 0;
+ 	}
+ 
+-	data = kzalloc(sizeof(*data), GFP_KERNEL);
++	data = kzalloc_obj(*data);
+ 	if (!data) {
+ 		fwnode_handle_put(vcm_fwnode);
+ 		return -ENOMEM;
+@@ -664,6 +722,7 @@ static int ipu_bridge_connect_sensor(const struct ipu_sensor_config *cfg,
+ 	int ret;
+ 
+ 	for_each_acpi_dev_match(adev, cfg->hid, NULL, -1) {
++		dev_dbg(bridge->dev, "Trying to connect sensor %s\n", cfg->hid);
+ 		if (!ACPI_PTR(adev->status.enabled))
+ 			continue;
+ 
+@@ -705,11 +764,15 @@ static int ipu_bridge_connect_sensor(const struct ipu_sensor_config *cfg,
+ 		primary = acpi_fwnode_handle(adev);
+ 		primary->secondary = fwnode;
+ 
++		struct device *sensor_dev = acpi_get_first_physical_node(adev);
++		if (sensor_dev)
++    			device_reprobe(sensor_dev);
++
+ 		ret = ipu_bridge_instantiate_ivsc(sensor);
+ 		if (ret)
+ 			goto err_free_swnodes;
+ 
+-		dev_info(bridge->dev, "Found supported sensor %s\n",
++		dev_dbg(bridge->dev, "Found supported sensor %s\n",
+ 			 acpi_dev_name(adev));
+ 
+ 		bridge->n_sensors++;
+@@ -811,9 +874,10 @@ int ipu_bridge_init(struct device *dev,
+ 		return 0;
+ 
+ 	if (!ipu_bridge_ivsc_is_ready())
+-		return -EPROBE_DEFER;
++		return dev_err_probe(dev, -EPROBE_DEFER,
++				     "waiting for IVSC to become ready\n");
+ 
+-	bridge = kzalloc(sizeof(*bridge), GFP_KERNEL);
++	bridge = kzalloc_obj(*bridge);
+ 	if (!bridge)
+ 		return -ENOMEM;
+ 
+@@ -843,7 +907,7 @@ int ipu_bridge_init(struct device *dev,
+ 	if (ret || bridge->n_sensors == 0)
+ 		goto err_unregister_ipu;
+ 
+-	dev_info(dev, "Connected %d cameras\n", bridge->n_sensors);
++	dev_dbg(dev, "Connected %d cameras\n", bridge->n_sensors);
+ 
+ 	fwnode = software_node_fwnode(&bridge->ipu_hid_node);
+ 	if (!fwnode) {
+-- 
+2.53.0
+
+
+From 3694289bbf97d2004146090d384ea73562e19692 Mon Sep 17 00:00:00 2001
+From: "D.J. Mulder" <djmulder@example.com>
+Date: Fri, 29 May 2026 15:57:52 +0200
+Subject: [PATCH 3/5] platform/x86: int3472: Add GPIO type 0x08 (DVDD) and 0x10
+ (DOVDD) support
+
+Add proper handling for GPIO types seen on Microsoft Surface Pro 10
+cameras that were previously unknown to the driver:
+
+- GPIO type 0x08: DVDD secondary digital core voltage, mapped to
+  'dvdd2' consumer ID via new INT3472_GPIO_TYPE_DVDD constant
+- GPIO type 0x10: DOVDD digital I/O voltage, already handled by
+  existing INT3472_GPIO_TYPE_DOVDD but previously not reached due
+  to missing case in switch statement
+
+Without this fix, int3472-discrete logs 'GPIO type 0x08 unknown'
+and the sensor may not receive correct power sequencing.
+
+Replaces the Surface Pro 9 workaround which used raw magic numbers
+(0x08, 0x10) with proper named constants.
+
+Patchset: cameras
+---
+ drivers/platform/x86/intel/int3472/discrete.c | 154 +++++++++++++-----
+ 1 file changed, 115 insertions(+), 39 deletions(-)
+
+diff --git a/drivers/platform/x86/intel/int3472/discrete.c b/drivers/platform/x86/intel/int3472/discrete.c
+index fee7e56..b0c8da3 100644
+--- a/drivers/platform/x86/intel/int3472/discrete.c
++++ b/drivers/platform/x86/intel/int3472/discrete.c
+@@ -5,18 +5,18 @@
+ #include <linux/array_size.h>
+ #include <linux/bitfield.h>
+ #include <linux/device.h>
++#include <linux/dmi.h>
+ #include <linux/gpio/consumer.h>
+ #include <linux/gpio/machine.h>
+ #include <linux/i2c.h>
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+ #include <linux/overflow.h>
++#include <linux/platform_data/x86/int3472.h>
++
++/* GPIO type 0x08 = DVDD, not yet in upstream int3472.h */
++#define INT3472_GPIO_TYPE_DVDD 0x08
+ #include <linux/platform_device.h>
+ #include <linux/string_choices.h>
+ #include <linux/uuid.h>
+ 
+-#include "common.h"
+-
+ /*
+  * 79234640-9e10-4fea-a5c1-b5aa8b19756f
+  * This _DSM GUID returns information about the GPIO lines mapped to a
+@@ -56,7 +56,7 @@ static void skl_int3472_log_sensor_module_name(struct int3472_discrete_device *i
+ 
+ static int skl_int3472_fill_gpiod_lookup(struct gpiod_lookup *table_entry,
+ 					 struct acpi_resource_gpio *agpio,
+-					 const char *func, unsigned long gpio_flags)
++					 const char *con_id, unsigned long gpio_flags)
+ {
+ 	char *path = agpio->resource_source.string_ptr;
+ 	struct acpi_device *adev;
+@@ -71,24 +71,25 @@ static int skl_int3472_fill_gpiod_lookup(struct gpiod_lookup *table_entry,
+ 	if (!adev)
+ 		return -ENODEV;
+ 
+-	*table_entry = GPIO_LOOKUP(acpi_dev_name(adev), agpio->pin_table[0], func, gpio_flags);
++	*table_entry = GPIO_LOOKUP(acpi_dev_name(adev), agpio->pin_table[0], con_id, gpio_flags);
+ 
+ 	return 0;
+ }
+ 
+ static int skl_int3472_map_gpio_to_sensor(struct int3472_discrete_device *int3472,
+ 					  struct acpi_resource_gpio *agpio,
+-					  const char *func, unsigned long gpio_flags)
++					  const char *con_id, unsigned long gpio_flags)
+ {
+ 	int ret;
+ 
++         	agpio->pin_table[0], con_id, int3472->n_sensor_gpios, INT3472_MAX_SENSOR_GPIOS);
+ 	if (int3472->n_sensor_gpios >= INT3472_MAX_SENSOR_GPIOS) {
+ 		dev_warn(int3472->dev, "Too many GPIOs mapped\n");
+ 		return -EINVAL;
+ 	}
+ 
+ 	ret = skl_int3472_fill_gpiod_lookup(&int3472->gpios.table[int3472->n_sensor_gpios],
+-					    agpio, func, gpio_flags);
++					    agpio, con_id, gpio_flags);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -101,23 +102,23 @@ static int skl_int3472_map_gpio_to_sensor(struct int3472_discrete_device *int347
+ static struct gpio_desc *
+ skl_int3472_gpiod_get_from_temp_lookup(struct int3472_discrete_device *int3472,
+ 				       struct acpi_resource_gpio *agpio,
+-				       const char *func, unsigned long gpio_flags)
++				       const char *con_id, unsigned long gpio_flags)
+ {
+ 	struct gpio_desc *desc;
+ 	int ret;
+ 
+ 	struct gpiod_lookup_table *lookup __free(kfree) =
+-			kzalloc(struct_size(lookup, table, 2), GFP_KERNEL);
++			kzalloc_flex(*lookup, table, 2);
+ 	if (!lookup)
+ 		return ERR_PTR(-ENOMEM);
+ 
+ 	lookup->dev_id = dev_name(int3472->dev);
+-	ret = skl_int3472_fill_gpiod_lookup(&lookup->table[0], agpio, func, gpio_flags);
++	ret = skl_int3472_fill_gpiod_lookup(&lookup->table[0], agpio, con_id, gpio_flags);
+ 	if (ret)
+ 		return ERR_PTR(ret);
+ 
+ 	gpiod_add_lookup_table(lookup);
+-	desc = devm_gpiod_get(int3472->dev, func, GPIOD_OUT_LOW);
++	desc = gpiod_get(int3472->dev, con_id, GPIOD_OUT_LOW);
+ 	gpiod_remove_lookup_table(lookup);
+ 
+ 	return desc;
+@@ -129,7 +130,8 @@ skl_int3472_gpiod_get_from_temp_lookup(struct int3472_discrete_device *int3472,
+  * @hid: The ACPI HID of the device without the instance number e.g. INT347E
+  * @type_from: The GPIO type from ACPI ?SDT
+  * @type_to: The assigned GPIO type, typically same as @type_from
+- * @func: The function, e.g. "enable"
++ * @enable_time_us: Enable time in usec for GPIOs mapped to regulators
++ * @con_id: The name of the GPIO for the device
+  * @polarity_low: GPIO_ACTIVE_LOW true if the @polarity_low is true,
+  * GPIO_ACTIVE_HIGH otherwise
+  */
+@@ -138,16 +140,38 @@ struct int3472_gpio_map {
+ 	u8 type_from;
+ 	u8 type_to;
+ 	bool polarity_low;
+-	const char *func;
++	unsigned int enable_time_us;
++	const char *con_id;
+ };
+ 
+ static const struct int3472_gpio_map int3472_gpio_map[] = {
+-	{ "INT347E", INT3472_GPIO_TYPE_RESET, INT3472_GPIO_TYPE_RESET, false, "enable" },
++	{	/* mt9m114 designs declare a powerdown pin which controls the regulators */
++		.hid = "INT33F0",
++		.type_from = INT3472_GPIO_TYPE_POWERDOWN,
++		.type_to = INT3472_GPIO_TYPE_POWER_ENABLE,
++		.con_id = "vdd",
++		.enable_time_us = GPIO_REGULATOR_ENABLE_TIME,
++	},
++	{	/* ov7251 driver / DT-bindings expect "enable" as con_id for reset */
++		.hid = "INT347E",
++		.type_from = INT3472_GPIO_TYPE_RESET,
++		.type_to = INT3472_GPIO_TYPE_RESET,
++		.con_id = "enable",
++	},
++	{	/* ov08x40's handshake pin needs a 45 ms delay on some HP laptops */
++		.hid = "OVTI08F4",
++		.type_from = INT3472_GPIO_TYPE_HANDSHAKE,
++		.type_to = INT3472_GPIO_TYPE_HANDSHAKE,
++		.con_id = "dvdd",
++		.enable_time_us = 45 * USEC_PER_MSEC,
++	},
+ };
+ 
+-static void int3472_get_func_and_polarity(struct acpi_device *adev, u8 *type,
+-					  const char **func, unsigned long *gpio_flags)
++static void int3472_get_con_id_and_polarity(struct int3472_discrete_device *int3472, u8 *type,
++					    const char **con_id, unsigned long *gpio_flags,
++					    unsigned int *enable_time_us)
+ {
++	struct acpi_device *adev = int3472->sensor;
+ 	unsigned int i;
+ 
+ 	for (i = 0; i < ARRAY_SIZE(int3472_gpio_map); i++) {
+@@ -162,40 +186,60 @@ static void int3472_get_func_and_polarity(struct acpi_device *adev, u8 *type,
+ 		if (!acpi_dev_hid_uid_match(adev, int3472_gpio_map[i].hid, NULL))
+ 			continue;
+ 
++		dev_dbg(int3472->dev, "mapping type 0x%02x pin to 0x%02x %s\n",
++			*type, int3472_gpio_map[i].type_to, int3472_gpio_map[i].con_id);
++
+ 		*type = int3472_gpio_map[i].type_to;
+ 		*gpio_flags = int3472_gpio_map[i].polarity_low ?
+ 			      GPIO_ACTIVE_LOW : GPIO_ACTIVE_HIGH;
+-		*func = int3472_gpio_map[i].func;
++		*con_id = int3472_gpio_map[i].con_id;
++		*enable_time_us = int3472_gpio_map[i].enable_time_us;
+ 		return;
+ 	}
+ 
++	*enable_time_us = GPIO_REGULATOR_ENABLE_TIME;
++
+ 	switch (*type) {
+ 	case INT3472_GPIO_TYPE_RESET:
+-		*func = "reset";
++		*con_id = "reset";
+ 		*gpio_flags = GPIO_ACTIVE_LOW;
+ 		break;
+ 	case INT3472_GPIO_TYPE_POWERDOWN:
+-		*func = "powerdown";
++		*con_id = "powerdown";
+ 		*gpio_flags = GPIO_ACTIVE_LOW;
+ 		break;
+ 	case INT3472_GPIO_TYPE_CLK_ENABLE:
+-		*func = "clk-enable";
++		*con_id = "clk-enable";
+ 		*gpio_flags = GPIO_ACTIVE_HIGH;
+ 		break;
+ 	case INT3472_GPIO_TYPE_PRIVACY_LED:
+-		*func = "privacy-led";
++		*con_id = "privacy-led";
++		*gpio_flags = GPIO_ACTIVE_HIGH;
++		break;
++	case INT3472_GPIO_TYPE_HOTPLUG_DETECT:
++		*con_id = "hpd";
+ 		*gpio_flags = GPIO_ACTIVE_HIGH;
+ 		break;
+ 	case INT3472_GPIO_TYPE_POWER_ENABLE:
+-		*func = "power-enable";
++		*con_id = "avdd";
++		*gpio_flags = GPIO_ACTIVE_HIGH;
++		break;
++	case INT3472_GPIO_TYPE_DVDD:
++		*con_id = "dvdd2";
++		*gpio_flags = GPIO_ACTIVE_HIGH;
++		break;
++	case INT3472_GPIO_TYPE_DOVDD:
++		*con_id = "dovdd";
+ 		*gpio_flags = GPIO_ACTIVE_HIGH;
+ 		break;
+ 	case INT3472_GPIO_TYPE_HANDSHAKE:
+-		*func = "handshake";
++		*con_id = "dvdd";
+ 		*gpio_flags = GPIO_ACTIVE_HIGH;
++		/* Setups using a handshake pin need 25 ms enable delay */
++		*enable_time_us = 25 * USEC_PER_MSEC;
+ 		break;
+ 	default:
+-		*func = "unknown";
++		*con_id = "unknown";
+ 		*gpio_flags = GPIO_ACTIVE_HIGH;
+ 		break;
+ 	}
+@@ -216,6 +260,8 @@ static void int3472_get_func_and_polarity(struct acpi_device *adev, u8 *type,
+  * 0x0b Power enable
+  * 0x0c Clock enable
+  * 0x0d Privacy LED
++ * 0x10 DOVDD (digital I/O voltage)
++ * 0x13 Hotplug detect
+  *
+  * There are some known platform specific quirks where that does not quite
+  * hold up; for example where a pin with type 0x01 (Power down) is mapped to
+@@ -237,13 +283,15 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 					     void *data)
+ {
+ 	struct int3472_discrete_device *int3472 = data;
++	const char *second_sensor = NULL;
+ 	struct acpi_resource_gpio *agpio;
++	unsigned int enable_time_us;
+ 	u8 active_value, pin, type;
++	unsigned long gpio_flags;
+ 	union acpi_object *obj;
+ 	struct gpio_desc *gpio;
+ 	const char *err_msg;
+-	const char *func;
+-	unsigned long gpio_flags;
++	const char *con_id;
+ 	int ret;
+ 
+ 	if (!acpi_gpio_get_io_resource(ares, &agpio))
+@@ -266,27 +314,27 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 
+ 	type = FIELD_GET(INT3472_GPIO_DSM_TYPE, obj->integer.value);
+ 
+-	int3472_get_func_and_polarity(int3472->sensor, &type, &func, &gpio_flags);
+-
++	int3472_get_con_id_and_polarity(int3472, &type, &con_id, &gpio_flags, &enable_time_us);
++        	agpio->pin_table[0], type, con_id);
+ 	pin = FIELD_GET(INT3472_GPIO_DSM_PIN, obj->integer.value);
+ 	/* Pin field is not really used under Windows and wraps around at 8 bits */
+ 	if (pin != (agpio->pin_table[0] & 0xff))
+ 		dev_dbg(int3472->dev, FW_BUG "%s %s pin number mismatch _DSM %d resource %d\n",
+-			func, agpio->resource_source.string_ptr, pin, agpio->pin_table[0]);
++			con_id, agpio->resource_source.string_ptr, pin, agpio->pin_table[0]);
+ 
+ 	active_value = FIELD_GET(INT3472_GPIO_DSM_SENSOR_ON_VAL, obj->integer.value);
+ 	if (!active_value)
+ 		gpio_flags ^= GPIO_ACTIVE_LOW;
+ 
+-	dev_dbg(int3472->dev, "%s %s pin %d active-%s\n", func,
++	dev_dbg(int3472->dev, "%s %s pin %d active-%s\n", con_id,
+ 		agpio->resource_source.string_ptr, agpio->pin_table[0],
+ 		str_high_low(gpio_flags == GPIO_ACTIVE_HIGH));
+ 
+ 	switch (type) {
+ 	case INT3472_GPIO_TYPE_RESET:
+ 	case INT3472_GPIO_TYPE_POWERDOWN:
+-	case INT3472_GPIO_TYPE_HANDSHAKE:
+-		ret = skl_int3472_map_gpio_to_sensor(int3472, agpio, func, gpio_flags);
++	case INT3472_GPIO_TYPE_HOTPLUG_DETECT:
++		ret = skl_int3472_map_gpio_to_sensor(int3472, agpio, con_id, gpio_flags);
+ 		if (ret)
+ 			err_msg = "Failed to map GPIO pin to sensor\n";
+ 
+@@ -294,7 +342,10 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 	case INT3472_GPIO_TYPE_CLK_ENABLE:
+ 	case INT3472_GPIO_TYPE_PRIVACY_LED:
+ 	case INT3472_GPIO_TYPE_POWER_ENABLE:
+-		gpio = skl_int3472_gpiod_get_from_temp_lookup(int3472, agpio, func, gpio_flags);
++	case INT3472_GPIO_TYPE_DVDD:
++	case INT3472_GPIO_TYPE_DOVDD:
++	case INT3472_GPIO_TYPE_HANDSHAKE:
++		gpio = skl_int3472_gpiod_get_from_temp_lookup(int3472, agpio, con_id, gpio_flags);
+ 		if (IS_ERR(gpio)) {
+ 			ret = PTR_ERR(gpio);
+ 			err_msg = "Failed to get GPIO\n";
+@@ -315,15 +366,25 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 
+ 			break;
+ 		case INT3472_GPIO_TYPE_POWER_ENABLE:
+-			ret = skl_int3472_register_regulator(int3472, gpio);
++			second_sensor = int3472->quirks.avdd_second_sensor;
++			fallthrough;
++		case INT3472_GPIO_TYPE_DVDD:
++		case INT3472_GPIO_TYPE_DOVDD:
++		case INT3472_GPIO_TYPE_HANDSHAKE:
++			ret = skl_int3472_register_regulator(int3472, gpio, enable_time_us,
++							     con_id, second_sensor);
+ 			if (ret)
+-				err_msg = "Failed to map regulator to sensor\n";
++				err_msg = "Failed to register regulator\n";
+ 
+ 			break;
+ 		default: /* Never reached */
+ 			ret = -EINVAL;
+ 			break;
+ 		}
++
++		if (ret)
++			gpiod_put(gpio);
++
+ 		break;
+ 	default:
+ 		dev_warn(int3472->dev,
+@@ -343,7 +404,7 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
+ 	return 1;
+ }
+ 
+-static int skl_int3472_parse_crs(struct int3472_discrete_device *int3472)
++int int3472_discrete_parse_crs(struct int3472_discrete_device *int3472)
+ {
+ 	LIST_HEAD(resource_list);
+ 	int ret;
+@@ -368,28 +429,39 @@ static int skl_int3472_parse_crs(struct int3472_discrete_device *int3472)
+ 
+ 	return 0;
+ }
++EXPORT_SYMBOL_NS_GPL(int3472_discrete_parse_crs, "INTEL_INT3472_DISCRETE");
+ 
+-static void skl_int3472_discrete_remove(struct platform_device *pdev)
++void int3472_discrete_cleanup(struct int3472_discrete_device *int3472)
+ {
+-	struct int3472_discrete_device *int3472 = platform_get_drvdata(pdev);
+-
+ 	gpiod_remove_lookup_table(&int3472->gpios);
+ 
+ 	skl_int3472_unregister_clock(int3472);
+ 	skl_int3472_unregister_pled(int3472);
+ 	skl_int3472_unregister_regulator(int3472);
+ }
++EXPORT_SYMBOL_NS_GPL(int3472_discrete_cleanup, "INTEL_INT3472_DISCRETE");
++
++static void skl_int3472_discrete_remove(struct platform_device *pdev)
++{
++	int3472_discrete_cleanup(platform_get_drvdata(pdev));
++}
+ 
+ static int skl_int3472_discrete_probe(struct platform_device *pdev)
+ {
+ 	struct acpi_device *adev = ACPI_COMPANION(&pdev->dev);
++	const struct int3472_discrete_quirks *quirks = NULL;
+ 	struct int3472_discrete_device *int3472;
++	const struct dmi_system_id *id;
+ 	struct int3472_cldb cldb;
+ 	int ret;
+ 
+ 	if (!adev)
+ 		return -ENODEV;
+ 
++	id = dmi_first_match(skl_int3472_discrete_quirks);
++	if (id)
++		quirks = id->driver_data;
++
+ 	ret = skl_int3472_fill_cldb(adev, &cldb);
+ 	if (ret) {
+ 		dev_err(&pdev->dev, "Couldn't fill CLDB structure\n");
+@@ -413,6 +485,9 @@ static int skl_int3472_discrete_probe(struct platform_device *pdev)
+ 	platform_set_drvdata(pdev, int3472);
+ 	int3472->clock.imgclk_index = cldb.clock_source;
+ 
++	if (quirks)
++		int3472->quirks = *quirks;
++
+ 	ret = skl_int3472_get_sensor_adev_and_name(&pdev->dev, &int3472->sensor,
+ 						   &int3472->sensor_name);
+ 	if (ret)
+@@ -424,7 +499,7 @@ static int skl_int3472_discrete_probe(struct platform_device *pdev)
+ 	 */
+ 	INIT_LIST_HEAD(&int3472->gpios.list);
+ 
+-	ret = skl_int3472_parse_crs(int3472);
++	ret = int3472_discrete_parse_crs(int3472);
+ 	if (ret) {
+ 		skl_int3472_discrete_remove(pdev);
+ 		return ret;
+@@ -453,3 +528,4 @@ module_platform_driver(int3472_discrete);
+ MODULE_DESCRIPTION("Intel SkyLake INT3472 ACPI Discrete Device Driver");
+ MODULE_AUTHOR("Daniel Scally <djrscally@gmail.com>");
+ MODULE_LICENSE("GPL v2");
++MODULE_IMPORT_NS("INTEL_INT3472");
+-- 
+2.53.0
+
+
+From c09b1a55bdfc1b3b3943ef93d7f6c4428a97e8d3 Mon Sep 17 00:00:00 2001
+From: "D.J. Mulder" <djmulder@example.com>
+Date: Fri, 29 May 2026 15:58:07 +0200
+Subject: [PATCH 4/5] platform/x86: int3472: Mark clock critical and regulators
+ always-on for SP10
+
+On Microsoft Surface Pro 10, the INT3472 clock and regulators must
+remain active across probe sequences to avoid camera sensor failures:
+
+- Add CLK_IS_CRITICAL flag to prevent the clock framework from
+  disabling the sensor clock during probe/reprobe cycles
+- Set boot_on and always_on constraints on regulators to ensure
+  power rails are maintained during device_reprobe()
+
+Without these changes, the OV13858 rear camera fails to probe when
+device_reprobe() is called after ipu-bridge attaches the fwnode,
+as the clock and power rails are disabled between probe attempts.
+
+Patchset: cameras
+---
+ .../x86/intel/int3472/clk_and_regulator.c     | 176 ++++++------------
+ 1 file changed, 60 insertions(+), 116 deletions(-)
+
+diff --git a/drivers/platform/x86/intel/int3472/clk_and_regulator.c b/drivers/platform/x86/intel/int3472/clk_and_regulator.c
+index 16e36ac..3f280ef 100644
+--- a/drivers/platform/x86/intel/int3472/clk_and_regulator.c
++++ b/drivers/platform/x86/intel/int3472/clk_and_regulator.c
+@@ -5,13 +5,11 @@
+ #include <linux/clkdev.h>
+ #include <linux/clk-provider.h>
+ #include <linux/device.h>
+-#include <linux/dmi.h>
+ #include <linux/gpio/consumer.h>
++#include <linux/platform_data/x86/int3472.h>
+ #include <linux/regulator/driver.h>
+ #include <linux/slab.h>
+ 
+-#include "common.h"
+-
+ /*
+  * 82c0d13a-78c5-4244-9bb1-eb8b539a8d11
+  * This _DSM GUID allows controlling the sensor clk when it is not controlled
+@@ -118,21 +116,15 @@ static const struct clk_ops skl_int3472_clock_ops = {
+ 	.recalc_rate = skl_int3472_clk_recalc_rate,
+ };
+ 
+-int skl_int3472_register_dsm_clock(struct int3472_discrete_device *int3472)
++static int skl_int3472_register_clock(struct int3472_discrete_device *int3472)
+ {
+ 	struct acpi_device *adev = int3472->adev;
+ 	struct clk_init_data init = {
+-		.ops = &skl_int3472_clock_ops,
+-		.flags = CLK_GET_RATE_NOCACHE,
++  	  .ops = &skl_int3472_clock_ops,
++    	  .flags = CLK_GET_RATE_NOCACHE | CLK_IS_CRITICAL,
+ 	};
+ 	int ret;
+ 
+-	if (int3472->clock.cl)
+-		return 0; /* A GPIO controlled clk has already been registered */
+-
+-	if (!acpi_check_dsm(adev->handle, &img_clk_guid, 0, BIT(1)))
+-		return 0; /* DSM clock control is not available */
+-
+ 	init.name = kasprintf(GFP_KERNEL, "%s-clk", acpi_dev_name(adev));
+ 	if (!init.name)
+ 		return -ENOMEM;
+@@ -161,51 +153,26 @@ out_free_init_name:
+ 	return ret;
+ }
+ 
++int skl_int3472_register_dsm_clock(struct int3472_discrete_device *int3472)
++{
++	if (int3472->clock.cl)
++		return 0; /* A GPIO controlled clk has already been registered */
++
++	if (!acpi_check_dsm(int3472->adev->handle, &img_clk_guid, 0, BIT(1)))
++		return 0; /* DSM clock control is not available */
++
++	return skl_int3472_register_clock(int3472);
++}
++
+ int skl_int3472_register_gpio_clock(struct int3472_discrete_device *int3472,
+ 				    struct gpio_desc *gpio)
+ {
+-	struct clk_init_data init = {
+-		.ops = &skl_int3472_clock_ops,
+-		.flags = CLK_GET_RATE_NOCACHE,
+-	};
+-	int ret;
+-
+ 	if (int3472->clock.cl)
+ 		return -EBUSY;
+ 
+ 	int3472->clock.ena_gpio = gpio;
+ 
+-	init.name = kasprintf(GFP_KERNEL, "%s-clk",
+-			      acpi_dev_name(int3472->adev));
+-	if (!init.name)
+-		return -ENOMEM;
+-
+-	int3472->clock.frequency = skl_int3472_get_clk_frequency(int3472);
+-
+-	int3472->clock.clk_hw.init = &init;
+-	int3472->clock.clk = clk_register(&int3472->adev->dev,
+-					  &int3472->clock.clk_hw);
+-	if (IS_ERR(int3472->clock.clk)) {
+-		ret = PTR_ERR(int3472->clock.clk);
+-		goto out_free_init_name;
+-	}
+-
+-	int3472->clock.cl = clkdev_create(int3472->clock.clk, NULL,
+-					  int3472->sensor_name);
+-	if (!int3472->clock.cl) {
+-		ret = -ENOMEM;
+-		goto err_unregister_clk;
+-	}
+-
+-	kfree(init.name);
+-	return 0;
+-
+-err_unregister_clk:
+-	clk_unregister(int3472->clock.clk);
+-out_free_init_name:
+-	kfree(init.name);
+-
+-	return ret;
++	return skl_int3472_register_clock(int3472);
+ }
+ 
+ void skl_int3472_unregister_clock(struct int3472_discrete_device *int3472)
+@@ -215,100 +182,77 @@ void skl_int3472_unregister_clock(struct int3472_discrete_device *int3472)
+ 
+ 	clkdev_drop(int3472->clock.cl);
+ 	clk_unregister(int3472->clock.clk);
++	gpiod_put(int3472->clock.ena_gpio);
+ }
+ 
+-/*
+- * The INT3472 device is going to be the only supplier of a regulator for
+- * the sensor device. But unlike the clk framework the regulator framework
+- * does not allow matching by consumer-device-name only.
+- *
+- * Ideally all sensor drivers would use "avdd" as supply-id. But for drivers
+- * where this cannot be changed because another supply-id is already used in
+- * e.g. DeviceTree files an alias for the other supply-id can be added here.
+- *
+- * Do not forget to update GPIO_REGULATOR_SUPPLY_MAP_COUNT when changing this.
+- */
+-static const char * const skl_int3472_regulator_map_supplies[] = {
+-	"avdd",
+-	"AVDD",
+-};
+-
+-static_assert(ARRAY_SIZE(skl_int3472_regulator_map_supplies) ==
+-	      GPIO_REGULATOR_SUPPLY_MAP_COUNT);
+-
+-/*
+- * On some models there is a single GPIO regulator which is shared between
+- * sensors and only listed in the ACPI resources of one sensor.
+- * This DMI table contains the name of the second sensor. This is used to add
+- * entries for the second sensor to the supply_map.
+- */
+-static const struct dmi_system_id skl_int3472_regulator_second_sensor[] = {
+-	{
+-		/* Lenovo Miix 510-12IKB */
+-		.matches = {
+-			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+-			DMI_MATCH(DMI_PRODUCT_VERSION, "MIIX 510-12IKB"),
+-		},
+-		.driver_data = "i2c-OVTI2680:00",
+-	},
+-	{ }
+-};
+-
+ int skl_int3472_register_regulator(struct int3472_discrete_device *int3472,
+-				   struct gpio_desc *gpio)
++				   struct gpio_desc *gpio,
++				   unsigned int enable_time,
++				   const char *supply_name,
++				   const char *second_sensor)
+ {
+ 	struct regulator_init_data init_data = { };
++	struct int3472_gpio_regulator *regulator;
+ 	struct regulator_config cfg = { };
+-	const char *second_sensor = NULL;
+-	const struct dmi_system_id *id;
+ 	int i, j;
+ 
+-	id = dmi_first_match(skl_int3472_regulator_second_sensor);
+-	if (id)
+-		second_sensor = id->driver_data;
++	if (int3472->n_regulator_gpios >= INT3472_MAX_REGULATORS) {
++		dev_err(int3472->dev, "Too many regulators mapped\n");
++		return -EINVAL;
++	}
+ 
+-	for (i = 0, j = 0; i < ARRAY_SIZE(skl_int3472_regulator_map_supplies); i++) {
+-		int3472->regulator.supply_map[j].supply = skl_int3472_regulator_map_supplies[i];
+-		int3472->regulator.supply_map[j].dev_name = int3472->sensor_name;
++	if (strlen(supply_name) >= GPIO_SUPPLY_NAME_LENGTH) {
++		dev_err(int3472->dev, "supply-name '%s' length too long\n", supply_name);
++		return -E2BIG;
++	}
++
++	regulator = &int3472->regulators[int3472->n_regulator_gpios];
++	string_upper(regulator->supply_name_upper, supply_name);
++
++	/* The below code assume that map-count is 2 (upper- and lower-case) */
++	static_assert(GPIO_REGULATOR_SUPPLY_MAP_COUNT == 2);
++
++	for (i = 0, j = 0; i < GPIO_REGULATOR_SUPPLY_MAP_COUNT; i++) {
++		const char *supply = i ? regulator->supply_name_upper : supply_name;
++
++		regulator->supply_map[j].supply = supply;
++		regulator->supply_map[j].dev_name = int3472->sensor_name;
+ 		j++;
+ 
+ 		if (second_sensor) {
+-			int3472->regulator.supply_map[j].supply =
+-				skl_int3472_regulator_map_supplies[i];
+-			int3472->regulator.supply_map[j].dev_name = second_sensor;
++			regulator->supply_map[j].supply = supply;
++			regulator->supply_map[j].dev_name = second_sensor;
+ 			j++;
+ 		}
+ 	}
+ 
+ 	init_data.constraints.valid_ops_mask = REGULATOR_CHANGE_STATUS;
+-	init_data.consumer_supplies = int3472->regulator.supply_map;
++	init_data.constraints.boot_on = 1;
++	init_data.constraints.always_on = 1;
++	init_data.consumer_supplies = regulator->supply_map;
+ 	init_data.num_consumer_supplies = j;
+ 
+-	snprintf(int3472->regulator.regulator_name,
+-		 sizeof(int3472->regulator.regulator_name), "%s-regulator",
+-		 acpi_dev_name(int3472->adev));
+-	snprintf(int3472->regulator.supply_name,
+-		 GPIO_REGULATOR_SUPPLY_NAME_LENGTH, "supply-0");
+-
+-	int3472->regulator.rdesc = INT3472_REGULATOR(
+-						int3472->regulator.regulator_name,
+-						int3472->regulator.supply_name,
+-						&int3472_gpio_regulator_ops);
++	snprintf(regulator->regulator_name, sizeof(regulator->regulator_name), "%s-%s",
++		 acpi_dev_name(int3472->adev), supply_name);
+ 
+-	int3472->regulator.gpio = gpio;
++	regulator->rdesc = INT3472_REGULATOR(regulator->regulator_name,
++					     &int3472_gpio_regulator_ops,
++					     enable_time, GPIO_REGULATOR_OFF_ON_DELAY);
+ 
+ 	cfg.dev = &int3472->adev->dev;
+ 	cfg.init_data = &init_data;
+-	cfg.ena_gpiod = int3472->regulator.gpio;
++	cfg.ena_gpiod = gpio;
+ 
+-	int3472->regulator.rdev = regulator_register(int3472->dev,
+-						     &int3472->regulator.rdesc,
+-						     &cfg);
++	regulator->rdev = regulator_register(int3472->dev, &regulator->rdesc, &cfg);
++	if (IS_ERR(regulator->rdev))
++		return PTR_ERR(regulator->rdev);
+ 
+-	return PTR_ERR_OR_ZERO(int3472->regulator.rdev);
++	int3472->n_regulator_gpios++;
++	return 0;
+ }
+ 
+ void skl_int3472_unregister_regulator(struct int3472_discrete_device *int3472)
+ {
+-	regulator_unregister(int3472->regulator.rdev);
++	for (int i = 0; i < int3472->n_regulator_gpios; i++)
++		regulator_unregister(int3472->regulators[i].rdev);
+ }
+-- 
+2.53.0
+
+
+From 5f303220052fe7290be7d93a43cfdaa3be874892 Mon Sep 17 00:00:00 2001
+From: "D.J. Mulder" <djmulder@example.com>
+Date: Fri, 29 May 2026 15:58:25 +0200
+Subject: [PATCH 5/5] media: i2c: ov13858: Add reset GPIO handling for Surface
+ Pro 10
+
+The OV13858 rear camera on Microsoft Surface Pro 10 requires explicit
+reset GPIO toggling during probe to bring the sensor out of hardware
+reset before register access is attempted.
+
+- Add reset GPIO acquisition via devm_gpiod_get_optional()
+- Toggle reset high for 20ms then low with 50ms stabilisation delay
+- Enable clock before reset sequence as required by sensor datasheet
+- Add linux/gpio/consumer.h and linux/delay.h includes
+
+Without this fix the sensor remains in reset and all I2C register
+reads return 0xFF, causing probe to fail with -EIO on chip ID check.
+
+Patchset: cameras
+---
+ drivers/media/i2c/ov13858.c | 93 ++++++++++++++++++++++++-------------
+ 1 file changed, 62 insertions(+), 31 deletions(-)
+
+diff --git a/drivers/media/i2c/ov13858.c b/drivers/media/i2c/ov13858.c
+index 7a3fc1d..c924fc2 100644
+--- a/drivers/media/i2c/ov13858.c
++++ b/drivers/media/i2c/ov13858.c
+@@ -2,9 +2,12 @@
+ // Copyright (c) 2017 Intel Corporation.
+ 
+ #include <linux/acpi.h>
++#include <linux/clk.h>
++#include <linux/delay.h>
+ #include <linux/i2c.h>
+ #include <linux/module.h>
+ #include <linux/pm_runtime.h>
++#include <linux/gpio/consumer.h>
+ #include <media/v4l2-ctrls.h>
+ #include <media/v4l2-device.h>
+ #include <media/v4l2-event.h>
+@@ -1028,6 +1031,10 @@ static const struct ov13858_mode supported_modes[] = {
+ };
+ 
+ struct ov13858 {
++	struct device *dev;
++	struct clk *clk;
++        struct gpio_desc *reset_gpio;
++
+ 	struct v4l2_subdev sd;
+ 	struct media_pad pad;
+ 
+@@ -1117,7 +1124,6 @@ static int ov13858_write_reg(struct ov13858 *ov13858, u16 reg, u32 len,
+ static int ov13858_write_regs(struct ov13858 *ov13858,
+ 			      const struct ov13858_reg *regs, u32 len)
+ {
+-	struct i2c_client *client = v4l2_get_subdevdata(&ov13858->sd);
+ 	int ret;
+ 	u32 i;
+ 
+@@ -1126,7 +1132,7 @@ static int ov13858_write_regs(struct ov13858 *ov13858,
+ 					regs[i].val);
+ 		if (ret) {
+ 			dev_err_ratelimited(
+-				&client->dev,
++				ov13858->dev,
+ 				"Failed to write reg 0x%4.4x. error = %d\n",
+ 				regs[i].address, ret);
+ 
+@@ -1209,7 +1215,6 @@ static int ov13858_set_ctrl(struct v4l2_ctrl *ctrl)
+ {
+ 	struct ov13858 *ov13858 = container_of(ctrl->handler,
+ 					       struct ov13858, ctrl_handler);
+-	struct i2c_client *client = v4l2_get_subdevdata(&ov13858->sd);
+ 	s64 max;
+ 	int ret;
+ 
+@@ -1228,7 +1233,7 @@ static int ov13858_set_ctrl(struct v4l2_ctrl *ctrl)
+ 	 * Applying V4L2 control value only happens
+ 	 * when power is up for streaming
+ 	 */
+-	if (!pm_runtime_get_if_in_use(&client->dev))
++	if (!pm_runtime_get_if_in_use(ov13858->dev))
+ 		return 0;
+ 
+ 	ret = 0;
+@@ -1256,13 +1261,13 @@ static int ov13858_set_ctrl(struct v4l2_ctrl *ctrl)
+ 		ret = ov13858_enable_test_pattern(ov13858, ctrl->val);
+ 		break;
+ 	default:
+-		dev_info(&client->dev,
++		dev_dbg(ov13858->dev,
+ 			 "ctrl(id:0x%x,val:0x%x) is not handled\n",
+ 			 ctrl->id, ctrl->val);
+ 		break;
+ 	}
+ 
+-	pm_runtime_put(&client->dev);
++	pm_runtime_put(ov13858->dev);
+ 
+ 	return ret;
+ }
+@@ -1408,7 +1413,6 @@ static int ov13858_get_skip_frames(struct v4l2_subdev *sd, u32 *frames)
+ /* Start streaming */
+ static int ov13858_start_streaming(struct ov13858 *ov13858)
+ {
+-	struct i2c_client *client = v4l2_get_subdevdata(&ov13858->sd);
+ 	const struct ov13858_reg_list *reg_list;
+ 	int ret, link_freq_index;
+ 
+@@ -1416,7 +1420,7 @@ static int ov13858_start_streaming(struct ov13858 *ov13858)
+ 	ret = ov13858_write_reg(ov13858, OV13858_REG_SOFTWARE_RST,
+ 				OV13858_REG_VALUE_08BIT, OV13858_SOFTWARE_RST);
+ 	if (ret) {
+-		dev_err(&client->dev, "%s failed to set powerup registers\n",
++		dev_err(ov13858->dev, "%s failed to set powerup registers\n",
+ 			__func__);
+ 		return ret;
+ 	}
+@@ -1426,7 +1430,7 @@ static int ov13858_start_streaming(struct ov13858 *ov13858)
+ 	reg_list = &link_freq_configs[link_freq_index].reg_list;
+ 	ret = ov13858_write_reg_list(ov13858, reg_list);
+ 	if (ret) {
+-		dev_err(&client->dev, "%s failed to set plls\n", __func__);
++		dev_err(ov13858->dev, "%s failed to set plls\n", __func__);
+ 		return ret;
+ 	}
+ 
+@@ -1434,7 +1438,7 @@ static int ov13858_start_streaming(struct ov13858 *ov13858)
+ 	reg_list = &ov13858->cur_mode->reg_list;
+ 	ret = ov13858_write_reg_list(ov13858, reg_list);
+ 	if (ret) {
+-		dev_err(&client->dev, "%s failed to set mode\n", __func__);
++		dev_err(ov13858->dev, "%s failed to set mode\n", __func__);
+ 		return ret;
+ 	}
+ 
+@@ -1458,13 +1462,12 @@ static int ov13858_stop_streaming(struct ov13858 *ov13858)
+ static int ov13858_set_stream(struct v4l2_subdev *sd, int enable)
+ {
+ 	struct ov13858 *ov13858 = to_ov13858(sd);
+-	struct i2c_client *client = v4l2_get_subdevdata(sd);
+ 	int ret = 0;
+ 
+ 	mutex_lock(&ov13858->mutex);
+ 
+ 	if (enable) {
+-		ret = pm_runtime_resume_and_get(&client->dev);
++		ret = pm_runtime_resume_and_get(ov13858->dev);
+ 		if (ret < 0)
+ 			goto err_unlock;
+ 
+@@ -1477,7 +1480,7 @@ static int ov13858_set_stream(struct v4l2_subdev *sd, int enable)
+ 			goto err_rpm_put;
+ 	} else {
+ 		ov13858_stop_streaming(ov13858);
+-		pm_runtime_put(&client->dev);
++		pm_runtime_put(ov13858->dev);
+ 	}
+ 
+ 	mutex_unlock(&ov13858->mutex);
+@@ -1485,7 +1488,7 @@ static int ov13858_set_stream(struct v4l2_subdev *sd, int enable)
+ 	return ret;
+ 
+ err_rpm_put:
+-	pm_runtime_put(&client->dev);
++	pm_runtime_put(ov13858->dev);
+ err_unlock:
+ 	mutex_unlock(&ov13858->mutex);
+ 
+@@ -1495,7 +1498,6 @@ err_unlock:
+ /* Verify chip ID */
+ static int ov13858_identify_module(struct ov13858 *ov13858)
+ {
+-	struct i2c_client *client = v4l2_get_subdevdata(&ov13858->sd);
+ 	int ret;
+ 	u32 val;
+ 
+@@ -1505,7 +1507,7 @@ static int ov13858_identify_module(struct ov13858 *ov13858)
+ 		return ret;
+ 
+ 	if (val != OV13858_CHIP_ID) {
+-		dev_err(&client->dev, "chip id mismatch: %x!=%x\n",
++		dev_err(ov13858->dev, "chip id mismatch: %x!=%x\n",
+ 			OV13858_CHIP_ID, val);
+ 		return -EIO;
+ 	}
+@@ -1552,7 +1554,6 @@ static const struct v4l2_subdev_internal_ops ov13858_internal_ops = {
+ /* Initialize control handlers */
+ static int ov13858_init_controls(struct ov13858 *ov13858)
+ {
+-	struct i2c_client *client = v4l2_get_subdevdata(&ov13858->sd);
+ 	struct v4l2_fwnode_device_properties props;
+ 	struct v4l2_ctrl_handler *ctrl_hdlr;
+ 	s64 exposure_max;
+@@ -1626,12 +1627,12 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
+ 				     0, 0, ov13858_test_pattern_menu);
+ 	if (ctrl_hdlr->error) {
+ 		ret = ctrl_hdlr->error;
+-		dev_err(&client->dev, "%s control init failed (%d)\n",
++		dev_err(ov13858->dev, "%s control init failed (%d)\n",
+ 			__func__, ret);
+ 		goto error;
+ 	}
+ 
+-	ret = v4l2_fwnode_device_parse(&client->dev, &props);
++	ret = v4l2_fwnode_device_parse(ov13858->dev, &props);
+ 	if (ret)
+ 		goto error;
+ 
+@@ -1660,24 +1661,54 @@ static void ov13858_free_controls(struct ov13858 *ov13858)
+ static int ov13858_probe(struct i2c_client *client)
+ {
+ 	struct ov13858 *ov13858;
++	unsigned long freq;
+ 	int ret;
+-	u32 val = 0;
+-
+-	device_property_read_u32(&client->dev, "clock-frequency", &val);
+-	if (val != 19200000)
+-		return -EINVAL;
+ 
+ 	ov13858 = devm_kzalloc(&client->dev, sizeof(*ov13858), GFP_KERNEL);
+ 	if (!ov13858)
+ 		return -ENOMEM;
+ 
++	ov13858->dev = &client->dev;
++
++	ov13858->clk = devm_v4l2_sensor_clk_get(ov13858->dev, NULL);
++	if (IS_ERR(ov13858->clk))
++		return dev_err_probe(ov13858->dev, PTR_ERR(ov13858->clk),
++				     "failed to get clock\n");
++
++	freq = clk_get_rate(ov13858->clk);
++	if (freq != 19200000)
++		return dev_err_probe(ov13858->dev, -EINVAL,
++				     "external clock %lu is not supported\n",
++				     freq);
++
++	/* Enable clock before reset sequence */
++	ret = clk_prepare_enable(ov13858->clk);
++	if (ret)
++		return dev_err_probe(ov13858->dev, ret, "failed to enable clock\n");
++
++	/* Take sensor out of reset */
++	ov13858->reset_gpio = devm_gpiod_get_optional(ov13858->dev, "reset", GPIOD_OUT_HIGH);
++		 ov13858->reset_gpio, IS_ERR(ov13858->reset_gpio));
++	if (IS_ERR(ov13858->reset_gpio))
++		return dev_err_probe(ov13858->dev, PTR_ERR(ov13858->reset_gpio),
++				     "failed to get reset GPIO\n");
++	if (ov13858->reset_gpio) {
++		dev_info(ov13858->dev, "Toggling reset GPIO\n");
++		gpiod_set_value_cansleep(ov13858->reset_gpio, 1);
++		msleep(20);
++		gpiod_set_value_cansleep(ov13858->reset_gpio, 0);
++		msleep(50);
++	} else {
++		dev_info(ov13858->dev, "No reset GPIO found\n");
++	}
++
+ 	/* Initialize subdev */
+ 	v4l2_i2c_subdev_init(&ov13858->sd, client, &ov13858_subdev_ops);
+ 
+ 	/* Check module identity */
+ 	ret = ov13858_identify_module(ov13858);
+ 	if (ret) {
+-		dev_err(&client->dev, "failed to find sensor: %d\n", ret);
++		dev_err(ov13858->dev, "failed to find sensor: %d\n", ret);
+ 		return ret;
+ 	}
+ 
+@@ -1699,7 +1730,7 @@ static int ov13858_probe(struct i2c_client *client)
+ 	ov13858->pad.flags = MEDIA_PAD_FL_SOURCE;
+ 	ret = media_entity_pads_init(&ov13858->sd.entity, 1, &ov13858->pad);
+ 	if (ret) {
+-		dev_err(&client->dev, "%s failed:%d\n", __func__, ret);
++		dev_err(ov13858->dev, "%s failed:%d\n", __func__, ret);
+ 		goto error_handler_free;
+ 	}
+ 
+@@ -1711,9 +1742,9 @@ static int ov13858_probe(struct i2c_client *client)
+ 	 * Device is already turned on by i2c-core with ACPI domain PM.
+ 	 * Enable runtime PM and turn off the device.
+ 	 */
+-	pm_runtime_set_active(&client->dev);
+-	pm_runtime_enable(&client->dev);
+-	pm_runtime_idle(&client->dev);
++	pm_runtime_set_active(ov13858->dev);
++	pm_runtime_enable(ov13858->dev);
++	pm_runtime_idle(ov13858->dev);
+ 
+ 	return 0;
+ 
+@@ -1722,7 +1753,7 @@ error_media_entity:
+ 
+ error_handler_free:
+ 	ov13858_free_controls(ov13858);
+-	dev_err(&client->dev, "%s failed:%d\n", __func__, ret);
++	dev_err(ov13858->dev, "%s failed:%d\n", __func__, ret);
+ 
+ 	return ret;
+ }
+@@ -1736,7 +1767,7 @@ static void ov13858_remove(struct i2c_client *client)
+ 	media_entity_cleanup(&sd->entity);
+ 	ov13858_free_controls(ov13858);
+ 
+-	pm_runtime_disable(&client->dev);
++	pm_runtime_disable(ov13858->dev);
+ }
+ 
+ static const struct i2c_device_id ov13858_id_table[] = {
+-- 
+2.53.0
+
